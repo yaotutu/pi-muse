@@ -2,6 +2,8 @@
 
 This page explains the mobile client's assistant and user profiles, common appearance settings, server connection and Android app updates. Entry points and limits were checked against current mobile and server source; source capabilities do not automatically equal a released APK. Follow the UI in your installed release.
 
+The profile page has one fixed header: Back returns to Settings, and the refresh icon on the right reloads the profile. The content does not repeat the title or add a separate refresh row. Existing draft and save-state protections still apply.
+
 ## Prerequisites {#prerequisites}
 
 - Complete the first connection as described in [Quick Start](getting-started.md#connect-mobile-client). Themes and app updates still work without a server connection, but profiles, memories, and Dream are unavailable.

@@ -4,7 +4,7 @@ News is an independent reading view, not a chat space, and it has no dedicated c
 
 ## Reading and Filtering {#reading}
 
-- The reading page has one top row for 「Recommended／All」, saved articles, sources, and fetching. It opens on Recommended and shows articles immediately below the row. Open 「Sources」 to see fetch time, analysis progress, and failure counts.
+- The reading page keeps only 「Recommended／All／Saved」 filters and the Sources entry in its top bar. It opens on Recommended and shows articles immediately below the bar. Open 「Sources」 to see fetch time, analysis progress, and failure counts.
 - 「Recommended」 contains only articles explicitly selected by a completed structured model run, with a short reason for each article. Articles not selected by the model remain readable under 「All」.
 - 「All」 is ordered newest first by publication time. When publication time is invalid, the server uses the first acceptance time. The saved filter only filters the list and does not change ordering.
 - Tap an article to read safe text cleaned by the server. Long-press it to open the same style of action menu as chat messages, without also opening the detail view. In the detail view, long-press the title or body to open the menu. Original links allow only credential-free HTTP(S) URLs. External titles, content, and links are untrusted data.
@@ -13,9 +13,10 @@ News is an independent reading view, not a chat space, and it has no dedicated c
 ## Managing RSS Sources {#sources}
 
 1. Tap the 「Sources」 icon at the top of the news reading page, then add the public HTTP(S) URL of an RSS2 source. You can also set a display title.
-2. The server fetches and validates the XML when the source is added. URLs containing embedded credentials are rejected.
-3. The Sources page shows fetch time, pending analysis, and analysis failures. Each source shows its latest fetch time and controlled error. If one source is malformed or temporarily unavailable, other sources and existing articles remain usable.
-4. Deleting a source stops future collection only. Accepted articles, comments, reactions, and saves are retained.
+2. Choose 「填入」 (Fill) in the curated Chinese sources to return to the form. Review the URL and title, then tap 「添加来源」 (Add source) to submit, or enter them manually. Suggestions include 少数派, 机核网, Solidot, 36氪, 机器之心, IT之家, and 极客公园; availability depends on each website. Only RSS2 is supported, not Atom.
+3. The server fetches and validates the XML when the source is added. URLs containing embedded credentials are rejected.
+4. The Sources page shows fetch time, pending analysis, and analysis failures. Each source shows its latest fetch time and controlled error. If one source is malformed or temporarily unavailable, other sources and existing articles remain usable.
+5. Deleting a source stops future collection only. Accepted articles, comments, reactions, and saves are retained.
 
 The server collects every 30 minutes by default; background collection only fetches new items and does not automatically requeue articles already known to have failed. Manual refresh completes RSS collection and returns the number of new articles; article analysis continues in the background. Refresh does not wait for the complete model run and does not automatically resend an unknown result. If an item lacks a title or readable body, the whole source records a controlled parse error instead of being silently treated as empty.
 
@@ -33,7 +34,7 @@ News V1 may omit an explicit preference editor in the client. If the current cli
 
 ## Refresh and Failures {#refresh}
 
-- The refresh icon in the reading toolbar starts one manual fetch. If reading the article list fails, a separate 「Retry list」 action rereads the list and status without fetching again. A manual fetch returns a conflict when one is already running; fetches are neither queued nor run concurrently.
+- Pull down the news list to start one manual fetch. If reading the article list fails, a separate 「Retry list」 action rereads the list and status without fetching again. A manual fetch returns a conflict when one is already running; fetches are neither queued nor run concurrently.
 - When the outcome of a fetch write is unknown, reread and check the status before explicitly unlocking it. The client does not resend automatically.
 - Collection failures appear as controlled errors in news status or the source list. A malformed source is not silently treated as empty.
 - When model analysis fails, the all-articles timeline remains readable. The recommended view contains only confirmed successful results.
