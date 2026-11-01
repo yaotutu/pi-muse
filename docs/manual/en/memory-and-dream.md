@@ -2,8 +2,6 @@
 
 This page explains how to browse, search, create, edit, and delete global long-term memories in the mobile client, and how Dream consolidates conversations into profiles, space rules, or memories. Entry points and limits were checked against current mobile and server source; source capabilities do not automatically equal a released APK. Follow the UI in your installed release.
 
-Memory and Dream subpages share a fixed header: Back returns to Settings, and the refresh icon on the right reloads the current page. It remains available while content scrolls and is disabled during reads or writes. Refresh does not resend writes or rerun consolidation.
-
 ## Prerequisites {#prerequisites}
 
 - The server is connected as described in [Quick Start](getting-started.md#connect-mobile-client), and 「长期记忆」 and 「Dream 记忆整理」 are available in Settings.
