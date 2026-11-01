@@ -13,10 +13,10 @@ News is an independent reading view, not a chat space, and it has no dedicated c
 ## Managing RSS Sources {#sources}
 
 1. Tap the 「Sources」 icon at the top of the news reading page, then add the public HTTP(S) URL of an RSS2 source. You can also set a display title.
-2. Choose 「填入」 (Fill) in the curated Chinese sources to return to the form. Review the URL and title, then tap 「添加来源」 (Add source) to submit, or enter them manually. Suggestions include 少数派, 机核网, Solidot, 36氪, 机器之心, IT之家, and 极客公园; availability depends on each website. Only RSS2 is supported, not Atom.
+2. Alternatively, expand the initially collapsed 「推荐中文精选源」 (Curated Chinese sources) section and choose 「填入」 (Fill) to return to the form. Review the URL and title, then tap 「添加」 (Add) beside the optional title to submit. Expanding or collapsing suggestions neither adds a subscription nor clears the form draft. Suggestions include 少数派, 机核网, Solidot, 36氪, 机器之心, IT之家, and 极客公园; availability depends on each website. Only RSS2 is supported, not Atom.
 3. The server fetches and validates the XML when the source is added. URLs containing embedded credentials are rejected.
-4. The Sources page shows fetch time, pending analysis, and analysis failures. Each source shows its latest fetch time and controlled error. If one source is malformed or temporarily unavailable, other sources and existing articles remain usable.
-5. Deleting a source stops future collection only. Accepted articles, comments, reactions, and saves are retained.
+4. The compact status area at the top shows fetch time, pending analysis, and analysis failures. Its refresh icon only rereads status; it does not start collection. The refresh icon beside 「已有来源」 (Existing sources) rereads the source list. Each source shows its latest fetch time and controlled error. If one source is malformed or temporarily unavailable, other sources and existing articles remain usable.
+5. Tap 「删除」 (Delete) beside a source title, then explicitly confirm in the expanded confirmation area. Deleting a source stops future collection only. Accepted articles, comments, reactions, and saves are retained.
 
 The server collects every 30 minutes by default; background collection only fetches new items and does not automatically requeue articles already known to have failed. Manual refresh completes RSS collection and returns the number of new articles; article analysis continues in the background. Refresh does not wait for the complete model run and does not automatically resend an unknown result. If an item lacks a title or readable body, the whole source records a controlled parse error instead of being silently treated as empty.
 
