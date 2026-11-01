@@ -8,6 +8,7 @@ import { createPlaywrightBrowserDriver } from "../../src/adapters/browser/playwr
 import { createBrowserService } from "../../src/features/browser/browser-service.js";
 import { BrowserError } from "../../src/features/browser/types.js";
 import type {
+  BrowserActStep,
   BrowserDownloadStore,
   BrowserDriver,
   BrowserFrame,
@@ -101,6 +102,7 @@ const createDriverHarness = (initialTabs: BrowserTab[] = [tab("one", true)]) => 
   const startCalls: string[] = [];
   const stopCalls: string[] = [];
   const inputCalls: { tabId: string; event: unknown }[] = [];
+  const actCalls: { tabId: string; step: BrowserActStep }[] = [];
   let closeCalls = 0;
 
   const driver: BrowserDriver = {
@@ -114,15 +116,16 @@ const createDriverHarness = (initialTabs: BrowserTab[] = [tab("one", true)]) => 
     history: async (tabId) => tabs.find((item) => item.id === tabId)!,
     reload: async (tabId) => tabs.find((item) => item.id === tabId)!,
     input: async (tabId, event) => { inputCalls.push({ tabId, event }); },
-    act: async () => undefined,
+    act: async (tabId, step) => { actCalls.push({ tabId, step }); },
     snapshot: async (tabId) => {
       const item = tabs.find((candidate) => candidate.id === tabId)!;
       return {
         tab: item,
         title: item.title,
         url: item.url,
+        tree: "",
         text: "",
-        elements: [],
+        truncated: false,
       } satisfies Omit<BrowserSnapshot, "untrusted">;
     },
     startScreencast: async (tabId) => { startCalls.push(tabId); },
@@ -139,6 +142,7 @@ const createDriverHarness = (initialTabs: BrowserTab[] = [tab("one", true)]) => 
     startCalls,
     stopCalls,
     inputCalls,
+    actCalls,
     closeCalls: () => closeCalls,
     emitTabs(next: BrowserTab[]) {
       tabs = next;
@@ -435,6 +439,87 @@ test("service close does not resurrect clients or screencast", async (t) => {
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(harness.startCalls.length, starts);
   await assert.rejects(service.listTabs(), /Browser service is closed/);
+});
+
+test("service act executes steps in order and returns per-step results with the latest snapshot", async (t) => {
+  const harness = createDriverHarness();
+  const service = createBrowserService(harness.driver, downloadStore);
+  t.after(() => service.close());
+
+  const result = await service.act("one", {
+    steps: [
+      { action: "click", ref: "e1" },
+      { action: "type", ref: "e2", text: "hello" },
+    ],
+  });
+
+  assert.deepEqual(harness.actCalls.map((call) => call.step), [
+    { action: "click", ref: "e1" },
+    { action: "type", ref: "e2", text: "hello" },
+  ]);
+  assert.deepEqual(result.results, [
+    { index: 0, action: "click", ok: true },
+    { index: 1, action: "type", ok: true },
+  ]);
+  assert.equal(result.ok, true);
+  assert.equal(result.snapshot.untrusted, true);
+  assert.equal(result.snapshot.tab.id, "one");
+});
+
+test("service act stops at the first failure and preserves STALE_REF", async (t) => {
+  const harness = createDriverHarness();
+  const actions: string[] = [];
+  const service = createBrowserService({
+    ...harness.driver,
+    act: async (_tabId, step) => {
+      actions.push(step.action);
+      if (step.action === "press")
+        throw new BrowserError("STALE_REF", "Element ref is no longer available; take a new snapshot");
+    },
+  }, downloadStore);
+  t.after(() => service.close());
+
+  const result = await service.act("one", {
+    steps: [
+      { action: "click", ref: "e1" },
+      { action: "press", key: "Enter" },
+      { action: "type", ref: "e2", text: "not executed" },
+    ],
+  });
+
+  assert.deepEqual(actions, ["click", "press"]);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.results, [
+    { index: 0, action: "click", ok: true },
+    {
+      index: 1,
+      action: "press",
+      ok: false,
+      code: "STALE_REF",
+      error: "Element ref is no longer available; take a new snapshot",
+    },
+  ]);
+  assert.equal(result.snapshot.untrusted, true);
+  assert.equal(result.snapshot.tab.id, "one");
+});
+
+test("service act rejects step counts outside 1-20", async (t) => {
+  const harness = createDriverHarness();
+  const service = createBrowserService(harness.driver, downloadStore);
+  t.after(() => service.close());
+
+  for (const steps of [
+    [] as BrowserActStep[],
+    Array.from({ length: 21 }, () => ({ action: "click", x: 1, y: 2 })) as BrowserActStep[],
+  ]) {
+    await assert.rejects(
+      service.act("one", { steps }),
+      (error: unknown) => error instanceof BrowserError &&
+        error.code === "INVALID_INPUT" &&
+        error.message === "act requires 1-20 steps",
+    );
+  }
+  assert.deepEqual(harness.actCalls, []);
 });
 
 class FakePage {

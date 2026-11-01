@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   BrowserError,
   type BrowserActInput,
+  type BrowserActStepResult,
   type BrowserDownloadContent,
   type BrowserDownloadStore,
   type BrowserDriver,
@@ -387,8 +388,26 @@ export const createBrowserService = (
           ? tabId
           : undefined) : (await withActiveTab()).id;
         if (!target) throw new BrowserError("TAB_NOT_FOUND", "Browser tab not found");
-        await driver.act(target, input);
-        return driver.snapshot(target);
+        if (!Array.isArray(input.steps) || input.steps.length < 1 || input.steps.length > 20)
+          throw new BrowserError("INVALID_INPUT", "act requires 1-20 steps");
+        const results: BrowserActStepResult[] = [];
+        for (const [index, step] of input.steps.entries()) {
+          try {
+            await driver.act(target, step);
+            results.push({ index, action: step.action, ok: true });
+          } catch (error) {
+            results.push({
+              index,
+              action: step.action,
+              ok: false,
+              code: error instanceof BrowserError ? error.code : "BROWSER_FAILED",
+              error: error instanceof BrowserError ? error.message : "Browser operation failed",
+            });
+            break;
+          }
+        }
+        const snapshot = { ...(await driver.snapshot(target)), untrusted: true as const };
+        return { ok: results.every((result) => result.ok), results, snapshot };
       }),
     snapshot: (tabId?: string) =>
       run(async () => {

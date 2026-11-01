@@ -12,17 +12,16 @@ import {
 import { resolvePublicHost } from "../../shared/public-host.js";
 import {
   BrowserError,
-  type BrowserActInput,
+  type BrowserActStep,
   type BrowserDownloadEvent,
   type BrowserDriver,
   type BrowserFrame,
   type BrowserInputEvent,
-  type BrowserSnapshot,
-  type BrowserSnapshotElement,
   type BrowserTab,
   type BrowserUpload,
   type BrowserUploadFile,
 } from "../../features/browser/types.js";
+import { serializeAriaSnapshot, type AriaSnapshotNode } from "../../features/browser/snapshot.js";
 
 type DriverConfig = {
   profileDir: string;
@@ -39,8 +38,6 @@ type TabRecord = {
   active: boolean;
   loading: boolean;
 };
-
-type SnapshotProjection = Omit<BrowserSnapshot, "untrusted" | "tab">;
 
 type CastSession = {
   cdp: CDPSession;
@@ -79,53 +76,7 @@ type LaunchPersistentContext = (
 type DriverDependencies = { launchPersistentContext?: LaunchPersistentContext };
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
-const REF_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-// tsx 会给页面函数注入浏览器不存在的 __name 辅助符号；快照脚本必须用字符串保持原样。
-const SNAPSHOT_SCRIPT = String.raw`
-(() => {
-  const limit = (value, max) => value.replace(/\s+/g, " ").trim().slice(0, max);
-  const elements = [];
-  const nodes = [...(document.body?.querySelectorAll("*") ?? [])];
-  for (let index = 0; index < nodes.length && elements.length < 160; index++) {
-    const element = nodes[index];
-    const rect = element.getBoundingClientRect();
-    const style = window.getComputedStyle(element);
-    const visible = rect.width > 0 && rect.height > 0 &&
-      style.visibility !== "hidden" && style.display !== "none";
-    if (!visible) continue;
-    const tag = element.tagName.toLowerCase();
-    const role = element.getAttribute("role") ??
-      (tag === "a" ? "link" : tag === "button" ? "button" : tag === "input" ? "textbox" : tag === "select" ? "combobox" : tag === "textarea" ? "textbox" : tag === "img" ? "image" : "generic");
-    const interactive = Boolean(element.closest("a,button,input,select,textarea,[role=button],[onclick]")) ||
-      element.hasAttribute("contenteditable");
-    if (!interactive && !element.textContent?.trim()) continue;
-    const ref = "e" + (elements.length + 1);
-    element.setAttribute("data-pi-muse-ref", ref);
-    const input = tag === "input" ? element : undefined;
-    const contentText = limit(element.textContent ?? "", 600);
-    const name = element.getAttribute("aria-label") ??
-      element.getAttribute("title") ??
-      element.getAttribute("alt") ??
-      (input?.type === "password" ? "Password field" : input?.value) ??
-      contentText;
-    elements.push({
-      ref,
-      role,
-      name: limit(name, 240),
-      text: contentText,
-      tag,
-      interactive,
-      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-    });
-  }
-  return {
-    title: document.title,
-    url: location.href,
-    text: (document.body?.innerText ?? "").slice(0, 8000),
-    elements,
-  };
-})()
-`;
+const REF_PATTERN = /^s(\d+):((?:f\d+)?e\d+)$/;
 
 const present = (record: TabRecord): BrowserTab => ({
   id: record.id,
@@ -161,6 +112,13 @@ export const createPlaywrightBrowserDriver = (
   let nextFrameId = 1;
   let closing: Promise<void> | undefined;
   const tabs = new Map<string, TabRecord>();
+  /**
+   * ref 只对产生它的那次快照有效。这里给每次快照分配全局递增序号，并在
+   * 模型可见的 ref 前加 `s<seq>:` 前缀；动作前同时校验序号与可见 ref 集合，
+   * 避免导航后旧 ref 撞上新页面的同名 ref 而点到别的元素。
+   */
+  let nextSnapshotSeq = 1;
+  const snapshotStates = new Map<string, { seq: number; refs: Set<string> }>();
   const recordsByPage = new WeakMap<Page, TabRecord>();
   const pageTargetIds = new WeakMap<Page, string>();
   const casts = new Map<string, CastSession>();
@@ -259,6 +217,7 @@ export const createPlaywrightBrowserDriver = (
     }
     casts.clear();
     uploadsByTab.clear();
+    snapshotStates.clear();
     tabs.clear();
     emitTabs();
   };
@@ -285,6 +244,8 @@ export const createPlaywrightBrowserDriver = (
     recordsByPage.set(page, record);
     page.on("framenavigated", (frame) => {
       if (context !== owner) return;
+      // 主文档或 iframe 导航都会让旧 ref 失去意义；等下一次快照重新发放。
+      snapshotStates.delete(record.id);
       if (frame !== page.mainFrame()) return;
       clearUpload(record.id);
       record.url = frame.url();
@@ -304,6 +265,7 @@ export const createPlaywrightBrowserDriver = (
     page.on("close", () => {
       if (context !== owner) return;
       clearUpload(record.id);
+      snapshotStates.delete(record.id);
       tabs.delete(record.id);
       void stopCast(record.id).catch(() => undefined);
       if (record.active && tabs.size) {
@@ -441,16 +403,35 @@ export const createPlaywrightBrowserDriver = (
   };
 
   const locatorFor = (record: TabRecord, ref: string) => {
-    if (!REF_PATTERN.test(ref)) throw new BrowserError("INVALID_INPUT", "Invalid browser element ref");
-    return record.page.locator(`[data-pi-muse-ref="${ref}"]`);
+    const match = REF_PATTERN.exec(ref);
+    if (!match) throw new BrowserError("INVALID_INPUT", "Invalid browser element ref");
+    const state = snapshotStates.get(record.id);
+    if (!state || state.seq !== Number(match[1]) || !state.refs.has(match[2]!))
+      throw new BrowserError("STALE_REF", "Element ref is no longer available; take a new snapshot");
+    return record.page.getByRef(match[2]!);
   };
 
   const snapshotOf = async (record: TabRecord) => {
-    const projection = await record.page.evaluate(SNAPSHOT_SCRIPT) as SnapshotProjection;
+    const nodes = await record.page.ariaSnapshotJSON({
+      mode: "ai",
+      boxes: true,
+      timeout: config.timeoutMs,
+    }) as AriaSnapshotNode[];
+    const seq = nextSnapshotSeq++;
+    const refs = new Set<string>();
+    const projection = serializeAriaSnapshot(nodes);
+    // 前缀只加在模型可见的树上；被截断掉的 ref 不接受动作，避免模型操作它没看到的元素。
+    const tree = projection.tree.replace(/\[ref=((?:f\d+)?e\d+)\]/g, (_match, ref: string) => {
+      refs.add(ref);
+      return `[ref=s${seq}:${ref}]`;
+    });
+    snapshotStates.set(record.id, { seq, refs });
     return {
       tab: present(record),
+      title: record.title,
+      url: record.url,
       ...projection,
-      elements: projection.elements as BrowserSnapshotElement[],
+      tree,
     };
   };
 
@@ -678,10 +659,12 @@ export const createPlaywrightBrowserDriver = (
       else if (event.type === "key_up") await keyboard.up(event.key);
       else await keyboard.insertText(event.text);
     },
-    act: async (tabId, input) => {
+    act: async (tabId, input: BrowserActStep) => {
       await ensureStarted();
       const record = recordFor(tabId);
       const locator = input.ref ? locatorFor(record, input.ref) : undefined;
+      if (locator && await locator.count() === 0)
+        throw new BrowserError("STALE_REF", "Element ref is no longer available; take a new snapshot");
       if (input.action === "click") {
         if (locator) await locator.click({ timeout: config.timeoutMs });
         else if (input.x === undefined || input.y === undefined)

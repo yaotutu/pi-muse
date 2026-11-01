@@ -8,6 +8,7 @@ export class BrowserError extends Error {
       | "DOWNLOAD_NOT_FOUND"
       | "DOWNLOAD_NOT_READY"
       | "PAYLOAD_TOO_LARGE"
+      | "STALE_REF"
       | "BROWSER_FAILED",
     message: string,
   ) {
@@ -24,23 +25,14 @@ export type BrowserTab = {
   loading: boolean;
 };
 
-export type BrowserSnapshotElement = {
-  ref: string;
-  role: string;
-  name: string;
-  text: string;
-  tag: string;
-  interactive: boolean;
-  rect: { x: number; y: number; width: number; height: number };
-};
-
 export type BrowserSnapshot = {
   tab: BrowserTab;
   untrusted: true;
   title: string;
   url: string;
+  tree: string;
   text: string;
-  elements: BrowserSnapshotElement[];
+  truncated: boolean;
 };
 
 export type BrowserFrame = {
@@ -63,7 +55,7 @@ export type BrowserInputEvent =
   | { type: "key_up"; key: string }
   | { type: "insert_text"; text: string };
 
-export type BrowserActInput = {
+export type BrowserActStep = {
   action: "click" | "type" | "press" | "scroll" | "hover";
   ref?: string;
   x?: number;
@@ -72,6 +64,22 @@ export type BrowserActInput = {
   key?: string;
   deltaX?: number;
   deltaY?: number;
+};
+
+export type BrowserActInput = { steps: BrowserActStep[] };
+
+export type BrowserActStepResult = {
+  index: number;
+  action: BrowserActStep["action"];
+  ok: boolean;
+  code?: BrowserError["code"];
+  error?: string;
+};
+
+export type BrowserActResult = {
+  ok: boolean;
+  results: BrowserActStepResult[];
+  snapshot: BrowserSnapshot;
 };
 
 export type BrowserUpload = {
@@ -142,7 +150,7 @@ export type BrowserDriver = {
   history: (tabId: string, action: "back" | "forward") => Promise<BrowserTab>;
   reload: (tabId: string) => Promise<BrowserTab>;
   input: (tabId: string, event: BrowserInputEvent) => Promise<void>;
-  act: (tabId: string, input: BrowserActInput) => Promise<void>;
+  act: (tabId: string, step: BrowserActStep) => Promise<void>;
   snapshot: (tabId: string) => Promise<Omit<BrowserSnapshot, "untrusted">>;
   startScreencast: (tabId: string) => Promise<void>;
   stopScreencast: (tabId: string) => Promise<void>;

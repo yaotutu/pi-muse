@@ -28,7 +28,28 @@ document.getElementById('click').onclick=()=>{clicks++;document.getElementById('
 let ticks=0;setInterval(()=>{document.getElementById('tick').textContent='Tick:'+(++ticks)},100);
 </script>`;
 
-const secondHtml = `<!doctype html><title>Second fixture</title><main>second-page</main>`;
+const secondHtml = `<!doctype html>
+<title>Second fixture</title>
+<button id="second">Second action</button><main id="second-count">Second clicks:0</main>
+<script>
+let clicks=0;
+document.getElementById('second').onclick=()=>{
+  document.getElementById('second-count').textContent='Second clicks:'+(++clicks);
+};
+</script>`;
+
+const nestedFrameHtml = `<!doctype html>
+<title>Nested frame</title>
+<button id="frame-action">Frame action</button>`;
+
+const nestedHtml = `<!doctype html>
+<title>Nested fixture</title>
+<div id="shadow-host"></div>
+<iframe src="/nested-frame"></iframe>
+<script>
+const root = document.getElementById('shadow-host').attachShadow({ mode: 'open' });
+root.innerHTML = '<button id="shadow-action">Shadow action</button>';
+</script>`;
 
 const uploadHtml = `<!doctype html>
 <title>Upload fixture</title>
@@ -43,6 +64,12 @@ document.getElementById('file').addEventListener('change', async (event) => {
 </script>`;
 
 const downloadBytes = Buffer.from("browser-download-bytes");
+
+const refFromTree = (tree: string, pattern: RegExp) => {
+  const ref = tree.match(pattern)?.[1];
+  assert.ok(ref, `Missing snapshot ref for ${pattern}`);
+  return ref;
+};
 
 const listen = async (handler: RequestListener) => {
   const server = createServer(handler);
@@ -69,6 +96,16 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
     if (request.url === "/upload") {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end(uploadHtml);
+      return;
+    }
+    if (request.url === "/nested") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(nestedHtml);
+      return;
+    }
+    if (request.url === "/nested-frame") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(nestedFrameHtml);
       return;
     }
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -234,16 +271,18 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   const snapshot = await browserService.snapshot(tab.id);
   assert.equal(snapshot.untrusted, true);
   assert.match(snapshot.text, /Clicks:1/);
-  assert.ok(snapshot.elements.some((element) => element.name === "hello-browser"));
+  assert.match(snapshot.tree, /textbox[^\n]*: hello-browser/);
 
   await request(`/api/browser/tabs/${tab.id}/navigation`, {
     action: "navigate",
     url: fixture.url + "/upload",
   });
   const uploadSnapshot = await browserService.snapshot(tab.id);
-  const fileInput = uploadSnapshot.elements.find((element) => element.tag === "input");
-  assert.ok(fileInput);
-  await browserService.act(tab.id, { action: "click", ref: fileInput.ref });
+  const fileInputRef = refFromTree(uploadSnapshot.tree, /button "Choose File" \[ref=([^\]]+)\]/);
+  const fileInputAct = await browserService.act(tab.id, {
+    steps: [{ action: "click", ref: fileInputRef }],
+  });
+  assert.equal(fileInputAct.ok, true);
   let pendingFiles = { uploads: [] as { id: string; multiple: boolean; accept: string }[], downloads: [] as unknown[] };
   await waitUntilAsync(async () => {
     pendingFiles = await request("/api/browser/files") as typeof pendingFiles;
@@ -263,7 +302,16 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
     return current.text.includes("UPLOAD:hello");
   }, "in-memory upload bytes in page");
 
-  await browserService.act(tab.id, { action: "click", ref: fileInput.ref });
+  // 每次 act 都会返回新快照并让旧 ref 失效；第二次点击必须用最近一次快照的 ref。
+  const refreshedUpload = await browserService.snapshot(tab.id);
+  const refreshedFileInputRef = refFromTree(
+    refreshedUpload.tree,
+    /button "Choose File" \[ref=([^\]]+)\]/,
+  );
+  const secondFileInputAct = await browserService.act(tab.id, {
+    steps: [{ action: "click", ref: refreshedFileInputRef }],
+  });
+  assert.equal(secondFileInputAct.ok, true);
   await waitUntilAsync(async () => {
     pendingFiles = await request("/api/browser/files") as typeof pendingFiles;
     return pendingFiles.uploads.length === 1;
@@ -276,9 +324,14 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
 
   await request(`/api/browser/tabs/${tab.id}/navigation`, { action: "navigate", url: fixture.url });
   const downloadSnapshot = await browserService.snapshot(tab.id);
-  const downloadLink = downloadSnapshot.elements.find((element) => element.name === "Download report");
-  assert.ok(downloadLink);
-  await browserService.act(tab.id, { action: "click", ref: downloadLink.ref });
+  const downloadLinkRef = refFromTree(
+    downloadSnapshot.tree,
+    /link "Download report" \[ref=([^\]]+)\]/,
+  );
+  const downloadAct = await browserService.act(tab.id, {
+    steps: [{ action: "click", ref: downloadLinkRef }],
+  });
+  assert.equal(downloadAct.ok, true);
   let completedDownload: { id: string; status: string; bytes: number | null } | undefined;
   await waitUntilAsync(async () => {
     const files = await request("/api/browser/files") as {
@@ -299,6 +352,45 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   const afterDelete = await request("/api/browser/files") as { downloads: { id: string }[] };
   assert.equal(afterDelete.downloads.some((item) => item.id === completedDownload!.id), false);
 
+  await request(`/api/browser/tabs/${tab.id}/navigation`, {
+    action: "navigate",
+    url: fixture.url + "/nested",
+  });
+  const nestedSnapshot = await browserService.snapshot(tab.id);
+  assert.match(nestedSnapshot.tree, /button "Shadow action"/);
+  assert.match(nestedSnapshot.tree, /button "Frame action" \[ref=s\d+:f\d+e\d+\]/);
+  const staleRef = refFromTree(
+    nestedSnapshot.tree,
+    /button "Shadow action" \[ref=([^\]]+)\]/,
+  );
+
+  await request(`/api/browser/tabs/${tab.id}/navigation`, {
+    action: "navigate",
+    url: fixture.url + "/second",
+  });
+  const secondSnapshot = await browserService.snapshot(tab.id);
+  const secondActionRef = refFromTree(
+    secondSnapshot.tree,
+    /button "Second action" \[ref=([^\]]+)\]/,
+  );
+  const staleAct = await browserService.act(tab.id, {
+    steps: [{ action: "click", ref: staleRef }],
+  });
+  assert.equal(staleAct.ok, false);
+  assert.equal(staleAct.results[0]?.code, "STALE_REF");
+
+  const interrupted = await browserService.act(tab.id, {
+    steps: [
+      { action: "click", ref: staleRef },
+      { action: "click", ref: secondActionRef },
+    ],
+  });
+  assert.equal(interrupted.ok, false);
+  assert.equal(interrupted.results.length, 1);
+  assert.equal(interrupted.results[0]?.code, "STALE_REF");
+  assert.equal(interrupted.snapshot.untrusted, true);
+  assert.match(interrupted.snapshot.text, /Second clicks:0/);
+
   const second = browserTab.parse(await request("/api/browser/tabs", { url: fixture.url + "/second" }));
   const secondActivationMarker = frames.at(-1)?.metadata.frameId ?? 0;
   await waitUntil(() => frames.some((frame) =>
@@ -309,6 +401,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
     frame.metadata.tabId === tab.id && frame.metadata.frameId > firstActivationMarker), "reactivated tab JPEG frames");
   assert.equal(activated.id, tab.id);
   assert.equal(activated.active, true);
+  await request(`/api/browser/tabs/${tab.id}/navigation`, { action: "navigate", url: fixture.url });
   await request(`/api/browser/tabs/${tab.id}/navigation`, { action: "navigate", url: fixture.url + "/second" });
   const back = browserTab.parse(await request(`/api/browser/tabs/${tab.id}/navigation`, { action: "back" }));
   assert.equal(back.url, fixture.url + "/");
@@ -340,26 +433,31 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   assert.equal(navigated.tab.id, tab.id);
   const projected = await toolResult<{
     untrusted: boolean;
-    elements: { ref: string; name: string; tag: string }[];
+    tree: string;
+    text: string;
   }>("snapshot", { tabId: tab.id });
   assert.equal(projected.untrusted, true);
-  const button = projected.elements.find((element) => element.name === "Click");
-  const input = projected.elements.find((element) => element.tag === "input");
-  assert.ok(button);
-  assert.ok(input);
-  const clicked = await toolResult<{ snapshot: { text: string } }>("act", {
+  const buttonRef = refFromTree(projected.tree, /button "Click" \[ref=([^\]]+)\]/);
+  const inputRef = refFromTree(projected.tree, /textbox[^\n]*\[ref=([^\]]+)\]/);
+  const acted = await toolResult<{
+    ok: boolean;
+    results: { index: number; action: string; ok: boolean }[];
+    snapshot: { text: string; tree: string; untrusted: boolean };
+  }>("act", {
     tabId: tab.id,
-    action: "click",
-    ref: button.ref,
+    steps: [
+      { action: "click", ref: buttonRef },
+      { action: "type", ref: inputRef, text: "agent-browser" },
+    ],
   });
-  assert.match(clicked.snapshot.text, /Clicks:1/);
-  const typed = await toolResult<{ snapshot: { elements: { name: string }[] } }>("act", {
-    tabId: tab.id,
-    action: "type",
-    ref: input.ref,
-    text: "agent-browser",
-  });
-  assert.ok(typed.snapshot.elements.some((element) => element.name === "agent-browser"));
+  assert.equal(acted.ok, true);
+  assert.deepEqual(acted.results.map((result) => [result.index, result.action, result.ok]), [
+    [0, "click", true],
+    [1, "type", true],
+  ]);
+  assert.equal(acted.snapshot.untrusted, true);
+  assert.match(acted.snapshot.text, /Clicks:1/);
+  assert.match(acted.snapshot.tree, /textbox[^\n]*: agent-browser/);
 
   const closed = await request(`/api/browser/tabs/${second.id}`, undefined, "DELETE") as { tabs: unknown[] };
   assert.equal(closed.tabs.length, 2);

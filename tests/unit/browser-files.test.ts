@@ -63,7 +63,7 @@ const browserDriver = (overrides: Partial<BrowserDriver> = {}): BrowserDriver =>
   reload: async () => tab,
   input: async () => undefined,
   act: async () => undefined,
-  snapshot: async () => ({ tab, title: tab.title, url: tab.url, text: "", elements: [] }),
+  snapshot: async () => ({ tab, title: tab.title, url: tab.url, tree: "", text: "", truncated: false }),
   startScreencast: async () => undefined,
   stopScreencast: async () => undefined,
   listUploads: async () => [],
