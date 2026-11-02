@@ -40,15 +40,15 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 
 1. Tap the menu at the upper left of the chat page to open the space sidebar.
 2. Tap any space to switch. The selected space is marked, and the chat page switches to its history, drafts, and run state.
-3. Type a display name or space ID in the 「搜索空间」 field to filter the list.
-4. Tap the 「新建空间」 icon in the lower right. The client generates an independent space ID and switches to it immediately. The sidebar and chat with the keyboard closed show readable names such as「空间 1」, with update time and actual run state in the sidebar. The default space is still labeled「主空间」in the sidebar. Numbers are stable only within the current connection, not server titles or cross-device names.
+3. Tap the search icon at the top of the sidebar, then type a display name or space ID to filter the list. Clear the field or tap the search icon again to collapse it; closing the sidebar also clears the filter.
+4. Tap the standalone 「新建空间」 (New Space) button below the top toolbar. The client generates an independent space ID and switches to it immediately. The sidebar and chat with the keyboard closed show readable names such as「空间 1」, with actual run state and update time in the sidebar. The default space is still labeled「主空间」in the sidebar. Numbers are stable only within the current connection, not server titles or cross-device names.
 5. Send the first message in the new space, or open 「空间」 and save its rules or skills to establish it on the server. Tapping 「新建空间」 without a write only creates a local empty entry on the phone and it may later disappear from the server list.
 
 A space ID starts with a letter and contains only letters, numbers, `_`, and `-`, up to 64 characters. Current mobile source has no server-side space-renaming or automatic-summary entry. Display numbers do not change space IDs.
 
 Each space has independent conversation history, a private workspace, space rules, and skill switches. Assistant identity, the user profile, long-term memories, long-term goals, and skill assets are instance-level global content and are not isolated by space. That does not mean all of them enter every chat turn. A new space is a new context for the same personal assistant, not a separate assistant. Ordinary chat keeps the global identity and assembles only the tools enabled for the current space, together with the matching usage guidance. Global management pages provide an aggregate view without changing data ownership. See [Long-term memory and Dream](memory-and-dream.md#memory-and-profile-boundaries).
 
-The left drawer has a single 「设置」 (Settings) entry for news, SMS, connection, browser, profile, memories, and local appearance. Bottom 「空间」 manages the current space. The avatar panel keeps activity, approvals, and execution history only; history is not a list of other chats. Space child pages hide primary navigation. System Back returns one level at a time, then from space home to chat.
+The gear icon at the top of the left drawer is the single 「设置」 (Settings) entry for news, SMS, connection, browser, profile, memories, and local appearance. Search and close controls also sit at the top, followed by the standalone creation button and space list; there is no bottom action bar. Bottom navigation 「空间」 manages the current space. The avatar panel keeps activity, approvals, and execution history only; history is not a list of other chats. Space child pages hide primary navigation. System Back returns one level at a time, then from space home to chat.
 
 ## Space Rules and Skills {#space-rules-and-skills}
 

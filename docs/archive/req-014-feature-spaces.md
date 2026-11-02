@@ -50,3 +50,16 @@
 - 首次原生驱动在未滚动的页面查找屏幕下方的 RSS 来源而超时；补充实际滚动后复测通过，不以修改产品列表或伪造来源绕过。启动时一次 UI 自动化树为空由驱动重新读取恢复。
 
 补充证据仍在工作区 `ui-previews/feature-spaces/`：`single-settings-native-results.json`、`single-settings-live-results.json`、`single-settings-sidebar-android.png`、`single-settings-home-android.png`、`single-settings-rss-android.png` 与当前 `docs-render.json`。本轮仅本地提交，不 push、不发布、不改真实数据。
+
+## 后续调整：空间侧栏顶部工具与独立新建
+
+侧栏展示独立到 `SpaceDrawer`：顶部集中搜索、设置和关闭，工具栏下方保留独立「新建空间」，剩余高度用于虚拟化空间列表；删除底部搜索、新建、设置区与失效样式及 tokens。保留现有 Muse 语义配色、揭示动画和空间名称，不修改 Feature 绑定、底部导航或浏览器。切换和创建仍经父级文件草稿保护，重置的只是侧栏筛选状态。
+
+- 移动端 lint、typecheck、659 项本地回归与 Python 原生驱动语法检查通过；配对中英文手册、主题和移动开发说明同步，文档站构建及差异检查通过。
+- Android API 36 隔离原生应用加载当前 Metro 源码，实测顶部入口、名称/ID 搜索、ID 大小写不敏感、无结果后清空恢复、关闭重开清除筛选、系统 Back 先处理输入法再关闭侧栏、完整设置页、新建和切回 main。
+- 三主题原生显示、320dp 窄屏和 1.3 倍文字均实际截图核对，顶部四项操作没有横向溢出；长时间副文允许省略。首次尺寸/字体切换重建 Activity 后误采聊天截图，驱动改为先核对实际前景遮罩、重新打开侧栏再验证，未把隐藏树当作通过。结束恢复原尺寸、字体、输入设置与经典蓝白主题。
+- 从本次独立新建按钮创建空间并在原生输入合成请求；当前源码隔离后端实际调用外部模型，助手返回 `SPACE_DRAWER_OK`，权威历史独立回读同时保留请求与回复。新闻和短信绑定仍为 main。
+- 当前隔离后端已重启，`/docs` 实际经浏览器渲染，无页面错误。服务端业务源码未改，不重复 Feature 全套处理/改绑验收，不声明 iOS、正式 APK 重构建或发布。
+- 首次 lint 发现同步 effect 重置搜索状态不符合 React 规则，改为只重置无业务状态的侧栏展示组件；首次本地测试仍断言旧内联侧栏，更新到新边界后全绿。首次原生驱动误把硬键盘输入工具栏视为软键盘，临时开启模拟器软键盘显示后重新完成 Back 验收，结束恢复原设置，不修改产品代码绕过。
+
+工作区证据：`space-drawer-native-results.json`、`space-drawer-live-results.json`、`space-drawer-theme-results.json`、`space-drawer-top-android.png`、`space-drawer-empty-android.png`、`space-drawer-created-android.png`、`space-drawer-settings-android.png`、`space-drawer-light-android.png`、`space-drawer-dark-android.png`、`space-drawer-narrow-android.png`、`space-drawer-large-text-android.png` 与当前 `docs-render.json`。只操作隔离测试数据，不 push、不发布。
