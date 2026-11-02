@@ -14,7 +14,7 @@ import {
 import type { ConversationAttachmentView } from "../../features/conversation/attachments.js";
 import type { MessageExecutionFact } from "../../features/messages/types.js";
 import type { DreamMessage } from "../../features/dream/types.js";
-import { notificationIdOf } from "./notification-message.js";
+import { notificationIdOf, featureSourceOf } from "./notification-message.js";
 
 /** 从 pi 的文本/内容块中提取可展示文本；非文本内容保持不可见。 */
 export const textOf = (content: unknown): string =>
@@ -234,6 +234,7 @@ export const projectMessageFacts = (
         jobId: null,
         notificationId,
         feedbackAvailable: true,
+        ...(featureSourceOf(message) ? { featureSource: featureSourceOf(message)! } : {}),
       });
       turn = undefined;
       assistantFact = undefined;

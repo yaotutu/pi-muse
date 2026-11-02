@@ -1,3 +1,4 @@
+import { createFeatureTool } from "./feature.js";
 import type { MemoryService } from "../../../features/memory/memory-service.js";
 import type { JobService } from "../../../features/jobs/job-service.js";
 import type { GoalService } from "../../../features/goals/goal-service.js";
@@ -48,6 +49,7 @@ type ToolDependencies = {
   weather?: WeatherService;
   browser?: BrowserService;
   layout?: DataLayout;
+  features?: Pick<import("../../../features/feature-spaces/service.js").FeatureService, "query">;
   information?: Pick<import("../../../features/information/service.js").InformationService, "query">;
   sharedDir?: string;
   readOnlyFiles?: readonly ReadOnlyFile[];
@@ -76,6 +78,7 @@ export const skillToToolsMap: Record<string, string[]> = {
 };
 
 const registrations = [
+  { names: ["feature"], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.features && deps.spaceId ? [createFeatureTool(deps.features, deps.spaceId)] : [] },
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
   { names: [INFORMATION_TOOL_NAME], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.information && deps.spaceId ? [createInformationTool(deps.information, deps.spaceId)] : [] },
   { names: [ACTIVITY_TOOL_NAME], create: (deps: ToolDependencies) => deps.activity && !isSubagent(deps) ? [createActivityTool(deps.activity)] : [] },

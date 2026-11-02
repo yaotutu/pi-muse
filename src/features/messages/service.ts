@@ -180,6 +180,7 @@ export const createMessageFeedbackSession = (input: {
           jobId: fact.jobId,
           notificationId: fact.notificationId,
           feedbackAvailable: available(fact),
+          ...(fact.featureSource ? { featureSource: fact.featureSource } : {}),
         };
         return {
           ...message,

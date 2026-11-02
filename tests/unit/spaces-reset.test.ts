@@ -85,6 +85,7 @@ test("POST /:spaceId/reset invokes clearPendingByOriginSpaceId when clearSchedul
     actions: mockActions,
     messageFeedbackRepository: mockMessageFeedbackRepository,
     information: mockInformation,
+    features: { clearConversationLinks: async () => {} },
   } as unknown as HttpDependencies);
 
   // 1. 重置 explicit space，clearSchedules: false -> 调用 clearPendingByOriginSpaceId

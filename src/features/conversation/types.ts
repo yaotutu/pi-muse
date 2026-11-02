@@ -1,3 +1,4 @@
+import type { FeatureSource } from "../feature-spaces/types.js";
 import type {
   ConversationAttachment,
   ConversationAttachmentInput,
@@ -16,7 +17,7 @@ export type ConversationNotificationReceipt = {
   messageId: string;
 };
 
-export type ConversationNotification = { id: string; text: string };
+export type ConversationNotification = { id: string; text: string; featureSource?: FeatureSource };
 
 export type ConversationTurn = {
   userId: string;
@@ -76,8 +77,8 @@ export type ValidatedUserMessage = {
   content: string;
   attachments?: ConversationPromptAttachment[];
 };
-export type ProjectedConversationHistory = ConversationHistory &
-  Array<{ metadata?: ProjectedMessageMetadata; feedback?: MessageFeedback }>;
+export type ProjectedConversationHistory =
+  Array<HistoryMessage & { metadata?: ProjectedMessageMetadata; feedback?: MessageFeedback }>;
 export type ConversationSnapshot = {
   sessionId: string;
   messages: ProjectedConversationHistory;

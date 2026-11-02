@@ -8,7 +8,7 @@ import {
   workspaceListQuerySchema,
   workspaceUpdateTextSchema,
 } from "../contracts/workspace-files.js";
-import { NEWS_INTERNAL_SPACE_ID } from "../../features/news/types.js";
+import { isFeatureSpace } from "../../features/feature-spaces/types.js";
 
 const parseQueryObject = (url: URL): Record<string, string> | undefined => {
   const values: Record<string, string> = {};
@@ -23,7 +23,7 @@ const failure = (error: WorkspaceFileError) =>
   error instanceof WorkspaceFileError
     ? { status: error.status, body: { error: error.message, code: error.code } }
     : undefined;
-const reserved = (spaceId: string | undefined) => spaceId === NEWS_INTERNAL_SPACE_ID;
+const reserved = (spaceId: string | undefined) => isFeatureSpace(spaceId);
 
 /**
  * 手机手动文件管理端点。请求校验只负责协议形状；空间存在性、UTF-8、

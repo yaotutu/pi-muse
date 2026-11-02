@@ -1,3 +1,4 @@
+import { FEATURE_TOOL_INSTRUCTIONS } from "./tools/feature.js";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
@@ -84,6 +85,7 @@ export type PiDeps = {
   /** 与手动 HTTP 文件入口共用，保证最终版本检查与提交按物理路径串行。 */
   workspaceCommits?: WorkspaceCommitQueue;
   /** 普通聊天的空间局部信息查询；后台信息 runner 不装配该入口。 */
+  features?: import("../../features/feature-spaces/service.js").FeatureService;
   information?: Pick<import("../../features/information/service.js").InformationService, "getSettings" | "query">;
 };
 
@@ -212,6 +214,7 @@ export async function openPi(deps: PiDeps) {
     writableEnabled: deps.config.writable.enabled,
     workspaceCommits: deps.workspaceCommits,
     information: informationEnabled ? deps.information : undefined,
+    features: !child ? deps.features : undefined,
   });
 
   const builtinToolNames = new Set(registeredToolNames);
@@ -271,11 +274,11 @@ export async function openPi(deps: PiDeps) {
   // 官方扩展仅替换 child runner：上下文独立，凭据/工具边界复用项目装配。
   // 不启动 CLI，也不会从个人 ~/.pi 或可写工作区发现资源。
   const inlineExtensions: InlineExtension[] = [];
-  if (informationEnabled) {
+  if (!child && (informationEnabled || deps.features)) {
     inlineExtensions.push({
       name: "pi-muse-information-notification-context",
       hidden: true,
-      factory: createInformationNotificationContextExtension(),
+      factory: createInformationNotificationContextExtension(Boolean(informationEnabled)),
     });
   }
   if (!child && enabledSkillNames.has("task")) {
@@ -368,6 +371,7 @@ export async function openPi(deps: PiDeps) {
     { layout, memory, allowedToolNames, threadInstructions, recalledMemories },
   ) +
     (informationEnabled ? INFORMATION_BACKGROUND_SYSTEM_PROMPT : "") +
+    (!child && deps.features ? `\n## Feature interactions\n${FEATURE_TOOL_INSTRUCTIONS}\n` : "") +
     (allowedToolNames.includes(ACTIVITY_TOOL_NAME)
       ? `\n\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}`
       : "") +

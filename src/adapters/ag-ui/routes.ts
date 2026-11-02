@@ -6,7 +6,7 @@ import type { ConversationHub } from "../../features/conversation/conversation-h
 import { ConversationError } from "../../features/conversation/errors.js";
 import { createEventProjector } from "./events.js";
 import type { ToolPresentation } from "./tool-presentation.js";
-import { NEWS_INTERNAL_SPACE_ID } from "../../features/news/types.js";
+import { isFeatureSpace } from "../../features/feature-spaces/types.js";
 
 /**
  * 自有 HTTP 输入与 AG-UI 输出之间的薄适配层，不需要 runtime/agent 宿主。
@@ -24,7 +24,7 @@ export const createAgUiRoutes = (hub: ConversationHub, presentation: ToolPresent
     if (!parsed.success) return c.json({ error: "Invalid conversation request", code: "INVALID_INPUT" }, 400);
     const input = parsed.data;
     const spaceId = input.spaceId || "local-main";
-    if (spaceId === NEWS_INTERNAL_SPACE_ID)
+    if (isFeatureSpace(spaceId))
       return c.json({ error: "Invalid conversation request", code: "INVALID_INPUT" }, 400);
     let conversation;
     try {
@@ -65,7 +65,7 @@ export const createAgUiRoutes = (hub: ConversationHub, presentation: ToolPresent
     const parsed = stopRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid stop request" }, 400);
     const spaceId = parsed.data.spaceId || "local-main";
-    if (spaceId === NEWS_INTERNAL_SPACE_ID)
+    if (isFeatureSpace(spaceId))
       return c.json({ error: "Invalid stop request", code: "INVALID_INPUT" }, 400);
     const conversation = await hub.findSpace(spaceId);
     return c.json({ stopped: await conversation?.cancel("STOPPED", parsed.data.runId) ?? false });

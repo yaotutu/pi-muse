@@ -1,4 +1,5 @@
-export const NEWS_INTERNAL_SPACE_ID = "news-internal";
+import { FEATURE_SPACES } from "../feature-spaces/types.js";
+export const NEWS_INTERNAL_SPACE_ID = FEATURE_SPACES.news;
 
 export type NewsSource = {
   id: string;

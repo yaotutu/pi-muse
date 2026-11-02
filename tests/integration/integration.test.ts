@@ -47,6 +47,7 @@ const expectedTools = [
   "activity",
   "currentTime",
   "edit",
+  "feature",
   "find",
   "get_weather",
   "goal",

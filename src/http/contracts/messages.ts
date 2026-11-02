@@ -70,6 +70,11 @@ export const messageFeedbackEventsResponse = z.strictObject({
   ])).describe("按真实操作顺序保留的原始事件；包含编辑前后文本和删除前文本"),
 });
 
+export const featureSourceResponse = z.strictObject({
+  featureId: z.enum(["news", "sms"]).describe("服务端验证的功能来源，不按正文猜测"),
+  itemIds: z.array(z.string()).min(1).max(20).describe("对应功能独立空间中的原始对象；只经 feature 工具受限读取，不开放跨空间文件权限"),
+});
+
 export const messageMetadataResponse = z.strictObject({
   createdAt: z.string().datetime().describe("对应 PI 消息条目的服务端时间（ISO 8601）"),
   source: z.enum(["chat", "job", "notification"]).nullable()
@@ -77,6 +82,7 @@ export const messageMetadataResponse = z.strictObject({
   runId: z.string().nullable().describe("生成该消息的 run ID；通知为 null"),
   jobId: z.string().nullable().describe("定时任务来源 ID；仅 source=job 时可能有值"),
   notificationId: z.string().nullable().describe("服务端通知标记；仅 source=notification 时有值"),
+  featureSource: featureSourceResponse.optional(),
   feedbackAvailable: z.boolean().describe("当前消息是否可反馈；正在生成的 run 为 false，历史消息和幂等重放为 true"),
 });
 

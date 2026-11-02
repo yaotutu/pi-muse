@@ -1,3 +1,6 @@
+import { createFeatureRepository } from "../adapters/storage/feature-repository.js";
+import { createFeatureService, type FeatureService } from "../features/feature-spaces/service.js";
+import { FEATURE_SPACES, featureForSpace, isFeatureSpace } from "../features/feature-spaces/types.js";
 import { join } from "node:path";
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { createAuth } from "../adapters/auth/token-service.js";
@@ -120,6 +123,8 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const dreamRepository = createDreamRepository(layout);
   const informationRepository = createInformationRepository(layout);
   const newsRepository = createNewsRepository(layout.newsFile);
+  const featureRepository = createFeatureRepository(join(layout.root, "features.json"));
+  let features: FeatureService;
   let information: Awaited<ReturnType<typeof createInformationService>> | undefined;
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
@@ -204,6 +209,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             skills,
             workspaceCommits,
             information,
+            features,
           }),
           manager,
         ),
@@ -248,10 +254,14 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     spaceExists: async (spaceId) => spaceId === "local-main" || (await conversationHub.spaces()).some((space) => space.id === spaceId),
     retainSpace: (spaceId) => conversationHub.retainSpace(spaceId),
     feedback: messageFeedbackRepository,
+    deliveryTarget: async (spaceId) => { const id = featureForSpace(spaceId); return id ? features.targetFor(id) : spaceId; },
+    recordFeatureDelivery: (link) => features.recordDelivery(link),
+    featureFeedback: (spaceId) => { const id = featureForSpace(spaceId); return id ? features.feedbackExamples(id) : Promise.resolve([]); },
     runModel: createInformationRunner({ config, layout, modelRuntime }),
     readInstructions: (spaceId) => readThreadInstructions(threadInstructionsFile(layout, spaceId)),
     enabledSkillTexts: createInformationSkillTextReader(skills),
   });
+  features = createFeatureService({ repository: featureRepository, hub: conversationHub, information, feedback: messageFeedbackRepository });
   const informationScheduler = createInformationScheduler(information);
   const news = createNewsService({
     repository: newsRepository,
@@ -280,7 +290,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
 
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
   try {
-    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate()]);
+    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate(), featureRepository.read()]);
     await actions.cancelPending();
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
@@ -293,6 +303,11 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   try {
     mainConversation = await conversationHub.forSpace("local-main");
     await news.initialize();
+    await conversationHub.forSpace(FEATURE_SPACES.sms);
+    // 独立短信空间首次默认关闭；不接管或迁移已有普通空间的信息记录。
+    if (!(await informationRepository.listSpaceIds()).includes(FEATURE_SPACES.sms)) {
+      await information.configureSpace(FEATURE_SPACES.sms, { enabled: false, batchWindowSeconds: 15, mode: "notifications" });
+    }
   } catch (error) {
     await news.close();
     await information?.close();
@@ -345,7 +360,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     conversations: {
       listSpaceIds: async () => (await conversationHub.spaces())
         .map((item) => item.id)
-        .filter((spaceId) => spaceId !== NEWS_INTERNAL_SPACE_ID),
+        .filter((spaceId) => !isFeatureSpace(spaceId)),
       spaceExists: async (spaceId) =>
         spaceId === "local-main" || (await conversationHub.findSpace(spaceId)) !== undefined,
       isSpaceBusy: async (spaceId) =>
@@ -364,7 +379,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     enabled: config.browser.enabled,
     desktopPort: config.browser.desktopPort,
   });
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, browser, browserDesktop, messageFeedbackRepository };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。

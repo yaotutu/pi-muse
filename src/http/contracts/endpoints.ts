@@ -1,3 +1,4 @@
+import { featureEndpoints } from "./features.js";
 import { z } from "zod";
 import * as req from "./rest.js";
 import * as resp from "./responses.js";
@@ -68,6 +69,7 @@ const conversationQuery = z.object({
 });
 
 export const endpoints: EndpointSpec[] = [
+  ...featureEndpoints,
   // ---- 基础 ----
   {
     operationId: "getHealth",

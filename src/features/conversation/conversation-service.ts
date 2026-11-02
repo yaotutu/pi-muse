@@ -3,7 +3,7 @@ import type { ActivityRun } from "../activities/types.js";
 import { ConversationError, rejectConversation } from "./errors.js";
 import { validateConversationInput } from "./validate-input.js";
 import type { ConversationDependencies, ConversationExecution } from "./ports.js";
-import type { CancelReason, ConversationEvent, ConversationInput, ConversationResult, ConversationTurn, ConversationNotification, ConversationNotificationReceipt } from "./types.js";
+import type { CancelReason, ConversationEvent, ConversationInput, ConversationResult, ConversationTurn, ConversationNotification, ConversationNotificationReceipt, ConversationSnapshot } from "./types.js";
 import type { MessageFeedbackSession } from "../messages/service.js";
 import { attachmentIdentity, buildConversationPrompt } from "./attachments.js";
 
@@ -80,7 +80,7 @@ export function createConversation(
   const notify = (
     text: string,
     id: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; featureSource?: ConversationNotification["featureSource"] },
   ): Promise<ConversationNotificationReceipt> => {
     if (closed) return Promise.reject(new Error("Conversation is closed"));
     if (options?.signal?.aborted) return Promise.reject(new Error("Notification cancelled"));
@@ -93,7 +93,7 @@ export function createConversation(
       reject = no;
     });
     const pending: PendingNotification = {
-      notification: { id, text },
+      notification: { id, text, ...(options?.featureSource ? { featureSource: options.featureSource } : {}) },
       resolve,
       reject,
       done,
@@ -136,7 +136,7 @@ export function createConversation(
     if (!config.configured) rejectConversation("MODEL_NOT_CONFIGURED", "Configure the server model before sending");
     return validated;
   };
-  const snapshot = async () => {
+  const snapshot = async (): Promise<ConversationSnapshot> => {
     // 反馈文件读取前先原子捕获 PI 事实，避免旧消息被配到新 revision。
     const sessionId = historyPort.sessionId();
     const messages = history();

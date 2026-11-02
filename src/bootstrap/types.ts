@@ -52,6 +52,7 @@ export type ServiceContainer = {
   information: InformationService;
   informationScheduler: InformationScheduler;
   news: NewsService;
+  features: import("../features/feature-spaces/service.js").FeatureService;
   browser?: BrowserService;
   browserDesktop: BrowserDesktop;
   messageFeedbackRepository: MessageFeedbackRepository;
@@ -59,5 +60,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "information" | "news" | "browser" | "browserDesktop" | "messageFeedbackRepository"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "information" | "news" | "features" | "browser" | "browserDesktop" | "messageFeedbackRepository"
 >;

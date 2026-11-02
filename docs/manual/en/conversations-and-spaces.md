@@ -59,17 +59,25 @@ Global settings are at the bottom of the left drawer, covering connection, brows
 
 Space rules are limited to 20,000 characters. On Back, keep drafts for this connection or explicitly discard them. Rules and skills are saved/discarded independently and do not affect other spaces; changing servers or clearing local cache discards those local drafts.
 
-## Query Information Processing {#query-information-background}
+## Features and Interaction Spaces {#query-information-background}
 
-The server can enable generic information processing for an existing space: it accepts external batch information, decides between silence and notification using the space rules and preference notes, and retains traceability from raw items and decisions to published messages. Open 「空间」 → 「信息处理」 for existing processing switches, preference notes, and ingestion; processing is disabled by default. This is still the existing per-space information background, not the future Feature Space recipient-rebinding design.
+Open 「功能」 (Features) in the upper-left space sidebar to manage news and SMS. Each has its own internal Space for original content, settings, processing records, and preferences, without a separate user chat. Both default to the stable main Space (`local-main`); switching the selected chat does not change their binding.
 
-After the information background is enabled, ask in an ordinary chat, such as “What happened to the information just received?” The assistant can use the read-only `information` tool assembled for the current space to query items, runs, preferences, and notification links. It cannot ingest items, start processing, publish notifications, or read another space. After this space's information background is disabled, the next ordinary chat no longer carries the tool or background explanation; saved raw items and historical notifications are not deleted.
+1. Open 「功能」 and choose 「新闻」 (News) or 「短信」 (SMS).
+2. Check 「交互承接空间」 (Interaction space). Use 「更换承接空间」 to choose an ordinary space already established on the server. Unsaved local empty spaces are not candidates.
+3. A change affects only newly accepted background runs and newly started discussions. In-flight accepted runs keep their previous target. No feature data, preferences, or chat history moves; old messages retain their feature source. If saving has an unknown outcome, use 「刷新核对」 before another change; nothing is automatically resent.
+4. See [News reading](news.md) for reading, RSS, and preferences. Manage SMS in its feature details, not in per-space settings.
 
-When the background decides to notify, the server appends the notification to that space's history; an open chat page receives a real-time invalidation signal and reloads authoritative history automatically. After the notification connection reconnects, the client also reloads the current conversation, so no manual refresh or space switching is required.
+### SMS Processing {#sms-processing}
 
-A notification is the background's filtered result for that space. It is not a user request and does not mean the ordinary chat has already performed the action mentioned in it. While the background is enabled, ordinary chat recognizes the queryable source of these notifications in its model context and can use the read-only `information` tool to review the original items, decision reasons, and publication links. Items left silent are not written into chat history, and the assistant does not guess their content.
+1. Open 「功能」 → 「短信」 and enable 「启用短信处理」 (off initially). Save filtering guidance, such as notifying about important bills while keeping marketing silent.
+2. In an Android native build, grant SMS permission. Automatic reception requires permission, a living app process, and the enabled feature. Leaving settings or switching chat spaces does not stop listening. Reception after the OS terminates the app is not guaranteed. Expo Go does not include this local native module; manual text ingestion can test processing instead.
+3. New items enter the SMS feature queue for real-model batch decisions. Silent items create no chat messages. Important results enter the bound space with 「来自短信」 (From SMS). This is not an OS push notification; an open chat reloads authoritative history through the existing notification connection.
+4. In the receiving chat, explicitly ask for feedback such as “Dislike this SMS and notify me less about this kind.” The restricted `feature` tool follows the server-verified message source, reads originals, and saves reactions or comments to SMS. It does not write global memory or ordinary-space rules, and one dislike is not a permanent ban.
 
-This only refreshes the foreground chat while the app is open; it is not an operating-system push notification.
+Bubble reactions and comments on source-linked messages are read as current examples in the next feature run. Withdrawals, edits, and deletions use their latest projection. Rebinding does not rewrite old message sources. Reset clears that chat's bubble feedback and relations, not original feature items, item-level feedback, or preferences, and never restores cleared messages.
+
+Existing generic per-space information data and APIs remain in place. They are not migrated, deleted, or silently taken over by SMS. Previously enabled backgrounds still process within their original space; their read-only `information` tool remains space-local. Independent features use dedicated entry points and source-restricted tools, not arbitrary cross-space file access.
 
 ## Reset and Delete Spaces {#reset-and-delete-spaces}
 
@@ -91,7 +99,7 @@ Cleared chat history and message feedback cannot be recovered. Reset cancels inf
 4. Check the deletion scope, then tap 「确认删除」.
 
 ::: danger Irreversible deletion
-Deleting a space permanently removes its chat history, message feedback, private workspace files, space rules, skill configuration, Dream configuration and consolidation state, information processing data, and bound scheduled tasks and webpage monitors. The action cannot be undone and does not migrate data to the main space. The main space cannot be deleted. Use 「重置当前会话」 when you only want to clear the conversation.
+Deleting a space permanently removes its chat history, message feedback, private workspace files, space rules, skill configuration, Dream configuration and consolidation state, information processing data, and bound scheduled tasks and webpage monitors. The action cannot be undone and does not migrate data to the main space. The main space cannot be deleted. A space bound to a feature must be explicitly rebound in 「功能」 before deletion; it never automatically falls back to main. Use 「重置当前会话」 when you only want to clear the conversation.
 :::
 
 If a delete request result is unknown, refresh the space list and verify before resending. After deletion, creating a space with the same ID later does not restore the old history.

@@ -84,9 +84,8 @@ const buildPrompt = (input: InformationModelInput): string => {
   const payload = {
     runId: input.runId,
     preferences: input.preferences,
-    ...(input.mode === "recommendations"
-      ? { articleFeedback: input.articleFeedback }
-      : { feedbackExamples: input.feedbackExamples }),
+    articleFeedback: input.articleFeedback,
+    feedbackExamples: input.feedbackExamples,
     items: input.items,
   };
   return [

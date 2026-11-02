@@ -1,3 +1,4 @@
+import type { FeatureSource } from "../feature-spaces/types.js";
 export type MessageSource = "chat" | "job" | "notification";
 export type MessageReaction = "like" | "dislike";
 export type FeedbackTargetRole = "user" | "assistant";
@@ -13,6 +14,7 @@ export type MessageExecutionFact = {
   notificationId: string | null;
   /** PI adapter 判断消息是否已可安全反馈；当前 run 排除在业务层完成。 */
   feedbackAvailable: boolean;
+  featureSource?: FeatureSource;
 };
 
 export type MessageFeedback = {
@@ -94,4 +96,5 @@ export type ProjectedMessageMetadata = {
   jobId: string | null;
   notificationId: string | null;
   feedbackAvailable: boolean;
+  featureSource?: FeatureSource;
 };

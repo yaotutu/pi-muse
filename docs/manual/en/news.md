@@ -10,6 +10,12 @@ News is an independent reading view, not a chat space, and it has no dedicated c
 - Tap an article to read safe text cleaned by the server. Long-press it to open the same style of action menu as chat messages, without also opening the detail view. In the detail view, long-press the title or body to open the menu. Original links allow only credential-free HTTP(S) URLs. External titles, content, and links are untrusted data.
 - Accepted articles, recommendations, feedback, and saves are restored from the server after a restart.
 
+## Discuss in Chat {#discuss-in-chat}
+
+Tap 「带到会话讨论」 (Discuss in chat) in article details. The server reads the original and writes it to the news feature's bound space, then the client opens that chat. It does not invoke the model or ask a question on your behalf. The message shows 「来自新闻」 (From news); continue asking questions or explicitly request reactions/comments saved back to news. Reading does not push every article into chat.
+
+The default interaction space is main. Check or change it in sidebar 「功能」 → 「新闻」. RSS and news preferences also belong to news, not the currently selected chat. If submission times out or disconnects, inspect the receiving chat, return to the article, then tap 「已核对，恢复操作」 (Checked, resume) and confirm. Operations unlock only after the chat can be read successfully; the previous discussion is never resent. Resetting a space retains the binding, and future discussions use its new session.
+
 ## Managing RSS Sources {#sources}
 
 1. Tap the 「Sources」 icon at the top of the news reading page, then add the public HTTP(S) URL of an RSS2 source. You can also set a display title.
@@ -30,7 +36,7 @@ The server collects every 30 minutes by default; background collection only fetc
 - Explicit preferences are saved by the user. Learned notes are a summary updated by the server from feedback. They are stored separately, and learned notes never overwrite explicit preferences, space rules, or the global user profile.
 - For newly initialized internal news spaces, the default rules require recommendation reasons and learned notes in concise Simplified Chinese. RSS titles and content remain in their original language and are not translated.
 
-News V1 may omit an explicit preference editor in the client. If the current client does not show that entry, the server still preserves existing preferences rather than rewriting or discarding them.
+Open sidebar 「功能」 → 「新闻」 and save explicit notes under 「新闻偏好」. Use 「RSS 来源管理」 to manage subscriptions.
 
 ## Refresh and Failures {#refresh}
 
@@ -43,4 +49,4 @@ News V1 may omit an explicit preference editor in the client. If the current cli
 
 ## Boundaries {#boundaries}
 
-News V1 does not fetch full web pages, provide search or vector recommendations, send system notifications, support OPML, expose a news tool in the main chat, or carry an article into chat. The internal news space does not appear in the ordinary space list and cannot be operated through chat, space reset, or space deletion.
+News does not fetch full web pages, provide search or vector recommendations, send system notifications, or support OPML. The chat `feature` tool only reads and records feedback through an existing verified source; it does not browse all feature data. The internal news space does not appear in the ordinary space list and cannot be operated through chat, space reset, or space deletion.

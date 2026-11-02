@@ -1,3 +1,4 @@
+import { featureForSpace, type FeatureLink, type FeatureSource } from "../feature-spaces/types.js";
 import { randomUUID } from "node:crypto";
 import { projectFeedback } from "../messages/service.js";
 import type { MessageFeedbackRepository } from "../messages/types.js";
@@ -51,12 +52,15 @@ export type InformationServiceDependencies = {
       notify: (
         text: string,
         id: string,
-        options?: { signal?: AbortSignal },
+        options?: { signal?: AbortSignal; featureSource?: FeatureSource },
       ) => Promise<{ sessionId: string; messageId: string }>;
     };
     release: () => void;
   } | undefined>;
   feedback: MessageFeedbackRepository;
+  deliveryTarget?: (spaceId: string) => Promise<string>;
+  recordFeatureDelivery?: (link: FeatureLink) => Promise<void>;
+  featureFeedback?: (spaceId: string) => Promise<InformationFeedbackExample[]>;
   runModel: (input: InformationModelInput, signal: AbortSignal) => Promise<InformationModelResult>;
   readInstructions: (spaceId: string) => Promise<string>;
   enabledSkillTexts: (spaceId: string) => Promise<string[]>;
@@ -274,9 +278,10 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   const getPreferences = async (spaceId: string) => {
     await requireSpace(spaceId);
     const state = await deps.repository.read(spaceId);
-    if (state.settings.mode === "recommendations") {
-      return { notes: state.preferences.notes, feedbackExamples: [] };
+    if (featureForSpace(spaceId)) {
+      return { notes: state.preferences.notes, feedbackExamples: await deps.featureFeedback?.(spaceId) ?? [] };
     }
+    if (state.settings.mode === "recommendations") return { notes: state.preferences.notes, feedbackExamples: [] };
     const retained = await deps.retainSpace(spaceId);
     if (!retained) return { notes: state.preferences.notes, feedbackExamples: [] };
     try {
@@ -708,13 +713,16 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   const process = async (slot: ActiveSlot, claimed: InformationRun) => {
     const { controller } = slot;
     let retained: Awaited<ReturnType<typeof deps.retainSpace>> | undefined;
+    let targetSpaceId = claimed.spaceId;
     try {
       controller.signal.throwIfAborted();
       const initialState = await deps.repository.read(claimed.spaceId);
       const mode = initialState.settings.mode;
       let targetSessionId: string | undefined;
       if (mode === "notifications") {
-        retained = await deps.retainSpace(claimed.spaceId);
+        // 每个已接纳后台轮固定一个承接空间；改绑只影响之后的轮次，不搬运在途消息。
+        targetSpaceId = await deps.deliveryTarget?.(claimed.spaceId) ?? claimed.spaceId;
+        retained = await deps.retainSpace(targetSpaceId);
         controller.signal.throwIfAborted();
         if (!retained) {
           await failRun(claimed.spaceId, claimed.id, "Target space disappeared", true);
@@ -738,10 +746,10 @@ export const createInformationService = (deps: InformationServiceDependencies) =
             id, source, externalId, ...(title ? { title } : {}), content, receivedAt,
             ...(metadata ? { sourceTitle: metadata.sourceTitle, url: metadata.url } : {}),
           })),
-          feedbackExamples: mode === "notifications" && targetSessionId
-            ? await feedbackExamples(claimed.spaceId, state, targetSessionId)
-            : [],
-          articleFeedback: mode === "recommendations" ? articleFeedbackExamples(state) : [],
+          feedbackExamples: featureForSpace(claimed.spaceId)
+            ? await deps.featureFeedback?.(claimed.spaceId) ?? []
+            : mode === "notifications" && targetSessionId ? await feedbackExamples(claimed.spaceId, state, targetSessionId) : [],
+          articleFeedback: articleFeedbackExamples(state),
         };
         controller.signal.throwIfAborted();
         const result = await deps.runModel(input, controller.signal);
@@ -824,8 +832,10 @@ export const createInformationService = (deps: InformationServiceDependencies) =
             const receipt = await retained.conversation.notify(
               publication.text,
               publication.notificationId,
-              { signal: controller.signal },
+              { signal: controller.signal, ...(featureForSpace(claimed.spaceId) ? { featureSource: { featureId: featureForSpace(claimed.spaceId)!, itemIds: publication.itemIds } } : {}) },
             );
+            const featureId = featureForSpace(claimed.spaceId);
+            if (featureId) await deps.recordFeatureDelivery?.({ featureId, itemIds: publication.itemIds, spaceId: targetSpaceId, sessionId: receipt.sessionId, messageId: receipt.messageId });
             await markPublication(claimed.spaceId, claimed.id, publication.notificationId, {
               status: "published", receipt,
             });
