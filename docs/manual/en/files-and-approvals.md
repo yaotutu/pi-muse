@@ -41,8 +41,8 @@ Limits:
 
 1. Confirm the current space in the left drawer, then open bottom 「空间」 → 「文件」. This is a full-screen page, separate from the avatar panel.
 2. Tap a directory to enter it. 「上级」 or system Back moves up one level; 「根目录」 returns to this space's root. Returning from a file preserves its directory and list scroll position.
-3. Tap a file to open its reading page. Markdown supports 「阅读／原文」 (reading/source), does not execute HTML, and does not automatically load remote images. Other UTF-8 text shows its source. PNG, JPEG, GIF, and WebP can be previewed safely; other binary files can be downloaded.
-4. Tap 「新建文本」 to create a file, or 「编辑文本」 in a text file's reading page to edit its source. Markdown saves remain original text, not a rich-text conversion.
+3. Tap a file to open its reading page. The title shows the file name; the subtitle shows the space and parent directory. The body starts directly with content. Markdown uses reading format by default, does not execute HTML, and does not automatically load remote images. Other UTF-8 text shows its source. PNG, JPEG, GIF, and WebP can be previewed safely; other binary files can be downloaded. The top-right information icon reveals the full path, size, modification time, type, and file actions.
+4. Tap 「新建文本」 to create a file, or open the top-right information icon and tap 「编辑原文」 (edit source) to enter a text file's source editor. Markdown saves remain original text, not a rich-text conversion.
 5. Primary bottom navigation is hidden during editing. Back from a save preview returns to the draft. Leaving editing offers continuing, keeping the draft and returning to the space home, or explicitly discarding it. Drafts last only for this connection; resolve unfinished file work before switching spaces.
 
 Existing non-ASCII file names can be read, but cannot be saved or deleted through this entry. Manual creation and editing support UTF-8 text only, with complete content limited to 100,000 bytes. A new path is relative to the current space root; each path segment may contain only ASCII letters, numbers, `.`, `-`, and `_`, separated by `/`. If a directory exceeds 1,000 entries or reading a file exceeds 8 MiB, the server rejects the request instead of truncating the list or content.
@@ -50,7 +50,7 @@ Existing non-ASCII file names can be read, but cannot be saved or deleted throug
 ### Download to Device {#download-to-device}
 
 1. In the Android client, open the file detail and confirm that the complete file has been read. Download copies the content read at that moment; it does not represent a later server-side version.
-2. Tap 「下载到设备」.
+2. Open the top-right information icon and tap 「下载到设备」.
 3. Choose a target directory in the system directory picker and follow the system prompt to allow Pi Muse access. The system picker scopes this permission to the selected directory; the app does not require an “all files” permission.
 4. Return to Pi Muse and check the save result. A successful save shows the actual file name and confirms that it was written to the selected device directory; cancelling directory selection writes nothing.
 
@@ -61,7 +61,7 @@ If the selected directory already contains a file with the same name, the app on
 1. After entering or replacing complete text in the editor, tap 「预览保存」.
 2. Review 「保存前 · 全文」 and 「保存后 · 全文」 to the end, and confirm the scope and path at the top.
 3. Tap 「确认保存」. On success, the file detail returns the content actually written by the server. Creating an existing file fails without overwriting it; editing a missing file also fails and does not create it.
-4. To delete a file, open its detail, tap 「删除文件」, then tap 「确认删除文件」 in the confirmation card. Only regular files can be deleted; directories cannot.
+4. To delete a file, open the reading page's top-right information icon, tap 「删除文件…」, then tap 「确认删除文件」 in the confirmation card. Only regular files can be deleted; directories cannot.
 
 Manual saves do not create model approval records. Their safety confirmation is the complete before/after preview in the 「空间」 → 「文件」 page. If a save or delete result is unknown, the page shows 「上次文件操作结果未明」 and provides 「回读核对」. Read the file back completely, compare it, and only then explicitly unlock. Submitting again after unlocking starts a new request.
 
