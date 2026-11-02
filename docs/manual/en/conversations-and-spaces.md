@@ -6,7 +6,7 @@ This page covers daily chat, switching spaces, message feedback, stopping runs, 
 
 - The server is connected as described in [Quick Start](getting-started.md#connect-mobile-client), and the connection status is 「已连接」.
 - An external model is configured. If the model is not configured, chat messages are rejected.
-- Cold launch opens the Muse private chat directly, with no bottom navigation. The top-left arrow opens the single 「会话」 conversation list; avatars open member profiles. News chat has a reading button at the upper right; other chats show activity, approvals, and history there.
+- Cold launch opens the Muse private chat directly, with no bottom navigation. The top-left arrow opens the single 「会话」 conversation list; avatars open member profiles. Every private chat has the same top-right gear for the current Space Settings, not global settings. Activity, approvals, and history open through 「动态与审批」 on a profile or Space Settings. News reading opens from the News member profile.
 
 ## Send and Stop Conversations {#send-and-stop-conversations}
 
@@ -39,7 +39,7 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 ## Manage Members and Spaces {#manage-spaces}
 
 1. Use the single 「会话」 list: rows open private chats, avatars open profiles. The bottom-right Muse avatar explicitly selects main, not the last chat. The chat's top-left arrow returns to this list, not a sidebar.
-2. Profiles contain 「发消息」, files, dedicated rules, skills, session management, activity, and approvals. News and SMS have their own feature settings. Global settings are behind the gear at the top right of the conversation list. Profiles return to the chat or list they came from; the News reader returns to its originating chat or profile. Foreground resume preserves the current page rather than jumping to Muse.
+2. Profiles contain 「发消息」, files, dedicated rules, skills, session management, activity, and approvals. News and SMS have their own feature settings. Global settings are behind the gear at the top right of the conversation list. Profiles return to the chat or list they came from; Space Settings opened from a chat return to that chat; the News reader returns to the News profile. Foreground resume preserves the current page rather than jumping to Muse.
 3. Search locally by display name or Space ID. Use the plus button to add an ordinary member. Its first message or saved rules/skills establishes the Space on the server; an unwritten empty entry lasts only for the current connection.
 4. Built-in names are Muse, News, and SMS. Other members use connection-local labels such as 「成员 1」. Persistent renaming and custom avatars are not available.
 
