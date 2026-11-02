@@ -2,6 +2,8 @@
 
 本文是职责边界、状态所有权、生命周期、数据与权限细则的维护位置。修改业务、存储、权限或 pi 集成前必读；全局底线见 [AGENTS.md](../AGENTS.md)，测试与 API 交付分别见 [测试规范](testing.md)和 [API 开发规范](api-development.md)。当前进度与历史验收不在本文维护。
 
+> 后续产品设计见 [Feature、独立 Space 与 main 的关系](discussions/feature-spaces-and-main.md)：核心关系已确认，实施待授权、待验收。下文仍描述当前实现，不能把现有普通空间 information 与新闻推荐模式视作该方案已落地。
+
 ## 职责边界
 
 单进程、单用户、单模型、多独立 thread 的模块化单体。保留函数式工厂、显式依赖注入、JSON 文件存储与 pi 内核，不为预防未来规模引入数据库、消息总线、持久队列或通用框架。
