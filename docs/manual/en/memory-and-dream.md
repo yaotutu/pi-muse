@@ -10,7 +10,7 @@ This page explains how to browse, search, create, edit, and delete global long-t
 
 ## Manage Long-term Memories {#manage-long-term-memories}
 
-1. Go to the bottom 「设置」 tab, then 「助手记忆」 → 「长期记忆」. The page opens with all memories; while loading, it says it is waiting for server memories.
+1. Go to the left space drawer 「全局设置」 tab, then 「助手记忆」 → 「长期记忆」. The page opens with all memories; while loading, it says it is waiting for server memories.
 2. The 「全部」 view shows at most 500 memories, newest by update time first. Each card shows the text, source, and update time.
 3. Enter a keyword in 「搜索记忆关键词」 and tap 「搜索」 or the keyboard search action. Search is a case-insensitive substring match and returns at most 10 recently updated matches. The trimmed keyword can be at most 200 characters.
 4. Tap 「全部」 to return to the full list, or 「刷新」 to reload the current view.
@@ -41,7 +41,7 @@ In a space with the memory skill enabled, you can explicitly ask the assistant t
 
 ## Configure Dream {#configure-dream}
 
-1. Go to bottom 「设置」 → 「助手记忆」 → 「Dream 记忆整理」. The page shows the global overview, global prompt, space selector, current space settings, latest run, and pending suggestions.
+1. Go to left space drawer 「全局设置」 → 「助手记忆」 → 「Dream 记忆整理」. The page shows the global overview, global prompt, space selector, current space settings, latest run, and pending suggestions.
 2. 「全局整理提示词」 is the shared base configuration for all spaces and can contain at most 20,000 characters. Saving it empty clears the custom override and uses the built-in default prompt. Tap 「查看内置默认提示词」 to inspect the default behavior.
 3. Tap 「保存全局提示词」 after editing. Success shows 「全局 Dream 提示词已保存」. 「取消修改」 returns to the last successfully loaded value; 「清空草稿」 only clears the draft and has no effect until you save.
 4. Tap an existing space under 「选择整理空间」. If the current space has unsaved periodic or supplemental prompt changes, switching requires confirming that its space draft will be discarded; the global draft is retained.

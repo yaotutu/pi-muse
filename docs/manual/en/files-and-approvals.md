@@ -6,14 +6,14 @@ This page distinguishes three easily confused concepts: attachments sent with a 
 
 - The phone is connected to the real server as described in [Quick Start](getting-started.md#connect-mobile-client).
 - Attachment selection depends on the Android system file picker. Current mobile source does not support selecting attachments in the Web preview.
-- Workspace files and approvals are inside the current space's session panel: from the 「聊天」 page, tap the session information area in the middle of the top bar, then switch to 「工作区」 or 「审批」.
+- Open files from bottom 「空间」 → 「文件」. Approvals remain under 「审批」 in the session panel opened by the chat avatar.
 
 ## What Belongs Where {#what-belongs-where}
 
 | Concept | Entry point | Ownership and use | Key boundary |
 | --- | --- | --- | --- |
 | Message attachment | 「+」 to the left of the chat input | Enters this space's chat history with the user message and is supplied to the model as untrusted data | Not a workspace file and has no readable or writable relative path; it does not automatically become a persistent file |
-| Workspace file | Session panel 「工作区」 | Persistent server file in either the current space's private area or the shared area for all spaces | Manual text saves require a complete before/after preview; model access is constrained by workspace boundaries |
+| Workspace file | 「空间」 → 「文件」 | Private server files of the current space; no shared-area or other-space selector | Manual text saves require a complete before/after preview; model access is constrained by workspace boundaries |
 | Model file approval | Session panel 「审批」 | Temporary authorization for a model-initiated `write` create/overwrite or `edit` exact edit | Each operation is approved separately; approval covers one bound version and does not guarantee execution success |
 
 Ordinary file tools can access only the current space's private workspace and the explicitly designated `shared/...` area. They have no parent-directory privilege and cannot use absolute paths, escape directories, or bypass boundaries with symlinks. The server does not provide `bash` to the model.
@@ -39,16 +39,13 @@ Limits:
 
 ## Manage Workspace Files {#manage-workspace-files}
 
-1. Tap the session information area in the top bar to open the current session panel.
-2. Switch to the 「工作区」 page.
-3. Select the scope:
-   - 「当前空间」: show and modify only this space's private files.
-   - 「共享文件」: show shared files explicitly accessible to all spaces. Saving, editing, or deleting affects every space.
-4. Tap a directory to enter it, tap 「上级」 to go up, or tap a file to open 「文件详情」.
-5. Text files show their complete content. PNG, JPEG, GIF, and WebP can be previewed safely. Other binary files can only be inspected with 「下载到设备」.
-6. Tap 「新建文本」 to create a file, or open a text file and tap 「编辑文本」 to modify it.
+1. Confirm the current space in the left drawer, then open bottom 「空间」 → 「文件」. This is a full-screen page, separate from the avatar panel.
+2. Tap a directory to enter it. 「上级」 or system Back moves up one level; 「根目录」 returns to this space's root. Returning from a file preserves its directory and list scroll position.
+3. Tap a file to open its reading page. Markdown supports 「阅读／原文」 (reading/source), does not execute HTML, and does not automatically load remote images. Other UTF-8 text shows its source. PNG, JPEG, GIF, and WebP can be previewed safely; other binary files can be downloaded.
+4. Tap 「新建文本」 to create a file, or 「编辑文本」 in a text file's reading page to edit its source. Markdown saves remain original text, not a rich-text conversion.
+5. Primary bottom navigation is hidden during editing. Back from a save preview returns to the draft. Leaving editing offers continuing, keeping the draft and returning to the space home, or explicitly discarding it. Drafts last only for this connection; resolve unfinished file work before switching spaces.
 
-Manual creation and editing support UTF-8 text only, with complete content limited to 100,000 bytes. A new path is relative to the selected scope root; each path segment may contain only ASCII letters, numbers, `.`, `-`, and `_`, separated by `/`. If a directory exceeds 1,000 entries or reading a file exceeds 8 MiB, the server rejects the request instead of truncating the list or content.
+Existing non-ASCII file names can be read, but cannot be saved or deleted through this entry. Manual creation and editing support UTF-8 text only, with complete content limited to 100,000 bytes. A new path is relative to the current space root; each path segment may contain only ASCII letters, numbers, `.`, `-`, and `_`, separated by `/`. If a directory exceeds 1,000 entries or reading a file exceeds 8 MiB, the server rejects the request instead of truncating the list or content.
 
 ### Download to Device {#download-to-device}
 
@@ -66,12 +63,12 @@ If the selected directory already contains a file with the same name, the app on
 3. Tap 「确认保存」. On success, the file detail returns the content actually written by the server. Creating an existing file fails without overwriting it; editing a missing file also fails and does not create it.
 4. To delete a file, open its detail, tap 「删除文件」, then tap 「确认删除文件」 in the confirmation card. Only regular files can be deleted; directories cannot.
 
-Manual saves do not create model approval records. Their safety confirmation is the complete before/after preview in the 「工作区」 page. If a save or delete result is unknown, the page shows 「上次文件操作结果未明」 and provides 「回读核对」. Read the file back completely, compare it, and only then explicitly unlock. Submitting again after unlocking starts a new request.
+Manual saves do not create model approval records. Their safety confirmation is the complete before/after preview in the 「空间」 → 「文件」 page. If a save or delete result is unknown, the page shows 「上次文件操作结果未明」 and provides 「回读核对」. Read the file back completely, compare it, and only then explicitly unlock. Submitting again after unlocking starts a new request.
 
-Ordinary manual saves take effect as the last successful save; there is no automatic merging or version-conflict protection. Refresh and verify the complete current content before editing a shared file. Do not apply the model approval's file-version binding to manual saves.
+Ordinary manual saves take effect as the last successful save; there is no automatic merging or version-conflict protection. Refresh and verify the complete current content before editing. Do not apply the model approval's file-version binding to manual saves.
 
 ::: danger Irreversible deletion
-Deleting a regular workspace file immediately removes it and cannot be recovered from the app. Deletion in the shared scope affects every space. Check the scope and path before confirming.
+Deleting a regular workspace file immediately removes it and cannot be recovered from the app. Check the current space and path before confirming; the mobile file entry does not operate on shared files.
 :::
 
 ## Approve Model File Writes {#approve-model-file-writes}
@@ -90,7 +87,9 @@ For ordinary workspace files, `write` creates or completely overwrites a text fi
 
 The default waiting period is 5 minutes, fixed when the approval is registered; client polling cannot extend it. Approval binds the complete content, path, and file version registered at that time. Rejection, expiry, run cancellation, or a file change while waiting prevents that modification from being committed. Approval does not authorize another file, later modification, or a new version of the same path.
 
-If the execution receipt is `unknown`, or you are unsure after stopping or disconnecting whether a file was written, read the target file completely in the 「工作区」 page and compare it with the approval preview. Do not immediately approve a new write or resend the request. Approval history keeps terminal records and execution receipts, but a historical preview does not mean its authorization remains valid.
+For a shared approval target, the mobile private-file browser does not show it: ask the model to read the exact `shared/...` path without writing, or use the protected server API to verify it.
+
+If the execution receipt is `unknown`, or you are unsure after stopping or disconnecting whether a file was written, read the target file completely (private files are in 「空间」 → 「文件」) and compare it with the approval preview. Do not immediately approve a new write or resend the request. Approval history keeps terminal records and execution receipts, but a historical preview does not mean its authorization remains valid.
 
 ## Limits and Troubleshooting {#limits-and-troubleshooting}
 
@@ -98,9 +97,11 @@ If the execution receipt is `unknown`, or you are unsure after stopping or disco
 | --- | --- | --- |
 | Attachments cannot be selected | Whether you are in the Android client; whether a run or unconfirmed submission is active | Wait for the run to finish and synchronize; select local files with the Android system picker |
 | Attachment sending fails | Count, size, UTF-8 validity, and actual image type | Fix the limits above and select again; a rejected attachment does not enter the draft |
-| File not found | Whether the scope is 「当前空间」 or 「共享文件」 | Check scope and path, then refresh the directory; a read failure is not shown as an empty directory |
+| File not found | The current space and file path | Check the current space and path, then refresh the directory; a read failure is not shown as an empty directory |
 | Download unavailable | Whether you are in the Android client and whether the system picker was cancelled or access denied | The current Web preview cannot save to a device directory. On Android, choose a directory again and allow access when prompted |
 | Same-name conflict | Whether the selected device directory already has a file with that name | The app never overwrites it. Choose another directory, or verify and move or rename the old file in the system file manager |
 | Manual save fails | More than 100,000 bytes, invalid path, existing create target, or missing edit target | Fix content or path; use another path to create, and refresh the current file before editing |
 | Approval buttons unavailable | Whether approvals are synchronizing, expired, or missing loaded details | Tap 「重新同步审批」 and reopen details; the model must request again after expiry |
 | File unchanged after approval | Whether the execution receipt succeeded and whether the file changed meanwhile | Read the complete file first; do not repeatedly approve the old approval |
+
+Space rules and skills are separate entries on the space home, not duplicate files in the private workspace. Rules use the server's dedicated instructions file; the skills page changes only this space's enabled switches, not global skill source files. Missing parent directories may be created when saving a new file; there is no separate directory-management action.

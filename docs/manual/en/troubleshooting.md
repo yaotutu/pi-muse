@@ -43,7 +43,7 @@ For complete type and size limits, see [Attachments, files, and approvals](files
 
 Each model `write` or `edit` requires separate human approval. Rejection, expiry, a file change while waiting, run cancellation, unread approval details, or execution failure can prevent that commit. Approval also does not guarantee execution success. Check the complete preview and execution receipt under「审批」.
 
-Manual workspace edits are confirmed in the save preview on the「工作区」page and do not create model approval records. If the result is unknown, read and verify it as described in [Attachments, files, and approvals](files-and-approvals.md#approve-model-file-writes); do not automatically resend the write.
+Manual workspace edits are confirmed in the save preview on the「空间」 → 「文件」 page and do not create model approval records. If the result is unknown, read and verify it as described in [Attachments, files, and approvals](files-and-approvals.md#approve-model-file-writes); do not automatically resend the write.
 
 ## Reset or Delete Result Is Unknown {#reset-or-delete-result-unknown}
 

@@ -18,7 +18,7 @@ This page covers daily chat, switching spaces, message feedback, stopping runs, 
 
 After a successful stop, the stream shows stopped or finished. Switching spaces or main pages within the same foreground connection does not actively stop generation in the original space; return to see its progress. This does not promise background execution. Explicit stopping, a disconnected chat stream, leaving the current connection, or restarting the server still cancels the associated run and invalidates pending file approvals. Tool operations that already completed are not rolled back.
 
-The avatar, space menu, and theme button float over chat content rather than occupying a separate fixed header. The main space has no visible space name; other spaces show their names only while the keyboard is closed. The floating chat header does not show routine status text such as ready or working, and opening the keyboard also hides the name. Detailed status remains in the session panel; error messages and the panel’s pending-approval entry remain available. Sending a message returns the view to the latest message. Scrolling upward lets you read older content; tap「回到最新」to resume following.
+The avatar, space menu, and space entry float over chat content rather than occupying a separate fixed header. The main space has no visible space name; other spaces show their names only while the keyboard is closed. The floating chat header does not show routine status text such as ready or working, and opening the keyboard also hides the name. Detailed status remains in the session panel; error messages and the panel’s pending-approval entry remain available. Sending a message returns the view to the latest message. Scrolling upward lets you read older content; tap「回到最新」to resume following.
 
 After a message has definitely failed, tap「恢复到输入框」to recover it. If a new draft already exists, you may cancel, copy that draft somewhere safe and clear the input before recovering the old message, or tap「放弃未发送消息」and confirm. Discarding removes only that unsent message, preserves the current draft, and cannot be undone. Messages with an unconfirmed save result cannot be discarded or automatically resent.
 
@@ -42,24 +42,26 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 2. Tap any space to switch. The selected space is marked, and the chat page switches to its history, drafts, and run state.
 3. Type a display name or space ID in the 「搜索空间」 field to filter the list.
 4. Tap the 「新建空间」 icon in the lower right. The client generates an independent space ID and switches to it immediately. The sidebar and chat with the keyboard closed show readable names such as「空间 1」, with update time and actual run state in the sidebar. The default space is still labeled「主空间」in the sidebar. Numbers are stable only within the current connection, not server titles or cross-device names.
-5. Send the first message in the new space, or open the session panel and save its rules or skills to establish it on the server. Tapping 「新建空间」 without a write only creates a local empty entry on the phone and it may later disappear from the server list.
+5. Send the first message in the new space, or open 「空间」 and save its rules or skills to establish it on the server. Tapping 「新建空间」 without a write only creates a local empty entry on the phone and it may later disappear from the server list.
 
 A space ID starts with a letter and contains only letters, numbers, `_`, and `-`, up to 64 characters. Current mobile source has no server-side space-renaming or automatic-summary entry. Display numbers do not change space IDs.
 
 Each space has independent conversation history, a private workspace, space rules, and skill switches. Assistant identity, the user profile, long-term memories, long-term goals, and skill assets are instance-level global content and are not isolated by space. That does not mean all of them enter every chat turn. A new space is a new context for the same personal assistant, not a separate assistant. Ordinary chat keeps the global identity and assembles only the tools enabled for the current space, together with the matching usage guidance. Global management pages provide an aggregate view without changing data ownership. See [Long-term memory and Dream](memory-and-dream.md#memory-and-profile-boundaries).
 
+Global settings are at the bottom of the left drawer, covering connection, browser, profile, memories, and local appearance. Bottom 「空间」 manages the current space. The avatar panel keeps activity, approvals, and execution history only; history is not a list of other chats. Space child pages hide primary navigation. System Back returns one level at a time, then from space home to chat.
+
 ## Space Rules and Skills {#space-rules-and-skills}
 
-1. Tap the session information area in the middle of the top bar to open the current session panel.
-2. Switch to the 「工作区」 page.
+1. Open bottom 「空间」 and confirm the current space name on the full-screen home.
+2. Open 「空间规则」 or 「空间技能」 as a separate child page. Rules can be read first, then edited as source with 「编辑规则」.
 3. Enter how the assistant should work in this space under 「空间规则」, then tap 「保存规则」. After a successful save, the loaded value updates. Rules take effect from the next turn and do not rewrite generated history.
 4. Change switches under 「空间技能」 and tap 「保存技能」. Skill files are shared as one instance-level set; switches affect only the current space and change the actual tools plus their matching prompt guidance from the next turn.
 
-Space rules are limited to 20,000 characters. Closing the panel keeps unsaved drafts for the current connection; changing servers or clearing local cache discards those local drafts.
+Space rules are limited to 20,000 characters. On Back, keep drafts for this connection or explicitly discard them. Rules and skills are saved/discarded independently and do not affect other spaces; changing servers or clearing local cache discards those local drafts.
 
 ## Query Information Processing {#query-information-background}
 
-The server can enable generic information processing for an existing space: it accepts external batch information, decides between silence and notification using the space rules and preference notes, and retains traceability from raw items and decisions to published messages. Current mobile source has no dedicated management entry; ingestion and settings use server APIs, and processing is disabled by default.
+The server can enable generic information processing for an existing space: it accepts external batch information, decides between silence and notification using the space rules and preference notes, and retains traceability from raw items and decisions to published messages. Open 「空间」 → 「信息处理」 for existing processing switches, preference notes, and ingestion; processing is disabled by default. This is still the existing per-space information background, not the future Feature Space recipient-rebinding design.
 
 After the information background is enabled, ask in an ordinary chat, such as “What happened to the information just received?” The assistant can use the read-only `information` tool assembled for the current space to query items, runs, preferences, and notification links. It cannot ingest items, start processing, publish notifications, or read another space. After this space's information background is disabled, the next ordinary chat no longer carries the tool or background explanation; saved raw items and historical notifications are not deleted.
 
@@ -73,7 +75,7 @@ This only refreshes the foreground chat while the app is open; it is not an oper
 
 ### Reset the Current Session {#reset-current-session}
 
-1. Go to bottom 「设置」 → 「会话维护」 → 「重置当前会话」.
+1. Go to bottom 「空间」 → 「空间维护」 → 「重置当前会话」.
 2. Check the target space shown in the dialog.
 3. By default, reset stops the current run, clears that space's chat history, message feedback, unfinished approvals, Dream consolidation cursor, latest consolidation result, and pending suggestions, then opens a fresh conversation. Space rules, skill switches, Dream configuration, private workspace files, information settings, raw items, processing records, and preference notes are retained.
 4. To also delete scheduled tasks and webpage monitors bound to the space, select 「同时清理此空间下的定时任务与网页监控」. It is unselected by default; jobs and monitors are rebound to the new session.
@@ -84,7 +86,7 @@ Cleared chat history and message feedback cannot be recovered. Reset cancels inf
 ### Delete a Space {#delete-space}
 
 1. In the space sidebar, switch to the non-main space you want to delete.
-2. Tap the session information area in the top bar and open the session panel's 「工作区」 page.
+2. Open bottom 「空间」 → 「空间维护」.
 3. Scroll to 「删除当前空间」 and tap it to open the confirmation card.
 4. Check the deletion scope, then tap 「确认删除」.
 
