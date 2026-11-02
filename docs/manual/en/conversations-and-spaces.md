@@ -48,7 +48,7 @@ A space ID starts with a letter and contains only letters, numbers, `_`, and `-`
 
 Each space has independent conversation history, a private workspace, space rules, and skill switches. Assistant identity, the user profile, long-term memories, long-term goals, and skill assets are instance-level global content and are not isolated by space. That does not mean all of them enter every chat turn. A new space is a new context for the same personal assistant, not a separate assistant. Ordinary chat keeps the global identity and assembles only the tools enabled for the current space, together with the matching usage guidance. Global management pages provide an aggregate view without changing data ownership. See [Long-term memory and Dream](memory-and-dream.md#memory-and-profile-boundaries).
 
-Global settings are at the bottom of the left drawer, covering connection, browser, profile, memories, and local appearance. Bottom 「空间」 manages the current space. The avatar panel keeps activity, approvals, and execution history only; history is not a list of other chats. Space child pages hide primary navigation. System Back returns one level at a time, then from space home to chat.
+The left drawer has a single 「设置」 (Settings) entry for news, SMS, connection, browser, profile, memories, and local appearance. Bottom 「空间」 manages the current space. The avatar panel keeps activity, approvals, and execution history only; history is not a list of other chats. Space child pages hide primary navigation. System Back returns one level at a time, then from space home to chat.
 
 ## Space Rules and Skills {#space-rules-and-skills}
 
@@ -61,16 +61,16 @@ Space rules are limited to 20,000 characters. On Back, keep drafts for this conn
 
 ## Features and Interaction Spaces {#query-information-background}
 
-Open 「功能」 (Features) in the upper-left space sidebar to manage news and SMS. Each has its own internal Space for original content, settings, processing records, and preferences, without a separate user chat. Both default to the stable main Space (`local-main`); switching the selected chat does not change their binding.
+Open the single 「设置」 (Settings) entry in the upper-left space sidebar, then use the 「功能」 (Features) group to manage news and SMS. Each has its own internal Space for original content, settings, processing records, and preferences, without a separate user chat. Both default to the stable main Space (`local-main`); switching the selected chat does not change their binding.
 
-1. Open 「功能」 and choose 「新闻」 (News) or 「短信」 (SMS).
+1. Open 「设置」, then choose 「新闻」 (News) or 「短信」 (SMS) in the 「功能」 group.
 2. Check 「交互承接空间」 (Interaction space). Use 「更换承接空间」 to choose an ordinary space already established on the server. Unsaved local empty spaces are not candidates.
 3. A change affects only newly accepted background runs and newly started discussions. In-flight accepted runs keep their previous target. No feature data, preferences, or chat history moves; old messages retain their feature source. If saving has an unknown outcome, use 「刷新核对」 before another change; nothing is automatically resent.
 4. See [News reading](news.md) for reading, RSS, and preferences. Manage SMS in its feature details, not in per-space settings.
 
 ### SMS Processing {#sms-processing}
 
-1. Open 「功能」 → 「短信」 and enable 「启用短信处理」 (off initially). Save filtering guidance, such as notifying about important bills while keeping marketing silent.
+1. Open 「设置」 → 「短信」 and enable 「启用短信处理」 (off initially). Save filtering guidance, such as notifying about important bills while keeping marketing silent.
 2. In an Android native build, grant SMS permission. Automatic reception requires permission, a living app process, and the enabled feature. Leaving settings or switching chat spaces does not stop listening. Reception after the OS terminates the app is not guaranteed. Expo Go does not include this local native module; manual text ingestion can test processing instead.
 3. New items enter the SMS feature queue for real-model batch decisions. Silent items create no chat messages. Important results enter the bound space with 「来自短信」 (From SMS). This is not an OS push notification; an open chat reloads authoritative history through the existing notification connection.
 4. In the receiving chat, explicitly ask for feedback such as “Dislike this SMS and notify me less about this kind.” The restricted `feature` tool follows the server-verified message source, reads originals, and saves reactions or comments to SMS. It does not write global memory or ordinary-space rules, and one dislike is not a permanent ban.
@@ -99,7 +99,7 @@ Cleared chat history and message feedback cannot be recovered. Reset cancels inf
 4. Check the deletion scope, then tap 「确认删除」.
 
 ::: danger Irreversible deletion
-Deleting a space permanently removes its chat history, message feedback, private workspace files, space rules, skill configuration, Dream configuration and consolidation state, information processing data, and bound scheduled tasks and webpage monitors. The action cannot be undone and does not migrate data to the main space. The main space cannot be deleted. A space bound to a feature must be explicitly rebound in 「功能」 before deletion; it never automatically falls back to main. Use 「重置当前会话」 when you only want to clear the conversation.
+Deleting a space permanently removes its chat history, message feedback, private workspace files, space rules, skill configuration, Dream configuration and consolidation state, information processing data, and bound scheduled tasks and webpage monitors. The action cannot be undone and does not migrate data to the main space. The main space cannot be deleted. A space bound to a feature must be explicitly rebound in 「设置」 before deletion; it never automatically falls back to main. Use 「重置当前会话」 when you only want to clear the conversation.
 :::
 
 If a delete request result is unknown, refresh the space list and verify before resending. After deletion, creating a space with the same ID later does not restore the old history.
