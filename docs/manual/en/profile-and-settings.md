@@ -9,7 +9,7 @@ This page explains the mobile client's assistant and user profiles, common appea
 
 ## Assistant and User Profile {#assistant-and-user-profile}
 
-1. Go to left space drawer 「设置」 → 「助手与个人资料」 → 「助手与用户资料」. After a successful read, the page shows 「助手设置」 and 「人设与资料」.
+1. Go to message list’s top-right 「设置」 → 「助手与个人资料」 → 「助手与用户资料」. After a successful read, the page shows 「助手设置」 and 「人设与资料」.
 2. Profile drafts belong only to the current workspace connection. Closing the panel or moving the app to the background does not actively clear them, but exiting the app, changing servers, or another workspace rebuild discards them.
 
 ### Save Assistant Settings {#save-assistant-settings}
@@ -18,7 +18,7 @@ This page explains the mobile client's assistant and user profiles, common appea
 2. Choose one of the 「温暖」 (warm), 「简洁」 (concise), or 「周到」 (thoughtful) tones. If the server returns a legacy tone unknown to this client, the page shows that value and asks you to choose a supported one.
 3. Tap 「保存助手设置」. Success shows 「身份已保存」, and the change marker disappears.
 
-The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The assistant name is not used as the main-space title. The main-space header shows no name; other spaces show a readable number such as「空间 1」for the current connection only while the keyboard is closed.
+The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The assistant name is not used as the main-space title. The main-space header shows no name; other spaces show a readable number such as「成员 1」for the current connection only while the keyboard is closed.
 
 ### Save SOUL and USER {#save-soul-and-user}
 
@@ -33,7 +33,7 @@ Each profile section follows its own last successful save. The client does not a
 
 ## Appearance {#appearance}
 
-1. Go to left space drawer 「设置」 → 「外观」.
+1. Go to message list’s top-right 「设置」 → 「外观」.
 2. Choose one of 「经典蓝白」 (Classic Blue), 「晨光白」 (Morning White), or 「深夜黑」 (Midnight Black). The interface switches immediately and tries to save the preference on this device.
 3. If saving fails, the new theme remains visible but the page reports that the local preference was not saved. Choose a theme again to retry.
 4. The light/dark shortcut in the header or Settings returns from dark mode to the most recently selected light theme; switching to dark mode uses 「深夜黑」.
@@ -44,7 +44,7 @@ Theme preference is stored separately from the server connection, AccessKey, Tok
 
 For the first address, access key, and connection steps, see [Quick Start](getting-started.md#connect-mobile-client). To maintain the connection later:
 
-1. Go to left space drawer 「设置」 → 「连接与设备」 → 「服务器连接」.
+1. Go to message list’s top-right 「设置」 → 「连接与设备」 → 「服务器连接」.
 2. Edit 「服务器地址」 or 「访问密钥」, then tap 「保存」(Save). The app verifies the current input before saving; a separate test is not required.
 3. Optionally tap 「测试连接」. Success shows 「连接正常」 and 「保存后生效」. Testing does not save configuration; editing either address or key immediately invalidates the test result.
 4. To reauthenticate at the same address, enter the new access key and save. The app verifies that new key instead of reusing the old login. Leaving the key blank verifies and reuses the current login.
@@ -62,7 +62,7 @@ The real browser is configured and managed on the server. The mobile client has 
 
 ## Android App Updates {#android-updates}
 
-1. Go to left space drawer 「设置」 → 「连接与设备」 → 「应用更新」. The app checks automatically when it starts in the foreground and once per hour while foregrounded. You can also tap 「立即检查更新」 or 「再次检查」.
+1. Go to message list’s top-right 「设置」 → 「连接与设备」 → 「应用更新」. The app checks automatically when it starts in the foreground and once per hour while foregrounded. You can also tap 「立即检查更新」 or 「再次检查」.
 2. Checking reads only the official GitHub repository's stable Release and accepts only a unique `app-release.apk`. Prereleases, drafts, and other assets are not used as update packages.
 3. When a higher version is found, the app shows the current version, target version, and size, then starts downloading. You can cancel or retry the download and continue using the app; downloading may consume mobile data.
 4. After the download finishes, the client opens the Android system installer. The first attempt may require allowing Pi Muse to install unknown apps, and the final installation must still be confirmed in the system UI. Opening the installer does not mean the upgrade completed.

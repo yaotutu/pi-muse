@@ -22,7 +22,7 @@ import {
   resetSpaceSchema,
 } from "../contracts/rest.js";
 import { UnknownSkillError } from "../../features/skills/service.js";
-import { isFeatureSpace } from "../../features/feature-spaces/types.js";
+import { FEATURE_IDS, FEATURE_NAMES, FEATURE_SPACES, isFeatureSpace } from "../../features/feature-spaces/types.js";
 
 /**
  * 空间管理路由：多空间列表、重置会话、生命周期（含级联删除）、技能覆盖、专属指令与 Dream 配置。
@@ -265,6 +265,9 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
   app.delete("/:spaceId", async (c) => {
     const spaceId = c.req.param("spaceId");
 
+    // 内置成员负责持久化功能数据，不能从成员主页删除。
+    if (isFeatureSpace(spaceId)) return c.json({ error: "Cannot delete a built-in member", code: "CANNOT_DELETE_FEATURE_SPACE" }, 409);
+
     // 1. 主空间保护
     if (spaceId === "local-main") {
       return c.json({ error: "Cannot delete the main space", code: "CANNOT_DELETE_MAIN_SPACE" }, 409);
@@ -306,5 +309,22 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
     }
   });
 
+  return app;
+};
+
+/** 成员目录只是既有 Space 的只读投影；打开列表不创建会话、不启用后台功能。 */
+export const createMemberRoutes = ({ conversationHub }: HttpDependencies) => {
+  const app = new Hono();
+  app.get("/", async (c) => {
+    const spaces = await conversationHub.spaces();
+    const members = spaces.map((space) => ({ ...space, kind: isFeatureSpace(space.id) ? "feature" as const : "workspace" as const }));
+    return c.json({ members: [
+      ...members.filter((member) => !isFeatureSpace(member.id)),
+      ...FEATURE_IDS.map((id) => {
+        const stored = members.find((member) => member.id === FEATURE_SPACES[id]);
+        return { id: FEATURE_SPACES[id], sessionId: stored?.sessionId ?? null, updatedAt: stored?.updatedAt ?? new Date(0).toISOString(), kind: "feature" as const, name: FEATURE_NAMES[id] };
+      }),
+    ] });
+  });
   return app;
 };

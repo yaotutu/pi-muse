@@ -86,6 +86,12 @@ export const endpoints: EndpointSpec[] = [
     auth: false, request: req.sessionRequestSchema, response: resp.sessionResponse,
   },
   {
+    operationId: "listMembers",
+    method: "get", path: "/api/members", tag: "空间", summary: "列出聊天成员",
+    hint: "既有 Space 的只读成员目录，含新闻和短信内置成员。未开始聊天的成员 sessionId 为 null；读取不会创建会话或开启后台处理。成员私聊、文件、规则和技能仍归属各自 spaceId。",
+    auth: true, response: resp.membersResponse,
+  },
+  {
     operationId: "listSpaces",
     method: "get", path: "/api/spaces", tag: "空间", summary: "列出空间（按活跃倒序）",
     hint: "多空间入口：先取列表再选 spaceId 聊天；新空间无需显式创建（run、规则/技能保存或显式来源绑定时建立）。历史 GET 和迟到 Stop 不会建立空间。",

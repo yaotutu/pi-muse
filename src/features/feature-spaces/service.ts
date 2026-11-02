@@ -15,7 +15,7 @@ export const createFeatureService = (deps: { repository: FeatureRepository; hub:
   };
   const bind = async (rawId: string, spaceId: string) => {
     const id = requireId(rawId);
-    if (isFeatureSpace(spaceId)) throw new FeatureError("INVALID_INPUT", "Feature spaces cannot receive user interactions");
+    if (isFeatureSpace(spaceId)) throw new FeatureError("INVALID_INPUT", "Feature notification recipients must be ordinary spaces");
     const saved = await deps.hub.withExistingSpace(spaceId, async () => {
       await deps.repository.update((state) => ({ state: { ...state, bindings: { ...state.bindings, [id]: spaceId } }, result: undefined }));
       return { id, name: FEATURE_NAMES[id], targetSpaceId: spaceId };

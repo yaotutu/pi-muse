@@ -11,28 +11,13 @@ import { sessionRequestSchema } from "./contracts/rest.js";
 import { buildOpenApiDocument } from "./openapi.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { createMessageRoutes } from "./routes/messages.js";
-import { createSpaceRoutes } from "./routes/spaces.js";
+import { createMemberRoutes, createSpaceRoutes } from "./routes/spaces.js";
 import { createInformationRoutes } from "./routes/information.js";
 import { createNewsRoutes } from "./routes/news.js";
 import { createWorkspaceEventRoutes } from "./routes/events.js";
 import { createBrowserRoutes } from "./routes/browser.js";
 import { serviceVersion } from "../bootstrap/service-version.js";
 import { isFeatureSpace } from "../features/feature-spaces/types.js";
-
-const decodePathSegment = (segment: string) => {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
-};
-
-const hasReservedSpacePath = (path: string) => {
-  const segments = path.split("/").map(decodePathSegment);
-  return segments.some((segment, index) =>
-    (segment === "spaces" || segment === "threads") &&
-    isFeatureSpace(segments[index + 1]));
-};
 
 // 只挂载 HTTP/协议适配：使用已组装的服务，不创建 store，也不启动或关闭调度器。
 export async function createHttpApp(dependencies: HttpDependencies) {
@@ -116,12 +101,15 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.use("/api/*", async (c, next) => {
     if (!auth.authorized(c.req.header("Authorization")))
       return c.json({ error: "Unauthorized: open a new session" }, 401);
+    // 私聊、文件与规则现在对成员开放；后台采集仍走 Feature facade，
+    // 避免通用信息接口把新闻或短信配置成另一种来源/通知投递方式。
     const url = new URL(c.req.url);
-    const reservedPath = hasReservedSpacePath(url.pathname);
-    const reservedQuery = [url.searchParams.get("spaceId"), url.searchParams.get("originSpaceId")]
-      .some(isFeatureSpace);
-    if (reservedPath || reservedQuery)
-      return c.json({ error: "Not found" }, 404);
+    const segments = url.pathname.split("/").map((segment) => {
+      try { return decodeURIComponent(segment); } catch { return segment; }
+    });
+    const featureSettings = segments[2] === "spaces" && isFeatureSpace(segments[3]) && ["information", "dream"].includes(segments[4]);
+    const featureSchedule = ["jobs", "monitors"].includes(segments[2]) && [url.searchParams.get("spaceId"), url.searchParams.get("originSpaceId")].some(isFeatureSpace);
+    if (featureSettings || featureSchedule) return c.json({ error: "Not found" }, 404);
     await next();
   });
   // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
@@ -130,6 +118,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/api/spaces", createMessageRoutes(dependencies));
   app.route("/api/spaces", createInformationRoutes(dependencies));
   app.route("/api/spaces", createSpaceRoutes(dependencies));
+  app.route("/api/members", createMemberRoutes(dependencies));
   app.route("/api/news", createNewsRoutes(dependencies));
   app.route("/api/features", createFeatureRoutes(dependencies));
   app.route("/api/space-communication", createSpaceCommunicationRoutes(dependencies));

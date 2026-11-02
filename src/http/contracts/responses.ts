@@ -48,6 +48,9 @@ export const spaceSnapshot = z.object({
 export const spacesResponse = z.object({
   spaces: z.array(spaceSnapshot).describe("按最近活跃倒序"),
 });
+export const membersResponse = z.object({
+  members: z.array(spaceSnapshot.extend({ sessionId: z.string().nullable(), kind: z.enum(["workspace", "feature"]), name: z.string().optional() })),
+});
 export const resetSpaceResponse = z.object({
   ok: z.literal(true),
   spaceId: z.string().describe("重置的空间 ID"),

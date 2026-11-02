@@ -1,3 +1,4 @@
+import { isFeatureSpace } from "../../features/feature-spaces/types.js";
 import { FEATURE_TOOL_INSTRUCTIONS } from "./tools/feature.js";
 import { SPACE_TOOL_INSTRUCTIONS } from "./tools/space.js";
 import { randomUUID } from "node:crypto";
@@ -219,7 +220,7 @@ export async function openPi(deps: PiDeps) {
     skillsService: skills,
     writableEnabled: deps.config.writable.enabled,
     workspaceCommits: deps.workspaceCommits,
-    information: informationEnabled || Boolean(deps.communicationDiscussion) ? deps.information : undefined,
+    information: informationEnabled || isFeatureSpace(deps.spaceId) || Boolean(deps.communicationDiscussion) ? deps.information : undefined,
     features: !child ? deps.features : undefined,
     communication: !child ? deps.communication : undefined,
     approvalOwner: deps.communicationOwner ?? (deps.runId ? { spaceId: child?.ownerSpaceId ?? deps.spaceId, runId: child?.ownerRunId ?? deps.runId } : undefined),

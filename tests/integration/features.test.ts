@@ -29,10 +29,10 @@ test("feature binding defaults to main, persists, excludes internal spaces and p
   assert.deepEqual(tool.parameters.properties.action.enum, ["overview", "read", "feedback"]);
   assert.equal("anyOf" in tool.parameters.properties.action, false);
   for (const id of Object.values(FEATURE_SPACES)) {
-    assert.equal((await call(`/api/spaces/${id}/instructions`)).status, 404);
-    assert.equal((await call(`/api/conversation?spaceId=${id}`)).status, 404);
-    assert.equal((await call(`/api/workspace/files?scope=space&spaceId=${id}`)).status, 404);
-    assert.equal((await call("/api/conversation/run", "POST", { spaceId: id, runId: "blocked", expectedRevision: "empty", message: { id: "blocked", content: "hello" } })).status, 400);
+    assert.equal((await call(`/api/spaces/${id}/instructions`)).status, 200);
+    assert.equal((await call(`/api/conversation?spaceId=${id}`)).status, 200);
+    assert.equal((await call(`/api/workspace/files?scope=space&spaceId=${id}`)).status, 200);
+    assert.equal((await call(`/api/spaces/${id}`, "DELETE")).status, 409);
   }
   assert.equal((await call("/api/features/news/binding", "PUT", { spaceId: "missing" })).status, 404);
   assert.equal((await call("/api/features/news/binding", "PUT", { spaceId: FEATURE_SPACES.sms })).status, 400);

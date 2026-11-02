@@ -87,7 +87,7 @@ Restarting the service does not rerun expired one-off reminders, and failed jobs
    - The phone may connect directly over HTTP to a LAN or remote server. A domain, certificate, or HTTPS reverse proxy is not required.
    - Do not enter `localhost` or `127.0.0.1` on the phone. `localhost` refers to the phone itself, not the computer running the server.
    - On a LAN, enter the computer's actual address, such as `http://192.168.1.100:12330`, and allow inbound port `12330` through the computer firewall.
-3. Open Pi Muse and tap 「服务器连接」 on the disconnected home screen, or open 「设置」 in the left space drawer after connecting and tap「服务器连接」（Server Connection）under「连接与设备」.
+3. Open Pi Muse and tap 「服务器连接」 on the disconnected home screen, or open the top-right 「设置」 in the message list after connecting and tap「服务器连接」（Server Connection）under「连接与设备」.
 4. On the「服务器连接」page, enter:
    - 「服务器地址」: the server base address, without `/api`, `/docs`, or a trailing path slash.
    - 「访问密钥」: the `server.accessKey` from the configuration file, not `model.apiKey`.
@@ -98,9 +98,9 @@ While testing or verifying before a save, close the panel to cancel without savi
 
 ## Send a Message and Receive a Reply {#send-first-real-reply}
 
-1. Return to the bottom「聊天」tab. A new installation shows「主空间」and「有什么想聊的？」.
+1. Open 「消息」 and tap Muse to enter its private chat, which shows 「有什么想聊的？」 when empty.
 2. In the input field with the「消息」placeholder, enter a short, verifiable request, such as a question whose answer you already know.
-3. Tap the send arrow on the right of the input field. Your message bubble appears and the right-hand button becomes a stop square. Tap the avatar to view detailed execution status in the session panel.
+3. Tap the send arrow on the right of the input field. Your message bubble appears and the right-hand button becomes a stop square. Tap the top-right activity button to view detailed execution status in the session panel.
 4. Wait for the assistant reply. A real reply streams into the chat page; if the model calls tools, their status appears in tool cards or the session panel's activity view.
 
 If the chat page reports that the model is not configured, the connection is offline, or reauthentication is required, diagnose it with the [FAQ](troubleshooting.md) instead of repeatedly resending the same message. For attachments, see [Attachments, files, and approvals](files-and-approvals.md#send-attachments). For stopping a run, resynchronizing, and unknown-result handling, see [Conversations and spaces](conversations-and-spaces.md#send-and-stop-conversations).

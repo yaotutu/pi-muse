@@ -14,7 +14,7 @@ News is an independent reading view, not a chat space, and it has no dedicated c
 
 Tap 「带到会话讨论」 (Discuss in chat) in article details. The server reads the original and writes it to the news feature's bound space, then the client opens that chat. It does not invoke the model or ask a question on your behalf. The message shows 「来自新闻」 (From news); continue asking questions or explicitly request reactions/comments saved back to news. Reading does not push every article into chat.
 
-The default interaction space is main. Check or change it in sidebar 「设置」 → 「新闻」. RSS and news preferences also belong to news, not the currently selected chat. If submission times out or disconnects, inspect the receiving chat, return to the article, then tap 「已核对，恢复操作」 (Checked, resume) and confirm. Operations unlock only after the chat can be read successfully; the previous discussion is never resent. Resetting a space retains the binding, and future discussions use its new session.
+The default interaction space is main. Check or change it in the News profile → 「新闻设置」. RSS and news preferences also belong to news, not the currently selected chat. If submission times out or disconnects, inspect the receiving chat, return to the article, then tap 「已核对，恢复操作」 (Checked, resume) and confirm. Operations unlock only after the chat can be read successfully; the previous discussion is never resent. Resetting a space retains the binding, and future discussions use its new session.
 
 ## Managing RSS Sources {#sources}
 
@@ -36,7 +36,7 @@ The server collects every 30 minutes by default; background collection only fetc
 - Explicit preferences are saved by the user. Learned notes are a summary updated by the server from feedback. They are stored separately, and learned notes never overwrite explicit preferences, space rules, or the global user profile.
 - For newly initialized internal news spaces, the default rules require recommendation reasons and learned notes in concise Simplified Chinese. RSS titles and content remain in their original language and are not translated.
 
-Open sidebar 「设置」 → 「新闻」 and save explicit notes under 「新闻偏好」. Use 「RSS 来源管理」 to manage subscriptions. When opened from settings, Back returns through news settings, the settings home, and then chat, rather than detouring through the news reader.
+Open the News profile → 「新闻设置」 and save explicit notes under 「新闻偏好」. Use 「RSS 来源管理」 to manage subscriptions. When opened from settings, Back returns through news settings, the settings home, and then chat, rather than detouring through the news reader.
 
 ## Refresh and Failures {#refresh}
 
@@ -49,4 +49,4 @@ Open sidebar 「设置」 → 「新闻」 and save explicit notes under 「新�
 
 ## Boundaries {#boundaries}
 
-News does not fetch full web pages, provide search or vector recommendations, send system notifications, or support OPML. The chat `feature` tool only reads and records feedback through an existing verified source; it does not browse all feature data. The internal news space does not appear in the ordinary space list and cannot be operated through chat, space reset, or space deletion.
+News does not fetch full web pages, provide search or vector recommendations, send system notifications, or support OPML. The chat `feature` tool only reads and records feedback through an existing verified source; it does not browse all feature data. News is a member with private chat, files, and rules. It is not an ordinary notification-recipient candidate and cannot be deleted. Chatting does not enable RSS processing.

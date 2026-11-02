@@ -255,7 +255,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   );
   information = createInformationService({
     repository: informationRepository,
-    spaceExists: async (spaceId) => spaceId === "local-main" || (await conversationHub.spaces()).some((space) => space.id === spaceId),
+    spaceExists: async (spaceId) => isFeatureSpace(spaceId) || spaceId === "local-main" || (await conversationHub.spaces()).some((space) => space.id === spaceId),
     retainSpace: (spaceId) => conversationHub.retainSpace(spaceId),
     feedback: messageFeedbackRepository,
     deliveryTarget: async (spaceId) => { const id = featureForSpace(spaceId); return id ? features.targetFor(id) : spaceId; },
@@ -383,7 +383,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   });
   const dreamScheduler = createDreamScheduler(dream);
   const workspaceFiles = createWorkspaceFileService(createWorkspaceFileStore(layout, workspaceCommits), {
-    spaceExists: async (spaceId) => (await conversationHub.spaces()).some((space) => space.id === spaceId),
+    spaceExists: async (spaceId) => isFeatureSpace(spaceId) || (await conversationHub.spaces()).some((space) => space.id === spaceId),
   });
   // 同源桌面网关单例：无论 browser.enabled 与否都创建，/api/browser/status 总是可答；
   // 关闭时仅清内存 ticket/session 与 WS 代理，不参与 feature/pi 生命周期。

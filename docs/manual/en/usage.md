@@ -4,7 +4,7 @@ This page keeps only capability entry points. Detailed procedures live in their 
 
 ## Conversations and Spaces {#conversations-and-spaces}
 
-The mobile client supports streaming chat, execution status, the space sidebar, the session panel, stopping runs, resetting sessions, and deleting spaces. Each space has an independent conversation, private workspace, space rules, and skill switches. See [Conversations and spaces](conversations-and-spaces.md).
+The mobile client supports streaming chat, execution status, the member directory, the session panel, stopping runs, resetting sessions, and deleting spaces. Each space has an independent conversation, private workspace, space rules, and skill switches. See [Conversations and spaces](conversations-and-spaces.md).
 
 ## Attachments, Files, and Approvals {#files-and-approvals}
 

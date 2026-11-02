@@ -123,14 +123,14 @@ test("news HTTP surface is authenticated, stable and keeps its internal space pr
     `/api/spaces/${NEWS_INTERNAL_SPACE_ID}/instructions`,
     `/api/spaces/news%2Dinternal/instructions`,
     `/api/spaces/${NEWS_INTERNAL_SPACE_ID}/skills`,
+    `/api/conversation?spaceId=${NEWS_INTERNAL_SPACE_ID}`,
+    `/api/workspace/files?scope=space&spaceId=${NEWS_INTERNAL_SPACE_ID}&path=.`,
+  ]) assert.equal((await service.app.request(path, { headers })).status, 200, path);
+  for (const path of [
     `/api/spaces/${NEWS_INTERNAL_SPACE_ID}/dream`,
     `/api/spaces/${NEWS_INTERNAL_SPACE_ID}/information/settings`,
-    `/api/conversation?spaceId=${NEWS_INTERNAL_SPACE_ID}`,
     `/api/jobs?spaceId=${NEWS_INTERNAL_SPACE_ID}`,
-    `/api/workspace/files?scope=space&spaceId=${NEWS_INTERNAL_SPACE_ID}&path=.`,
-  ]) {
-    assert.equal((await service.app.request(path, { headers })).status, 404, path);
-  }
+  ]) assert.equal((await service.app.request(path, { headers })).status, 404, path);
   const ordinaryPrefix = await service.app.request("/api/spaces/news-internal-extra/instructions", { headers });
   assert.equal(ordinaryPrefix.status, 200, "only the exact reserved ID is hidden");
   const dream = await service.app.request("/api/agent/dream", { headers });
@@ -140,23 +140,16 @@ test("news HTTP surface is authenticated, stable and keeps its internal space pr
     `/api/spaces/${NEWS_INTERNAL_SPACE_ID}/reset`,
     { method: "POST", headers, body: "{}" },
   );
-  assert.equal(reset.status, 404);
+  assert.equal(reset.status, 200);
   const deleted = await service.app.request(
     `/api/spaces/${NEWS_INTERNAL_SPACE_ID}`,
     { method: "DELETE", headers },
   );
-  assert.equal(deleted.status, 404);
-  const run = await service.app.request("/api/conversation/run", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      spaceId: NEWS_INTERNAL_SPACE_ID,
-      runId: "run-1",
-      expectedRevision: "empty",
-      message: { id: "message-1", content: "hello" },
-    }),
+  assert.equal(deleted.status, 409);
+  const stop = await service.app.request("/api/conversation/stop", {
+    method: "POST", headers, body: JSON.stringify({ spaceId: NEWS_INTERNAL_SPACE_ID, runId: "no-active-run" }),
   });
-  assert.equal(run.status, 400);
+  assert.equal(stop.status, 200);
   const monitor = await service.app.request("/api/monitors", {
     method: "POST",
     headers,
