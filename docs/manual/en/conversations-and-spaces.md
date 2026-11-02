@@ -1,16 +1,30 @@
 # Conversations and spaces
 
-This page covers daily chat, switching spaces, message feedback, stopping runs, resetting a session, and deleting a space in the mobile client. Entry points and limits were checked against current mobile and server source; source does not automatically equal a released APK. Follow the UI in your installed release.
+This page covers the default group chat, private chats, member profiles, message feedback, stopping runs, resetting a session, and deleting a space in the mobile client. Entry points and limits were checked against current mobile and server source; source does not automatically equal a released APK. Follow the UI in your installed release.
 
 ## Prerequisites {#prerequisites}
 
 - The server is connected as described in [Quick Start](getting-started.md#connect-mobile-client), and the connection status is 「已连接」.
 - An external model is configured. If the model is not configured, chat messages are rejected.
-- Cold launch opens the Muse private chat directly, with no bottom navigation. The top-left arrow opens the single 「会话」 conversation list; avatars open member profiles. Every private chat has the same top-right gear for the current Space Settings, not global settings. Activity, approvals, and history open through 「动态与审批」 on a profile or Space Settings. News reading opens from the News member profile.
+- Cold launch opens 「群聊」 (group chat), without bottom navigation. The top-left arrow opens 「会话」 (conversations). The group top-right opens 「群组信息」 and members; a private chat top-right opens its current Space Settings. Global settings stay at the top of the conversation list. News reading still opens from the News profile.
+
+## Default Group and Directed Messages {#group-chat}
+
+The group is not another Space: it displays group messages with their actual sender avatars on one timeline. Each member has its own group context, separate from private chat. No model receives the complete group transcript.
+
+1. With no member selected and no leading `@`, only Muse (main, `local-main`) receives and answers. Other members neither receive nor automatically answer.
+2. Use `@` to the left of the input to select a member, or start with `@display-name ` / `@Space-ID `. Only that member receives this message. After a confirmed send and read-back, the target clears, so the next message defaults to main. Unknown members produce an error, never fallback to main. One target per message is supported.
+3. Members may explicitly ask another member for help through the real `space` tool. The timeline shows the source, target, and responder. Only the request and explicitly supplied context reach the target; other messages are not broadcast.
+4. Tap a message avatar or a member in Group Information to open its profile, then 「发消息」 for private chat. That private chat top-right opens its Space Settings. Group Information returns to group chat; profiles return to their actual entry page.
+5. The send arrow becomes Stop while running. Use 「同步核对」 after an unknown network result; messages are never automatically resent. Disconnecting the stream, leaving the connection, or restarting the service cancels the associated run without rolling back completed operations. File changes still require the complete diff and approval; use the pending-approval entry when shown.
+
+The current group supports text and tool-result display, not attachments, message feedback, notification-card continuation, or multiple groups. Use private chat for attachments and feedback. Background SMS alerts and News Discuss in Chat still enter the bound Space’s private chat, not the group. Existing histories and background notifications were not migrated.
 
 ## Send and Stop Conversations {#send-and-stop-conversations}
 
-1. Start in Muse private chat directly. For another member, use the top-left arrow to open 「会话」 and tap its row, or tap its avatar to open its profile.
+These steps apply to private chats; see [Default Group](#group-chat) for the group.
+
+1. Tap a member row in 「会话」 for private chat, or open its avatar profile and tap 「发消息」.
 2. Enter text in the 「消息」 input field. To send an image or text file with this message, use the 「+」 button described in [the attachment guide](files-and-approvals.md#send-attachments).
 3. Tap the send arrow to the right of the input field. The visible success signal is your message entering the chat list and the right-hand button becoming a stop square. Detailed execution status is available in the session panel.
 4. The reply streams into the page. When the model calls tools, progress appears in message tool cards or the session panel's 「动态」 view.
@@ -38,8 +52,8 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 
 ## Manage Members and Spaces {#manage-spaces}
 
-1. Use the single 「会话」 list: rows open private chats, avatars open profiles. The bottom-right Muse avatar explicitly selects main, not the last chat. The chat's top-left arrow returns to this list, not a sidebar.
-2. Profiles contain 「发消息」, files, dedicated rules, skills, session management, activity, and approvals. News and SMS have their own feature settings. Global settings are behind the gear at the top right of the conversation list. Profiles return to the chat or list they came from; Space Settings opened from a chat return to that chat; the News reader returns to the News profile. Foreground resume preserves the current page rather than jumping to Muse.
+1. Use the single 「会话」 list: the group row and bottom-right 「回到群聊」 open the default group. Member rows open private chats; avatars open profiles. The top-left arrow returns to this list, not a sidebar.
+2. Profiles contain 「发消息」, files, dedicated rules, skills, session management, activity, and approvals. News and SMS have their own feature settings. Global settings are behind the gear at the top right of the conversation list. Profiles return to the group, Group Information, private chat, or list they came from; Space Settings opened from a chat return to that chat; the News reader returns to the News profile. Foreground resume preserves the current page rather than jumping to Muse.
 3. Search locally by display name or Space ID. Use the plus button to add an ordinary member. Its first message or saved rules/skills establishes the Space on the server; an unwritten empty entry lasts only for the current connection.
 4. Built-in names are Muse, News, and SMS. Other members use connection-local labels such as 「成员 1」. Persistent renaming and custom avatars are not available.
 
@@ -47,7 +61,7 @@ Each member is an existing Space with independent private-chat history, workspac
 
 News and SMS support private chats. Opening a profile or chatting does not enable background processing, request SMS permissions, or change the notification recipient. Background notifications still default to main and can be rebound to an established ordinary Space. Private chats and cross-space discussions do not merge histories.
 
-This batch provides the member directory, profiles, and separate private chats. The message list has no last-message preview or unread count. A shared multi-member timeline and card-targeted replies are not implemented yet; Muse's private chat is not a completed group chat.
+The conversation list provides the default group, member directory, profiles, and separate private chats, without last-message previews or unread counts. Explicit `@` selects a group target; notification-card continuation is not available.
 
 ## Space Rules and Skills {#space-rules-and-skills}
 
@@ -75,7 +89,7 @@ The target uses its own rules, skills, workspace, and existing information, with
 
 Request replies return to their caller; only unsolicited background notifications use the configured interaction space. Stopping the current run cancels its associated requests. Failures are not automatically retried, and completed side effects are not rolled back. Resetting the target clears its discussions. Resetting the source does not delete another space's discussions or deliver old replies into the new session.
 
-Currently this is tool-based collaboration through the existing chat. Notification-card continuation, a dedicated discussion screen, and a fixed input-target indicator are not available yet. Ordinary input is still interpreted by the current conversation first; feedback comments are not task execution.
+Group chat provides explicit `@` and an input-target indicator. Ordinary private-chat input still goes to the current member first. Notification-card continuation and a dedicated discussion screen are not available; feedback comments are not task execution.
 
 ### SMS Processing {#sms-processing}
 
@@ -94,7 +108,7 @@ Existing generic per-space information data and APIs remain in place. They are n
 
 1. Go to member profile → 「会话管理」 → 「重置当前会话」.
 2. Check the target space shown in the dialog.
-3. By default, reset stops the current run, clears that space's chat history, message feedback, unfinished approvals, Dream consolidation cursor, latest consolidation result, and pending suggestions, then opens a fresh conversation. Space rules, skill switches, Dream configuration, private workspace files, information settings, raw items, processing records, and preference notes are retained.
+3. By default, reset stops the current run, clears that space's private-chat history, group discussions and display records, message feedback, unfinished approvals, Dream consolidation cursor, latest consolidation result, and pending suggestions, then opens a fresh conversation. Space rules, skill switches, Dream configuration, private workspace files, information settings, raw items, processing records, and preference notes are retained.
 4. To also delete scheduled tasks and webpage monitors bound to the space, select 「同时清理此空间下的定时任务与网页监控」. It is unselected by default; jobs and monitors are rebound to the new session.
 5. Tap 「确认重置」. Success shows 「会话已重置」, and a new conversation can begin.
 
@@ -108,7 +122,7 @@ Cleared chat history and message feedback cannot be recovered. Reset cancels inf
 4. Check the deletion scope, then tap 「确认删除」.
 
 ::: danger Irreversible deletion
-Deleting a space permanently removes its chat history, message feedback, private workspace files, space rules, skill configuration, Dream configuration and consolidation state, information processing data, and bound scheduled tasks and webpage monitors. The action cannot be undone and does not migrate data to the main space. Muse, News, and SMS built-in members cannot be deleted. A space bound to a feature must be explicitly rebound in 「设置」 before deletion; it never automatically falls back to main. Use 「重置当前会话」 when you only want to clear the conversation.
+Deleting a space permanently removes its private-chat history, group discussions and display records, message feedback, private workspace files, space rules, skill configuration, Dream configuration and consolidation state, information processing data, and bound scheduled tasks and webpage monitors. The action cannot be undone and does not migrate data to the main space. Muse, News, and SMS built-in members cannot be deleted. A space bound to a feature must be explicitly rebound in 「设置」 before deletion; it never automatically falls back to main. Use 「重置当前会话」 when you only want to clear the conversation.
 :::
 
 If a delete request result is unknown, refresh the space list and verify before resending. After deletion, creating a space with the same ID later does not restore the old history.

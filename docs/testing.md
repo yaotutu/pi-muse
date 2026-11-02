@@ -54,6 +54,7 @@ node --import tsx tests/live/skill-authoring.ts --config <path> --allow-live --k
 node --import tsx tests/live/information.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/news.ts --config <path> --allow-live [--keep-artifacts] [--allow-private-targets]
 node --import tsx tests/live/space-communication.ts --config <path> --allow-live [--keep-artifacts]
+node --import tsx tests/live/group-chat.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/space-tool-scope.ts --config <path> --allow-live
 node --import tsx tests/live/space-prompt-scope.ts --config <path> --allow-live --scenario prompt
 node --import tsx tests/live/space-prompt-scope.ts --config <path> --allow-live --scenario dream

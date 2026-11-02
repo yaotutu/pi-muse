@@ -98,12 +98,12 @@ While testing or verifying before a save, close the panel to cancel without savi
 
 ## Send a Message and Receive a Reply {#send-first-real-reply}
 
-1. After connecting, the app opens Muse private chat directly, which shows 「有什么想聊的？」 when empty.
+1. After connecting, the app opens 「群聊」 (group chat), showing 「有什么想聊的？」 when empty. Without `@`, only Muse (main) answers. Use `@` to the left of the input to choose another member.
 2. In the input field with the「消息」placeholder, enter a short, verifiable request, such as a question whose answer you already know.
-3. Tap the send arrow on the right of the input field. Your message bubble appears and the right-hand button becomes a stop square. Tap the top-right gear for Space Settings, then 「动态与审批」 to view detailed execution status in the session panel.
+3. Tap the send arrow on the right of the input field. Your message bubble appears and the right-hand button becomes Stop. Replies show their actual member avatar. The group top-right opens Group Information; private chats instead open the member’s Space Settings. Group file operations show a pending-approval entry when waiting for your decision.
 4. Wait for the assistant reply. A real reply streams into the chat page; if the model calls tools, their status appears in tool cards or the session panel's activity view.
 
-If the chat page reports that the model is not configured, the connection is offline, or reauthentication is required, diagnose it with the [FAQ](troubleshooting.md) instead of repeatedly resending the same message. For attachments, see [Attachments, files, and approvals](files-and-approvals.md#send-attachments). For stopping a run, resynchronizing, and unknown-result handling, see [Conversations and spaces](conversations-and-spaces.md#send-and-stop-conversations).
+If the chat page reports that the model is not configured, the connection is offline, or reauthentication is required, diagnose it with the [FAQ](troubleshooting.md) instead of repeatedly resending the same message. The group currently sends text only. Open private chat from a member profile for attachments; see [Attachments, files, and approvals](files-and-approvals.md#send-attachments). For stopping a run, resynchronizing, and unknown-result handling, see [Conversations and spaces](conversations-and-spaces.md#send-and-stop-conversations).
 
 ## Network Security Boundaries {#network-security-boundaries}
 

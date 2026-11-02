@@ -92,6 +92,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
         }
       }
       await dependencies.communication.removeDiscussions(spaceId);
+      await dependencies.group.removeSpace(spaceId);
 
       // 6. 反馈与会话同生命周期；旧 sessionId 文件删除，不能迁移到 reset 后的新会话
       await messageFeedbackRepository.removeSpace(spaceId);
@@ -299,6 +300,8 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
       await messageFeedbackRepository.removeSpace(spaceId);
       await dependencies.features.clearConversationLinks(spaceId);
       await information.removeSpace(spaceId);
+      await dependencies.communication.removeDiscussions(spaceId);
+      await dependencies.group.removeSpace(spaceId);
       await rm(spaceDir, { recursive: true, force: true });
       await rm(threadWorkspaceDir(layout, spaceId), { recursive: true, force: true });
       return c.json({ ok: true, removed: { jobs: removedJobs, monitors: removedMonitors } });

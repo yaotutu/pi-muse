@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isSpaceId } from "../conversation/space-id.js";
 import type { ConversationHub } from "../conversation/conversation-hub.js";
 import type { ConversationHistory } from "../conversation/types.js";
+import type { ExecutionEvent } from "../conversation/types.js";
 import { FEATURE_NAMES, featureForSpace } from "../feature-spaces/types.js";
 
 export class SpaceCommunicationError extends Error {
@@ -32,6 +33,8 @@ export type SpaceRequestExecution = Required<Omit<SpaceRequest, "context">> & {
   sourceDiscussionId?: string;
   signal: AbortSignal;
   approvalOwner: { spaceId: string; runId: string };
+  group?: boolean;
+  onEvent?: (event: ExecutionEvent) => void;
 };
 export type SpaceDiscussionHistory = { spaceId: string; discussionId: string; messages: ConversationHistory };
 export type SpaceCommunicationRunner = {
@@ -43,13 +46,19 @@ export type SpaceCaller = {
   sessionId: string;
   discussionId?: string;
   approvalOwner?: { spaceId: string; runId: string };
+  requestId?: string;
+  group?: boolean;
 };
 
 const validDiscussionId = (value: string) => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value);
 const invalid = () => new SpaceCommunicationError("INVALID_INPUT", "Invalid space communication request");
 
 /** 空间默认互信；此处只协调执行、回复关联和生命周期，不维护调用白名单或绑定权限。 */
-export const createSpaceCommunication = (deps: { hub: ConversationHub; runner: SpaceCommunicationRunner; timeoutMs: number }) => {
+export const createSpaceCommunication = (deps: { hub: ConversationHub; runner: SpaceCommunicationRunner; timeoutMs: number;
+  onStart?: (request: SpaceRequestExecution) => Promise<void>;
+  onFinish?: (receipt: SpaceRequestReceipt) => Promise<void>;
+  onEvent?: (requestId: string, event: ExecutionEvent) => void;
+}) => {
   const active = new Map<string, { sourceSpaceId: string; targetSpaceId: string; controller: AbortController; done: Promise<void> }>();
   const paused = new Map<string, number>();
   let closed = false;
@@ -84,7 +93,7 @@ export const createSpaceCommunication = (deps: { hub: ConversationHub; runner: S
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
     const timeout = setTimeout(abort, deps.timeoutMs);
-    const requestId = randomUUID();
+    const requestId = caller?.requestId ?? randomUUID();
     const sourceSessionId = caller?.sessionId ?? source.sessionId();
     const sourceDiscussionId = caller?.discussionId;
     let finish!: () => void;
@@ -92,10 +101,19 @@ export const createSpaceCommunication = (deps: { hub: ConversationHub; runner: S
     active.set(key, { sourceSpaceId: input.sourceSpaceId, targetSpaceId: input.targetSpaceId, controller, done });
     try {
       // 回复作为本次调用结果返回，绝不等待来源会话的通知队列，也不重新解析默认通知绑定。
-      const result = await deps.runner.run({ ...input, requestId, discussionId, sourceSessionId, sourceDiscussionId, signal: controller.signal,
-        approvalOwner: caller?.approvalOwner ?? { spaceId: input.sourceSpaceId, runId: requestId } }, input.discussionId !== undefined);
-      return { requestId, discussionId, sourceSpaceId: input.sourceSpaceId, sourceSessionId, ...(sourceDiscussionId ? { sourceDiscussionId } : {}), targetSpaceId: input.targetSpaceId,
+      const execution = { ...input, requestId, discussionId, sourceSessionId, sourceDiscussionId, signal: controller.signal, group: caller?.group,
+        onEvent: (event: ExecutionEvent) => deps.onEvent?.(requestId, event),
+        approvalOwner: caller?.approvalOwner ?? { spaceId: input.sourceSpaceId, runId: requestId } };
+      await deps.onStart?.(execution);
+      const result = await deps.runner.run(execution, input.discussionId !== undefined);
+      const receipt = { requestId, discussionId, sourceSpaceId: input.sourceSpaceId, sourceSessionId, ...(sourceDiscussionId ? { sourceDiscussionId } : {}), targetSpaceId: input.targetSpaceId,
         ...(controller.signal.aborted ? { status: "cancelled" as const, text: "Space request was cancelled" } : result) };
+      await deps.onFinish?.(receipt);
+      return receipt;
+    } catch (error) {
+      await deps.onFinish?.({ requestId, discussionId, sourceSpaceId: input.sourceSpaceId, sourceSessionId, targetSpaceId: input.targetSpaceId,
+        status: controller.signal.aborted ? "cancelled" : "failed", text: "Space request failed" });
+      throw error;
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", abort);

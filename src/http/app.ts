@@ -3,6 +3,7 @@ import { createFeatureRoutes } from "./routes/features.js";
 import { createSpaceCommunicationRoutes } from "./routes/space-communication.js";
 import { ConversationError } from "../features/conversation/errors.js";
 import { Hono } from "hono";
+import { createGroupChatRoutes } from "./routes/group-chat.js";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import type { HttpDependencies } from "../bootstrap/types.js";
@@ -119,6 +120,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/api/spaces", createInformationRoutes(dependencies));
   app.route("/api/spaces", createSpaceRoutes(dependencies));
   app.route("/api/members", createMemberRoutes(dependencies));
+  app.route("/api/group", createGroupChatRoutes(dependencies));
   app.route("/api/news", createNewsRoutes(dependencies));
   app.route("/api/features", createFeatureRoutes(dependencies));
   app.route("/api/space-communication", createSpaceCommunicationRoutes(dependencies));

@@ -1,3 +1,5 @@
+import { createGroupChat, type GroupChat } from "../features/group-chat/service.js";
+import { createGroupRepository } from "../adapters/storage/group-repository.js";
 import { createFeatureRepository } from "../adapters/storage/feature-repository.js";
 import { createSpaceCommunication, type SpaceCommunication } from "../features/space-communication/service.js";
 import { createSpaceCommunicationRunner } from "../adapters/pi/space-communication-runner.js";
@@ -128,6 +130,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const featureRepository = createFeatureRepository(join(layout.root, "features.json"));
   let features: FeatureService;
   let communication: SpaceCommunication;
+  let group: GroupChat;
   let information: Awaited<ReturnType<typeof createInformationService>> | undefined;
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
@@ -266,14 +269,16 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     enabledSkillTexts: createInformationSkillTextReader(skills),
   });
   features = createFeatureService({ repository: featureRepository, hub: conversationHub, information, feedback: messageFeedbackRepository });
+  const communicationRunner = createSpaceCommunicationRunner(() => ({
+    config, layout, modelRuntime, memory, jobs, goals, actions, monitors, web, weather, browser, skills,
+    actionTimeoutMs: config.writable.actionTimeoutMs, presentation, workspaceCommits, information, features, communication,
+  }));
   communication = createSpaceCommunication({
-    hub: conversationHub,
-    timeoutMs: config.runTimeoutMs,
-    runner: createSpaceCommunicationRunner(() => ({
-      config, layout, modelRuntime, memory, jobs, goals, actions, monitors, web, weather, browser, skills,
-      actionTimeoutMs: config.writable.actionTimeoutMs, presentation, workspaceCommits, information, features, communication,
-    })),
+    hub: conversationHub, timeoutMs: config.runTimeoutMs, runner: communicationRunner,
+    onStart: (request) => group.start(request), onFinish: (receipt) => group.finish(receipt),
+    onEvent: (id, event) => group.event(id, event),
   });
+  group = createGroupChat({ repository: createGroupRepository(join(layout.root, "group.json")), communication, history: communicationRunner.history });
   const informationScheduler = createInformationScheduler(information);
   const news = createNewsService({
     repository: newsRepository,
@@ -302,7 +307,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
 
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
   try {
-    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate(), featureRepository.read()]);
+    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate(), featureRepository.read(), group.initialize()]);
     await actions.cancelPending();
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
@@ -391,7 +396,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     enabled: config.browser.enabled,
     desktopPort: config.browser.desktopPort,
   });
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, communication, browser, browserDesktop, messageFeedbackRepository };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, communication, group, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。

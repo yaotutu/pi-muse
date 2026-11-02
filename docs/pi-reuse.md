@@ -28,6 +28,8 @@
 
 自动压缩已开启，模型/工具自动重试关闭（`retry.enabled: false`）。显式用户重试与 pi context edit 不是自动重试，也不恢复未完成执行；具体规则见架构与生成契约。
 
+默认群聊同样复用上述独立讨论和 SDK 流事件，不新建 agent loop；每个成员的群讨论与私聊隔离。业务 JSON 只索引投递关系，群消息正文和工具事实仍以对应 pi JSONL 为准，整个群的展示历史不注入任何成员上下文。
+
 ## 主要源码落点
 
 - `src/bootstrap/create-service.ts`：唯一 `ModelRuntime`、provider 与内存凭据的初始化；不同 thread 共享 runtime，不共享执行锁和上下文。
