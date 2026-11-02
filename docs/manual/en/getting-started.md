@@ -98,7 +98,7 @@ While testing or verifying before a save, close the panel to cancel without savi
 
 ## Send a Message and Receive a Reply {#send-first-real-reply}
 
-1. Open 「消息」 and tap Muse to enter its private chat, which shows 「有什么想聊的？」 when empty.
+1. After connecting, the app opens Muse private chat directly, which shows 「有什么想聊的？」 when empty.
 2. In the input field with the「消息」placeholder, enter a short, verifiable request, such as a question whose answer you already know.
 3. Tap the send arrow on the right of the input field. Your message bubble appears and the right-hand button becomes a stop square. Tap the top-right activity button to view detailed execution status in the session panel.
 4. Wait for the assistant reply. A real reply streams into the chat page; if the model calls tools, their status appears in tool cards or the session panel's activity view.

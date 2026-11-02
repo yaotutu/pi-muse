@@ -1,6 +1,6 @@
 # News Reading
 
-News is an independent reading view, not a chat space, and it has no dedicated chat box. The bottom 「News」 entry opens recommended and all-article timelines. The server reuses the existing information processing and model runtime internally; it does not add a separate recommendation engine.
+The News member has its own private chat and reading view. Select News in the conversation list, then tap 「阅读新闻」 at the upper right of its chat to open recommended and all-article timelines; its profile also has a reading entry. The reader has no chat box or bottom tab. Back returns to the chat or profile that opened it. The server reuses the existing information processing and model runtime internally; it does not add a separate recommendation engine.
 
 ## Reading and Filtering {#reading}
 

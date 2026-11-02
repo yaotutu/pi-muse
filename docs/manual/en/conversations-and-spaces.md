@@ -6,11 +6,11 @@ This page covers daily chat, switching spaces, message feedback, stopping runs, 
 
 - The server is connected as described in [Quick Start](getting-started.md#connect-mobile-client), and the connection status is 「已连接」.
 - An external model is configured. If the model is not configured, chat messages are rejected.
-- The bottom 「消息」 list opens private chats. Tap an avatar to view its member profile; use the activity button at the upper right of a chat for activity, approvals, and history.
+- Cold launch opens the Muse private chat directly, with no bottom navigation. The top-left arrow opens the single 「会话」 conversation list; avatars open member profiles. News chat has a reading button at the upper right; other chats show activity, approvals, and history there.
 
 ## Send and Stop Conversations {#send-and-stop-conversations}
 
-1. In 「消息」, tap a member row to open its private chat. To change it, follow “Manage spaces” first.
+1. Start in Muse private chat directly. For another member, use the top-left arrow to open 「会话」 and tap its row, or tap its avatar to open its profile.
 2. Enter text in the 「消息」 input field. To send an image or text file with this message, use the 「+」 button described in [the attachment guide](files-and-approvals.md#send-attachments).
 3. Tap the send arrow to the right of the input field. The visible success signal is your message entering the chat list and the right-hand button becoming a stop square. Detailed execution status is available in the session panel.
 4. The reply streams into the page. When the model calls tools, progress appears in message tool cards or the session panel's 「动态」 view.
@@ -38,8 +38,8 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 
 ## Manage Members and Spaces {#manage-spaces}
 
-1. In 「消息」, tap a message row to open its private chat, or tap the avatar to open its profile first. In 「成员」, rows open profiles. The chat's top-left arrow returns to messages, not a sidebar.
-2. Profiles contain 「发消息」, files, dedicated rules, skills, session management, activity, and approvals. News and SMS have their own feature settings. Global settings are behind the gear at the top of the message/member list.
+1. Use the single 「会话」 list: rows open private chats, avatars open profiles. The bottom-right Muse avatar explicitly selects main, not the last chat. The chat's top-left arrow returns to this list, not a sidebar.
+2. Profiles contain 「发消息」, files, dedicated rules, skills, session management, activity, and approvals. News and SMS have their own feature settings. Global settings are behind the gear at the top right of the conversation list. Profiles return to the chat or list they came from; the News reader returns to its originating chat or profile. Foreground resume preserves the current page rather than jumping to Muse.
 3. Search locally by display name or Space ID. Use the plus button to add an ordinary member. Its first message or saved rules/skills establishes the Space on the server; an unwritten empty entry lasts only for the current connection.
 4. Built-in names are Muse, News, and SMS. Other members use connection-local labels such as 「成员 1」. Persistent renaming and custom avatars are not available.
 
@@ -62,7 +62,7 @@ Space rules are limited to 20,000 characters. On Back, keep drafts for this conn
 
 Open News or SMS settings from its member profile. Each has its own Space for originals, processing records, preferences, and private-chat history. Background notifications still default to main (`local-main`); selecting a private chat does not change the binding.
 
-1. Open 「设置」, then choose 「新闻」 (News) or 「短信」 (SMS) in the 「功能」 group.
+1. Open the News or SMS member profile, then its feature settings.
 2. Check 「交互承接空间」 (Interaction space). Use 「更换承接空间」 to choose an ordinary space already established on the server. Unsaved local empty spaces are not candidates.
 3. A change affects only newly accepted background runs and newly started discussions. In-flight accepted runs keep their previous target. No feature data, preferences, or chat history moves; old messages retain their feature source. If saving has an unknown outcome, use 「刷新核对」 before another change; nothing is automatically resent.
 4. See [News reading](news.md) for reading, RSS, and preferences. Manage SMS in its feature details, not in per-space settings.
