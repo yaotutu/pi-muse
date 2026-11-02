@@ -53,7 +53,8 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
 
     // 暂停屏障覆盖完整锁窗口，避免两次 cancel 之间又启动新后台轮。
     const pause = information.pauseSpace(spaceId);
-    await pause.stopped;
+    const communicationPause = dependencies.communication.pauseSpace(spaceId);
+    await Promise.all([pause.stopped, communicationPause.stopped]);
     try {
       return await conversationHub.resetSpace(spaceId, async ({ closeCurrent, reopen }) => {
       // 1. 记录重置前归属于该空间的待审批项 ID，用于准确统计作废项
@@ -90,6 +91,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
           }
         }
       }
+      await dependencies.communication.removeDiscussions(spaceId);
 
       // 6. 反馈与会话同生命周期；旧 sessionId 文件删除，不能迁移到 reset 后的新会话
       await messageFeedbackRepository.removeSpace(spaceId);
@@ -124,6 +126,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
       });
     } finally {
       pause.resume();
+      communicationPause.resume();
     }
   });
 
@@ -274,7 +277,8 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
 
     // 删除全程暂停信息后台，且不在 hub 锁内等待 retain。
     const pause = information.pauseSpace(spaceId);
-    await pause.stopped;
+    const communicationPause = dependencies.communication.pauseSpace(spaceId);
+    await Promise.all([pause.stopped, communicationPause.stopped]);
     try {
       return await conversationHub.deleteSpace(spaceId, async () => {
       await dependencies.features.assertCanDelete(spaceId);
@@ -298,6 +302,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
       });
     } finally {
       pause.resume();
+      communicationPause.resume();
     }
   });
 

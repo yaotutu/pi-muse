@@ -68,6 +68,16 @@ Open the single 「设置」 (Settings) entry in the upper-left space sidebar, t
 3. A change affects only newly accepted background runs and newly started discussions. In-flight accepted runs keep their previous target. No feature data, preferences, or chat history moves; old messages retain their feature source. If saving has an unknown outcome, use 「刷新核对」 before another change; nothing is automatically resent.
 4. See [News reading](news.md) for reading, RSS, and preferences. Manage SMS in its feature details, not in per-space settings.
 
+### Ask Another Space to Handle a Task {#space-communication}
+
+In the current chat, explicitly ask the assistant to hand a parcel-message lookup to the SMS feature, or ask another space to handle a task. The assistant can discover existing spaces, execute the request in an independent discussion owned by the target, and bring its reply back. Main is not the only entry point: feature spaces can also ask other spaces for help. Project spaces trust each other by default; no notification rebinding or additional per-call space authorization is required.
+
+The target uses its own rules, skills, workspace, and existing information, without automatically copying either primary chat history. Follow-ups can continue the same discussion. If the target asks for clarification, answer that question before continuing; no model remains running while waiting for the user. Disabling automatic SMS processing does not prevent querying already ingested data, but it does not import the phone's historical inbox.
+
+Request replies return to their caller; only unsolicited background notifications use the configured interaction space. Stopping the current run cancels its associated requests. Failures are not automatically retried, and completed side effects are not rolled back. Resetting the target clears its discussions. Resetting the source does not delete another space's discussions or deliver old replies into the new session.
+
+Currently this is tool-based collaboration through the existing chat. Notification-card continuation, a dedicated discussion screen, and a fixed input-target indicator are not available yet. Ordinary input is still interpreted by the current conversation first; feedback comments are not task execution.
+
 ### SMS Processing {#sms-processing}
 
 1. Open 「设置」 → 「短信」 and enable 「启用短信处理」 (off initially). Save filtering guidance, such as notifying about important bills while keeping marketing silent.

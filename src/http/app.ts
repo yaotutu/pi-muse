@@ -1,5 +1,6 @@
 import { FeatureError } from "../features/feature-spaces/types.js";
 import { createFeatureRoutes } from "./routes/features.js";
+import { createSpaceCommunicationRoutes } from "./routes/space-communication.js";
 import { ConversationError } from "../features/conversation/errors.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -131,6 +132,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/api/spaces", createSpaceRoutes(dependencies));
   app.route("/api/news", createNewsRoutes(dependencies));
   app.route("/api/features", createFeatureRoutes(dependencies));
+  app.route("/api/space-communication", createSpaceCommunicationRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);
   app.all("/api/*", (c) =>

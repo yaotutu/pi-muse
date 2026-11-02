@@ -66,6 +66,16 @@ export const spaceSessionsDir = (layout: DataLayout, spaceId: string) =>
   join(layout.sessionsDir, spaceId);
 export const threadSessionsDir = spaceSessionsDir;
 
+/** 跨空间讨论归目标空间所有；与该空间主聊天的 JSONL 分开，reset/delete 一并清理。 */
+export const spaceDiscussionsDir = (layout: DataLayout, spaceId: string) => {
+  if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
+  return join(spaceSessionsDir(layout, spaceId), "discussions");
+};
+export const spaceDiscussionDir = (layout: DataLayout, spaceId: string, discussionId: string) => {
+  if (!/^[a-f0-9-]{36}$/.test(discussionId)) throw new Error("Invalid discussionId");
+  return join(spaceDiscussionsDir(layout, spaceId), discussionId);
+};
+
 /** 反馈按空间和 PI session 双重隔离；reset 后旧 session 文件不再可寻址。 */
 export const messageFeedbackFile = (layout: DataLayout, spaceId: string, sessionId: string): string => {
   if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId / Invalid threadId");

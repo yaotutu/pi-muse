@@ -53,6 +53,7 @@ pnpm test:live --config <path> --allow-live [--keep-artifacts]  # 显式真实�
 node --import tsx tests/live/skill-authoring.ts --config <path> --allow-live --keep-artifacts
 node --import tsx tests/live/information.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/news.ts --config <path> --allow-live [--keep-artifacts] [--allow-private-targets]
+node --import tsx tests/live/space-communication.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/space-tool-scope.ts --config <path> --allow-live
 node --import tsx tests/live/space-prompt-scope.ts --config <path> --allow-live --scenario prompt
 node --import tsx tests/live/space-prompt-scope.ts --config <path> --allow-live --scenario dream
@@ -106,6 +107,12 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 - 覆盖源添加、重复 refresh 不重复接纳、cold start、结构化推荐与 reason、全部/推荐/收藏筛选、逐篇喜欢/不喜欢/评论/收藏、反馈进入下一轮模型输入与 learnedNotes、删除源保留文章和反馈、内部空间不出现在公开列表且主聊天 revision 不变、重启后源/文章/反馈/偏好恢复。
 - 以真实 RSS HTTP、后端 repository/API 状态、真实代理 tool call/result 与重启回读为证据；失败不自动重试模型。纯解析、存储和路由边界可用合成 XML/本地 HTTP 另做聚焦回归，但不能替代本项真实公网与模型验收。
 - `--allow-private-targets` 是 news live 脚本专属选项，默认 `false`，重复传入会拒绝。仅当本机 DNS 对公网域名返回 198.18 Fake-IP、需要在 loopback 隔离实例中抓取真实 RSS 时显式启用；共享 live options、生产配置和默认 SSRF 防护均不改变。输出必须如实说明该网络例外。
+
+### `tests/live/space-communication.ts`
+
+- 显式授权后仅读取配置的 model，启动隔离真实 HTTP 后端与真实模型透明代理；不读取真实短信，不修改正式空间或功能设置。
+- 覆盖普通/功能空间双向请求、目标信息工具、主聊天上下文不混入、连续追问与重启恢复、通知改绑不改变回复去向、主模型真实 space 工具、来源审批与目标技能开关分离，以及同讨论 busy、HTTP 断开/父 Stop/reset/delete/关闭取消和不复活。
+- 慢 HTTP fixture 是实际可取消网络请求，模型仍为外部真实模型。隔离实例仅为该 fixture 显式开启 web 私网访问；生产默认不变。每项逐条记录，不自动重试；使用 `--keep-artifacts` 保留脱敏 summary 与合成 pi 历史。
 
 ### `pnpm check`
 

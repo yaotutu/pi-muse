@@ -2,7 +2,7 @@
 
 本文是职责边界、状态所有权、生命周期、数据与权限细则的维护位置。修改业务、存储、权限或 pi 集成前必读；全局底线见 [AGENTS.md](../AGENTS.md)，测试与 API 交付分别见 [测试规范](testing.md)和 [API 开发规范](api-development.md)。当前进度与历史验收不在本文维护。
 
-> 后续产品设计见 [功能模块、独立 Space 与交互承接空间的关系](discussions/feature-spaces-and-main.md)：默认由 main 承接，后续可显式更换承接空间；核心关系已确认，实施待授权、待验收。下文仍描述当前实现，不能把现有普通空间 information 与新闻推荐模式视作该方案已落地。
+> 产品关系见 [功能模块、独立 Space 与交互承接空间的关系](discussions/feature-spaces-and-main.md)。Feature 独立存储与可更换的通知承接空间已实现；默认互信的空间请求与独立讨论按 REQ-016 分批实施，验收状态见需求池，不将后续讨论 UI 当作已有功能。
 
 ## 职责边界
 
@@ -52,6 +52,16 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - memory/identity 共用一个 repository 与完整读改写队列；其他持久域各有唯一 repository，同一文档不得在路由或工具中另开 writer。
 - 用户会话缓存达到软上限后，只在后续获取时回收已闲置至少五分钟的非主会话，不回收运行中会话。软上限不是严格并发配额；会话列表活动时间取 JSONL 文件 mtime，不能取目录 mtime。
 - `SOUL.md`、`USER.md`、identity 设置与会话 `INSTRUCTIONS.md` 每轮重读注入；`memory.json` 作为沉淀库按需由 `memory_search` 检索，且只在 memory 工具实际可用时提示条数与检索入口，不再全量拼入。长期目标不自动注入普通 prompt，启用 goal 工具时仅说明可按需查询全局目标。长期记忆可通过对话工具、HTTP 管理接口或受限的 Dream 后台整理写入（上限 500 条，满额拒绝新增而不静默截断）；会话指令与 Dream 提示词不能扩大工具、文件或审批权限。
+
+## 空间通信与独立讨论
+
+- `features/space-communication` 统一协调空间发现、请求、原路回复与生命周期；模型 `space` 工具和 HTTP 复用同一实例。内部空间默认互信，不增加调用白名单、绑定授权或仅 main 可调用的限制；普通空间与新闻/短信空间均可发起和接收请求。
+- 请求由目标空间的独立讨论执行，使用目标的规则、技能、文件工具根和已有信息；后台自动处理关闭不阻止用户主动查询已有信息。两边的主聊天历史不自动带入，必要背景由调用方显式传递。已有鉴权、凭据保护、文件路径与模型写入审批仍生效。
+- 每个事项对应一个 discussionId，目标 `sessions/<spaceId>/discussions/<discussionId>/` 下的 pi JSONL 是正文、工具和请求/结果关联的唯一事实来源，不建第二份聊天库。后续轮显式沿用 discussionId；同一讨论运行中返回 BUSY，不排可靠队列，不自动续跑或重试。
+- 请求回复直接返回原调用，不等待来源 conversation 的通知队列，不额外启动来源模型、不写入双方主聊天。通知绑定仅决定后台主动通知的落点，与请求可达性和回复地址无关。completed 只表示本次模型轮完成，回复可能是澄清问题；交给用户回答后再发下一轮，不让模型猜用户选择。
+- 跨空间执行产生的文件审批归原调用空间/运行，预览中的 workspaceSpaceId/ownerSpaceId 保持实际目标空间，用户可在来源会话查看并决定；下游继续请求沿用同一审批归属。普通文件仍只能写执行空间工具根，不能因回传审批而写入来源工作区。
+- Stop/调用方断开、超时和服务关闭取消请求及其下游工具。reset/delete 先暂停涉及该空间的来源和目标执行；目标 reset 清理自己全部讨论，delete 随空间删除；来源 reset 不删除其他目标已有讨论，但旧请求不会投递到来源新会话。已有副作用不因取消回滚，不重放未明写入。
+- 第一批复用现有聊天工具展示，不提供来源卡片「继续处理」、独立讨论原生页或输入目标标签；这些仍在 REQ-016 后续范围。评论反馈不自动触发空间任务。
 
 ## 消息业务层与反馈
 
@@ -177,7 +187,8 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 
 | 路径 | 内容 |
 | --- | --- |
-| `sessions/<threadId>/*.jsonl` | pi 历史唯一权威来源 |
+| `sessions/<threadId>/*.jsonl` | 空间主聊天的 pi 历史唯一权威来源 |
+| `sessions/<spaceId>/discussions/<discussionId>/*.jsonl` | 目标空间独立讨论的 pi 正文、工具事实及请求关联；不进入主聊天列表，目标 reset/delete 清理 |
 | `messages/<spaceId>/<sessionId>.json` | Pi Muse 消息反馈原始事件；正文仍在上方 PI JSONL |
 | `information/<spaceId>.json` | 空间局部信息设置、偏好 notes、原始条目、模型决策与发布溯源；reset 保留，delete 级联删除 |
 | `news.json` | RSS 源配置、最近抓取时间和受控错误；删除源不改写已接纳文章与反馈 |

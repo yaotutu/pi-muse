@@ -1,4 +1,5 @@
 import { FEATURE_TOOL_INSTRUCTIONS } from "./tools/feature.js";
+import { SPACE_TOOL_INSTRUCTIONS } from "./tools/space.js";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
@@ -86,6 +87,11 @@ export type PiDeps = {
   workspaceCommits?: WorkspaceCommitQueue;
   /** 普通聊天的空间局部信息查询；后台信息 runner 不装配该入口。 */
   features?: import("../../features/feature-spaces/service.js").FeatureService;
+  communication?: import("../../features/space-communication/service.js").SpaceCommunication;
+  /** 业务空间中的独立讨论；即使后台自动处理关闭，仍可主动查询本空间已有信息。 */
+  communicationDiscussion?: string;
+  /** 跨空间写入的审批回到原调用者；工作区与实际文件版本仍属于执行空间。 */
+  communicationOwner?: { spaceId: string; runId: string };
   information?: Pick<import("../../features/information/service.js").InformationService, "getSettings" | "query">;
 };
 
@@ -213,8 +219,14 @@ export async function openPi(deps: PiDeps) {
     skillsService: skills,
     writableEnabled: deps.config.writable.enabled,
     workspaceCommits: deps.workspaceCommits,
-    information: informationEnabled ? deps.information : undefined,
+    information: informationEnabled || Boolean(deps.communicationDiscussion) ? deps.information : undefined,
     features: !child ? deps.features : undefined,
+    communication: !child ? deps.communication : undefined,
+    approvalOwner: deps.communicationOwner ?? (deps.runId ? { spaceId: child?.ownerSpaceId ?? deps.spaceId, runId: child?.ownerRunId ?? deps.runId } : undefined),
+    communicationCaller: {
+      sessionId: sessionManager.getSessionId(), discussionId: deps.communicationDiscussion,
+      approvalOwner: deps.communicationOwner ?? (deps.runId ? { spaceId: deps.spaceId, runId: deps.runId } : undefined),
+    },
   });
 
   const builtinToolNames = new Set(registeredToolNames);
@@ -372,6 +384,8 @@ export async function openPi(deps: PiDeps) {
   ) +
     (informationEnabled ? INFORMATION_BACKGROUND_SYSTEM_PROMPT : "") +
     (!child && deps.features ? `\n## Feature interactions\n${FEATURE_TOOL_INSTRUCTIONS}\n` : "") +
+    (!child && deps.communication ? `\n## Space communication\nCurrent space: ${deps.spaceId}.\n${SPACE_TOOL_INSTRUCTIONS}\n` : "") +
+    (deps.communicationDiscussion ? "\nThis is a separate discussion owned by this space, not its primary chat. Use this space's rules, tools, workspace and information. Answer the caller here; do not send a notification just to return the result. A completed turn may ask the user a question; never invent missing user choices.\n" : "") +
     (allowedToolNames.includes(ACTIVITY_TOOL_NAME)
       ? `\n\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}`
       : "") +

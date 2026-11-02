@@ -1,4 +1,6 @@
 import { createFeatureRepository } from "../adapters/storage/feature-repository.js";
+import { createSpaceCommunication, type SpaceCommunication } from "../features/space-communication/service.js";
+import { createSpaceCommunicationRunner } from "../adapters/pi/space-communication-runner.js";
 import { createFeatureService, type FeatureService } from "../features/feature-spaces/service.js";
 import { FEATURE_SPACES, featureForSpace, isFeatureSpace } from "../features/feature-spaces/types.js";
 import { join } from "node:path";
@@ -125,6 +127,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const newsRepository = createNewsRepository(layout.newsFile);
   const featureRepository = createFeatureRepository(join(layout.root, "features.json"));
   let features: FeatureService;
+  let communication: SpaceCommunication;
   let information: Awaited<ReturnType<typeof createInformationService>> | undefined;
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
@@ -210,6 +213,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             workspaceCommits,
             information,
             features,
+            communication,
           }),
           manager,
         ),
@@ -262,6 +266,14 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     enabledSkillTexts: createInformationSkillTextReader(skills),
   });
   features = createFeatureService({ repository: featureRepository, hub: conversationHub, information, feedback: messageFeedbackRepository });
+  communication = createSpaceCommunication({
+    hub: conversationHub,
+    timeoutMs: config.runTimeoutMs,
+    runner: createSpaceCommunicationRunner(() => ({
+      config, layout, modelRuntime, memory, jobs, goals, actions, monitors, web, weather, browser, skills,
+      actionTimeoutMs: config.writable.actionTimeoutMs, presentation, workspaceCommits, information, features, communication,
+    })),
+  });
   const informationScheduler = createInformationScheduler(information);
   const news = createNewsService({
     repository: newsRepository,
@@ -379,7 +391,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     enabled: config.browser.enabled,
     desktopPort: config.browser.desktopPort,
   });
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, browser, browserDesktop, messageFeedbackRepository };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, communication, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
@@ -387,7 +399,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     clearInterval(approvalTimer);
     // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
     workspaceEvents.close();
-    const stopped = [scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), conversationHub.closeAll()];
+    const stopped = [scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), communication.close(), conversationHub.closeAll()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);

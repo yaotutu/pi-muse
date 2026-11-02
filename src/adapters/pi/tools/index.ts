@@ -1,4 +1,5 @@
 import { createFeatureTool } from "./feature.js";
+import { createSpaceTool } from "./space.js";
 import type { MemoryService } from "../../../features/memory/memory-service.js";
 import type { JobService } from "../../../features/jobs/job-service.js";
 import type { GoalService } from "../../../features/goals/goal-service.js";
@@ -50,6 +51,9 @@ type ToolDependencies = {
   browser?: BrowserService;
   layout?: DataLayout;
   features?: Pick<import("../../../features/feature-spaces/service.js").FeatureService, "query">;
+  communication?: import("../../../features/space-communication/service.js").SpaceCommunication;
+  approvalOwner?: { spaceId: string; runId: string };
+  communicationCaller?: import("../../../features/space-communication/service.js").SpaceCaller;
   information?: Pick<import("../../../features/information/service.js").InformationService, "query">;
   sharedDir?: string;
   readOnlyFiles?: readonly ReadOnlyFile[];
@@ -78,6 +82,7 @@ export const skillToToolsMap: Record<string, string[]> = {
 };
 
 const registrations = [
+  { names: ["space"], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.communication && deps.spaceId ? [createSpaceTool(deps.communication, deps.spaceId, deps.communicationCaller)] : [] },
   { names: ["feature"], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.features && deps.spaceId ? [createFeatureTool(deps.features, deps.spaceId)] : [] },
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
   { names: [INFORMATION_TOOL_NAME], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.information && deps.spaceId ? [createInformationTool(deps.information, deps.spaceId)] : [] },
@@ -92,7 +97,7 @@ const registrations = [
   {
     names: ["write", "edit"],
     create: (deps: ToolDependencies) =>
-      deps.actions && deps.writableEnabled !== false ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { spaceId: deps.spaceId, runId: deps.runId, subagentId: deps.subagentId, workspaceSpaceId: deps.workspaceSpaceId ?? deps.spaceId, activityId: deps.currentActivityId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation, deps.workspaceCommits) : [],
+      deps.actions && deps.writableEnabled !== false ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { spaceId: deps.approvalOwner?.spaceId ?? deps.spaceId, runId: deps.approvalOwner?.runId ?? deps.runId, subagentId: deps.subagentId, workspaceSpaceId: deps.workspaceSpaceId ?? deps.spaceId, activityId: deps.currentActivityId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation, deps.workspaceCommits) : [],
   },
   {
     names: ["skills"],
@@ -105,6 +110,7 @@ const registrations = [
         saveEnabled: deps.writableEnabled !== false,
         spaceId: deps.spaceId,
         runId: deps.runId,
+        approvalOwner: deps.approvalOwner,
         observation: deps.activityObservation,
       })]
       : [],

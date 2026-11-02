@@ -31,6 +31,8 @@ export type SkillsToolDependencies = {
   saveEnabled: boolean;
   spaceId?: string;
   runId?: string;
+  /** 跨空间调用仅改变审批归属，技能查询仍使用实际执行空间。 */
+  approvalOwner?: { spaceId: string; runId: string };
   observation?: ActivityApprovalObservation;
 };
 
@@ -106,6 +108,7 @@ export const createSkillsTool = ({
   saveEnabled,
   spaceId,
   runId,
+  approvalOwner,
   observation,
 }: SkillsToolDependencies) => defineTool({
   name: "skills",
@@ -206,7 +209,7 @@ export const createSkillsTool = ({
       },
       timeoutMs,
       signal,
-      { spaceId, runId, toolCallId: _id, workspaceSpaceId: null } satisfies ApprovalContext,
+      { spaceId: approvalOwner?.spaceId ?? spaceId, runId: approvalOwner?.runId ?? runId, toolCallId: _id, workspaceSpaceId: null } satisfies ApprovalContext,
       observation ? (event) => observation.observe({
         ...event,
         id: `${observation.prefix}:${event.id}`,

@@ -11,6 +11,8 @@
 
 ## 当前复用清单
 
+空间通信同样复用 `openPi` 与持久化 `SessionManager`：每个讨论的 pi JSONL 放在目标空间 `sessions/<spaceId>/discussions/<discussionId>/`，不使用 subagent 临时上下文冒充持续讨论，不另写执行循环或第二份历史。上下文和工具装配归目标空间；返回原工具调用，不依赖来源主会话的通知写入锁。具体职责与取消见 [空间通信](architecture.md#空间通信与独立讨论)。
+
 | 能力 | 实际复用 | 本项目负责的边界 |
 | --- | --- | --- |
 | 模型配置与流解析 | `ModelRuntime`、SDK 模型调用与 pi-ai 流解析 | 单 endpoint/model，bootstrap 注册 provider 与内存 key，不把凭据写进历史 |

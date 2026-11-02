@@ -63,6 +63,7 @@ const expectedTools = [
   "search_web",
   "skills",
   "snapshot",
+  "space",
   "subagent",
   "tab",
   "web_fetch",
@@ -149,6 +150,8 @@ async function harness(
         baseUrl: model.baseUrl,
         id: "test-model",
         apiKey: "test-secret-model-key",
+        // 普通协议回归不依赖工具目录大小触发压缩；压缩专项仍显式覆盖窗口。
+        contextWindow: 128000,
         ...overrides.model,
       },
       // 卡片回归测试显式开启摘要；传 tools:{} 可覆盖生产的缺省隐藏策略。
