@@ -61,6 +61,8 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 
 Each member is an existing Space with independent private-chat history, workspace files, rules, and skill switches. IDs and existing data are not migrated. Assistant/user profiles, long-term memory, and skill assets remain instance-global. A member is not a separate account or an automatically distinct persona.
 
+Opening 「动态与审批」 from a member profile or Space Settings overlays that page and initially shows 「动态」 (Activity). Closing the panel with its close button or Android Back leaves you on the original profile or Space Settings, without entering private chat or changing that page's return destination. When the keyboard is open, Android Back dismisses it first.
+
 News and SMS support private chats. Opening a profile or chatting does not enable background processing, request SMS permissions, or change the notification recipient. Background notifications still default to main and can be rebound to an established ordinary Space. Private chats and cross-space discussions do not merge histories.
 
 The group row in the conversation list shows the latest message or feature notification with its sender, summary, and local time, updated through the same notification stream. Failed synchronization retains the old summary and shows a warning. Ordinary member rows still have no last-message previews, unread counts, or recency sorting. Explicit `@` selects a group target. A notification can open its receiving private chat, but direct targeted continuation inside the group is not available.

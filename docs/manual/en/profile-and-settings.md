@@ -7,6 +7,8 @@ This page explains the mobile client's assistant and user profiles, common appea
 - Complete the first connection as described in [Quick Start](getting-started.md#connect-mobile-client). Themes and app updates still work without a server connection, but profiles, memories, and Dream are unavailable.
 - Assistant and user profiles are stored on the server and shared by all spaces. Theme preference is stored only on this device.
 
+Profile, long-term memory, and Dream management pages share a fixed header: the title and 「返回设置」 (Back to Settings) stay visible while the form scrolls. The top-left arrow and Android Back return to the settings home, then to the conversation list. Android Back dismisses an open keyboard first. Leaving a page does not save or discard its drafts, nor does it unlock a write with an unknown result.
+
 ## Assistant and User Profile {#assistant-and-user-profile}
 
 1. Go to message list’s top-right 「设置」 → 「助手与个人资料」 → 「助手与用户资料」. After a successful read, the page shows 「助手设置」 and 「人设与资料」.
