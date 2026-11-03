@@ -154,6 +154,10 @@ export const sessionRequestSchema = z.object({
   accessKey: z.string().max(512).optional().describe("服务端配置了访问密钥时必填；回环默认部署可不填"),
 });
 const spaceIdSchema = z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
+export const createSpaceSchema = z.object({
+  // task- 目录属于内部任务，不进入成员目录，不能通过成员创建入口产生。
+  spaceId: z.string().refine((id) => isSpaceId(id) && !id.startsWith("task-"), "Invalid workspace spaceId"),
+}).strict();
 export const resetSpaceSchema = z.object({
   clearSchedules: z.boolean().optional().describe("是否同时清理该空间绑定的定时任务与监控；默认 false 保留并转绑新会话"),
 });

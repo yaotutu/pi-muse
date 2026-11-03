@@ -20,6 +20,7 @@ import {
   updateSpaceDreamSchema,
   resolveDreamPendingSchema,
   resetSpaceSchema,
+  createSpaceSchema,
 } from "../contracts/rest.js";
 import { UnknownSkillError } from "../../features/skills/service.js";
 import { FEATURE_IDS, FEATURE_NAMES, FEATURE_SPACES, isFeatureSpace } from "../../features/feature-spaces/types.js";
@@ -35,6 +36,20 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
   app.get("/", async (c) => {
     return c.json({
       spaces: (await conversationHub.spaces()).filter((space) => !isFeatureSpace(space.id)),
+    });
+  });
+
+  // 空成员也必须有真实目录；只用 hub 的既有创建入口，不伪造用户消息来迫使 PI 落盘。
+  // 同一 ID 的重复确认不会重置会话、规则或文件，结果未明可按该 ID 只读核对。
+  app.post("/", async (c) => {
+    const parsed = createSpaceSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success || isFeatureSpace(parsed.data.spaceId)) {
+      return c.json({ error: "Invalid workspace member", code: "INVALID_SPACE_ID" }, 400);
+    }
+    const spaceId = parsed.data.spaceId;
+    return conversationHub.withSpace(spaceId, async () => {
+      const space = (await conversationHub.spaces()).find((item) => item.id === spaceId)!;
+      return c.json({ space });
     });
   });
 

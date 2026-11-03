@@ -96,8 +96,13 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "listSpaces",
     method: "get", path: "/api/spaces", tag: "空间", summary: "列出空间（按活跃倒序）",
-    hint: "多空间入口：先取列表再选 spaceId 聊天；新空间无需显式创建（run、规则/技能保存或显式来源绑定时建立）。历史 GET 和迟到 Stop 不会建立空间。",
+    hint: "多空间入口：先取列表再选 spaceId 聊天；客户端添加成员通过 POST 显式创建，尚无消息也能持久显示。run、规则/技能保存或显式来源绑定仍可建立空间。历史 GET 和迟到 Stop 不会建立空间。",
     auth: true, response: resp.spacesResponse,
+  },
+  {
+    operationId: "createSpace", method: "post", path: "/api/spaces", tag: "空间", summary: "创建普通空间成员",
+    hint: "按客户端生成的 spaceId 建立真实空间，不触发模型或插入聊天消息。相同 ID 已存在时只返回当前绑定，不重置历史；禁止用此入口创建内置功能空间。结果未明时按原 ID 回读成员目录核对，不另造一个成员自动重试。",
+    auth: true, request: req.createSpaceSchema, response: resp.createSpaceResponse,
   },
   {
     operationId: "resetSpace",

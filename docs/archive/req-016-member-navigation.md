@@ -120,3 +120,14 @@
 - 同步主题指南及中英文群聊操作说明，手册构建、配对锚点与本地引用通过；实际渲染当前 `/docs` 群接口并留截图。浏览器插件缺少运行库，继续使用隔离 headless Chrome，不宣称操作了用户浏览器。服务端只有文档改动，没有重跑无关服务端全量业务门禁。
 
 本轮使用隔离 Android 模拟器安装既有 member-chat debug 包并加载当前 Metro JS；没有重打发行 APK、变更版本、签名、push 或发布，iOS 未验。模拟器启动曾出现系统 UI 无响应提示，选择等待后恢复；不能把该系统提示当成应用错误或掩盖后续原生验收。原生布局与主题的最终范围见工作区 `ui-previews/chat-rhythm/native-layout-results.json`；其他证据包括 `mobile-final-tests.log`、`native-tool-results.json`、`tool-results.json`、`live-results.json`、`model-traces.json`、`docs-render.json` 及截图。
+
+## 空成员持久创建修复（2026-11-03）
+
+客户端全功能走查后，首先修复「添加后不聊天，重启即消失」：加号通过鉴权的 `POST /api/spaces` 建立真实普通空间，成功才进入主页，移除连接内临时成员双轨。相同 ID 只确认已有空间，不重置历史、规则或文件；失败留在列表提示，响应未明只读回原 ID，手动重试保留该 ID，不自动重发。内置功能空间和内部 `task-` 前缀不得通过成员入口创建。
+
+- 移动端 lint、typecheck、678 项回归通过；服务端最终 `pnpm check` 的 679 项单元/集成、39 项进程 E2E、构建与 Web 构建通过。创建集成覆盖鉴权、非法 ID、空成员目录、重复创建不重置规则及真实服务关闭/重建后保留；移动端覆盖身份校验、响应丢失只读确认和取消不回读。
+- 当前源码隔离后端与 Android 原生验证：空成员未发消息即保留于客户端冷启动后的列表，立即可在通知承接、群成员与 `@` 候选中选择。两次原生定向发送各只接纳一次，并经真实外部模型完成；群消息未进入对应私聊。最终源码另核对非法 ID 均拒绝且未生成额外成员。
+- 真实暂停隔离后端后，在原生点击添加显示错误并留在列表，没有幽灵成员；恢复服务后没有自动重发，手动确认只建立一个空成员。恢复驱动首次过早检查主页而失败；已先回读确认唯一创建，再只读等待并验证同一个主页/列表，没有重放添加。首次开发刷新也曾保留旧 API 实例，冷启动后完成完整验收，不把开发驱动问题算成产品通过或掩盖。
+- 实际渲染当前 `/docs` 的成员创建接口并截图；中英文成员管理说明同步，手册构建、配对锚点、相对引用及差异检查通过。沿用 Android debug 包加载当前 JS，未重打发行包，iOS 未验；没有 push、发布或修改真实实例数据。
+
+证据位于工作区 `ui-previews/member-lifecycle/`：`server-final-check.log`、`docs-final-build.log`、`mobile-tests.log`、`native-result.json`、`native-final-result.json`、`create-recovery-result.json`、`model-traces-initial.json`、`model-traces-final.json`、`docs-render.json` 及原生截图。其余走查问题尚未实施，按需求池继续处理，不将本批修复表述为全部客户端优化完成。
