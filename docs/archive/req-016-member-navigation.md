@@ -93,3 +93,16 @@
 - 实际渲染当前 `/docs` 群接口并留截图；同步中英文操作说明，手册构建、配对锚点、相对引用和差异检查通过。服务端仅修改文档，本轮没有重跑无关完整服务端业务门禁。
 
 证据集中于工作区 `ui-previews/group-chat-polish/`，包括 `mobile-tests.log`、`live-results.json`、`native-results.json`、`layout-results.json`、`docs-render.json`、`manual-results.json` 和原生截图。真实后端与原生验收均非 mock；本轮没有 push 或发布。
+
+
+## 群聊行内提及（2026-11-03）
+
+按用户反馈取消消息气泡中独占一行的定向收件人：`@成员` 作为正文开头的嵌套原生 Text，用主题语义浅蓝底色、强调色和字重区分，长消息自然折行。用户消息与成员间请求都使用同一原则；Markdown 首段、标题可接收行内前缀，代码、表格等仍保留块级结构，前缀不写进原文或可复制代码。没有修改真实投递目标、上下文隔离或私聊外观。
+
+- 移动端 lint、typecheck、672 项回归通过，新增用户 Text 内联和成员 Markdown 前缀只出现在首段的结构回归；源码最终整理后完整重跑。
+- 重启当前源码隔离后端，真实外部模型共 8 次请求，完成 Android 显式短信消息、main 实际 space/request 转交与短信后续回复。原生发送只接纳一次；三方私聊没有本轮群消息，后续短信消息前后私聊快照一致。转交期间模型额外使用 feature/information 只读查询，无文件写入、规则修改或通知投递。
+- 真实委托的第一次验收断言要求模型原样保留 Markdown 加粗，模型转交时去掉了加粗而失败；核对已完成的同一委托后只回读，不重发。实际原生验证覆盖成员请求首段与目标共用 Text，不宣称该轮已验证模型输出的加粗前缀。结构回归覆盖 Markdown 渲染入口。
+- Android 加载当前 Metro JS，检查用户和成员定向消息的收件人与正文共用原生文本节点、三套主题以及 320dp/1.5 倍字体；恢复经典蓝白、原始尺寸和字体。沿用 debug 原生包，未重打发行 APK，未验 iOS。
+- 同步中英文用户手册与主题规范，手册构建、配对锚点及本地引用通过。实际渲染当前 `/docs` 群接口并截图；重启并发窗口内第一次浏览器等待超时，服务恢复后重跑通过。浏览器插件仍缺失运行库，使用隔离 headless Chrome，不冒充用户浏览器。
+
+本轮证据位于工作区 `ui-previews/group-chat-mentions/`，包括门禁日志、`live-results.json`、`model-traces.json`、`native-send-results.json`、`inline-native-results.json`、`layout-results.json`、`docs-render.json` 和原生截图。本轮没有修改真实实例数据、push 或发布。

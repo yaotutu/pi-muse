@@ -20,7 +20,7 @@ The group is not another Space: it displays group messages with their actual sen
 
 The current group supports text and tool-result display, not attachments, message feedback, notification-card continuation, or multiple groups. Use private chat for attachments and feedback. Background SMS alerts and News Discuss in Chat still enter the bound Space’s private chat, not the group. Existing histories and background notifications were not migrated.
 
-The group header does not cover messages. Member avatars sit to the left of replies, with names, text, and tool results aligned in one column. A directed `@member` appears inside its message. Tool results initially show a compact name and actual result status; tap the right-hand arrow to expand summaries and sources, then tap again to collapse. Stopped or failed labels stay below the affected reply, rather than collecting at the end of history.
+The group header does not cover messages. Member avatars sit to the left of replies, with names, text, and tool results aligned in one column. A directed `@member` appears inline at the start of its message, distinguished by background color and font weight, with long text wrapping naturally. Code blocks, tables, and other block content retain their layout. Tool results initially show a compact name and actual result status; tap the right-hand arrow to expand summaries and sources, then tap again to collapse. Stopped or failed labels stay below the affected reply, rather than collecting at the end of history.
 
 ## Send and Stop Conversations {#send-and-stop-conversations}
 
