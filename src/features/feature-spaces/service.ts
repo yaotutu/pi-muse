@@ -4,7 +4,7 @@ import type { InformationService } from "../information/service.js";
 import type { InformationFeedbackExample } from "../information/types.js";
 import { projectFeedback } from "../messages/service.js";
 import type { MessageFeedbackRepository } from "../messages/types.js";
-import { FEATURE_IDS, FEATURE_NAMES, FEATURE_SPACES, FeatureError, isFeatureId, isFeatureSpace, type FeatureId, type FeatureLink, type FeatureRepository, type FeatureSource } from "./types.js";
+import { FEATURE_IDS, FEATURE_NAMES, FEATURE_SPACES, FeatureError, isFeatureId, isFeatureSpace, type FeatureId, type FeatureLink, type FeatureNotification, type FeatureRepository, type FeatureSource } from "./types.js";
 
 export const createFeatureService = (deps: { repository: FeatureRepository; hub: ConversationHub; information: InformationService; feedback: MessageFeedbackRepository }) => {
   const requireId = (id: string): FeatureId => { if (!isFeatureId(id)) throw new FeatureError("NOT_FOUND", "Feature not found"); return id; };
@@ -12,6 +12,24 @@ export const createFeatureService = (deps: { repository: FeatureRepository; hub:
   const list = async () => {
     const state = await deps.repository.read();
     return { features: FEATURE_IDS.map((id) => ({ id, name: FEATURE_NAMES[id], targetSpaceId: state.bindings[id] })) };
+  };
+  const notifications = async (): Promise<FeatureNotification[]> => {
+    // 直接读取当前 PI marker，避免通知落盘事件早于 features.json 关联提交时漏展示。
+    // 普通私聊、工具与无来源通知一律不返回；不复制历史、不改变绑定、不触发模型。
+    const spaces = (await deps.hub.spaces()).filter((space) => !isFeatureSpace(space.id));
+    const groups = await Promise.all(spaces.map(async (space) => {
+      const conversation = await deps.hub.findSpace(space.id);
+      if (!conversation) return [];
+      const snapshot = await conversation.snapshot();
+      return snapshot.messages.flatMap((message): FeatureNotification[] => {
+        const metadata = message.metadata;
+        if (message.role !== "assistant" || metadata?.source !== "notification" || !metadata.notificationId || !metadata.featureSource) return [];
+        return [{ id: metadata.notificationId, featureId: metadata.featureSource.featureId,
+          targetSpaceId: space.id, sessionId: snapshot.sessionId, messageId: message.id,
+          createdAt: metadata.createdAt, content: message.content }];
+      });
+    }));
+    return groups.flat().sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
   };
   const bind = async (rawId: string, spaceId: string) => {
     const id = requireId(rawId);
@@ -79,6 +97,6 @@ export const createFeatureService = (deps: { repository: FeatureRepository; hub:
     }
     return examples;
   };
-  return { list, bind, targetFor, assertCanDelete, recordDelivery, clearConversationLinks, discussNews, query, feedbackExamples };
+  return { list, notifications, bind, targetFor, assertCanDelete, recordDelivery, clearConversationLinks, discussNews, query, feedbackExamples };
 };
 export type FeatureService = ReturnType<typeof createFeatureService>;

@@ -1,4 +1,5 @@
 import type { ConversationHistory, ExecutionEvent } from "../conversation/types.js";
+import type { FeatureNotification } from "../feature-spaces/types.js";
 import { SpaceCommunicationError, type SpaceCommunication, type SpaceRequestExecution, type SpaceRequestReceipt } from "../space-communication/service.js";
 
 export type GroupTurn = {
@@ -9,13 +10,14 @@ export type GroupRepository = {
   read: () => Promise<GroupTurn[]>;
   update: (change: (turns: GroupTurn[]) => GroupTurn[]) => Promise<void>;
 };
-export type GroupSnapshot = { id: "main"; defaultSpaceId: "local-main"; turns: (GroupTurn & { messages: ConversationHistory })[]; running: string | null };
+export type GroupSnapshot = { id: "main"; defaultSpaceId: "local-main"; turns: (GroupTurn & { messages: ConversationHistory })[]; notifications: FeatureNotification[]; running: string | null };
 export type GroupEvent = { type: "turn"; turn: GroupTurn } | { type: "delta"; id: string; text: string } | { type: "settled" };
 
 /** 群组只保存投递索引，正文仍在目标空间的 pi 讨论中；群展示从不作为模型 prompt。 */
 export const createGroupChat = (deps: {
   repository: GroupRepository; communication: SpaceCommunication;
   history: (spaceId: string, discussionId: string) => Promise<{ messages: ConversationHistory }>;
+  notifications: () => Promise<FeatureNotification[]>;
 }) => {
   const turns = new Map<string, GroupTurn>();
   let active: { id: string; controller: AbortController; emit: (event: GroupEvent) => void } | undefined;
@@ -48,9 +50,9 @@ export const createGroupChat = (deps: {
     if (turn && active?.id === turn.rootId && value.type === "text_delta") active.emit({ type: "delta", id: turn.id, text: value.delta });
   };
   const snapshot = async (): Promise<GroupSnapshot> => {
-    // 按讨论只读一次，逐轮切片保留工具事实；绝不聚合任何成员的私聊。
+    // 群讨论与已验证功能通知分别投影；绝不拼接普通私聊，也不将展示投影用作模型上下文。
     const histories = new Map<string, Promise<ConversationHistory>>();
-    return { id: "main", defaultSpaceId: "local-main", running: active?.id ?? null,
+    return { id: "main", defaultSpaceId: "local-main", running: active?.id ?? null, notifications: await deps.notifications(),
       turns: await Promise.all([...turns.values()].map(async (turn) => {
         const key = `${turn.targetSpaceId}/${turn.discussionId}`;
         if (!histories.has(key)) histories.set(key, deps.history(turn.targetSpaceId, turn.discussionId).then((result) => result.messages).catch((error) => {

@@ -9,6 +9,11 @@ export const featureForSpace = (spaceId: string): FeatureId | undefined => FEATU
 /** 来源由服务端写入 PI 通知，不从正文或客户端参数推断跨空间权限。 */
 export type FeatureSource = { featureId: FeatureId; itemIds: string[] };
 export type FeatureLink = FeatureSource & { spaceId: string; sessionId: string; messageId: string };
+/** 只读展示投影；正文仍只保存在实际承接会话的 PI 历史。 */
+export type FeatureNotification = {
+  id: string; featureId: FeatureId; targetSpaceId: string; sessionId: string;
+  messageId: string; createdAt: string; content: string;
+};
 export type FeatureState = { schemaVersion: 1; bindings: Record<FeatureId, string>; links: FeatureLink[] };
 export const defaultFeatureState = (): FeatureState => ({ schemaVersion: 1, bindings: { news: "local-main", sms: "local-main" }, links: [] });
 export type FeatureRepository = {

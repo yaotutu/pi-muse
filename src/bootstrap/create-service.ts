@@ -278,7 +278,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     onStart: (request) => group.start(request), onFinish: (receipt) => group.finish(receipt),
     onEvent: (id, event) => group.event(id, event),
   });
-  group = createGroupChat({ repository: createGroupRepository(join(layout.root, "group.json")), communication, history: communicationRunner.history });
+  group = createGroupChat({ repository: createGroupRepository(join(layout.root, "group.json")), communication, history: communicationRunner.history, notifications: features.notifications });
   const informationScheduler = createInformationScheduler(information);
   const news = createNewsService({
     repository: newsRepository,
