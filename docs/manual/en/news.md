@@ -36,7 +36,9 @@ The server collects every 30 minutes by default; background collection only fetc
 - Explicit preferences are saved by the user. Learned notes are a summary updated by the server from feedback. They are stored separately, and learned notes never overwrite explicit preferences, space rules, or the global user profile.
 - For newly initialized internal news spaces, the default rules require recommendation reasons and learned notes in concise Simplified Chinese. RSS titles and content remain in their original language and are not translated.
 
-Open the News profile → 「新闻设置」 and save explicit notes under 「新闻偏好」. Use 「RSS 来源管理」 to manage subscriptions. When opened from settings, Back returns through news settings, the settings home, and then chat, rather than detouring through the news reader.
+Open the News profile → 「新闻设置」 and save explicit notes under 「新闻偏好」. Use 「RSS 来源管理」 to manage subscriptions. When opened from settings, Back returns through news settings and the member profile, then to the list or private chat, rather than detouring through the news reader.
+
+Unsaved preference drafts remain only in memory for the current connection. Visiting RSS, another member, or chat and returning, or returning from the background, preserves input. Reopening or foregrounding checks server state but only updates unchanged notes. Failed reads retain the draft and previously loaded preferences. 「刷新核对」 also preserves unsaved input. If a save outcome is unknown, reopening does not unlock saving: explicitly check state before saving again; nothing is automatically resent. Only 「保存偏好」 submits explicit notes; saving an empty field clears them. Switching connections or restarting the app does not restore unsaved drafts.
 
 ## Refresh and Failures {#refresh}
 
