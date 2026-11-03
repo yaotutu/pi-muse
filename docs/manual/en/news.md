@@ -18,9 +18,9 @@ The default interaction space is main. Check or change it in the News profile �
 
 ## Managing RSS Sources {#sources}
 
-1. Tap the 「Sources」 icon at the top of the news reading page, then add the public HTTP(S) URL of an RSS2 source. You can also set a display title.
-2. Choose 「填入」 (Fill) in the curated Chinese sources to populate the form. Review the URL and title, then tap 「添加来源」 (Add source) to submit, or enter them manually. Suggestions include 少数派, 机核网, Solidot, 36氪, 机器之心, IT之家, and 极客公园; availability depends on each website. Only RSS2 is supported, not Atom.
-3. The server fetches and validates the XML when the source is added. URLs containing embedded credentials are rejected.
+1. Tap the Sources icon at the top of the reader, or open 「RSS 来源管理」 from news settings. Existing subscriptions appear first, followed by collection and analysis status; the fixed header returns to the actual entry point. Tap 「添加来源」 to expand the form, then enter a public HTTP(S) RSS2 URL and optional title.
+2. Expand 「推荐中文来源」 in the add form, then choose 「填入」 (Fill) to populate it. Review the URL and title, then tap 「添加来源」 (Add source) to submit, or enter them manually. Examples include 少数派, 36氪, 机器之心, and IT之家; availability depends on each website. Only RSS2 is supported, not Atom.
+3. Collapsing the form or leaving the page retains input within the current connection. Reopen it to continue. If creation has an uncertain result, the form stays visible; explicitly read back, review, and unlock before another attempt. The server fetches and validates the XML when the source is added. URLs containing embedded credentials are rejected.
 4. The Sources page shows fetch time, pending analysis, and analysis failures. Each source shows its latest fetch time and controlled error. If one source is malformed or temporarily unavailable, other sources and existing articles remain usable.
 5. Deleting a source stops future collection only. Accepted articles, comments, reactions, and saves are retained.
 

@@ -41,11 +41,11 @@ In a space with the memory skill enabled, you can explicitly ask the assistant t
 
 ## Configure Dream {#configure-dream}
 
-1. Go to the message list’s top-right 「设置」 → 「助手记忆」 → 「Dream 记忆整理」. The page shows the global overview, global prompt, space selector, current space settings, latest run, and pending suggestions.
-2. 「全局整理提示词」 is the shared base configuration for all spaces and can contain at most 20,000 characters. Saving it empty clears the custom override and uses the built-in default prompt. Tap 「查看内置默认提示词」 to inspect the default behavior.
+1. Go to the message list’s top-right 「设置」 → 「助手记忆」 → 「Dream 记忆整理」. The space selector, latest run, and pending suggestions come first. Space settings and the global prompt are collapsed below them. Expanding or collapsing does not save or discard drafts; unsaved changes remain indicated in the configuration summary and continue to block an immediate run.
+2. Expand 「配置」 beside 「全局整理提示词」. This is the shared base configuration for all spaces and can contain at most 20,000 characters. Saving it empty clears the custom override and uses the built-in default prompt. Tap 「查看内置默认提示词」 to inspect the default behavior.
 3. Tap 「保存全局提示词」 after editing. Success shows 「全局 Dream 提示词已保存」. 「取消修改」 returns to the last successfully loaded value; 「清空草稿」 only clears the draft and has no effect until you save.
 4. Tap an existing space under 「选择整理空间」. If the current space has unsaved periodic or supplemental prompt changes, switching requires confirming that its space draft will be discarded; the global draft is retained.
-5. Under 「当前空间设置」, configure:
+5. Expand 「配置」 beside 「当前空间设置」, then configure:
    - 「参加定期整理」: on by default for the main space and off for other spaces. Turning it off still allows manual consolidation.
    - 「继承全局提示词」: when on, the global prompt is combined with this space's supplemental prompt. When off, the space supplement takes precedence; if it is empty, the effective global prompt or built-in default is still used as the fallback.
    - 「本空间补充提示词」: at most 20,000 characters, only for this space. Saving an empty string clears the supplement.
