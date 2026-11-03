@@ -49,7 +49,7 @@ export const projectHistory = (messages: ApiMessage[]): MessageView[] => {
       };
       views.push(view);
     } else if (message.role === "tool" && message.toolCallId) {
-      // 工具结果挂到同 thread 之前出现的对应 toolCall 上。
+      // 工具结果挂到同 agent 之前出现的对应 toolCall 上。
       for (let i = views.length - 1; i >= 0; i--) {
         const hit = views[i]!.toolCalls.find((x) => x.id === message.toolCallId);
         if (hit) {

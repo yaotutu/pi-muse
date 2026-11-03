@@ -85,10 +85,10 @@ const fixture = async (t: TestContext) => {
   });
 
   const listed = async (id: string) => {
-    const response = await request("/api/spaces");
+    const response = await request("/api/agents");
     assert.equal(response.status, 200);
-    const body = (await response.json()) as { spaces?: { id: string }[]; threads?: { id: string }[] };
-    return (body.spaces || body.threads || []).some((thread) => thread.id === id);
+    const body = (await response.json()) as { agents?: { id: string }[] };
+    return (body.agents || []).some((agent) => agent.id === id);
   };
 
   return { dir, model, service: () => service!, request, listed, releaseGates };
@@ -142,9 +142,9 @@ test("projectExecutionEvent preserves controlled rejection message across tool_e
 });
 
 // ---------------------------------------------------------------------------
-// 2. 真实 HTTP PATCH：严格排期校验、字节不变、暂停语义、边界重算、不建空间
+// 2. 真实 HTTP PATCH：严格排期校验、字节不变、暂停语义、边界重算、不建智能体
 // ---------------------------------------------------------------------------
-test("HTTP PATCH enforces strict schedule validation, boundary recalculation, and does not create space on failure", async (t) => {
+test("HTTP PATCH enforces strict schedule validation, boundary recalculation, and does not create agent on failure", async (t) => {
   const h = await fixture(t);
   const jobsFile = join(h.dir, "jobs.json");
 
@@ -213,18 +213,18 @@ test("HTTP PATCH enforces strict schedule validation, boundary recalculation, an
   assert.equal(job2359.at, "23:59");
   assertLocalNextRun(job2359.nextRunAt, reference, 23, 59);
 
-  // 6. 非法时刻带新 originSpaceId：绝不建立目标空间、sessions/workspace 目录与空间列表均不出现
-  const nonExistentSpace = "never-created-bad-sched-space";
+  // 6. 非法时刻带新 originAgentId：绝不建立目标智能体、sessions/workspace 目录与智能体列表均不出现
+  const nonExistentAgent = "never-created-bad-sched-agent";
   const bytesBefore = await readFile(jobsFile, "utf8");
-  const badSpacePatch = await h.request(`/api/jobs/${initialJob.id}`, "PATCH", {
+  const badAgentPatch = await h.request(`/api/jobs/${initialJob.id}`, "PATCH", {
     at: "24:00",
-    originSpaceId: nonExistentSpace,
+    originAgentId: nonExistentAgent,
   });
-  assert.equal(badSpacePatch.status, 400);
+  assert.equal(badAgentPatch.status, 400);
   assert.equal(await readFile(jobsFile, "utf8"), bytesBefore);
-  assert.equal(await h.listed(nonExistentSpace), false);
-  await assertMissing(join(h.dir, "sessions", nonExistentSpace));
-  await assertMissing(join(h.dir, "workspace", "threads", nonExistentSpace));
+  assert.equal(await h.listed(nonExistentAgent), false);
+  await assertMissing(join(h.dir, "sessions", nonExistentAgent));
+  await assertMissing(join(h.dir, "workspace", "agents", nonExistentAgent));
 });
 
 // ---------------------------------------------------------------------------
@@ -402,14 +402,14 @@ test("pi schedule tool over real HTTP rejects invalid daily time with preserved 
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const snapshot = async () => {
-    const response = await request("/api/conversation?spaceId=local-main");
+    const response = await request("/api/conversation?agentId=local-main");
     assert.equal(response.status, 200);
     return response.json() as Promise<{ messages: HistoryMessage[]; revision: string }>;
   };
   const run = async (content: string) => {
     const before = await snapshot();
     const response = await request("/api/conversation/run", "POST", {
-      spaceId: "local-main",
+      agentId: "local-main",
       runId: randomUUID(),
       expectedRevision: before.revision,
       message: { id: randomUUID(), content },

@@ -4,15 +4,15 @@ This guide explains how to create, filter, update, and delete long-term goals in
 
 ## Purpose and Scope {#purpose-and-scope}
 
-Long-term goals are global records and do not belong to a space. Active goals are reread before every turn and injected into the system prompt of all spaces, helping the model consider the goal, progress, and next unfinished milestone when planning or answering.
+Long-term goals are global records and do not belong to an agent. Active goals are reread before every turn and injected into the system prompt of all agents, helping the model consider the goal, progress, and next unfinished milestone when planning or answering.
 
 A goal itself does not execute a plan, create scheduled jobs, monitor pages, or call tools automatically. To perform work, explicitly delegate it in chat or create jobs and monitors separately as described in [Scheduled jobs, web monitors, and activity history](tasks-and-monitors.md).
 
 ## Prerequisites {#prerequisites}
 
 - The phone is connected to the real server as described in [Quick Start](getting-started.md#connect-mobile-client).
-- The goals interface is under the bottom 「目标」 tab. Viewing, creating, updating status, toggling milestones, and deleting do not depend on the current space.
-- To let the model create, list, toggle, or change goal status in chat, keep the current space's `goal` skill enabled. Built-in skills are enabled by default.
+- The goals interface is under the bottom 「目标」 tab. Viewing, creating, updating status, toggling milestones, and deleting do not depend on the current agent.
+- To let the model create, list, toggle, or change goal status in chat, keep the current agent's `goal` skill enabled. Built-in skills are enabled by default.
 
 ## View and Filter Goals {#view-and-filter-goals}
 
@@ -57,7 +57,7 @@ Deletion permanently removes the goal and all of its milestones; it cannot be re
 ## Visible Results {#visible-results}
 
 - A new goal is immediately saved as a global goal with the initial status 「进行中」.
-- 「进行中」 goals enter model context in every space from the next turn; paused, completed, and archived goals are not injected.
+- 「进行中」 goals enter model context in every agent from the next turn; paused, completed, and archived goals are not injected.
 - Milestone checks update the card count and change the progress and next unfinished milestone supplied in the next turn.
 - Managing goals directly on the goals page does not automatically create chat messages or call a model and does not incur model costs. Using the `goal` tool in chat is still a model execution and incurs model-call costs.
 
@@ -70,4 +70,4 @@ Deletion permanently removes the goal and all of its milestones; it cannot be re
 | All milestones are checked but the goal is not completed | The goal status | Milestones never complete the goal automatically. Explicitly change its status to 「已完成」. |
 | Controls are unavailable | Whether the list is stale, a write is in progress, or a result is unknown | Refresh successfully first. For an unknown result, verify the list and then unlock manually. |
 | A submission result is unknown | Whether the page shows 「提交结果待核对」 | Refresh the goal list, verify whether creation, status, milestone, or deletion took effect, then unlock. The app does not retry automatically. |
-| Goals remain visible after switching spaces | Whether the goal is global | This is expected. Global goals affect all spaces, and deleting a space does not delete goals. |
+| Goals remain visible after switching agents | Whether the goal is global | This is expected. Global goals affect all agents, and deleting an agent does not delete goals. |

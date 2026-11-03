@@ -5,7 +5,7 @@ This page explains the mobile client's assistant and user profiles, common appea
 ## Prerequisites {#prerequisites}
 
 - Complete the first connection as described in [Quick Start](getting-started.md#connect-mobile-client). Themes and app updates still work without a server connection, but profiles, memories, and Dream are unavailable.
-- Assistant and user profiles are stored on the server and shared by all spaces. Theme preference is stored only on this device.
+- Assistant and user profiles are stored on the server and shared by all agents. Theme preference is stored only on this device.
 
 Profile, long-term memory, and Dream management pages share a fixed header: the title and 「返回设置」 (Back to Settings) stay visible while the form scrolls. The top-left arrow and Android Back return to the settings home, then to the conversation list. Android Back dismisses an open keyboard first. Leaving a page does not save or discard its drafts, nor does it unlock a write with an unknown result.
 
@@ -20,7 +20,7 @@ Profile, long-term memory, and Dream management pages share a fixed header: the 
 2. Choose one of the 「温暖」 (warm), 「简洁」 (concise), or 「周到」 (thoughtful) tones. If the server returns a legacy tone unknown to this client, the page shows that value and asks you to choose a supported one.
 3. Tap 「保存助手设置」. Success shows 「身份已保存」, and the change marker disappears.
 
-The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The assistant name is not used as the main-space title. The main-space header shows no name; other spaces show a readable number such as「成员 1」for the current connection only while the keyboard is closed.
+The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The assistant name is not used as the main-agent title. The main-agent header shows no name; other agents show a readable number such as「成员 1」for the current connection only while the keyboard is closed.
 
 ### Save SOUL and USER {#save-soul-and-user}
 

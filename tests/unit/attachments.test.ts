@@ -141,7 +141,7 @@ test("history projects original text plus per-attachment images and no duplicate
 
 test("conversation identity binds ordered attachment metadata and wire schemas match the contract", () => {
   const input: ConversationInput = {
-    spaceId: "local-main", runId: "run-id", expectedRevision: "leaf",
+    agentId: "local-main", runId: "run-id", expectedRevision: "leaf",
     message: { id: "user-id", content: "hello", attachments: [attachment()] },
   };
   const validated = validateConversationInput(input, [], { turns: [], results: new Map() }, "leaf");

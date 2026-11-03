@@ -1,6 +1,6 @@
 # News Reading
 
-The News member has its own private chat and reading view. Tap the News avatar to open its member profile, then 「阅读新闻」 for recommended and all-article timelines. The private-chat gear opens the current Space Settings; the group top-right opens Group Information. The reader has no chat box or bottom tab. Back returns to the News profile, then to the group, Group Information, private chat, or conversation list that opened that profile. The server reuses the existing information processing and model runtime internally; it does not add a separate recommendation engine.
+The News member has its own private chat and reading view. Tap the News avatar to open its member profile, then 「阅读新闻」 for recommended and all-article timelines. The private-chat gear opens the current Agent Settings; the group top-right opens Group Information. The reader has no chat box or bottom tab. Back returns to the News profile, then to the group, Group Information, private chat, or conversation list that opened that profile. The server reuses the existing information processing and model runtime internally; it does not add a separate recommendation engine.
 
 ## Reading and Filtering {#reading}
 
@@ -12,9 +12,9 @@ The News member has its own private chat and reading view. Tap the News avatar t
 
 ## Discuss in Chat {#discuss-in-chat}
 
-Tap 「带到会话讨论」 (Discuss in chat) in article details. The server reads the original and writes it to the news feature's bound space, then the client opens that chat. It does not invoke the model or ask a question on your behalf. The message shows 「来自新闻」 (From news); continue asking questions or explicitly request reactions/comments saved back to news. Reading does not push every article into chat.
+Tap 「带到会话讨论」 (Discuss in chat) in article details. The server reads the original and writes it to the news feature's bound agent, then the client opens that chat. It does not invoke the model or ask a question on your behalf. The message shows 「来自新闻」 (From news); continue asking questions or explicitly request reactions/comments saved back to news. Reading does not push every article into chat.
 
-The default interaction space is main. Check or change it in the News profile → 「新闻设置」. RSS and news preferences also belong to news, not the currently selected chat. If submission times out or disconnects, inspect the receiving chat, return to the article, then tap 「已核对，恢复操作」 (Checked, resume) and confirm. Operations unlock only after the chat can be read successfully; the previous discussion is never resent. Resetting a space retains the binding, and future discussions use its new session.
+The default interaction agent is main. Check or change it in the News profile → 「新闻设置」. RSS and news preferences also belong to news, not the currently selected chat. If submission times out or disconnects, inspect the receiving chat, return to the article, then tap 「已核对，恢复操作」 (Checked, resume) and confirm. Operations unlock only after the chat can be read successfully; the previous discussion is never resent. Resetting an agent retains the binding, and future discussions use its new session.
 
 ## Managing RSS Sources {#sources}
 
@@ -33,8 +33,8 @@ The server collects every 30 minutes by default; background collection only fetc
 - Articles without feedback have no action-button row. Existing feedback appears as a small badge; tap it to reopen the menu.
 - The menu's 「评论」 (Comments) entry opens the article detail's comments section. Comments are stored per article and support add and delete. Blank comments are rejected, and each comment is limited to 4,000 characters.
 - Feedback does not immediately invoke the model. The next background analysis reads recent articles, feedback, comments, and saves as local evidence; saves are a weaker signal.
-- Explicit preferences are saved by the user. Learned notes are a summary updated by the server from feedback. They are stored separately, and learned notes never overwrite explicit preferences, space rules, or the global user profile.
-- For newly initialized internal news spaces, the default rules require recommendation reasons and learned notes in concise Simplified Chinese. RSS titles and content remain in their original language and are not translated.
+- Explicit preferences are saved by the user. Learned notes are a summary updated by the server from feedback. They are stored separately, and learned notes never overwrite explicit preferences, agent rules, or the global user profile.
+- For newly initialized News Agents, the default rules require recommendation reasons and learned notes in concise Simplified Chinese. RSS titles and content remain in their original language and are not translated.
 
 Open the News profile → 「新闻设置」 and save explicit notes under 「新闻偏好」. Use 「RSS 来源管理」 to manage subscriptions. When opened from settings, Back returns through news settings and the member profile, then to the list or private chat, rather than detouring through the news reader.
 
@@ -51,4 +51,4 @@ Unsaved preference drafts remain only in memory for the current connection. Visi
 
 ## Boundaries {#boundaries}
 
-News does not fetch full web pages, provide search or vector recommendations, send system notifications, or support OPML. The chat `feature` tool only reads and records feedback through an existing verified source; it does not browse all feature data. News is a member with private chat, files, and rules. It is not an ordinary notification-recipient candidate and cannot be deleted. Chatting does not enable RSS processing.
+News does not fetch full web pages, provide search or vector recommendations, send system notifications, or support OPML. The chat `feature` tool only reads and records feedback through an existing verified source; it does not browse all feature data. News is a member with private chat, files, and rules. It can receive notifications and configure skills and Dream like other Agents; built-in Agents cannot be deleted. Chatting does not enable RSS processing.

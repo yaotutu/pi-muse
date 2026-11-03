@@ -16,8 +16,8 @@ const toSchema = (schema: z.ZodType, io: "input" | "output") =>
   z.toJSONSchema(schema, { io }) as Record<string, unknown>;
 
 const describePathParam = (path: string, name: string): string => {
-  if (name === "spaceId") {
-    return "空间唯一标识；主空间固定为 local-main，其他空间由英文字母、数字、短横线与下划线组成";
+  if (name === "agentId") {
+    return "智能体唯一标识；主智能体固定为 local-main，其他智能体由英文字母、数字、短横线与下划线组成";
   }
   if (name === "messageId" && path.includes("/messages/")) {
     return "可反馈的用户/助手消息稳定 ID；来自权威历史，不是工具结果或乐观流式消息";
@@ -71,7 +71,7 @@ const pathParams = (path: string) => {
   return names.map((name) => {
     const description = describePathParam(path, name);
     const schema =
-      name === "spaceId"
+      name === "agentId"
         ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]*$", description }
         : path.startsWith("/api/news/") && ["articleId", "sourceId", "commentId"].includes(name)
           ? { type: "string" as const, minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$", description }
@@ -236,7 +236,7 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
         "dirty=true 时 commit 不代表完整代码，应比较 sourceHash；Git 信息不可用时明确为 null。" +
         "\n\n基于 pi 内核的单用户个人助手服务端。鉴权：POST /api/session 换取 token，" +
         "之后所有 /api/* 请求带 `Authorization: Bearer <token>`（health/session/docs 除外）。" +
-        "空间（spaceId）相互隔离；聊天走 AG-UI SSE；写文件类操作经人工审批。" +
+        "智能体（agentId）相互隔离；聊天走 AG-UI SSE；写文件类操作经人工审批。" +
         "本文档由 src/http/contracts/ 的 zod schema 自动生成，修改接口请改 schema 而非此文件。",
     },
     "x-service-version": version,

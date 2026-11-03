@@ -207,10 +207,10 @@ const execute = async (options: NewsLiveOptions) => {
       await expect("cold preferences", "/api/news/preferences", 200),
     );
     assert.deepEqual(coldPreferences, { notes: "", learnedNotes: "" });
-    const spaces = (await expect("spaces", "/api/spaces", 200)) as { spaces: Array<{ id: string }> };
-    assert.ok(!spaces.spaces.some((space) => space.id === "news-internal"));
-    assert.equal((await api("/api/spaces/news-internal/instructions")).status, 404);
-    const mainHistoryBefore = await expect("main history", "/api/conversation?spaceId=local-main", 200);
+    const agents = (await expect("agents", "/api/agents", 200)) as { agents: Array<{ id: string }> };
+    assert.ok(!agents.agents.some((agent) => agent.id === "news-internal"));
+    assert.equal((await api("/api/agents/news-internal/instructions")).status, 404);
+    const mainHistoryBefore = await expect("main history", "/api/conversation?agentId=local-main", 200);
 
     const firstSource = (await expect("add first source", "/api/news/sources", 200, {
       method: "POST", body: JSON.stringify({ url: FIRST_FEED }),
@@ -332,10 +332,10 @@ const execute = async (options: NewsLiveOptions) => {
     assert.ok(sourcesAfterDelete.sources.some((source) => source.id === secondSource.id));
     record("source-delete-retains-articles", { articleId: firstArticle.id });
 
-    const mainHistoryAfter = await expect("main history after news", "/api/conversation?spaceId=local-main", 200);
+    const mainHistoryAfter = await expect("main history after news", "/api/conversation?agentId=local-main", 200);
     assert.deepEqual(mainHistoryAfter, mainHistoryBefore, "news collection must not mutate the main chat");
     assert.ok(!(await allArticles()).articles.some((article) => article.content.includes("news-internal")));
-    record("hidden-space-and-chat-isolation", { articleCount: (await allArticles()).articles.length });
+    record("hidden-agent-and-chat-isolation", { articleCount: (await allArticles()).articles.length });
 
     const articleCountBeforeRestart = (await allArticles()).articles.length;
     const currentService = service;
@@ -360,9 +360,9 @@ const execute = async (options: NewsLiveOptions) => {
     assert.equal(restartedArticle.feedback.reaction, "like");
     assert.equal(restartedArticle.feedback.saved, true);
     assert.equal(restartedPreferences.learnedNotes, learned.learnedNotes);
-    assert.ok(!((await expect("restarted spaces", "/api/spaces", 200)) as {
-      spaces: Array<{ id: string }>;
-    }).spaces.some((space) => space.id === "news-internal"));
+    assert.ok(!((await expect("restarted agents", "/api/agents", 200)) as {
+      agents: Array<{ id: string }>;
+    }).agents.some((agent) => agent.id === "news-internal"));
     record("restart-persistence", {
       articles: restartedArticles.articles.length,
       learnedNotesLength: restartedPreferences.learnedNotes.length,

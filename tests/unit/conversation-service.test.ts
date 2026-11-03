@@ -24,13 +24,13 @@ const fixture = async (t: TestContext) => {
     subscribe: (next) => { listener = next; return () => { calls.push("unsubscribe"); }; },
   };
   const messageFeedback = await createMessageFeedbackFixture({
-    spaceId: "local-main", sessionId: "unit-session", facts: history.messageFacts,
+    agentId: "local-main", sessionId: "unit-session", facts: history.messageFacts,
   });
   t.after(messageFeedback.cleanup);
   const dependencies: ConversationDependencies = { history, messages: messageFeedback.messages, openSession: async () => session };
   return { calls, session, dependencies };
 };
-const input = { threadId: "local-main", runId: "run", expectedRevision: "leaf", message: { id: "user", content: "hello" } };
+const input = { agentId: "local-main", runId: "run", expectedRevision: "leaf", message: { id: "user", content: "hello" } };
 
 test("coordinator finishes only after pi idle and persisted result and then releases its sole lock", async (t) => {
   const { calls, dependencies } = await fixture(t);
@@ -53,7 +53,7 @@ test("coordinator records attachment metadata and passes images in the same SDK 
     Buffer.from("ok"),
   ]);
   await conversation.run({
-    spaceId: "local-main", runId: "image-run", expectedRevision: "leaf",
+    agentId: "local-main", runId: "image-run", expectedRevision: "leaf",
     message: {
       id: "user", content: "",
       attachments: [{
@@ -82,7 +82,7 @@ test("trigger has an explicit timeout only when requested and shares the lock wi
   const pending = conversation.trigger("scheduled", "job");
   t.mock.timers.tick(1000);
   assert.equal(conversation.isRunning(), true);
-  await assert.rejects(conversation.run(input, () => {}), { code: "agent_thread_locked" });
+  await assert.rejects(conversation.run(input, () => {}), { code: "agent_locked" });
   assert.deepEqual(await conversation.trigger("other", "other-job"), { status: "failed", text: "busy" });
   assert.equal(await conversation.cancel("STOPPED", "not-owner"), false);
   release();

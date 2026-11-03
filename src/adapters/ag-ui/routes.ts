@@ -22,16 +22,16 @@ export const createAgUiRoutes = (hub: ConversationHub, presentation: ToolPresent
     const parsed = runRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid conversation request", code: "INVALID_INPUT" }, 400);
     const input = parsed.data;
-    const spaceId = input.spaceId || "local-main";
+    const agentId = input.agentId || "local-main";
     let conversation;
     try {
-      conversation = await hub.forSpace(spaceId);
-      conversation.validate({ ...input, spaceId });
+      conversation = await hub.forAgent(agentId);
+      conversation.validate({ ...input, agentId });
     }
     catch (error) {
       if (!(error instanceof ConversationError)) throw error;
       const status = error.code === "SHUTDOWN" || error.code === "MODEL_NOT_CONFIGURED" ? 503
-        : error.code === "INVALID_INPUT" || error.code === "UNSUPPORTED_SPACE" ? 400 : 409;
+        : error.code === "INVALID_INPUT" || error.code === "UNSUPPORTED_AGENT" ? 400 : 409;
       return c.json({ error: error.message, code: error.code }, status);
     }
     return streamSSE(c, async (stream) => {
@@ -61,8 +61,8 @@ export const createAgUiRoutes = (hub: ConversationHub, presentation: ToolPresent
   app.post("/api/conversation/stop", async (c) => {
     const parsed = stopRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid stop request" }, 400);
-    const spaceId = parsed.data.spaceId || "local-main";
-    const conversation = await hub.findSpace(spaceId);
+    const agentId = parsed.data.agentId || "local-main";
+    const conversation = await hub.findAgent(agentId);
     return c.json({ stopped: await conversation?.cancel("STOPPED", parsed.data.runId) ?? false });
   });
   return app;

@@ -48,12 +48,12 @@ const activityStatusSchema = z.enum(activityStatuses).describe(
     "stopped=用户停止；interrupted=服务重启或执行中断。单次工具结束、子代理返回或一轮回复结束都不会自动置为 completed。",
 );
 
-const spaceIdSchema = z
+const agentIdSchema = z
   .string()
   .min(1)
   .max(64)
   .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/)
-  .describe("空间标识：字母或数字开头，可含 _ -，最长 64；与聊天接口的 spaceId 同一字符集");
+  .describe("智能体标识：字母或数字开头，可含 _ -，最长 64；与聊天接口的 agentId 同一字符集");
 
 // 活动时间由服务端 new Date().toISOString() 写入，固定 UTC（Z 后缀）。响应契约据此收紧为
 // ISO 8601；features 层仍只保存字符串，不把 Date 对象跨层传递。
@@ -65,7 +65,7 @@ const activityTimeSchema = z.iso.datetime().describe("ISO 8601 UTC 时间（服�
 export const activityOverview = z
   .object({
     id: z.string().describe("活动唯一 ID；继续同一项工作时保持不变，不新建活动"),
-    spaceId: spaceIdSchema.describe("来源空间；活动随该空间删除而删除"),
+    agentId: agentIdSchema.describe("来源智能体；活动随该智能体删除而删除"),
       title: z.string().describe("工作标题，登记时由主模型给出"),
     goal: z.string().describe("要达成的目标"),
     deliverable: z.string().describe("完成后交付什么"),
@@ -115,7 +115,7 @@ export const activitiesResponse = z
       .nullable()
       .describe(
         "下一页游标，不透明 base64url；只能原样回传给 GET /api/activities 的 cursor 参数。" +
-          "它绑定本次 spaceId/status 过滤条件，改变过滤后必须从第一页重新开始。没有更多时为 null。",
+          "它绑定本次 agentId/status 过滤条件，改变过滤后必须从第一页重新开始。没有更多时为 null。",
       ),
   })
   .describe(
@@ -131,7 +131,7 @@ export const activityDetailResponse = z
       .describe("该活动的全部步骤，按真实执行顺序返回；包含失败、拒绝、取消、过期与中断"),
   })
   .describe(
-    "活动详情：概览＋逐步明细。只读；活动不存在或所属空间已删除时返回 404。" +
+    "活动详情：概览＋逐步明细。只读；活动不存在或所属智能体已删除时返回 404。" +
       "步骤是真实执行事件的安全投影，不开放模型思维、凭据或原始工具参数。",
   );
 
@@ -163,9 +163,9 @@ export const activitiesQuerySchema = z
       .optional()
       .describe(
         "上一页返回的 nextCursor，原样回传；首屏省略。不透明 base64url，内含上一页最后一项的 " +
-          "createdAt/id 与生成时的 spaceId/status 过滤绑定。结构非法、时间非法或过滤条件与本次不一致返回 400。",
+          "createdAt/id 与生成时的 agentId/status 过滤绑定。结构非法、时间非法或过滤条件与本次不一致返回 400。",
       ),
-    spaceId: spaceIdSchema.optional().describe("只返回该来源空间的活动；省略表示不按空间过滤"),
+    agentId: agentIdSchema.optional().describe("只返回该来源智能体的活动；省略表示不按智能体过滤"),
       status: activityStatusSchema.optional().describe("只返回该状态的活动；省略表示不按状态过滤"),
   })
   .describe(
@@ -180,7 +180,7 @@ export const activityCursorPayloadSchema = z
   .strictObject({
     createdAt: z.iso.datetime(),
     id: z.string().min(1).max(200),
-    spaceId: spaceIdSchema.optional(),
+    agentId: agentIdSchema.optional(),
       status: activityStatusSchema.optional(),
   })
   .describe("活动分页游标结构（不透明字符串解码后的内容，不对客户端暴露为独立接口）");

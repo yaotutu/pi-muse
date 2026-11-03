@@ -5,18 +5,18 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import {
   createDataLayout,
-  threadDreamFile,
-  threadInstructionsFile,
-  threadSessionsDir,
+  agentDreamFile,
+  agentInstructionsFile,
+  agentSessionsDir,
 } from "../../src/adapters/storage/data-layout.js";
 import { InvalidDocumentError } from "../../src/adapters/storage/document-schemas.js";
 import { createDreamRepository } from "../../src/adapters/storage/dream-repository.js";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
 import { readProfileFile, writeProfileFile } from "../../src/adapters/storage/profile-files.js";
 import {
-  readThreadInstructions,
-  writeThreadInstructions,
-} from "../../src/adapters/storage/thread-instructions.js";
+  readAgentInstructions,
+  writeAgentInstructions,
+} from "../../src/adapters/storage/agent-instructions.js";
 import {
   buildDreamInput,
   composePrompt,
@@ -40,7 +40,7 @@ const setup = async (t: TestContext) => {
   const dir = await mkdtemp(join(tmpdir(), "personal-bot-dream-unit-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const layout = createDataLayout(dir);
-  await mkdir(threadSessionsDir(layout, "local-main"), { recursive: true, mode: 0o700 });
+  await mkdir(agentSessionsDir(layout, "local-main"), { recursive: true, mode: 0o700 });
   const memoryRepo = createMemoryRepository(layout.memoryFile);
   const memory = createMemoryService(memoryRepo);
   const identity = createIdentityService(memoryRepo, {
@@ -92,19 +92,19 @@ test("purpose helpers and proposal planner enforce session purpose, length limit
   const formatted = withPurpose("Always sign as Alex.", "处理客户邮件");
   assert.equal(readPurpose(formatted), "处理客户邮件");
   assert.equal(purposeChanged(formatted, formatted + "\nUse formal tone."), false);
-  assert.equal(purposeChanged(formatted, "## 空间用途\n被篡改的用途\n\nAlways sign as Alex."), true);
+  assert.equal(purposeChanged(formatted, "## 智能体用途\n被篡改的用途\n\nAlways sign as Alex."), true);
 
   // withPurpose 替换与清除旧用途段，不重复堆叠
   const replaced = withPurpose(formatted, "处理技术支持");
   assert.equal(readPurpose(replaced), "处理技术支持");
-  assert.equal(replaced, "## 空间用途\n处理技术支持\n\nAlways sign as Alex.");
+  assert.equal(replaced, "## 智能体用途\n处理技术支持\n\nAlways sign as Alex.");
   assert.equal(replaced.includes("处理客户邮件"), false);
-  assert.equal(replaced.split("## 空间用途").length, 2);
+  assert.equal(replaced.split("## 智能体用途").length, 2);
 
   const cleared = withPurpose(replaced, "");
   assert.equal(readPurpose(cleared), "");
   assert.equal(cleared, "Always sign as Alex.");
-  assert.equal(withPurpose("## 空间用途\n只有用途", ""), "");
+  assert.equal(withPurpose("## 智能体用途\n只有用途", ""), "");
 
   const parsed = parseProposal({
     changes: [
@@ -140,7 +140,7 @@ test("purpose helpers and proposal planner enforce session purpose, length limit
   assert.equal(nonMainPlan.rejected.length, 1);
   assert.equal(nonMainPlan.rejected[0]?.reason, "unknown memory id");
 
-  // 未声明空间用途时，instructions 建议降级为 pending(no_purpose)。
+  // 未声明智能体用途时，instructions 建议降级为 pending(no_purpose)。
   const noPurposePlan = planProposal(
     [{ target: "instructions", text: "rule", source: "m1" }],
     { isMain: true, hasPurpose: false, existingMemoryIds: new Set(), instructions: "" },
@@ -179,7 +179,7 @@ test("prompt composer keeps fixed safety rules regardless of global inheritance"
   );
   assert.match(DEFAULT_DREAM_PROMPT, /USER, SOUL, and MEMORY are global targets/);
   assert.match(DEFAULT_DREAM_PROMPT, /purpose-bound filtering rules/);
-  assert.match(DEFAULT_DREAM_PROMPT, /not this space's business\s+preferences/);
+  assert.match(DEFAULT_DREAM_PROMPT, /not this agent's business\s+preferences/);
   assert.match(
     composePrompt({ global: "GLOBAL", session: "SESSION", inherit: true }),
     /GLOBAL[\s\S]*Extra guidance[\s\S]*SESSION/,
@@ -216,18 +216,18 @@ test("profile files and dream repository enforce strict validation, conditional 
   assert.equal(await writeProfileFile(layout.userFile, "v1", ""), true);
   assert.equal(await writeProfileFile(layout.userFile, "stale-dream", ""), false);
   assert.equal(await readProfileFile(layout.userFile), "v1");
-  const instFile = threadInstructionsFile(layout, "local-main");
-  assert.equal(await writeThreadInstructions(instFile, "inst-v1", ""), true);
-  assert.equal(await writeThreadInstructions(instFile, "stale", ""), false);
-  assert.equal(await readThreadInstructions(instFile), "inst-v1");
+  const instFile = agentInstructionsFile(layout, "local-main");
+  assert.equal(await writeAgentInstructions(instFile, "inst-v1", ""), true);
+  assert.equal(await writeAgentInstructions(instFile, "stale", ""), false);
+  assert.equal(await readAgentInstructions(instFile), "inst-v1");
 
   // 3. dream.json 默认值：local-main 默认开启，其余会话默认关闭，GET 不落盘。
   assert.equal((await repository.read("local-main")).enabled, true);
-  assert.equal((await repository.read("other-thread")).enabled, false);
-  await assert.rejects(stat(threadDreamFile(layout, "other-thread")), { code: "ENOENT" });
+  assert.equal((await repository.read("other-agent")).enabled, false);
+  await assert.rejects(stat(agentDreamFile(layout, "other-agent")), { code: "ENOENT" });
 
   // 4. 损坏或带 schemaVersion 的 dream.json 必须抛 InvalidDocumentError("dream")。
-  const dreamFile = threadDreamFile(layout, "local-main");
+  const dreamFile = agentDreamFile(layout, "local-main");
   for (const bad of [
     "{broken",
     '{"enabled":true,"inheritGlobalPrompt":true,"pending":[],"schemaVersion":1}',
@@ -262,9 +262,9 @@ test("profile files and dream repository enforce strict validation, conditional 
 
 test("DreamService skips overwriting concurrently edited files, keeps cursor on partial failure and resolves pending items", async (t) => {
   const { layout, memory, identity, repository } = await setup(t);
-  await mkdir(threadSessionsDir(layout, "work-mail"), { recursive: true, mode: 0o700 });
-  await writeThreadInstructions(
-    threadInstructionsFile(layout, "work-mail"),
+  await mkdir(agentSessionsDir(layout, "work-mail"), { recursive: true, mode: 0o700 });
+  await writeAgentInstructions(
+    agentInstructionsFile(layout, "work-mail"),
     withPurpose("Keep replies brief.", "处理工作邮件"),
   );
 
@@ -288,18 +288,18 @@ test("DreamService skips overwriting concurrently edited files, keeps cursor on 
       },
       writeSoulIfUnchanged: (content, expected) =>
         identity.writeIfUnchanged("soul", content, expected),
-      readInstructions: (id) => readThreadInstructions(threadInstructionsFile(layout, id)),
+      readInstructions: (id) => readAgentInstructions(agentInstructionsFile(layout, id)),
       writeInstructions: async (id, content) => {
-        await writeThreadInstructions(threadInstructionsFile(layout, id), content);
+        await writeAgentInstructions(agentInstructionsFile(layout, id), content);
       },
       writeInstructionsIfUnchanged: (id, content, expected) =>
-        writeThreadInstructions(threadInstructionsFile(layout, id), content, expected),
+        writeAgentInstructions(agentInstructionsFile(layout, id), content, expected),
     },
     memory,
     conversations: {
-      listThreadIds: async () => ["local-main", "work-mail"],
-      threadExists: async (id) => id === "local-main" || id === "work-mail",
-      isThreadBusy: async () => false,
+      listAgentIds: async () => ["local-main", "work-mail"],
+      agentExists: async (id) => id === "local-main" || id === "work-mail",
+      isAgentBusy: async () => false,
       readTranscript: async (id) => ({
         messages: [{ id: `${id}-m1`, role: "user", text: "hello" }],
       }),
@@ -325,7 +325,7 @@ test("DreamService skips overwriting concurrently edited files, keeps cursor on 
   }
   assert.equal(await readProfileFile(layout.userFile), "");
   assert.match(
-    await readThreadInstructions(threadInstructionsFile(layout, "work-mail")),
+    await readAgentInstructions(agentInstructionsFile(layout, "work-mail")),
     /统一使用中文回复/,
   );
   assert.equal((await memory.list()).length, 1);

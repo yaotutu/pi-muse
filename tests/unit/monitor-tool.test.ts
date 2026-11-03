@@ -12,7 +12,7 @@ const createMockMonitors = () => {
     items,
     calls,
     service: {
-      create: async (input: { url: string; condition: "change" | "contains"; originSpaceId?: string; title?: string; value?: string; intervalMinutes?: number }) => {
+      create: async (input: { url: string; condition: "change" | "contains"; originAgentId?: string; title?: string; value?: string; intervalMinutes?: number }) => {
         calls.push({ method: "create", args: input });
         const m: Monitor = {
           id: "mon-123",
@@ -23,7 +23,7 @@ const createMockMonitors = () => {
           intervalMinutes: input.intervalMinutes ?? 30,
           status: "active",
           createdAt: new Date().toISOString(),
-          originSpaceId: input.originSpaceId ?? "local-main",
+          originAgentId: input.originAgentId ?? "local-main",
           checks: 0,
         };
         items.push(m);
@@ -46,7 +46,7 @@ const createMockMonitors = () => {
 
 test("monitor tool schema: url is optional and not required for non-create actions", () => {
   const { service } = createMockMonitors();
-  const tool = monitorTool(service, "space-1");
+  const tool = monitorTool(service, "agent-1");
 
   const params = tool.parameters as { required?: string[]; properties?: Record<string, unknown> };
   // required 只能有 action，url 不得在 required 中
@@ -56,7 +56,7 @@ test("monitor tool schema: url is optional and not required for non-create actio
 
 test("monitor tool execute: create requires valid http(s) url", async () => {
   const { service, calls } = createMockMonitors();
-  const tool = monitorTool(service, "space-1");
+  const tool = monitorTool(service, "agent-1");
 
   // 1. 缺少 url 时拒绝
   const resNoUrl = await tool.execute("call-1", { action: "create" } as never, undefined, undefined, {} as never);
@@ -87,10 +87,10 @@ test("monitor tool execute: list/pause/resume/stop do not require url", async ()
     intervalMinutes: 10,
     status: "active",
     createdAt: new Date().toISOString(),
-    originSpaceId: "space-1",
+    originAgentId: "agent-1",
     checks: 1,
   });
-  const tool = monitorTool(service, "space-1");
+  const tool = monitorTool(service, "agent-1");
 
   // 1. list 无需 url
   const listRes = await tool.execute("call-list", { action: "list" } as never, undefined, undefined, {} as never);
@@ -118,7 +118,7 @@ test("monitor tool execute: list/pause/resume/stop do not require url", async ()
   assert.match(noIdRes.content[0]?.type === "text" ? noIdRes.content[0].text : "", /control needs monitorId/);
 });
 
-test("monitor list and controls do not expose or change another space's monitor", async () => {
+test("monitor list and controls do not expose or change another agent's monitor", async () => {
   const { service, items, calls } = createMockMonitors();
   items.push(
     {
@@ -129,7 +129,7 @@ test("monitor list and controls do not expose or change another space's monitor"
       intervalMinutes: 30,
       status: "active",
       createdAt: new Date().toISOString(),
-      originSpaceId: "space-1",
+      originAgentId: "agent-1",
       checks: 0,
     },
     {
@@ -140,11 +140,11 @@ test("monitor list and controls do not expose or change another space's monitor"
       intervalMinutes: 30,
       status: "active",
       createdAt: new Date().toISOString(),
-      originSpaceId: "space-b",
+      originAgentId: "agent-b",
       checks: 0,
     },
   );
-  const tool = monitorTool(service, "space-1");
+  const tool = monitorTool(service, "agent-1");
 
   const list = await tool.execute("call-list", { action: "list" } as never, undefined, undefined, {} as never);
   const listText = list.content[0]?.type === "text" ? list.content[0].text : "";

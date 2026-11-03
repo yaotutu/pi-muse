@@ -1,19 +1,19 @@
 import { z } from "zod";
 
-/** 消息反馈契约：反馈只属于 spaceId+sessionId+messageId，不进入 PI 历史。 */
+/** 消息反馈契约：反馈只属于 agentId+sessionId+messageId，不进入 PI 历史。 */
 export const sessionIdSchema = z.string().min(1).max(128).regex(
   /^[A-Za-z0-9_-]+$/,
   "sessionId must contain only ASCII letters, digits, hyphens, and underscores",
 );
 export const messageTargetSchema = z.strictObject({
-  sessionId: sessionIdSchema.describe("当前空间会话 ID；reset 后旧值返回 409"),
+  sessionId: sessionIdSchema.describe("当前智能体会话 ID；reset 后旧值返回 409"),
 });
 export const reactionRequestSchema = z.strictObject({
-  sessionId: sessionIdSchema.describe("当前空间会话 ID；reset 后旧值返回 409"),
+  sessionId: sessionIdSchema.describe("当前智能体会话 ID；reset 后旧值返回 409"),
   reaction: z.enum(["like", "dislike"]).nullable().describe("互斥反应；null 表示撤销"),
 });
 export const createCommentRequestSchema = z.strictObject({
-  sessionId: sessionIdSchema.describe("当前空间会话 ID；reset 后旧值返回 409"),
+  sessionId: sessionIdSchema.describe("当前智能体会话 ID；reset 后旧值返回 409"),
   text: z.string().trim().min(1).max(4000).describe("评论内容；服务端去除首尾空白，不能为空"),
 });
 export const updateCommentRequestSchema = createCommentRequestSchema;
@@ -72,7 +72,7 @@ export const messageFeedbackEventsResponse = z.strictObject({
 
 export const featureSourceResponse = z.strictObject({
   featureId: z.enum(["news", "sms"]).describe("服务端验证的功能来源，不按正文猜测"),
-  itemIds: z.array(z.string()).min(1).max(20).describe("对应功能独立空间中的原始对象；只经 feature 工具受限读取，不开放跨空间文件权限"),
+  itemIds: z.array(z.string()).min(1).max(20).describe("对应功能独立智能体中的原始对象；只经 feature 工具受限读取，不开放跨智能体文件权限"),
 });
 
 export const messageMetadataResponse = z.strictObject({

@@ -20,21 +20,21 @@ const fixture = (options?: {
   let state = defaultInformationState();
   const repository: InformationRepository = {
     read: async () => structuredClone(state),
-    update: async (_spaceId, change) => {
+    update: async (_agentId, change) => {
       const changed = await change(structuredClone(state));
       if (changed.state) state = changed.state;
       return changed.result;
     },
-    listSpaceIds: async () => ["space"],
-    removeSpace: async () => { state = defaultInformationState(); },
+    listAgentIds: async () => ["agent"],
+    removeAgent: async () => { state = defaultInformationState(); },
     reconcileOnStart: async () => undefined,
     validateAll: async () => undefined,
   };
   const notifications: Array<{ text: string; id: string }> = [];
   const service = createInformationService({
     repository,
-    spaceExists: async () => true,
-    retainSpace: async () => ({
+    agentExists: async () => true,
+    retainAgent: async () => ({
       conversation: {
         sessionId: () => "session-1",
         notify: async (text, id) => {
@@ -102,8 +102,8 @@ test("manual and automatic runs contend on one synchronously reserved global slo
   const base = fixture();
   const service = createInformationService({
     repository: base.repository,
-    spaceExists: async () => true,
-    retainSpace: async () => ({
+    agentExists: async () => true,
+    retainAgent: async () => ({
       conversation: {
         sessionId: () => "session-1",
         notify: async (_text, id) => ({ sessionId: "session-1", messageId: id }),
@@ -119,22 +119,22 @@ test("manual and automatic runs contend on one synchronously reserved global slo
     readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
-  await service.saveSettings("space", { enabled: true, batchWindowSeconds: 0 });
-  const inserted = await service.ingest("space", [
+  await service.saveSettings("agent", { enabled: true, batchWindowSeconds: 0 });
+  const inserted = await service.ingest("agent", [
     { source: "rss", externalId: "1", content: "NOTIFY one" },
     { source: "rss", externalId: "2", content: "silent two" },
   ]);
-  const first = service.runNow("space");
-  const second = service.runNow("space");
+  const first = service.runNow("agent");
+  const second = service.runNow("agent");
   await assert.rejects(second, { code: "BUSY" });
-  assert.equal(await service.runDue("space"), false);
+  assert.equal(await service.runDue("agent"), false);
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(input);
   model.resolve(resultFor(input.items.map((item) => item.id)));
   const finished = await first;
   assert.equal(finished.run.status, "completed");
   assert.equal(finished.run.itemIds.length, 2);
-  assert.equal((await service.listRuns("space", {})).runs.length, 1);
+  assert.equal((await service.listRuns("agent", {})).runs.length, 1);
   assert.equal(finished.run.publications[0]?.status, "published");
 });
 
@@ -144,8 +144,8 @@ test("processing setup failures mark the run failed and release the global slot"
   const base = fixture();
   const service = createInformationService({
     repository: base.repository,
-    spaceExists: async () => true,
-    retainSpace: async () => ({
+    agentExists: async () => true,
+    retainAgent: async () => ({
       conversation: { sessionId: () => "session-1", notify: async (_text, id) => ({ sessionId: "session-1", messageId: id }) },
       release: () => undefined,
     }),
@@ -157,25 +157,25 @@ test("processing setup failures mark the run failed and release the global slot"
     },
     enabledSkillTexts: async () => [],
   });
-  await service.saveSettings("space", { enabled: true, batchWindowSeconds: 0 });
-  await service.ingest("space", [{ source: "rss", externalId: "1", content: "one" }]);
-  await assert.rejects(service.runNow("space"), /instructions I\/O failed/);
+  await service.saveSettings("agent", { enabled: true, batchWindowSeconds: 0 });
+  await service.ingest("agent", [{ source: "rss", externalId: "1", content: "one" }]);
+  await assert.rejects(service.runNow("agent"), /instructions I\/O failed/);
   const state = base.readState();
   assert.equal(state.runs[0]?.status, "failed");
   assert.equal(state.items[0]?.status, "failed");
   assert.equal(modelCalled, false);
-  assert.equal(await service.runDue("space"), false, "global slot must be released");
+  assert.equal(await service.runDue("agent"), false, "global slot must be released");
 });
 
-test("cancellation while retain is pending releases the retained space", async () => {
+test("cancellation while retain is pending releases the retained agent", async () => {
   const base = fixture();
   const retainGate = deferred<void>();
   let retainStarted = false;
   let retainReleased = false;
   const service = createInformationService({
     repository: base.repository,
-    spaceExists: async () => true,
-    retainSpace: async () => {
+    agentExists: async () => true,
+    retainAgent: async () => {
       retainStarted = true;
       await retainGate.promise;
       return {
@@ -188,11 +188,11 @@ test("cancellation while retain is pending releases the retained space", async (
     readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
-  await service.saveSettings("space", { enabled: true, batchWindowSeconds: 0 });
-  await service.ingest("space", [{ source: "rss", externalId: "1", content: "one" }]);
-  const running = service.runNow("space");
+  await service.saveSettings("agent", { enabled: true, batchWindowSeconds: 0 });
+  await service.ingest("agent", [{ source: "rss", externalId: "1", content: "one" }]);
+  const running = service.runNow("agent");
   while (!retainStarted) await new Promise((resolve) => setImmediate(resolve));
-  const pause = service.pauseSpace("space");
+  const pause = service.pauseAgent("agent");
   retainGate.resolve();
   const detail = await running;
   await pause.stopped;
@@ -207,8 +207,8 @@ test("cancellation after a successful model result preserves model success but f
   let itemId: string | undefined;
   const service = createInformationService({
     repository: base.repository,
-    spaceExists: async () => true,
-    retainSpace: async () => ({
+    agentExists: async () => true,
+    retainAgent: async () => ({
       conversation: { sessionId: () => "session-1", notify: async (_text, id) => ({ sessionId: "session-1", messageId: id }) },
       release: () => undefined,
     }),
@@ -221,12 +221,12 @@ test("cancellation after a successful model result preserves model success but f
     readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
-  await service.saveSettings("space", { enabled: true, batchWindowSeconds: 0 });
-  await service.ingest("space", [{ source: "rss", externalId: "1", content: "urgent" }]);
-  const running = service.runNow("space");
+  await service.saveSettings("agent", { enabled: true, batchWindowSeconds: 0 });
+  await service.ingest("agent", [{ source: "rss", externalId: "1", content: "urgent" }]);
+  const running = service.runNow("agent");
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(itemId);
-  const cancelling = service.cancelSpace("space");
+  const cancelling = service.cancelAgent("agent");
   modelGate.resolve();
   await cancelling;
   const detail = await running;
@@ -237,12 +237,12 @@ test("cancellation after a successful model result preserves model success but f
   assert.equal(base.readState().items[0]?.status, "processed");
 });
 
-test("per-space pause barrier is synchronous, nested, and blocks scheduler work", async () => {
+test("per-agent pause barrier is synchronous, nested, and blocks scheduler work", async () => {
   const base = fixture();
   const service = createInformationService({
     repository: base.repository,
-    spaceExists: async () => true,
-    retainSpace: async () => ({
+    agentExists: async () => true,
+    retainAgent: async () => ({
       conversation: { sessionId: () => "session-1", notify: async (_text, id) => ({ sessionId: "session-1", messageId: id }) },
       release: () => undefined,
     }),
@@ -251,27 +251,27 @@ test("per-space pause barrier is synchronous, nested, and blocks scheduler work"
     readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
-  await service.saveSettings("space", { enabled: true, batchWindowSeconds: 0 });
-  await service.ingest("space", [{ source: "rss", externalId: "1", content: "paused" }]);
-  const first = service.pauseSpace("space");
-  const second = service.pauseSpace("space");
-  await assert.rejects(service.runNow("space"), { code: "SPACE_PAUSED" });
-  assert.equal(await service.runDue("space"), false);
-  assert.equal(await service.nextDueSpace(), undefined);
+  await service.saveSettings("agent", { enabled: true, batchWindowSeconds: 0 });
+  await service.ingest("agent", [{ source: "rss", externalId: "1", content: "paused" }]);
+  const first = service.pauseAgent("agent");
+  const second = service.pauseAgent("agent");
+  await assert.rejects(service.runNow("agent"), { code: "AGENT_PAUSED" });
+  assert.equal(await service.runDue("agent"), false);
+  assert.equal(await service.nextDueAgent(), undefined);
   first.resume();
-  await assert.rejects(service.runNow("space"), { code: "SPACE_PAUSED" });
+  await assert.rejects(service.runNow("agent"), { code: "AGENT_PAUSED" });
   second.resume();
-  assert.equal(await service.nextDueSpace(), "space");
+  assert.equal(await service.nextDueAgent(), "agent");
 });
 
-test("per-space pause aborts an already started run and waits for exit", async () => {
+test("per-agent pause aborts an already started run and waits for exit", async () => {
   const base = fixture();
   const gate = deferred<void>();
   let started = false;
   const service = createInformationService({
     repository: base.repository,
-    spaceExists: async () => true,
-    retainSpace: async () => ({
+    agentExists: async () => true,
+    retainAgent: async () => ({
       conversation: { sessionId: () => "session-1", notify: async (_text, id) => ({ sessionId: "session-1", messageId: id }) },
       release: () => undefined,
     }),
@@ -285,12 +285,12 @@ test("per-space pause aborts an already started run and waits for exit", async (
     readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
-  await service.saveSettings("space", { enabled: true, batchWindowSeconds: 0 });
-  await service.ingest("space", [{ source: "rss", externalId: "1", content: "urgent" }]);
-  const running = service.runNow("space");
+  await service.saveSettings("agent", { enabled: true, batchWindowSeconds: 0 });
+  await service.ingest("agent", [{ source: "rss", externalId: "1", content: "urgent" }]);
+  const running = service.runNow("agent");
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(started, true);
-  const pause = service.pauseSpace("space");
+  const pause = service.pauseAgent("agent");
   await pause.stopped;
   const detail = await running;
   assert.equal(detail.run.status, "cancelled");
@@ -303,7 +303,7 @@ test("pagination uses the last returned row and does not skip equal timestamps",
   const at = new Date().toISOString();
   const items = Array.from({ length: 5 }, (_value, index) => ({
     id: `item-${index}`,
-    spaceId: "space",
+    agentId: "agent",
     source: "rss",
     externalId: String(index),
     content: `content-${index}`,
@@ -316,20 +316,20 @@ test("pagination uses the last returned row and does not skip equal timestamps",
   const repository: InformationRepository = {
     ...h.repository,
     read: async () => structuredClone(state),
-    update: async (_space, change) => (await change(structuredClone(state))).result,
+    update: async (_agent, change) => (await change(structuredClone(state))).result,
   };
   const service = createInformationService({
     repository,
-    spaceExists: async () => true,
-    retainSpace: async () => undefined,
+    agentExists: async () => true,
+    retainAgent: async () => undefined,
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
     readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
-  const first = await service.listItems("space", { limit: 2 });
-  const second = await service.listItems("space", { limit: 2, cursor: first.nextCursor });
-  const third = await service.listItems("space", { limit: 2, cursor: second.nextCursor });
+  const first = await service.listItems("agent", { limit: 2 });
+  const second = await service.listItems("agent", { limit: 2, cursor: first.nextCursor });
+  const third = await service.listItems("agent", { limit: 2, cursor: second.nextCursor });
   const ids = [...first.items, ...second.items, ...third.items].map((item) => item.id);
   assert.deepEqual(ids, items.map((item) => item.id).sort().reverse());
   assert.equal(third.nextCursor, undefined);
@@ -338,7 +338,7 @@ test("pagination uses the last returned row and does not skip equal timestamps",
 test("information cursors are bound to their status filter", async () => {
   const at = new Date().toISOString();
   const items = [0, 1, 2].map((index) => ({
-    id: `item-${index}`, spaceId: "space", source: "rss", externalId: String(index),
+    id: `item-${index}`, agentId: "agent", source: "rss", externalId: String(index),
     content: `content-${index}`, receivedAt: at, acceptedAt: at,
     status: index === 2 ? "processed" as const : "pending" as const,
   }));
@@ -347,19 +347,19 @@ test("information cursors are bound to their status filter", async () => {
   };
   const service = createInformationService({
     repository,
-    spaceExists: async () => true,
-    retainSpace: async () => undefined,
+    agentExists: async () => true,
+    retainAgent: async () => undefined,
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
     readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
-  const pending = await service.listItems("space", { status: "pending", limit: 1 });
-  const pendingNext = await service.listItems("space", { status: "pending", limit: 1, cursor: pending.nextCursor });
+  const pending = await service.listItems("agent", { status: "pending", limit: 1 });
+  const pendingNext = await service.listItems("agent", { status: "pending", limit: 1, cursor: pending.nextCursor });
   assert.deepEqual([pending.items[0]?.id, pendingNext.items[0]?.id], ["item-1", "item-0"]);
-  const processed = await service.listItems("space", { status: "processed", limit: 1 });
+  const processed = await service.listItems("agent", { status: "processed", limit: 1 });
   await assert.rejects(
-    service.listItems("space", { status: "processed", limit: 1, cursor: pending.nextCursor }),
+    service.listItems("agent", { status: "processed", limit: 1, cursor: pending.nextCursor }),
     { code: "INVALID_INPUT" },
   );
   assert.equal(processed.items[0]?.id, "item-2");
@@ -370,18 +370,18 @@ test("feedback examples expose current projections and bounded original item con
   const state: InformationState = {
     ...defaultInformationState(),
     items: [{
-      id: "item-1", spaceId: "space", source: "news", externalId: "x",
+      id: "item-1", agentId: "agent", source: "news", externalId: "x",
       title: "Original title", content: "A".repeat(2500), receivedAt: at, acceptedAt: at, status: "processed",
     }],
     runs: [{
-      id: "run-1", spaceId: "space", itemIds: ["item-1"], status: "completed",
+      id: "run-1", agentId: "agent", itemIds: ["item-1"], status: "completed",
       createdAt: at, startedAt: at,
       publications: [{
         notificationId: "notification-1", itemIds: ["item-1"], text: "summary",
         status: "published", receipt: { notificationId: "notification-1", sessionId: "session-1", messageId: "notification-1" },
       }],
     }, {
-      id: "run-2", spaceId: "space", itemIds: ["item-1"], status: "completed",
+      id: "run-2", agentId: "agent", itemIds: ["item-1"], status: "completed",
       createdAt: at, startedAt: at,
       publications: [{
         notificationId: "notification-2", itemIds: ["item-1"], text: "latest without feedback",
@@ -394,8 +394,8 @@ test("feedback examples expose current projections and bounded original item con
   };
   const service = createInformationService({
     repository,
-    spaceExists: async () => true,
-    retainSpace: async () => ({
+    agentExists: async () => true,
+    retainAgent: async () => ({
       conversation: { sessionId: () => "session-1", notify: async (_text, id) => ({ sessionId: "session-1", messageId: id }) },
       release: () => undefined,
     }),
@@ -413,7 +413,7 @@ test("feedback examples expose current projections and bounded original item con
     readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
-  const preferences = await service.getPreferences("space");
+  const preferences = await service.getPreferences("agent");
   assert.equal(preferences.feedbackExamples.length, 1);
   const example = preferences.feedbackExamples[0]!;
   assert.equal(example.reaction, "like");
@@ -427,13 +427,13 @@ function h_forState(state: InformationState) {
   let current = structuredClone(state);
   const repository: InformationRepository = {
     read: async () => structuredClone(current),
-    update: async (_space, change) => {
+    update: async (_agent, change) => {
       const changed = await change(structuredClone(current));
       if (changed.state) current = changed.state;
       return changed.result;
     },
-    listSpaceIds: async () => ["space"],
-    removeSpace: async () => { current = defaultInformationState(); },
+    listAgentIds: async () => ["agent"],
+    removeAgent: async () => { current = defaultInformationState(); },
     reconcileOnStart: async () => undefined,
     validateAll: async () => undefined,
   };
@@ -444,17 +444,17 @@ test("feedback storage failures are exposed instead of being treated as no prefe
   const at = new Date().toISOString();
   const state: InformationState = {
     ...defaultInformationState(),
-    items: [{ id: "item-1", spaceId: "space", source: "rss", externalId: "x", content: "x", receivedAt: at, acceptedAt: at, status: "processed" }],
-    runs: [{ id: "run-1", spaceId: "space", itemIds: ["item-1"], status: "completed", createdAt: at, startedAt: at, publications: [{ notificationId: "n", itemIds: ["item-1"], text: "x", status: "published", receipt: { notificationId: "n", sessionId: "session-1", messageId: "n" } }] }],
+    items: [{ id: "item-1", agentId: "agent", source: "rss", externalId: "x", content: "x", receivedAt: at, acceptedAt: at, status: "processed" }],
+    runs: [{ id: "run-1", agentId: "agent", itemIds: ["item-1"], status: "completed", createdAt: at, startedAt: at, publications: [{ notificationId: "n", itemIds: ["item-1"], text: "x", status: "published", receipt: { notificationId: "n", sessionId: "session-1", messageId: "n" } }] }],
   };
   const service = createInformationService({
     repository: h_forState(state).repository,
-    spaceExists: async () => true,
-    retainSpace: async () => ({ conversation: { sessionId: () => "session-1", notify: async (_text, id) => ({ sessionId: "session-1", messageId: id }) }, release: () => undefined }),
+    agentExists: async () => true,
+    retainAgent: async () => ({ conversation: { sessionId: () => "session-1", notify: async (_text, id) => ({ sessionId: "session-1", messageId: id }) }, release: () => undefined }),
     feedback: { read: async () => { throw new Error("corrupt feedback"); } } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
     readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
-  await assert.rejects(service.getPreferences("space"), /corrupt feedback/);
+  await assert.rejects(service.getPreferences("agent"), /corrupt feedback/);
 });

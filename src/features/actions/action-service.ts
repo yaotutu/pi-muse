@@ -135,11 +135,11 @@ export const createActionService = (
           expiresAt: new Date(createdAt + timeoutMs).toISOString(),
           resolvedAt: null,
           decidedAt: null,
-          spaceId: options.spaceId ?? null,
+          agentId: options.agentId ?? null,
           runId: options.runId ?? null,
           toolCallId: options.toolCallId ?? null,
           subagentId: options.subagentId ?? null,
-          workspaceSpaceId: options.workspaceSpaceId ?? null,
+          workspaceAgentId: options.workspaceAgentId ?? null,
           activityId: options.activityId ?? null,
         };
         const bytes = utf8Bytes(JSON.stringify(next));
@@ -180,16 +180,16 @@ export const createActionService = (
       if (changed) notify([changed]);
     },
 
-    /** 空间重置或删除时批量取消归属该空间的待审批项，返回实际被取消的审批 ID 列表。 */
-    cancelBySpaceId: async (spaceId: string): Promise<string[]> => {
+    /** 智能体重置或删除时批量取消归属该智能体的待审批项，返回实际被取消的审批 ID 列表。 */
+    cancelByAgentId: async (agentId: string): Promise<string[]> => {
       const changed = await repository.update((items) => {
         const updated: PendingAction[] = [];
         for (const action of items) {
-          const actionSpaceId = action.spaceId;
-          const workspaceSpaceId = action.workspaceSpaceId;
+          const actionAgentId = action.agentId;
+          const workspaceAgentId = action.workspaceAgentId;
           if (
             action.status === "pending" &&
-            (actionSpaceId === spaceId || workspaceSpaceId === spaceId)
+            (actionAgentId === agentId || workspaceAgentId === agentId)
           ) {
             settle(action, "cancelled");
             updated.push(action);
@@ -270,7 +270,7 @@ export const createActionService = (
       });
       const sorted = records.filter((action) =>
         (!query.status || action.status === query.status) &&
-        (!query.spaceId || action.spaceId === query.spaceId) &&
+        (!query.agentId || action.agentId === query.agentId) &&
         (!query.activityId || action.activityId === query.activityId))
         .sort((a, b) => b.resolvedAt.localeCompare(a.resolvedAt) || b.id.localeCompare(a.id));
       const { cursor } = query;

@@ -18,10 +18,10 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
   const modelId = raw.model?.id ?? "unknown";
 
   const results: Record<string, boolean> = {};
-  const cleanup: { memoryDeleted: boolean; spaceDeleted: boolean } = { memoryDeleted: false, spaceDeleted: false };
+  const cleanup: { memoryDeleted: boolean; agentDeleted: boolean } = { memoryDeleted: false, agentDeleted: false };
   let serviceVersion: unknown = null;
   let createdMemoryId = "";
-  const spaceId = `cors-live-${randomUUID().slice(0, 8)}`;
+  const agentId = `cors-live-${randomUUID().slice(0, 8)}`;
   const marker = `A05-CORS-LIVE-${randomUUID().slice(0, 8)}`;
   let token = "";
 
@@ -59,7 +59,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
     // 3. 真实模型只完成一轮对话；CORS 验收不依赖模型是否选择工具。
     const prompt = `系统测试。请直接且仅回复：${marker}`;
-    const runResult = await client.startRun(prompt, spaceId);
+    const runResult = await client.startRun(prompt, agentId);
     const events = await runResult.done;
     assert.equal(events.at(-1)?.type, "RUN_FINISHED", "Run must end with RUN_FINISHED");
     // 该专项只需要证明真实模型链路可用；不把 CORS 结果绑定在模型输出措辞上。
@@ -130,13 +130,13 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         }).catch(() => null);
         cleanup.memoryDeleted = cleanup.memoryDeleted && delMem?.status === 200;
       }
-      if (spaceId) {
-        const delSpace = await fetch(`${baseUrl}/api/spaces/${spaceId}`, {
+      if (agentId) {
+        const delAgent = await fetch(`${baseUrl}/api/agents/${agentId}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
           signal: AbortSignal.timeout(10_000),
         }).catch(() => null);
-        cleanup.spaceDeleted = delSpace?.status === 200;
+        cleanup.agentDeleted = delAgent?.status === 200;
       }
     }
 
@@ -145,7 +145,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       serviceVersion,
       results,
       cleanup,
-      ok: Object.values(results).length === 4 && Object.values(results).every(Boolean) && cleanup.memoryDeleted && cleanup.spaceDeleted,
+      ok: Object.values(results).length === 4 && Object.values(results).every(Boolean) && cleanup.memoryDeleted && cleanup.agentDeleted,
     };
 
     if (options.keepArtifacts) {
@@ -161,7 +161,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
 const parsed = parseLiveOptions(process.argv.slice(2));
 if (parsed.kind === "help") {
-  process.stdout.write("用法：node --import tsx tests/live/cors.ts --config <path> --allow-live [--keep-artifacts]\n连接已运行且使用真实模型的本机开发服务；读取 server.port/accessKey 与 model.id，仅创建并清理本轮测试记忆和空间。\n");
+  process.stdout.write("用法：node --import tsx tests/live/cors.ts --config <path> --allow-live [--keep-artifacts]\n连接已运行且使用真实模型的本机开发服务；读取 server.port/accessKey 与 model.id，仅创建并清理本轮测试记忆和智能体。\n");
 } else if (parsed.kind === "error") {
   process.stderr.write(`${parsed.message}\n`);
   process.exitCode = 2;

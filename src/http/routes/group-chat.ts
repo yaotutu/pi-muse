@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { HttpDependencies } from "../../bootstrap/types.js";
-import { SpaceCommunicationError } from "../../features/space-communication/service.js";
+import { AgentCommunicationError } from "../../features/agent-communication/service.js";
 import { groupSendSchema } from "../contracts/group-chat.js";
 
 export const createGroupChatRoutes = ({ group }: HttpDependencies) => {
@@ -19,7 +19,7 @@ export const createGroupChatRoutes = ({ group }: HttpDependencies) => {
       let writes = Promise.resolve();
       const emit = (value: unknown) => { writes = writes.then(async () => { if (!controller.signal.aborted) await stream.writeSSE({ data: JSON.stringify(value) }); }).catch(abort); };
       try { await group.send(input.data, controller.signal, emit); }
-      catch (error) { emit({ type: "error", code: error instanceof SpaceCommunicationError ? error.code : "GROUP_ERROR", message: error instanceof SpaceCommunicationError ? error.message : "Unable to process group message" }); }
+      catch (error) { emit({ type: "error", code: error instanceof AgentCommunicationError ? error.code : "GROUP_ERROR", message: error instanceof AgentCommunicationError ? error.message : "Unable to process group message" }); }
       finally { await writes; c.req.raw.signal.removeEventListener("abort", abort); }
     });
   });

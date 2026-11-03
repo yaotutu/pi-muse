@@ -1,4 +1,4 @@
-import { featureForSpace, type FeatureLink, type FeatureSource } from "../feature-spaces/types.js";
+import { featureForAgent, type FeatureLink, type FeatureSource } from "../agent-extensions/types.js";
 import { randomUUID } from "node:crypto";
 import { projectFeedback } from "../messages/service.js";
 import type { MessageFeedbackRepository } from "../messages/types.js";
@@ -29,13 +29,13 @@ const ITEM_STATUSES = new Set<InformationItemStatus>(["pending", "processing", "
 const RUN_STATUSES = new Set<InformationRun["status"]>(["running", "completed", "failed", "cancelled"]);
 
 type ActiveSlot = {
-  spaceId: string;
+  agentId: string;
   controller: AbortController;
   done: Promise<void>;
   release: () => void;
 };
 
-type SpacePause = {
+type AgentPause = {
   stopped: Promise<void>;
   resume: () => void;
 };
@@ -45,8 +45,8 @@ type NewsCursor = { publishedAt: string; id: string; view: "recommended" | "all"
 
 export type InformationServiceDependencies = {
   repository: InformationRepository;
-  spaceExists: (spaceId: string) => Promise<boolean>;
-  retainSpace: (spaceId: string) => Promise<{
+  agentExists: (agentId: string) => Promise<boolean>;
+  retainAgent: (agentId: string) => Promise<{
     conversation: {
       sessionId: () => string;
       notify: (
@@ -58,12 +58,12 @@ export type InformationServiceDependencies = {
     release: () => void;
   } | undefined>;
   feedback: MessageFeedbackRepository;
-  deliveryTarget?: (spaceId: string) => Promise<string>;
+  deliveryTarget?: (agentId: string) => Promise<string>;
   recordFeatureDelivery?: (link: FeatureLink) => Promise<void>;
-  featureFeedback?: (spaceId: string) => Promise<InformationFeedbackExample[]>;
+  featureFeedback?: (agentId: string) => Promise<InformationFeedbackExample[]>;
   runModel: (input: InformationModelInput, signal: AbortSignal) => Promise<InformationModelResult>;
-  readInstructions: (spaceId: string) => Promise<string>;
-  enabledSkillTexts: (spaceId: string) => Promise<string[]>;
+  readInstructions: (agentId: string) => Promise<string>;
+  enabledSkillTexts: (agentId: string) => Promise<string[]>;
 };
 
 const now = () => new Date().toISOString();
@@ -120,17 +120,17 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   let active: ActiveSlot | undefined;
   let closed = false;
   let closing: Promise<void> | undefined;
-  const pausedSpaceCounts = new Map<string, number>();
+  const pausedAgentCounts = new Map<string, number>();
 
   // 全局执行槽必须在第一个 await 前同步占住，手动/自动争用不会重复 claim。
-  const reserveSlot = (spaceId: string): ActiveSlot => {
+  const reserveSlot = (agentId: string): ActiveSlot => {
     if (closed) throw new InformationError("SHUTDOWN", "Information processing is closing");
     if (active) throw new InformationError("BUSY", "Another information run is active");
     const controller = new AbortController();
     let release!: () => void;
     const done = new Promise<void>((resolve) => { release = resolve; });
     const slot: ActiveSlot = {
-      spaceId,
+      agentId,
       controller,
       done,
       release: () => {
@@ -144,9 +144,9 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   const requireOpen = () => {
     if (closed) throw new InformationError("SHUTDOWN", "Information processing is closing");
   };
-  const isPaused = (spaceId: string) => pausedSpaceCounts.has(spaceId);
-  const requireSpace = async (spaceId: string) => {
-    if (!(await deps.spaceExists(spaceId))) throw new InformationError("SPACE_NOT_FOUND", "Space not found");
+  const isPaused = (agentId: string) => pausedAgentCounts.has(agentId);
+  const requireAgent = async (agentId: string) => {
+    if (!(await deps.agentExists(agentId))) throw new InformationError("AGENT_NOT_FOUND", "Agent not found");
   };
   const page = <T extends { id: string }>(
     values: readonly T[],
@@ -179,18 +179,18 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     };
   };
 
-  const getSettings = async (spaceId: string) => {
-    await requireSpace(spaceId);
-    const settings = (await deps.repository.read(spaceId)).settings;
+  const getSettings = async (agentId: string) => {
+    await requireAgent(agentId);
+    const settings = (await deps.repository.read(agentId)).settings;
     return { enabled: settings.enabled, batchWindowSeconds: settings.batchWindowSeconds };
   };
   const saveSettings = async (
-    spaceId: string,
+    agentId: string,
     settings: Pick<InformationSettings, "enabled" | "batchWindowSeconds">,
   ) => {
     requireOpen();
-    await requireSpace(spaceId);
-    return deps.repository.update(spaceId, (state) => ({
+    await requireAgent(agentId);
+    return deps.repository.update(agentId, (state) => ({
       state: {
         ...state,
         settings: {
@@ -203,16 +203,16 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     }), { allowCreate: true });
   };
 
-  const configureSpace = async (spaceId: string, settings: InformationSettings) => {
+  const configureAgent = async (agentId: string, settings: InformationSettings) => {
     requireOpen();
-    return deps.repository.update(spaceId, (state) => ({
+    return deps.repository.update(agentId, (state) => ({
       state: { ...state, settings },
       result: settings,
     }), { allowCreate: true });
   };
 
   const feedbackExamples = async (
-    spaceId: string,
+    agentId: string,
     state: InformationState,
     sessionId: string,
   ): Promise<InformationFeedbackExample[]> => {
@@ -223,7 +223,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     );
     if (!candidates.length) return [];
     // 反馈文件缺失是合法空反馈；损坏/I/O 失败必须暴露，不能伪装成无偏好。
-    const document = await deps.feedback.read(spaceId, sessionId);
+    const document = await deps.feedback.read(agentId, sessionId);
     const examples: InformationFeedbackExample[] = [];
     for (const { run, publication } of candidates) {
       const feedback = projectFeedback(document, publication.receipt!.messageId);
@@ -275,33 +275,33 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         }];
       });
   };
-  const getPreferences = async (spaceId: string) => {
-    await requireSpace(spaceId);
-    const state = await deps.repository.read(spaceId);
-    if (featureForSpace(spaceId)) {
-      return { notes: state.preferences.notes, feedbackExamples: await deps.featureFeedback?.(spaceId) ?? [] };
+  const getPreferences = async (agentId: string) => {
+    await requireAgent(agentId);
+    const state = await deps.repository.read(agentId);
+    if (featureForAgent(agentId)) {
+      return { notes: state.preferences.notes, feedbackExamples: await deps.featureFeedback?.(agentId) ?? [] };
     }
     if (state.settings.mode === "recommendations") return { notes: state.preferences.notes, feedbackExamples: [] };
-    const retained = await deps.retainSpace(spaceId);
+    const retained = await deps.retainAgent(agentId);
     if (!retained) return { notes: state.preferences.notes, feedbackExamples: [] };
     try {
       return {
         notes: state.preferences.notes,
-        feedbackExamples: await feedbackExamples(spaceId, state, retained.conversation.sessionId()),
+        feedbackExamples: await feedbackExamples(agentId, state, retained.conversation.sessionId()),
       };
     } finally {
       retained.release();
     }
   };
-  const getNewsPreferences = async (spaceId: string) => {
-    await requireSpace(spaceId);
-    const preferences = (await deps.repository.read(spaceId)).preferences;
+  const getNewsPreferences = async (agentId: string) => {
+    await requireAgent(agentId);
+    const preferences = (await deps.repository.read(agentId)).preferences;
     return { notes: preferences.notes, learnedNotes: preferences.learnedNotes };
   };
-  const savePreferences = async (spaceId: string, preferences: Pick<InformationPreferences, "notes">) => {
+  const savePreferences = async (agentId: string, preferences: Pick<InformationPreferences, "notes">) => {
     requireOpen();
-    await requireSpace(spaceId);
-    return deps.repository.update(spaceId, (state) => ({
+    await requireAgent(agentId);
+    return deps.repository.update(agentId, (state) => ({
       state: { ...state, preferences: { notes: preferences.notes, learnedNotes: state.preferences.learnedNotes } },
       result: { notes: preferences.notes },
     }), { allowCreate: true });
@@ -309,10 +309,10 @@ export const createInformationService = (deps: InformationServiceDependencies) =
 
   const emptyFeedbackFor = (itemId: string) => ({ itemId, reaction: null, saved: false, comments: [] });
   const updateArticle = async <T>(
-    spaceId: string,
+    agentId: string,
     itemId: string,
     change: (feedback: NonNullable<InformationState["articleFeedback"][number]>) => T,
-  ) => deps.repository.update(spaceId, (state) => {
+  ) => deps.repository.update(agentId, (state) => {
     if (!state.items.some((item) => item.id === itemId)) {
       throw new InformationError("NOT_FOUND", "Information item not found");
     }
@@ -332,29 +332,29 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     };
   });
 
-  const setArticleReaction = (spaceId: string, rawItemId: string, reaction: "like" | "dislike" | null) => {
+  const setArticleReaction = (agentId: string, rawItemId: string, reaction: "like" | "dislike" | null) => {
     requireOpen();
-    return updateArticle(spaceId, validId(rawItemId, "itemId"), (feedback) => {
+    return updateArticle(agentId, validId(rawItemId, "itemId"), (feedback) => {
       feedback.reaction = reaction;
       return feedback;
     });
   };
 
-  const setArticleSaved = (spaceId: string, rawItemId: string, saved: boolean) => {
+  const setArticleSaved = (agentId: string, rawItemId: string, saved: boolean) => {
     requireOpen();
-    return updateArticle(spaceId, validId(rawItemId, "itemId"), (feedback) => {
+    return updateArticle(agentId, validId(rawItemId, "itemId"), (feedback) => {
       feedback.saved = saved;
       return feedback;
     });
   };
 
-  const addArticleComment = (spaceId: string, rawItemId: string, text: string) => {
+  const addArticleComment = (agentId: string, rawItemId: string, text: string) => {
     requireOpen();
     const normalized = text.trim();
     if (!normalized || normalized.length > 4000) {
       throw new InformationError("INVALID_INPUT", "Comment must be non-blank and at most 4000 characters");
     }
-    return updateArticle(spaceId, validId(rawItemId, "itemId"), (feedback) => {
+    return updateArticle(agentId, validId(rawItemId, "itemId"), (feedback) => {
       const timestamp = now();
       feedback.comments.push({
         id: `comment_${randomUUID()}`,
@@ -366,10 +366,10 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     });
   };
 
-  const deleteArticleComment = (spaceId: string, rawItemId: string, commentId: string) => {
+  const deleteArticleComment = (agentId: string, rawItemId: string, commentId: string) => {
     requireOpen();
     const itemId = validId(rawItemId, "itemId");
-    return updateArticle(spaceId, itemId, (feedback) => {
+    return updateArticle(agentId, itemId, (feedback) => {
       const index = feedback.comments.findIndex((comment) => comment.id === commentId);
       if (index < 0) throw new InformationError("NOT_FOUND", "Information comment not found");
       feedback.comments.splice(index, 1);
@@ -377,12 +377,12 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     });
   };
 
-  const ingest = async (spaceId: string, inputs: readonly InformationInputItem[]) => {
+  const ingest = async (agentId: string, inputs: readonly InformationInputItem[]) => {
     requireOpen();
-    await requireSpace(spaceId);
-    const state = await deps.repository.read(spaceId);
+    await requireAgent(agentId);
+    const state = await deps.repository.read(agentId);
     if (!state.settings.enabled) throw new InformationError("DISABLED", "Information ingestion is disabled");
-    return deps.repository.update(spaceId, (current) => {
+    return deps.repository.update(agentId, (current) => {
       if (!current.settings.enabled) throw new InformationError("DISABLED", "Information ingestion is disabled");
       const acceptedAt = now();
       const existing = new Map(current.items.map((item) => [keyOf(item.source, item.externalId), item]));
@@ -410,7 +410,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       const planned = [...batch.entries()].map(([key, input]) => {
         const item: InformationItem = {
           id: input.id,
-          spaceId,
+          agentId,
           source: input.source,
           externalId: input.externalId,
           ...(input.title ? { title: input.title } : {}),
@@ -431,12 +431,12 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     }, { allowCreate: true });
   };
 
-  const ingestNews = async (spaceId: string, inputs: readonly InformationInputItem[]) => {
+  const ingestNews = async (agentId: string, inputs: readonly InformationInputItem[]) => {
     requireOpen();
-    await requireSpace(spaceId);
-    return deps.repository.update(spaceId, (current) => {
+    await requireAgent(agentId);
+    return deps.repository.update(agentId, (current) => {
       if (current.settings.mode !== "recommendations") {
-        throw new InformationError("CONFLICT", "Information space is not in recommendation mode");
+        throw new InformationError("CONFLICT", "Information agent is not in recommendation mode");
       }
       const acceptedAt = now();
       const existing = new Set(current.items.map((item) => keyOf(item.source, item.externalId)));
@@ -447,7 +447,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         existing.add(key);
         added.push({
           id: `info_${randomUUID()}`,
-          spaceId,
+          agentId,
           source: input.source,
           externalId: input.externalId,
           ...(input.title ? { title: input.title } : {}),
@@ -465,40 +465,40 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     });
   };
 
-  const listItems = async (spaceId: string, options: { status?: string; limit?: number; cursor?: string }) => {
-    await requireSpace(spaceId);
+  const listItems = async (agentId: string, options: { status?: string; limit?: number; cursor?: string }) => {
+    await requireAgent(agentId);
     const status = options.status;
     if (status !== undefined && !ITEM_STATUSES.has(status as InformationItemStatus)) {
       throw new InformationError("INVALID_INPUT", "Invalid information item status");
     }
-    const values = sortedItems((await deps.repository.read(spaceId)).items)
+    const values = sortedItems((await deps.repository.read(agentId)).items)
       .filter((item) => !status || item.status === status);
     const result = page(values, (item) => item.acceptedAt, options.limit ?? 20, options.cursor, status);
     return { items: result.values, nextCursor: result.nextCursor };
   };
-  const getItem = async (spaceId: string, rawItemId: string) => {
-    await requireSpace(spaceId);
+  const getItem = async (agentId: string, rawItemId: string) => {
+    await requireAgent(agentId);
     const itemId = validId(rawItemId, "itemId");
-    const state = await deps.repository.read(spaceId);
+    const state = await deps.repository.read(agentId);
     const item = state.items.find((candidate) => candidate.id === itemId);
     if (!item) throw new InformationError("NOT_FOUND", "Information item not found");
     return { item, runs: sortedRuns(state.runs.filter((run) => run.itemIds.includes(itemId))) };
   };
-  const listRuns = async (spaceId: string, options: { status?: string; limit?: number; cursor?: string }) => {
-    await requireSpace(spaceId);
+  const listRuns = async (agentId: string, options: { status?: string; limit?: number; cursor?: string }) => {
+    await requireAgent(agentId);
     const status = options.status;
     if (status !== undefined && !RUN_STATUSES.has(status as InformationRun["status"])) {
       throw new InformationError("INVALID_INPUT", "Invalid information run status");
     }
-    const values = sortedRuns((await deps.repository.read(spaceId)).runs)
+    const values = sortedRuns((await deps.repository.read(agentId)).runs)
       .filter((run) => !status || run.status === status);
     const result = page(values, (run) => run.createdAt, options.limit ?? 20, options.cursor, status);
     return { runs: result.values, nextCursor: result.nextCursor };
   };
-  const getRun = async (spaceId: string, rawRunId: string) => {
-    await requireSpace(spaceId);
+  const getRun = async (agentId: string, rawRunId: string) => {
+    await requireAgent(agentId);
     const runId = validId(rawRunId, "runId");
-    const state = await deps.repository.read(spaceId);
+    const state = await deps.repository.read(agentId);
     const run = state.runs.find((candidate) => candidate.id === runId);
     if (!run) throw new InformationError("NOT_FOUND", "Information run not found");
     return {
@@ -544,7 +544,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     };
   };
   const listNewsArticles = async (
-    spaceId: string,
+    agentId: string,
     options: {
       view: "recommended" | "all";
       savedOnly: boolean;
@@ -552,10 +552,10 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       cursor?: string;
     },
   ) => {
-    await requireSpace(spaceId);
-    const state = await deps.repository.read(spaceId);
+    await requireAgent(agentId);
+    const state = await deps.repository.read(agentId);
     if (state.settings.mode !== "recommendations") {
-      throw new InformationError("NOT_FOUND", "News space not found");
+      throw new InformationError("NOT_FOUND", "News agent not found");
     }
     const cursor = options.cursor ? decodeNewsCursor(options.cursor) : undefined;
     if (options.cursor && (!cursor || cursor.view !== options.view || cursor.savedOnly !== options.savedOnly)) {
@@ -589,27 +589,27 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         : null,
     };
   };
-  const getNewsArticle = async (spaceId: string, rawItemId: string) => {
-    await requireSpace(spaceId);
+  const getNewsArticle = async (agentId: string, rawItemId: string) => {
+    await requireAgent(agentId);
     const itemId = validId(rawItemId, "articleId");
-    const state = await deps.repository.read(spaceId);
+    const state = await deps.repository.read(agentId);
     const item = state.items.find((candidate) => candidate.id === itemId && candidate.metadata);
     if (!item || state.settings.mode !== "recommendations") {
       throw new InformationError("NOT_FOUND", "News article not found");
     }
     return { article: newsArticle(state, item, recommendationByItem(state)) };
   };
-  const getNewsCounts = async (spaceId: string) => {
-    const state = await deps.repository.read(spaceId);
+  const getNewsCounts = async (agentId: string) => {
+    const state = await deps.repository.read(agentId);
     return {
-      processing: active?.spaceId === spaceId,
+      processing: active?.agentId === agentId,
       pendingCount: state.items.filter((item) => item.status === "pending").length,
       failedCount: state.items.filter((item) => item.status === "failed").length,
     };
   };
-  const retryFailedNews = async (spaceId: string) => {
-    if (active?.spaceId === spaceId) return 0;
-    return deps.repository.update(spaceId, (state) => {
+  const retryFailedNews = async (agentId: string) => {
+    if (active?.agentId === agentId) return 0;
+    return deps.repository.update(agentId, (state) => {
       let changed = 0;
       const items = state.items.map((item) => {
         if (item.status !== "failed") return item;
@@ -623,9 +623,9 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     });
   };
 
-  const claim = async (spaceId: string, force: boolean) =>
-    deps.repository.update(spaceId, (state) => {
-      if (isPaused(spaceId)) return { result: undefined as InformationRun | undefined };
+  const claim = async (agentId: string, force: boolean) =>
+    deps.repository.update(agentId, (state) => {
+      if (isPaused(agentId)) return { result: undefined as InformationRun | undefined };
       if (!state.settings.enabled) return { result: undefined as InformationRun | undefined };
       const pending = [...state.items]
         .filter((item) => item.status === "pending")
@@ -646,7 +646,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       const nowText = now();
       const run: InformationRun = {
         id: `inforun_${randomUUID()}`,
-        spaceId,
+        agentId,
         itemIds: selected.map((item) => item.id),
         status: "running",
         createdAt: nowText,
@@ -666,8 +666,8 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       };
     });
 
-  const failRun = async (spaceId: string, runId: string, error: string, cancelled = false) =>
-    deps.repository.update(spaceId, (state) => {
+  const failRun = async (agentId: string, runId: string, error: string, cancelled = false) =>
+    deps.repository.update(agentId, (state) => {
       const run = state.runs.find((candidate) => candidate.id === runId);
       if (!run || run.status !== "running") return { result: undefined };
       const finishedAt = now();
@@ -691,11 +691,11 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     });
 
   const markPublication = async (
-    spaceId: string,
+    agentId: string,
     runId: string,
     notificationId: string,
     outcome: { status: "published"; receipt: { sessionId: string; messageId: string } } | { status: "failed"; error: string },
-  ) => deps.repository.update(spaceId, (state) => ({
+  ) => deps.repository.update(agentId, (state) => ({
     state: {
       ...state,
       runs: state.runs.map((run) => run.id !== runId ? run : {
@@ -712,20 +712,20 @@ export const createInformationService = (deps: InformationServiceDependencies) =
 
   const process = async (slot: ActiveSlot, claimed: InformationRun) => {
     const { controller } = slot;
-    let retained: Awaited<ReturnType<typeof deps.retainSpace>> | undefined;
-    let targetSpaceId = claimed.spaceId;
+    let retained: Awaited<ReturnType<typeof deps.retainAgent>> | undefined;
+    let targetAgentId = claimed.agentId;
     try {
       controller.signal.throwIfAborted();
-      const initialState = await deps.repository.read(claimed.spaceId);
+      const initialState = await deps.repository.read(claimed.agentId);
       const mode = initialState.settings.mode;
       let targetSessionId: string | undefined;
       if (mode === "notifications") {
-        // 每个已接纳后台轮固定一个承接空间；改绑只影响之后的轮次，不搬运在途消息。
-        targetSpaceId = await deps.deliveryTarget?.(claimed.spaceId) ?? claimed.spaceId;
-        retained = await deps.retainSpace(targetSpaceId);
+        // 每个已接纳后台轮固定一个承接智能体；改绑只影响之后的轮次，不搬运在途消息。
+        targetAgentId = await deps.deliveryTarget?.(claimed.agentId) ?? claimed.agentId;
+        retained = await deps.retainAgent(targetAgentId);
         controller.signal.throwIfAborted();
         if (!retained) {
-          await failRun(claimed.spaceId, claimed.id, "Target space disappeared", true);
+          await failRun(claimed.agentId, claimed.id, "Target agent disappeared", true);
           return;
         }
         targetSessionId = retained.conversation.sessionId();
@@ -736,32 +736,32 @@ export const createInformationService = (deps: InformationServiceDependencies) =
           .map((id) => state.items.find((item) => item.id === id))
           .filter((item): item is InformationItem => Boolean(item));
         const input: InformationModelInput = {
-          spaceId: claimed.spaceId,
+          agentId: claimed.agentId,
           runId: claimed.id,
           mode,
-          instructions: await deps.readInstructions(claimed.spaceId),
-          enabledSkillTexts: await deps.enabledSkillTexts(claimed.spaceId),
+          instructions: await deps.readInstructions(claimed.agentId),
+          enabledSkillTexts: await deps.enabledSkillTexts(claimed.agentId),
           preferences: state.preferences,
           items: items.map(({ id, source, externalId, title, content, receivedAt, metadata }) => ({
             id, source, externalId, ...(title ? { title } : {}), content, receivedAt,
             ...(metadata ? { sourceTitle: metadata.sourceTitle, url: metadata.url } : {}),
           })),
-          feedbackExamples: featureForSpace(claimed.spaceId)
-            ? await deps.featureFeedback?.(claimed.spaceId) ?? []
-            : mode === "notifications" && targetSessionId ? await feedbackExamples(claimed.spaceId, state, targetSessionId) : [],
+          feedbackExamples: featureForAgent(claimed.agentId)
+            ? await deps.featureFeedback?.(claimed.agentId) ?? []
+            : mode === "notifications" && targetSessionId ? await feedbackExamples(claimed.agentId, state, targetSessionId) : [],
           articleFeedback: articleFeedbackExamples(state),
         };
         controller.signal.throwIfAborted();
         const result = await deps.runModel(input, controller.signal);
         if (!result.ok) {
-          await failRun(claimed.spaceId, claimed.id, result.error, result.error === "CANCELLED");
+          await failRun(claimed.agentId, claimed.id, result.error, result.error === "CANCELLED");
           return;
         }
         let parsed: ReturnType<typeof parseInformationResult>;
         try {
           parsed = parseInformationResult(result.result, claimed.itemIds, mode);
         } catch {
-          await failRun(claimed.spaceId, claimed.id, "INVALID_MODEL_RESULT");
+          await failRun(claimed.agentId, claimed.id, "INVALID_MODEL_RESULT");
           return;
         }
         // 模型已成功时先保留这个事实；若取消/目标会话已变化，只把投递标失败，不重跑模型。
@@ -771,7 +771,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         const deliveryError = controller.signal.aborted
           ? "Cancelled before notification delivery"
           : "Target session changed before notification delivery";
-        await deps.repository.update(claimed.spaceId, (current) => {
+        await deps.repository.update(claimed.agentId, (current) => {
           const run = current.runs.find((candidate) => candidate.id === claimed.id);
           if (!run || run.status !== "running") return { result: undefined };
           const publications = mode === "notifications" ? parsed.notifications.map((notification, index) => ({
@@ -805,25 +805,25 @@ export const createInformationService = (deps: InformationServiceDependencies) =
           };
         });
         if (deliveryCancelled) return;
-        const completed = await deps.repository.read(claimed.spaceId);
+        const completed = await deps.repository.read(claimed.agentId);
         const run = completed.runs.find((candidate) => candidate.id === claimed.id);
         for (const publication of run?.publications ?? []) {
           if (mode !== "notifications" || !retained || !targetSessionId) continue;
-          const settingsNow = await deps.repository.read(claimed.spaceId);
+          const settingsNow = await deps.repository.read(claimed.agentId);
           if (!settingsNow.settings.enabled) {
-            await markPublication(claimed.spaceId, claimed.id, publication.notificationId, {
+            await markPublication(claimed.agentId, claimed.id, publication.notificationId, {
               status: "failed", error: "Information processing disabled before notification delivery",
             });
             continue;
           }
           if (controller.signal.aborted) {
-            await markPublication(claimed.spaceId, claimed.id, publication.notificationId, {
+            await markPublication(claimed.agentId, claimed.id, publication.notificationId, {
               status: "failed", error: "Cancelled before notification delivery",
             });
             continue;
           }
           if (retained.conversation.sessionId() !== targetSessionId) {
-            await markPublication(claimed.spaceId, claimed.id, publication.notificationId, {
+            await markPublication(claimed.agentId, claimed.id, publication.notificationId, {
               status: "failed", error: "Target session changed before notification delivery",
             });
             continue;
@@ -832,15 +832,15 @@ export const createInformationService = (deps: InformationServiceDependencies) =
             const receipt = await retained.conversation.notify(
               publication.text,
               publication.notificationId,
-              { signal: controller.signal, ...(featureForSpace(claimed.spaceId) ? { featureSource: { featureId: featureForSpace(claimed.spaceId)!, itemIds: publication.itemIds } } : {}) },
+              { signal: controller.signal, ...(featureForAgent(claimed.agentId) ? { featureSource: { featureId: featureForAgent(claimed.agentId)!, itemIds: publication.itemIds } } : {}) },
             );
-            const featureId = featureForSpace(claimed.spaceId);
-            if (featureId) await deps.recordFeatureDelivery?.({ featureId, itemIds: publication.itemIds, spaceId: targetSpaceId, sessionId: receipt.sessionId, messageId: receipt.messageId });
-            await markPublication(claimed.spaceId, claimed.id, publication.notificationId, {
+            const featureId = featureForAgent(claimed.agentId);
+            if (featureId) await deps.recordFeatureDelivery?.({ featureId, itemIds: publication.itemIds, agentId: targetAgentId, sessionId: receipt.sessionId, messageId: receipt.messageId });
+            await markPublication(claimed.agentId, claimed.id, publication.notificationId, {
               status: "published", receipt,
             });
           } catch {
-            await markPublication(claimed.spaceId, claimed.id, publication.notificationId, {
+            await markPublication(claimed.agentId, claimed.id, publication.notificationId, {
               status: "failed", error: controller.signal.aborted
                 ? "Cancelled before notification delivery"
                 : "Notification delivery failed",
@@ -853,7 +853,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       const message = error instanceof Error && error.message === "Notification cancelled"
         ? "Cancelled before notification delivery"
         : cancelled ? "CANCELLED" : "Information processing failed";
-      await failRun(claimed.spaceId, claimed.id, message, cancelled).catch(() => undefined);
+      await failRun(claimed.agentId, claimed.id, message, cancelled).catch(() => undefined);
       // 取消是已接纳 run 的正常终态：runNow 继续读回 cancelled 记录，不能把 AbortError 冒成 HTTP 500。
       if (!cancelled && (!(error instanceof InformationError) || error.code !== "SHUTDOWN")) throw error;
     } finally {
@@ -862,33 +862,33 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     }
   };
 
-  const runNow = async (spaceId: string) => {
+  const runNow = async (agentId: string) => {
     requireOpen();
-    if (isPaused(spaceId)) throw new InformationError("SPACE_PAUSED", "Space lifecycle is changing");
-    const slot = reserveSlot(spaceId);
+    if (isPaused(agentId)) throw new InformationError("AGENT_PAUSED", "Agent lifecycle is changing");
+    const slot = reserveSlot(agentId);
     try {
-      await requireSpace(spaceId);
-      const state = await deps.repository.read(spaceId);
+      await requireAgent(agentId);
+      const state = await deps.repository.read(agentId);
       if (!state.settings.enabled) throw new InformationError("DISABLED", "Information processing is disabled");
       if (!state.items.some((item) => item.status === "pending")) {
         throw new InformationError("NO_PENDING", "No pending information");
       }
-      const claimed = await claim(spaceId, true);
+      const claimed = await claim(agentId, true);
       if (!claimed) throw new InformationError("NO_PENDING", "No pending information");
       await process(slot, claimed);
-      return getRun(spaceId, claimed.id);
+      return getRun(agentId, claimed.id);
     } finally {
       slot.release();
     }
   };
-  const runDue = (spaceId: string) => {
-    if (closed || active || isPaused(spaceId)) return Promise.resolve(false);
-    const slot = reserveSlot(spaceId);
+  const runDue = (agentId: string) => {
+    if (closed || active || isPaused(agentId)) return Promise.resolve(false);
+    const slot = reserveSlot(agentId);
     let processStarted = false;
     return (async () => {
       try {
-        if (isPaused(spaceId)) return false;
-        const claimed = await claim(spaceId, false);
+        if (isPaused(agentId)) return false;
+        const claimed = await claim(agentId, false);
         if (!claimed) return false;
         processStarted = true;
         void process(slot, claimed).catch(() => undefined);
@@ -899,23 +899,23 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       }
     })();
   };
-  const nextDueSpace = async () => {
-    const spaceIds = await deps.repository.listSpaceIds();
-    for (const spaceId of spaceIds) {
-      if (!(await deps.spaceExists(spaceId))) continue;
-      const state = await deps.repository.read(spaceId);
+  const nextDueAgent = async () => {
+    const agentIds = await deps.repository.listAgentIds();
+    for (const agentId of agentIds) {
+      if (!(await deps.agentExists(agentId))) continue;
+      const state = await deps.repository.read(agentId);
       if (!state.settings.enabled) continue;
-      if (isPaused(spaceId)) continue;
+      if (isPaused(agentId)) continue;
       const first = state.items
         .filter((item) => item.status === "pending")
         .sort((a, b) => a.acceptedAt.localeCompare(b.acceptedAt) || a.id.localeCompare(b.id))[0];
-      if (first && Date.now() >= Date.parse(first.acceptedAt) + state.settings.batchWindowSeconds * 1000) return spaceId;
+      if (first && Date.now() >= Date.parse(first.acceptedAt) + state.settings.batchWindowSeconds * 1000) return agentId;
     }
     return undefined;
   };
 
   const query = async (input: {
-    spaceId: string;
+    agentId: string;
     action: "overview" | "items" | "item" | "runs" | "run" | "preferences";
     status?: string;
     limit?: number;
@@ -924,22 +924,22 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     runId?: string;
   }) => {
     if (input.action === "overview") {
-      const settings = await getSettings(input.spaceId);
-      const preferences = await getPreferences(input.spaceId);
-      const items = await listItems(input.spaceId, { limit: 5 });
-      const runs = await listRuns(input.spaceId, { limit: 5 });
+      const settings = await getSettings(input.agentId);
+      const preferences = await getPreferences(input.agentId);
+      const items = await listItems(input.agentId, { limit: 5 });
+      const runs = await listRuns(input.agentId, { limit: 5 });
       return { settings, preferences, items, runs };
     }
-    if (input.action === "preferences") return getPreferences(input.spaceId);
-    if (input.action === "item") return getItem(input.spaceId, input.itemId ?? "");
-    if (input.action === "run") return getRun(input.spaceId, input.runId ?? "");
-    if (input.action === "items") return listItems(input.spaceId, { status: input.status, limit: input.limit, cursor: input.cursor });
-    return listRuns(input.spaceId, { status: input.status, limit: input.limit, cursor: input.cursor });
+    if (input.action === "preferences") return getPreferences(input.agentId);
+    if (input.action === "item") return getItem(input.agentId, input.itemId ?? "");
+    if (input.action === "run") return getRun(input.agentId, input.runId ?? "");
+    if (input.action === "items") return listItems(input.agentId, { status: input.status, limit: input.limit, cursor: input.cursor });
+    return listRuns(input.agentId, { status: input.status, limit: input.limit, cursor: input.cursor });
   };
 
-  const cancelSpace = async (spaceId: string) => {
+  const cancelAgent = async (agentId: string) => {
     const current = active;
-    if (current?.spaceId === spaceId) {
+    if (current?.agentId === agentId) {
       abortQuietly(current.controller);
       await current.done;
     }
@@ -954,10 +954,10 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     }
   };
   /** 同步暂停新后台轮并等待旧轮退出；嵌套调用用引用计数收口。 */
-  const pauseSpace = (spaceId: string): SpacePause => {
-    const count = (pausedSpaceCounts.get(spaceId) ?? 0) + 1;
-    pausedSpaceCounts.set(spaceId, count);
-    const current = active?.spaceId === spaceId ? active : undefined;
+  const pauseAgent = (agentId: string): AgentPause => {
+    const count = (pausedAgentCounts.get(agentId) ?? 0) + 1;
+    pausedAgentCounts.set(agentId, count);
+    const current = active?.agentId === agentId ? active : undefined;
     if (current) abortQuietly(current.controller);
     let resumed = false;
     return {
@@ -965,16 +965,16 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       resume: () => {
         if (resumed) return;
         resumed = true;
-        const next = (pausedSpaceCounts.get(spaceId) ?? 1) - 1;
-        if (next > 0) pausedSpaceCounts.set(spaceId, next);
-        else pausedSpaceCounts.delete(spaceId);
+        const next = (pausedAgentCounts.get(agentId) ?? 1) - 1;
+        if (next > 0) pausedAgentCounts.set(agentId, next);
+        else pausedAgentCounts.delete(agentId);
       },
     };
   };
-  const removeSpace = async (spaceId: string) => {
+  const removeAgent = async (agentId: string) => {
     requireOpen();
-    await cancelSpace(spaceId);
-    await deps.repository.removeSpace(spaceId);
+    await cancelAgent(agentId);
+    await deps.repository.removeAgent(agentId);
   };
   const close = () => {
     if (closing) return closing;
@@ -988,7 +988,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   return {
     getSettings,
     saveSettings,
-    configureSpace,
+    configureAgent,
     getPreferences,
     getNewsPreferences,
     savePreferences,
@@ -1008,11 +1008,11 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     getRun,
     runNow,
     runDue,
-    nextDueSpace,
+    nextDueAgent,
     query,
-    cancelSpace,
-    pauseSpace,
-    removeSpace,
+    cancelAgent,
+    pauseAgent,
+    removeAgent,
     close,
   };
 };

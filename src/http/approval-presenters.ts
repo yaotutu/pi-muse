@@ -6,15 +6,15 @@ export const presentApproval = (action: PendingAction) => {
   const resourceScope = action.payload.resourceScope;
   if (resourceScope === "skill") {
     const { payload: _payload, ...summary } = action;
-    const spaceId = action.spaceId ?? null;
+    const agentId = action.agentId ?? null;
     return {
       ...summary,
-      spaceId,
-      workspaceSpaceId: null,
+      agentId,
+      workspaceAgentId: null,
       execution: action.execution ?? null,
       preview: {
         scope: "skill" as const,
-        ownerSpaceId: null,
+        ownerAgentId: null,
         path,
         before: action.payload.originalContent,
         after: action.payload.content,
@@ -24,16 +24,16 @@ export const presentApproval = (action: PendingAction) => {
   }
   const shared = path === "shared" || path.startsWith("shared/");
   const { payload: _payload, ...summary } = action;
-  const spaceId = action.spaceId ?? null;
-  const workspaceSpaceId = action.workspaceSpaceId ?? null;
+  const agentId = action.agentId ?? null;
+  const workspaceAgentId = action.workspaceAgentId ?? null;
   return {
     ...summary,
-    spaceId,
-    workspaceSpaceId,
+    agentId,
+    workspaceAgentId,
     execution: action.execution ?? null,
     preview: {
-      scope: shared ? ("shared" as const) : ("space" as const),
-      ownerSpaceId: shared ? null : workspaceSpaceId,
+      scope: shared ? ("shared" as const) : ("agent" as const),
+      ownerAgentId: shared ? null : workspaceAgentId,
       path,
       before: action.payload.originalContent,
       after: action.payload.content,
@@ -43,16 +43,16 @@ export const presentApproval = (action: PendingAction) => {
 };
 
 export const presentApprovalResolution = (action: PendingAction) => {
-  const spaceId = action.spaceId ?? null;
-  const workspaceSpaceId = action.workspaceSpaceId ?? null;
+  const agentId = action.agentId ?? null;
+  const workspaceAgentId = action.workspaceAgentId ?? null;
   return {
     id: action.id,
     revision: action.revision,
-    spaceId,
+    agentId,
     runId: action.runId,
     toolCallId: action.toolCallId,
     subagentId: action.subagentId,
-    workspaceSpaceId,
+    workspaceAgentId,
     activityId: action.activityId,
     status: action.status,
     createdAt: action.createdAt,

@@ -128,11 +128,11 @@ export const readActionsDocument = (
       item.revision >= 1 &&
       actionTime(item.createdAt) &&
       actionTime(item.expiresAt) &&
-      Object.hasOwn(item, "spaceId") && nullableContext(item.spaceId) &&
+      Object.hasOwn(item, "agentId") && nullableContext(item.agentId) &&
       nullableContext(item.runId) &&
       nullableContext(item.toolCallId) &&
       nullableContext(item.subagentId) &&
-      (Object.hasOwn(item, "workspaceSpaceId") ? nullableContext(item.workspaceSpaceId) : (Object.hasOwn(item, "workspaceThreadId") && nullableContext(item.workspaceThreadId))) &&
+      (Object.hasOwn(item, "workspaceAgentId") ? nullableContext(item.workspaceAgentId) : (Object.hasOwn(item, "workspaceAgentId") && nullableContext(item.workspaceAgentId))) &&
       nullableContext(item.activityId) &&
       isStateConsistent(item) && validExecution(item),
   );
@@ -165,7 +165,7 @@ export const readMonitorsDocument = (
 };
 
 /**
- * 会话级 Dream 状态文档（sessions/<threadId>/dream.json）。
+ * 会话级 Dream 状态文档（sessions/<agentId>/dream.json）。
  * 仅缺失文件由 repository 给出默认值；坏条目、schemaVersion 或未知字段一律拒绝。
  */
 export const readDreamDocument = (

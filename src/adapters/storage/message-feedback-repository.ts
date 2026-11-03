@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { isSpaceId } from "../../features/conversation/space-id.js";
+import { isAgentId } from "../../features/conversation/agent-id.js";
 import type {
   MessageFeedbackDocument,
   MessageFeedbackRepository,
@@ -79,44 +79,44 @@ const readDocument = async (file: string, logicalFile: string): Promise<MessageF
 /** 每个反馈文件独立原子写入；一个全局串行队列足够单进程单用户使用。 */
 export const createMessageFeedbackRepository = (layout: DataLayout): MessageFeedbackRepository => {
   const serialized = createSerializedWriter();
-  const fileFor = (spaceId: string, sessionId: string) => {
-    if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
-    return messageFeedbackFile(layout, spaceId, sessionId);
+  const fileFor = (agentId: string, sessionId: string) => {
+    if (!isAgentId(agentId)) throw new Error("Invalid agentId");
+    return messageFeedbackFile(layout, agentId, sessionId);
   };
-  const logicalFile = (spaceId: string, sessionId: string) => `messages/${spaceId}/${sessionId}.json`;
+  const logicalFile = (agentId: string, sessionId: string) => `messages/${agentId}/${sessionId}.json`;
   return {
-    read: (spaceId, sessionId) => serialized(() =>
-      readDocument(fileFor(spaceId, sessionId), logicalFile(spaceId, sessionId))),
-    update: (spaceId, sessionId, change) => serialized(async () => {
-      const file = fileFor(spaceId, sessionId);
-      const document = await readDocument(file, logicalFile(spaceId, sessionId));
+    read: (agentId, sessionId) => serialized(() =>
+      readDocument(fileFor(agentId, sessionId), logicalFile(agentId, sessionId))),
+    update: (agentId, sessionId, change) => serialized(async () => {
+      const file = fileFor(agentId, sessionId);
+      const document = await readDocument(file, logicalFile(agentId, sessionId));
       const changed = change(document);
       if (changed.document) {
         await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-        await writeJsonDocument(file, parseDocument(changed.document, logicalFile(spaceId, sessionId)));
+        await writeJsonDocument(file, parseDocument(changed.document, logicalFile(agentId, sessionId)));
       }
       return changed.result;
     }),
-    removeSpace: (spaceId) => serialized(async () => {
-      if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
-      await rm(join(layout.messageFeedbackDir, spaceId), { recursive: true, force: true });
+    removeAgent: (agentId) => serialized(async () => {
+      if (!isAgentId(agentId)) throw new Error("Invalid agentId");
+      await rm(join(layout.messageFeedbackDir, agentId), { recursive: true, force: true });
     }),
     validateAll: async () => {
-      let spaces;
+      let agents;
       try {
-        spaces = await readdir(layout.messageFeedbackDir, { withFileTypes: true });
+        agents = await readdir(layout.messageFeedbackDir, { withFileTypes: true });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
         throw error;
       }
-      for (const space of spaces) {
-        if (!space.isDirectory() || !isSpaceId(space.name)) throw new Error("Invalid message feedback layout");
-        const files = await readdir(join(layout.messageFeedbackDir, space.name), { withFileTypes: true });
+      for (const agent of agents) {
+        if (!agent.isDirectory() || !isAgentId(agent.name)) throw new Error("Invalid message feedback layout");
+        const files = await readdir(join(layout.messageFeedbackDir, agent.name), { withFileTypes: true });
         for (const file of files) {
           if (!file.isFile() || !file.name.endsWith(".json")) throw new Error("Invalid message feedback layout");
           await readDocument(
-            join(layout.messageFeedbackDir, space.name, file.name),
-            `messages/${space.name}/${file.name}`,
+            join(layout.messageFeedbackDir, agent.name, file.name),
+            `messages/${agent.name}/${file.name}`,
           );
         }
       }

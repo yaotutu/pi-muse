@@ -10,7 +10,7 @@ type Args = {
 };
 
 type Context = {
-  spaceId: string;
+  agentId: string;
   sessionId: string;
   userMessageId: string;
   assistantMessageId: string;
@@ -81,7 +81,7 @@ const parseArgs = (): Args => {
 const args = parseArgs();
 const token = (await readFile(args.tokenFile, "utf8")).trim();
 if (!token) fail("Token file is empty");
-let createdSpaceId: string | undefined;
+let createdAgentId: string | undefined;
 
 const api = async (
   path: string,
@@ -111,12 +111,12 @@ const expectStatus = async (label: string, status: number, expected: number, bod
   console.log(`[PASS] ${label}`);
 };
 
-const feedbackPath = (spaceId: string, messageId: string, suffix = "") =>
-  `/api/spaces/${encodeURIComponent(spaceId)}/messages/${encodeURIComponent(messageId)}/feedback${suffix}`;
+const feedbackPath = (agentId: string, messageId: string, suffix = "") =>
+  `/api/agents/${encodeURIComponent(agentId)}/messages/${encodeURIComponent(messageId)}/feedback${suffix}`;
 
-const conversation = async (spaceId: string, requireSessionId = true) => {
-  const result = await api(`/api/conversation?spaceId=${encodeURIComponent(spaceId)}`);
-  await expectStatus(`GET conversation ${spaceId}`, result.status, 200, result.body);
+const conversation = async (agentId: string, requireSessionId = true) => {
+  const result = await api(`/api/conversation?agentId=${encodeURIComponent(agentId)}`);
+  await expectStatus(`GET conversation ${agentId}`, result.status, 200, result.body);
   const body = result.body as {
     sessionId: string | null;
     revision: string;
@@ -127,16 +127,16 @@ const conversation = async (spaceId: string, requireSessionId = true) => {
       feedback?: Feedback;
     }>;
   };
-  if (requireSessionId && !body.sessionId) fail(`Space ${spaceId} has no session`);
+  if (requireSessionId && !body.sessionId) fail(`Agent ${agentId} has no session`);
   return body;
 };
 
-const runModel = async (spaceId: string, prompt: string, ids: { runId: string; messageId: string }) => {
-  const before = await conversation(spaceId, false);
+const runModel = async (agentId: string, prompt: string, ids: { runId: string; messageId: string }) => {
+  const before = await conversation(agentId, false);
   const result = await api("/api/conversation/run", {
     method: "POST",
     body: JSON.stringify({
-      spaceId,
+      agentId,
       runId: ids.runId,
       expectedRevision: before.revision,
       message: { id: ids.messageId, content: prompt },
@@ -149,7 +149,7 @@ const runModel = async (spaceId: string, prompt: string, ids: { runId: string; m
       .map((line) => JSON.parse(line.slice(6)) as { type: string; messageId?: string }),
   );
   if (!events.some((event) => event.type === "RUN_FINISHED")) fail(`Model run ${ids.runId} did not finish`);
-  const after = await conversation(spaceId);
+  const after = await conversation(agentId);
   if (after.messages.length <= before.messages.length) fail("Real model run did not persist messages");
   console.log(`[PASS] real model persisted ${after.messages.length - before.messages.length} messages`);
   return after;
@@ -175,8 +175,8 @@ const assertAssistantAudit = (events: Event[], messageId: string) => {
   if (deleted?.text !== "live comment two") fail("Raw deleted comment text is incorrect");
 };
 
-const setReaction = async (label: string, spaceId: string, sessionId: string, messageId: string, reaction: "like" | "dislike" | null) => {
-  const result = await api(feedbackPath(spaceId, messageId, "/reaction"), {
+const setReaction = async (label: string, agentId: string, sessionId: string, messageId: string, reaction: "like" | "dislike" | null) => {
+  const result = await api(feedbackPath(agentId, messageId, "/reaction"), {
     method: "PUT",
     body: JSON.stringify({ sessionId, reaction }),
   });
@@ -185,8 +185,8 @@ const setReaction = async (label: string, spaceId: string, sessionId: string, me
   if (feedback.reaction !== reaction) fail(`${label} reaction response mismatch`);
 };
 
-const addComment = async (spaceId: string, sessionId: string, messageId: string, text: string) => {
-  const result = await api(feedbackPath(spaceId, messageId, "/comments"), {
+const addComment = async (agentId: string, sessionId: string, messageId: string, text: string) => {
+  const result = await api(feedbackPath(agentId, messageId, "/comments"), {
     method: "POST",
     body: JSON.stringify({ sessionId, text }),
   });
@@ -203,11 +203,11 @@ const writeContext = async (context: Context) => {
 try {
   if (args.phase === "record") {
     const stamp = Date.now();
-    const spaceId = `feedback-live-${stamp}-${randomUUID().slice(0, 8)}`;
-    createdSpaceId = spaceId;
+    const agentId = `feedback-live-${stamp}-${randomUUID().slice(0, 8)}`;
+    createdAgentId = agentId;
     const userMessageId = `feedback-user-${stamp}`;
     const runId = `feedback-run-${stamp}-${randomUUID()}`;
-    const first = await runModel(spaceId, "请直接简短回复 LIVE OK，不要调用工具。", { runId, messageId: userMessageId });
+    const first = await runModel(agentId, "请直接简短回复 LIVE OK，不要调用工具。", { runId, messageId: userMessageId });
     const user = first.messages.find((message) => message.id === userMessageId && message.role === "user");
     const assistant = first.messages.find((message) => message.role === "assistant" && message.metadata?.source === "chat");
     if (!user?.metadata || !user.feedback || !assistant?.metadata || !assistant.feedback)
@@ -217,19 +217,19 @@ try {
     if (userMessage.metadata!.source !== "chat" || assistantMessage.metadata!.source !== "chat" || !assistantMessage.metadata!.feedbackAvailable)
       fail("Real chat source or availability is incorrect");
 
-    await setReaction("user", spaceId, first.sessionId!, userMessage.id, "like");
-    await setReaction("user", spaceId, first.sessionId!, userMessage.id, "dislike");
-    await setReaction("user", spaceId, first.sessionId!, userMessage.id, null);
-    await setReaction("assistant", spaceId, first.sessionId!, assistantMessage.id, "like");
-    await setReaction("assistant", spaceId, first.sessionId!, assistantMessage.id, "dislike");
-    await setReaction("assistant", spaceId, first.sessionId!, assistantMessage.id, null);
+    await setReaction("user", agentId, first.sessionId!, userMessage.id, "like");
+    await setReaction("user", agentId, first.sessionId!, userMessage.id, "dislike");
+    await setReaction("user", agentId, first.sessionId!, userMessage.id, null);
+    await setReaction("assistant", agentId, first.sessionId!, assistantMessage.id, "like");
+    await setReaction("assistant", agentId, first.sessionId!, assistantMessage.id, "dislike");
+    await setReaction("assistant", agentId, first.sessionId!, assistantMessage.id, null);
 
-    const firstComment = await addComment(spaceId, first.sessionId!, assistantMessage.id, " live comment one ");
-    const secondComment = await addComment(spaceId, first.sessionId!, assistantMessage.id, " live comment two ");
+    const firstComment = await addComment(agentId, first.sessionId!, assistantMessage.id, " live comment one ");
+    const secondComment = await addComment(agentId, first.sessionId!, assistantMessage.id, " live comment two ");
     if (firstComment.text !== "live comment one" || secondComment.text !== "live comment two")
       fail("Server did not trim and persist multiple comments");
 
-    const edit = await api(`${feedbackPath(spaceId, assistantMessage.id, `/comments/${firstComment.id}`)}`, {
+    const edit = await api(`${feedbackPath(agentId, assistantMessage.id, `/comments/${firstComment.id}`)}`, {
       method: "PATCH",
       body: JSON.stringify({ sessionId: first.sessionId, text: "live comment edited" }),
     });
@@ -238,48 +238,48 @@ try {
     if (edited.text !== "live comment edited" || edited.updatedAt <= edited.createdAt)
       fail("Edited comment text or updatedAt is incorrect");
 
-    const remove = await api(`${feedbackPath(spaceId, assistantMessage.id, `/comments/${secondComment.id}`)}?sessionId=${encodeURIComponent(first.sessionId!)}`, {
+    const remove = await api(`${feedbackPath(agentId, assistantMessage.id, `/comments/${secondComment.id}`)}?sessionId=${encodeURIComponent(first.sessionId!)}`, {
       method: "DELETE",
     });
     await expectStatus("delete comment", remove.status, 200, remove.body);
     if ((remove.body as Feedback).comments.some((comment) => comment.id === secondComment.id)) fail("Deleted comment remained current");
 
-    const eventsResult = await api(`${feedbackPath(spaceId, assistantMessage.id, "/events")}?sessionId=${encodeURIComponent(first.sessionId!)}`);
+    const eventsResult = await api(`${feedbackPath(agentId, assistantMessage.id, "/events")}?sessionId=${encodeURIComponent(first.sessionId!)}`);
     await expectStatus("read message-scoped raw events", eventsResult.status, 200, eventsResult.body);
     const events = (eventsResult.body as { events: Event[] }).events;
     assertAssistantAudit(events, assistantMessage.id);
 
-    const afterFeedback = await conversation(spaceId);
+    const afterFeedback = await conversation(agentId);
     if (afterFeedback.revision !== first.revision || afterFeedback.messages.length !== first.messages.length)
       fail("Feedback changed PI revision or message count");
 
     await expectStatus(
       "unauthorized feedback is rejected",
-      (await fetch(args.baseUrl + feedbackPath(spaceId, assistantMessage.id), { signal: AbortSignal.timeout(30_000) })).status,
+      (await fetch(args.baseUrl + feedbackPath(agentId, assistantMessage.id), { signal: AbortSignal.timeout(30_000) })).status,
       401,
     );
-    const invalid = await api(feedbackPath(spaceId, assistantMessage.id, "/reaction"), {
+    const invalid = await api(feedbackPath(agentId, assistantMessage.id, "/reaction"), {
       method: "PUT",
       body: JSON.stringify({ sessionId: first.sessionId, reaction: "meh" }),
     });
     await expectStatus("invalid reaction is rejected", invalid.status, 400, invalid.body);
-    const missingMessage = await api(`${feedbackPath(spaceId, "missing-message")}?sessionId=${encodeURIComponent(first.sessionId!)}`);
+    const missingMessage = await api(`${feedbackPath(agentId, "missing-message")}?sessionId=${encodeURIComponent(first.sessionId!)}`);
     await expectStatus("missing message is rejected", missingMessage.status, 404, missingMessage.body);
-    const missingSpace = await api(`${feedbackPath("feedback-live-missing", "missing")}?sessionId=${encodeURIComponent(first.sessionId!)}`);
-    await expectStatus("missing space is rejected", missingSpace.status, 404, missingSpace.body);
-    const crossSpaceConflict = await api(`${feedbackPath("local-main", assistantMessage.id)}?sessionId=${encodeURIComponent(first.sessionId!)}`);
-    await expectStatus("cross-space session is rejected", crossSpaceConflict.status, 409, crossSpaceConflict.body);
+    const missingAgent = await api(`${feedbackPath("feedback-live-missing", "missing")}?sessionId=${encodeURIComponent(first.sessionId!)}`);
+    await expectStatus("missing agent is rejected", missingAgent.status, 404, missingAgent.body);
+    const crossAgentConflict = await api(`${feedbackPath("local-main", assistantMessage.id)}?sessionId=${encodeURIComponent(first.sessionId!)}`);
+    await expectStatus("cross-agent session is rejected", crossAgentConflict.status, 409, crossAgentConflict.body);
     const localMain = await conversation("local-main", false);
     if (localMain.sessionId) {
-      const crossSpaceTarget = await api(`${feedbackPath("local-main", assistantMessage.id)}?sessionId=${encodeURIComponent(localMain.sessionId)}`);
-      await expectStatus("cross-space message is rejected", crossSpaceTarget.status, 404, crossSpaceTarget.body);
+      const crossAgentTarget = await api(`${feedbackPath("local-main", assistantMessage.id)}?sessionId=${encodeURIComponent(localMain.sessionId)}`);
+      await expectStatus("cross-agent message is rejected", crossAgentTarget.status, 404, crossAgentTarget.body);
     } else {
-      const wrongTarget = await api(`${feedbackPath(spaceId, "missing-cross-target")}?sessionId=${encodeURIComponent(first.sessionId!)}`);
+      const wrongTarget = await api(`${feedbackPath(agentId, "missing-cross-target")}?sessionId=${encodeURIComponent(first.sessionId!)}`);
       await expectStatus("missing message fallback is rejected", wrongTarget.status, 404, wrongTarget.body);
     }
 
     await writeContext({
-      spaceId,
+      agentId,
       sessionId: first.sessionId!,
       userMessageId: userMessage.id,
       assistantMessageId: assistantMessage.id,
@@ -291,14 +291,14 @@ try {
     console.log("[PASS] record phase complete; restart backend then run --phase verify");
   } else {
     const context = JSON.parse(await readFile(args.contextFile, "utf8")) as Context;
-    const restarted = await conversation(context.spaceId);
+    const restarted = await conversation(context.agentId);
     if (restarted.sessionId !== context.sessionId || restarted.revision !== context.revision || restarted.messages.length !== context.messageCount)
       fail("Restart changed session identity, PI revision, or persisted message count");
     const assistant = restarted.messages.find((message) => message.id === context.assistantMessageId);
     const comment = assistant?.feedback?.comments.find((item) => item.id === context.commentId);
     if (!comment || comment.text !== "live comment edited") fail("Restart lost persisted feedback");
 
-    const eventsResult = await api(`${feedbackPath(context.spaceId, context.assistantMessageId, "/events")}?sessionId=${encodeURIComponent(context.sessionId)}`);
+    const eventsResult = await api(`${feedbackPath(context.agentId, context.assistantMessageId, "/events")}?sessionId=${encodeURIComponent(context.sessionId)}`);
     await expectStatus("read events after restart", eventsResult.status, 200, eventsResult.body);
     const events = (eventsResult.body as { events: Event[] }).events;
     if (events.length !== context.eventCount)
@@ -306,33 +306,33 @@ try {
     assertAssistantAudit(events, context.assistantMessageId);
 
     const stamp = Date.now();
-    await runModel(context.spaceId, "请再直接简短回复 LIVE VERIFY OK，不要调用工具。", {
+    await runModel(context.agentId, "请再直接简短回复 LIVE VERIFY OK，不要调用工具。", {
       runId: `feedback-verify-${stamp}-${randomUUID()}`,
       messageId: `feedback-verify-user-${stamp}`,
     });
 
-    const reset = await api(`/api/spaces/${encodeURIComponent(context.spaceId)}/reset`, {
+    const reset = await api(`/api/agents/${encodeURIComponent(context.agentId)}/reset`, {
       method: "POST",
       body: JSON.stringify({ clearSchedules: false }),
     });
-    await expectStatus("reset live test space", reset.status, 200, reset.body);
+    await expectStatus("reset live test agent", reset.status, 200, reset.body);
     const newSessionId = (reset.body as { sessionId: string }).sessionId;
     if (newSessionId === context.sessionId) fail("Reset did not change sessionId");
-    const oldSession = await api(feedbackPath(context.spaceId, context.assistantMessageId, "/reaction"), {
+    const oldSession = await api(feedbackPath(context.agentId, context.assistantMessageId, "/reaction"), {
       method: "PUT",
       body: JSON.stringify({ sessionId: context.sessionId, reaction: "like" }),
     });
     await expectStatus("old session is rejected after reset", oldSession.status, 409, oldSession.body);
 
-    const deleted = await api(`/api/spaces/${encodeURIComponent(context.spaceId)}`, { method: "DELETE" });
-    await expectStatus("delete live test space", deleted.status, 200, deleted.body);
-    const revived = await api(`${feedbackPath(context.spaceId, context.assistantMessageId)}?sessionId=${encodeURIComponent(newSessionId)}`);
-    await expectStatus("deleted space feedback cannot revive", revived.status, 404, revived.body);
+    const deleted = await api(`/api/agents/${encodeURIComponent(context.agentId)}`, { method: "DELETE" });
+    await expectStatus("delete live test agent", deleted.status, 200, deleted.body);
+    const revived = await api(`${feedbackPath(context.agentId, context.assistantMessageId)}?sessionId=${encodeURIComponent(newSessionId)}`);
+    await expectStatus("deleted agent feedback cannot revive", revived.status, 404, revived.body);
     console.log("[PASS] verify phase complete");
   }
 } catch (error) {
-  if (createdSpaceId && args.phase === "record") {
-    await api(`/api/spaces/${encodeURIComponent(createdSpaceId)}`, { method: "DELETE" }).catch(() => undefined);
+  if (createdAgentId && args.phase === "record") {
+    await api(`/api/agents/${encodeURIComponent(createdAgentId)}`, { method: "DELETE" }).catch(() => undefined);
   }
   console.error(`[FAIL] ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;

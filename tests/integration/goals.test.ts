@@ -53,8 +53,8 @@ test("goals REST API: CRUD lifecycle, query parameters, sorting, status transiti
   const initialData = goalsResponse.parse(await initial.json());
   assert.deepEqual(initialData.goals, []);
 
-  // 3. 快照解耦验证：GET /api/agent 中不再包含 goals
-  const snapshotRes = await request("/api/agent");
+  // 3. 快照解耦验证：GET /api/identity 中不再包含 goals
+  const snapshotRes = await request("/api/identity");
   assert.equal(snapshotRes.status, 200);
   const snapshot = await snapshotRes.json();
   assert.equal(Object.hasOwn(snapshot, "goals"), false);

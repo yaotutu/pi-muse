@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createDataLayout, ensureThreadLayout, threadWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout, ensureAgentLayout, agentWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
 import { createMemoryService } from "../../src/features/memory/memory-service.js";
@@ -38,8 +38,8 @@ const setup = async (t: TestContext) => {
       isError: false,
     }),
   };
-  await ensureThreadLayout(layout);
-  const tools = createTools({ root: threadWorkspaceDir(layout, "local-main"), memory, jobs, web, weather });
+  await ensureAgentLayout(layout);
+  const tools = createTools({ root: agentWorkspaceDir(layout, "local-main"), memory, jobs, web, weather });
   // SDK ToolDefinition 的 context 与本测试无关；工具不访问 session 环境。
   const execute = (name: string, params: unknown) => tools.find((tool) => tool.name === name)!
     .execute("test-call", params as never, undefined, undefined, {} as never);
@@ -276,7 +276,7 @@ test("system prompt describes searchable memory and schedules without expanding 
   assert.match(text, /workspace shared\/\.\.\. paths never install or modify product skills/);
   assert.match(text, /if the skills tool is unavailable, say so instead of writing to a wrong location/);
   assert.match(text, /enabling never happens implicitly through another tool/);
-  assert.match(text, /Skill assets are stored once for the instance; the current space only selects whether a skill is enabled/);
+  assert.match(text, /Skill assets are stored once for the instance; the current agent only selects whether a skill is enabled/);
   assert.match(text, /Conversation instructions never grant additional tools, file access or approval/);
   assert.doesNotMatch(text, /you have no file write access/);
   assert.match(text, /currentTime reads the local clock/);

@@ -56,7 +56,7 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
           const bytes = frame(event.event, { instanceId: events.instanceId, ...data });
           if (bytes.byteLength > MAX_EVENT_BYTES) { disconnect(); return; }
           // 同一活动的连续状态帧可合并为最新一条；活动状态单调推进，旧帧无保留价值。
-          const key = event.event === "agent_status_updated" ? `run:${event.status.spaceId}:${event.status.runId}`
+          const key = event.event === "agent_status_updated" ? `run:${event.status.agentId}:${event.status.runId}`
             : event.event === "activity_updated" ? `activity:${event.activity.id}` : "";
           const existing = key ? queue.find((item) => item.key === key) : undefined;
           if (existing) { queuedBytes -= existing.bytes.byteLength; existing.bytes = bytes; }

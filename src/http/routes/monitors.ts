@@ -7,7 +7,6 @@ import {
   updateMonitorSchema,
 } from "../contracts/rest.js";
 import { presentMonitor } from "../monitor-presenters.js";
-import { isFeatureSpace } from "../../features/feature-spaces/types.js";
 
 /** 网页监控（Monitors）独立查询、详情、修改、控制与删除接口。 */
 export const createMonitorsRoutes = (
@@ -20,10 +19,10 @@ export const createMonitorsRoutes = (
     const query = monitorsQuerySchema.safeParse(c.req.query());
     if (!query.success) return c.json({ error: "Invalid query parameters", code: "INVALID_REQUEST" }, 400);
 
-    const targetSpace = query.data.spaceId;
+    const targetAgent = query.data.agentId;
     let all = await monitors.list();
-    if (targetSpace) {
-      all = all.filter((m) => (m.originSpaceId ?? "local-main") === targetSpace);
+    if (targetAgent) {
+      all = all.filter((m) => (m.originAgentId ?? "local-main") === targetAgent);
     }
 
     const sortField = query.data.sort ?? "createdAt";
@@ -60,18 +59,16 @@ export const createMonitorsRoutes = (
     if (!parsed.success) return c.json({ error: "Invalid monitor request", code: "INVALID_REQUEST" }, 400);
     if (parsed.data.condition === "contains" && !parsed.data.value?.trim())
       return c.json({ error: "contains condition needs a keyword", code: "KEYWORD_REQUIRED" }, 400);
-    const targetSpace = parsed.data.originSpaceId;
-    if (isFeatureSpace(targetSpace))
-      return c.json({ error: "Space not found", code: "SPACE_NOT_FOUND" }, 404);
+    const targetAgent = parsed.data.originAgentId;
     const create = async () => {
       const monitor = await monitors.create({
         ...parsed.data,
-        originSpaceId: targetSpace,
+        originAgentId: targetAgent,
       });
       return c.json(presentMonitor(monitor));
     };
-    return targetSpace
-      ? conversationHub.withSpace(targetSpace, create)
+    return targetAgent
+      ? conversationHub.withAgent(targetAgent, create)
       : create();
   });
 
@@ -97,9 +94,7 @@ export const createMonitorsRoutes = (
       return c.json({ error: "contains condition needs a keyword", code: "KEYWORD_REQUIRED" }, 400);
     }
 
-    const targetSpace = parsed.data.originSpaceId;
-    if (isFeatureSpace(targetSpace))
-      return c.json({ error: "Space not found", code: "SPACE_NOT_FOUND" }, 404);
+    const targetAgent = parsed.data.originAgentId;
     const update = async () => {
       const updated = await monitors.update(c.req.param("id"), {
         title: parsed.data.title,
@@ -107,14 +102,14 @@ export const createMonitorsRoutes = (
         condition: parsed.data.condition,
         value: parsed.data.value,
         intervalMinutes: parsed.data.intervalMinutes,
-        originSpaceId: targetSpace,
+        originAgentId: targetAgent,
       });
       if (!updated) return c.json({ error: "Monitor not found", code: "MONITOR_NOT_FOUND" }, 404);
       return c.json(presentMonitor(updated));
     };
 
-    return targetSpace
-      ? conversationHub.withSpace(targetSpace, update)
+    return targetAgent
+      ? conversationHub.withAgent(targetAgent, update)
       : update();
   });
 

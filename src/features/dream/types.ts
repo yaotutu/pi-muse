@@ -1,6 +1,6 @@
 /**
  * Dream 后台记忆整理的业务类型。
- * 会话级状态存放在 sessions/<threadId>/dream.json，随会话目录一起删除；
+ * 会话级状态存放在 sessions/<agentId>/dream.json，随会话目录一起删除；
  * 全局提示词与会话补充提示词是独立的纯文本文件，不在此处建模。
  */
 
@@ -50,17 +50,17 @@ export type DreamState = {
   pending: DreamPending[];
 };
 
-export const defaultDreamState = (spaceId: string): DreamState => ({
-  enabled: spaceId === "local-main",
+export const defaultDreamState = (agentId: string): DreamState => ({
+  enabled: agentId === "local-main",
   inheritGlobalPrompt: true,
   pending: [],
 });
 
-/** 单个空间 Dream 状态的存取端口；实现负责串行读改写与损坏文件报错。 */
+/** 单个智能体 Dream 状态的存取端口；实现负责串行读改写与损坏文件报错。 */
 export type DreamRepository = {
-  read: (spaceId: string) => Promise<DreamState>;
+  read: (agentId: string) => Promise<DreamState>;
   update: <T>(
-    spaceId: string,
+    agentId: string,
     change: (state: DreamState) => { state?: DreamState; result: T },
     options?: { allowCreate?: boolean },
   ) => Promise<T>;

@@ -12,13 +12,13 @@ export type WorkspaceUpdate =
   | { event: "agent_status_updated"; status: AgentStatus }
   | { event: "approval_pending" | "approval_updated"; approval: PendingAction }
   | { event: "activity_updated"; activity: ActivityOverview }
-  | { event: "conversation_updated"; conversation: { spaceId: string; sessionId: string } };
+  | { event: "conversation_updated"; conversation: { agentId: string; sessionId: string } };
 type Subscriber = { notify: (event: WorkspaceUpdate) => void; close: () => void };
 export class ExecutionCapacityError extends Error {
   constructor() { super("Too many active executions (maximum 32)"); }
 }
 const copy = <T>(value: T): T => structuredClone(value);
-const runKey = (spaceId: string, runId: string) => JSON.stringify([spaceId, runId]);
+const runKey = (agentId: string, runId: string) => JSON.stringify([agentId, runId]);
 const labelFor: Record<AgentPhase, string> = {
   preparing: "正在准备执行", waiting_model: "等待模型响应", responding: "正在生成回复",
   executing_tool: "正在执行工具", waiting_subagents: "正在等待子代理", waiting_approval: "等待人工审批", finalizing: "正在保存结果",
@@ -63,21 +63,21 @@ export const createWorkspaceEvents = () => {
       if (item.status === "pending") approvals.set(item.id, copy(item));
       else approvals.delete(item.id);
       publish({ event: item.status === "pending" ? "approval_pending" : "approval_updated", approval: item });
-      const targetSpace = item.spaceId;
-      if (targetSpace && item.runId) liveRuns.get(runKey(targetSpace, item.runId))?.refreshApprovals();
+      const targetAgent = item.agentId;
+      if (targetAgent && item.runId) liveRuns.get(runKey(targetAgent, item.runId))?.refreshApprovals();
     },
     /**
      * 通知成功落盘后的瞬时失效信号。这里不保存通知内容或运行状态；
      * 客户端按载荷身份重读权威历史，断线漏帧由新连接 ready 后重读恢复。
      */
-    conversationNotificationAppended: (conversation: { spaceId: string; sessionId: string }) => {
+    conversationNotificationAppended: (conversation: { agentId: string; sessionId: string }) => {
       if (closed) return;
       publish({ event: "conversation_updated", conversation });
     },
     /**
      * 活动概览投影推送：由会话服务在活动状态变化时调用。
      * 非终态活动保留在内存集合中供 ready 同步；终态只发布一次变化并从集合移除，
-     * 不做历史重放或第二份活动存储（权威记录仍是各空间 JSONL 的 custom entries）。
+     * 不做历史重放或第二份活动存储（权威记录仍是各智能体 JSONL 的 custom entries）。
      */
     activityChanged: (overview: ActivityOverview) => {
       if (closed) return;
@@ -89,17 +89,17 @@ export const createWorkspaceEvents = () => {
       }
       publish({ event: "activity_updated", activity: overview });
     },
-    beginRun: (input: { spaceId?: string; runId: string; source: "chat" | "job"; jobId?: string | null; title?: string; initialRevision?: number; onChange?: (status: AgentStatus) => void }): StatusRun => {
+    beginRun: (input: { agentId?: string; runId: string; source: "chat" | "job"; jobId?: string | null; title?: string; initialRevision?: number; onChange?: (status: AgentStatus) => void }): StatusRun => {
       if (closed) throw new Error("Service is closing");
       if (active.size >= MAX_CURRENT_RUNS) throw new ExecutionCapacityError();
-      const spaceId = input.spaceId ?? "local-main";
-      const key = runKey(spaceId, input.runId);
+      const agentId = input.agentId ?? "local-main";
+      const key = runKey(agentId, input.runId);
       if (active.has(key)) throw new Error("Execution already active");
       const now = new Date().toISOString();
       let ended = false;
       let parentPhase: AgentPhase = "preparing";
       let state: AgentStatus = {
-        activityId: null, spaceId, runId: input.runId, source: input.source, jobId: input.jobId ?? null,
+        activityId: null, agentId, runId: input.runId, source: input.source, jobId: input.jobId ?? null,
         revision: input.initialRevision ?? 1, title: (input.title || "正在处理请求").slice(0, 500), status: "running", phase: "preparing", label: labelFor.preparing,
         tools: [], subagents: [], pendingApprovalIds: [], startedAt: now, updatedAt: now, endedAt: null,
       };
@@ -113,7 +113,7 @@ export const createWorkspaceEvents = () => {
       };
       const refresh = () => {
         if (ended) return;
-        const waiting = [...approvals.values()].filter((item) => item.spaceId === state.spaceId && item.runId === state.runId && Date.parse(item.expiresAt) > Date.now());
+        const waiting = [...approvals.values()].filter((item) => item.agentId === state.agentId && item.runId === state.runId && Date.parse(item.expiresAt) > Date.now());
         state.pendingApprovalIds = waiting.map((item) => item.id);
         for (const tool of state.tools) tool.status = waiting.some((item) => item.toolCallId === tool.toolCallId && item.subagentId === tool.subagentId) ? "waiting_approval" : "running";
         for (const child of state.subagents) if (child.status === "running" && waiting.some((item) => item.subagentId === child.id)) { child.phase = "waiting_approval"; child.label = labelFor.waiting_approval; }

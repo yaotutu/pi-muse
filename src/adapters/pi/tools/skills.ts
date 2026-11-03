@@ -29,10 +29,10 @@ export type SkillsToolDependencies = {
   actions: ApprovalActions;
   timeoutMs: number;
   saveEnabled: boolean;
-  spaceId?: string;
+  agentId?: string;
   runId?: string;
-  /** 跨空间调用仅改变审批归属，技能查询仍使用实际执行空间。 */
-  approvalOwner?: { spaceId: string; runId: string };
+  /** 跨智能体调用仅改变审批归属，技能查询仍使用实际执行智能体。 */
+  approvalOwner?: { agentId: string; runId: string };
   observation?: ActivityApprovalObservation;
 };
 
@@ -106,7 +106,7 @@ export const createSkillsTool = ({
   actions,
   timeoutMs,
   saveEnabled,
-  spaceId,
+  agentId,
   runId,
   approvalOwner,
   observation,
@@ -114,7 +114,7 @@ export const createSkillsTool = ({
   name: "skills",
   label: "Manage skills",
   description:
-    "List, read, or save Pi Muse instance skills. list returns the catalog plus the current space's effective switches without physical paths. read accepts SKILL.md or supported text files under references/ or assets/. save writes one instance-level file after explicit human approval; a saved or overridden skill is loaded on the next model turn. Existing built-in skills are never modified. Use save only on an explicit user request.",
+    "List, read, or save Pi Muse instance skills. list returns the catalog plus the current agent's effective switches without physical paths. read accepts SKILL.md or supported text files under references/ or assets/. save writes one instance-level file after explicit human approval; a saved or overridden skill is loaded on the next model turn. Existing built-in skills are never modified. Use save only on an explicit user request.",
   parameters: Type.Object({
     action: Type.Union([Type.Literal("list"), Type.Literal("read"), Type.Literal("save")]),
     name: Type.Optional(Type.String({
@@ -130,8 +130,8 @@ export const createSkillsTool = ({
   }, { additionalProperties: false }),
   async execute(_id, params, signal) {
     if (params.action === "list") {
-      if (!spaceId) return deniedResult("Skills are unavailable without a space context.");
-      const view = await skills.describeAuthoring(spaceId);
+      if (!agentId) return deniedResult("Skills are unavailable without an agent context.");
+      const view = await skills.describeAuthoring(agentId);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(view, null, 2) }],
         details: { denied: false },
@@ -149,8 +149,8 @@ export const createSkillsTool = ({
       try {
         const target = await resolveSkillTarget(skill.path, file, dirname(skill.path));
         const snapshot = await readTargetText(target);
-        const enabled = spaceId
-          ? (await skills.describeAuthoring(spaceId)).skills.find((skill) => skill.name === name)?.enabled ?? false
+        const enabled = agentId
+          ? (await skills.describeAuthoring(agentId)).skills.find((skill) => skill.name === name)?.enabled ?? false
           : false;
         return {
           content: [{ type: "text" as const, text: snapshot.content }],
@@ -209,7 +209,7 @@ export const createSkillsTool = ({
       },
       timeoutMs,
       signal,
-      { spaceId: approvalOwner?.spaceId ?? spaceId, runId: approvalOwner?.runId ?? runId, toolCallId: _id, workspaceSpaceId: null } satisfies ApprovalContext,
+      { agentId: approvalOwner?.agentId ?? agentId, runId: approvalOwner?.runId ?? runId, toolCallId: _id, workspaceAgentId: null } satisfies ApprovalContext,
       observation ? (event) => observation.observe({
         ...event,
         id: `${observation.prefix}:${event.id}`,
@@ -245,15 +245,15 @@ export const createSkillsTool = ({
     }).then(async (result) => {
       if ((result as { isError?: boolean }).isError === true) return result;
       const saved = (await skills.findSkill(name))?.defaultEnabled ?? false;
-      const enabledInSpace = spaceId
-        ? (await skills.describeAuthoring(spaceId)).skills.find((skill) => skill.name === name)?.enabled ?? false
+      const enabledInAgent = agentId
+        ? (await skills.describeAuthoring(agentId)).skills.find((skill) => skill.name === name)?.enabled ?? false
         : false;
       return {
         ...result,
         details: { denied: false },
         content: [{
           type: "text" as const,
-          text: `Saved user skill ${name}/${file}; defaultEnabled=${saved}; enabledInCurrentSpace=${enabledInSpace}; it loads on the next model turn.`,
+          text: `Saved user skill ${name}/${file}; defaultEnabled=${saved}; enabledInCurrentAgent=${enabledInAgent}; it loads on the next model turn.`,
         }],
       };
     });

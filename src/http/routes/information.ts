@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
-import { isSpaceId } from "../../features/conversation/space-id.js";
+import { isAgentId } from "../../features/conversation/agent-id.js";
 import { InformationError } from "../../features/information/errors.js";
 import {
   informationIngestRequestSchema,
@@ -14,7 +14,7 @@ import {
 const failure = (error: InformationError) => {
   const status =
     error.code === "INVALID_INPUT" ? 400 :
-    error.code === "SPACE_NOT_FOUND" || error.code === "NOT_FOUND" ? 404 :
+    error.code === "AGENT_NOT_FOUND" || error.code === "NOT_FOUND" ? 404 :
     error.code === "SHUTDOWN" ? 503 : 409;
   return {
     status,
@@ -33,29 +33,29 @@ const parseQuery = <T>(
   return schema.safeParse(Object.fromEntries(query.entries()));
 };
 
-/** 信息后台 HTTP 入口：所有入口都只针对已存在空间，不隐式创建。 */
+/** 信息后台 HTTP 入口：所有入口都只针对已存在智能体，不隐式创建。 */
 export const createInformationRoutes = (dependencies: HttpDependencies) => {
   const app = new Hono();
   const { conversationHub, information } = dependencies;
 
-  const guard = (spaceId: string, code = "INVALID_SPACE_ID") => {
-    if (!isSpaceId(spaceId)) return { status: 400 as const, body: { error: "Invalid spaceId", code } } as const;
+  const guard = (agentId: string, code = "INVALID_AGENT_ID") => {
+    if (!isAgentId(agentId)) return { status: 400 as const, body: { error: "Invalid agentId", code } } as const;
     return undefined;
   };
 
-  app.put("/:spaceId/information/settings", async (c) => {
-    const invalid = guard(c.req.param("spaceId"));
+  app.put("/:agentId/information/settings", async (c) => {
+    const invalid = guard(c.req.param("agentId"));
     if (invalid) return c.json(invalid.body, invalid.status);
     const parsed = informationSettingsRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid information settings", code: "INVALID_REQUEST" }, 400);
     try {
-      const spaceId = c.req.param("spaceId");
-      const pause = information.pauseSpace(spaceId);
+      const agentId = c.req.param("agentId");
+      const pause = information.pauseAgent(agentId);
       await pause.stopped;
       try {
-        const saved = await conversationHub.withExistingSpace(spaceId, async () =>
-          information.saveSettings(spaceId, parsed.data));
-        if (!saved) return c.json({ error: "Space not found", code: "SPACE_NOT_FOUND" }, 404);
+        const saved = await conversationHub.withExistingAgent(agentId, async () =>
+          information.saveSettings(agentId, parsed.data));
+        if (!saved) return c.json({ error: "Agent not found", code: "AGENT_NOT_FOUND" }, 404);
         return c.json(saved);
       } finally {
         pause.resume();
@@ -69,11 +69,11 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     }
   });
 
-  app.get("/:spaceId/information/settings", async (c) => {
-    const invalid = guard(c.req.param("spaceId"));
+  app.get("/:agentId/information/settings", async (c) => {
+    const invalid = guard(c.req.param("agentId"));
     if (invalid) return c.json(invalid.body, invalid.status);
     try {
-      return c.json(await information.getSettings(c.req.param("spaceId")));
+      return c.json(await information.getSettings(c.req.param("agentId")));
     } catch (error) {
       if (error instanceof InformationError) {
         const result = failure(error);
@@ -83,20 +83,20 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     }
   });
 
-  app.put("/:spaceId/information/preferences", async (c) => {
-    const invalid = guard(c.req.param("spaceId"));
+  app.put("/:agentId/information/preferences", async (c) => {
+    const invalid = guard(c.req.param("agentId"));
     if (invalid) return c.json(invalid.body, invalid.status);
     const parsed = informationPreferencesRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid information preferences", code: "INVALID_REQUEST" }, 400);
     try {
-      const spaceId = c.req.param("spaceId");
-      const saved = await conversationHub.withExistingSpace(spaceId, async () => {
-        await information.savePreferences(spaceId, parsed.data);
+      const agentId = c.req.param("agentId");
+      const saved = await conversationHub.withExistingAgent(agentId, async () => {
+        await information.savePreferences(agentId, parsed.data);
         return true;
       });
-      if (saved !== true) return c.json({ error: "Space not found", code: "SPACE_NOT_FOUND" }, 404);
-      // getPreferences 需要 retain 空间；不能嵌套在同一个短生命周期锁内。
-      return c.json(await information.getPreferences(spaceId));
+      if (saved !== true) return c.json({ error: "Agent not found", code: "AGENT_NOT_FOUND" }, 404);
+      // getPreferences 需要 retain 智能体；不能嵌套在同一个短生命周期锁内。
+      return c.json(await information.getPreferences(agentId));
     } catch (error) {
       if (error instanceof InformationError) {
         const result = failure(error);
@@ -106,11 +106,11 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     }
   });
 
-  app.get("/:spaceId/information/preferences", async (c) => {
-    const invalid = guard(c.req.param("spaceId"));
+  app.get("/:agentId/information/preferences", async (c) => {
+    const invalid = guard(c.req.param("agentId"));
     if (invalid) return c.json(invalid.body, invalid.status);
     try {
-      return c.json(await information.getPreferences(c.req.param("spaceId")));
+      return c.json(await information.getPreferences(c.req.param("agentId")));
     } catch (error) {
       if (error instanceof InformationError) {
         const result = failure(error);
@@ -120,15 +120,15 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     }
   });
 
-  app.post("/:spaceId/information/items", async (c) => {
-    const invalid = guard(c.req.param("spaceId"));
+  app.post("/:agentId/information/items", async (c) => {
+    const invalid = guard(c.req.param("agentId"));
     if (invalid) return c.json(invalid.body, invalid.status);
     const parsed = informationIngestRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid information items", code: "INVALID_REQUEST" }, 400);
     try {
-      const result = await conversationHub.withExistingSpace(c.req.param("spaceId"), async () =>
-        information.ingest(c.req.param("spaceId"), parsed.data.items));
-      if (!result) return c.json({ error: "Space not found", code: "SPACE_NOT_FOUND" }, 404);
+      const result = await conversationHub.withExistingAgent(c.req.param("agentId"), async () =>
+        information.ingest(c.req.param("agentId"), parsed.data.items));
+      if (!result) return c.json({ error: "Agent not found", code: "AGENT_NOT_FOUND" }, 404);
       return c.json({ items: result });
     } catch (error) {
       if (error instanceof InformationError) {
@@ -139,13 +139,13 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     }
   });
 
-  app.get("/:spaceId/information/items", async (c) => {
-    const invalid = guard(c.req.param("spaceId"));
+  app.get("/:agentId/information/items", async (c) => {
+    const invalid = guard(c.req.param("agentId"));
     if (invalid) return c.json(invalid.body, invalid.status);
     const parsed = parseQuery(informationItemsQuerySchema, c.req.url);
     if (!parsed.success) return c.json({ error: "Invalid information items query", code: "INVALID_REQUEST" }, 400);
     try {
-      return c.json(await information.listItems(c.req.param("spaceId"), parsed.data));
+      return c.json(await information.listItems(c.req.param("agentId"), parsed.data));
     } catch (error) {
       if (error instanceof InformationError) {
         const result = failure(error);
@@ -155,11 +155,11 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     }
   });
 
-  app.get("/:spaceId/information/items/:itemId", async (c) => {
-    const invalid = guard(c.req.param("spaceId"));
+  app.get("/:agentId/information/items/:itemId", async (c) => {
+    const invalid = guard(c.req.param("agentId"));
     if (invalid) return c.json(invalid.body, invalid.status);
     try {
-      return c.json(await information.getItem(c.req.param("spaceId"), c.req.param("itemId")));
+      return c.json(await information.getItem(c.req.param("agentId"), c.req.param("itemId")));
     } catch (error) {
       if (error instanceof InformationError) {
         const result = failure(error);
@@ -169,13 +169,13 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     }
   });
 
-  app.post("/:spaceId/information/runs", async (c) => {
-    const invalid = guard(c.req.param("spaceId"));
+  app.post("/:agentId/information/runs", async (c) => {
+    const invalid = guard(c.req.param("agentId"));
     if (invalid) return c.json(invalid.body, invalid.status);
     const parsed = informationRunRequestSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "Invalid information run request", code: "INVALID_REQUEST" }, 400);
     try {
-      return c.json(await information.runNow(c.req.param("spaceId")));
+      return c.json(await information.runNow(c.req.param("agentId")));
     } catch (error) {
       if (error instanceof InformationError) {
         const result = failure(error);
@@ -185,13 +185,13 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     }
   });
 
-  app.get("/:spaceId/information/runs", async (c) => {
-    const invalid = guard(c.req.param("spaceId"));
+  app.get("/:agentId/information/runs", async (c) => {
+    const invalid = guard(c.req.param("agentId"));
     if (invalid) return c.json(invalid.body, invalid.status);
     const parsed = parseQuery(informationRunsQuerySchema, c.req.url);
     if (!parsed.success) return c.json({ error: "Invalid information runs query", code: "INVALID_REQUEST" }, 400);
     try {
-      return c.json(await information.listRuns(c.req.param("spaceId"), parsed.data));
+      return c.json(await information.listRuns(c.req.param("agentId"), parsed.data));
     } catch (error) {
       if (error instanceof InformationError) {
         const result = failure(error);
@@ -201,11 +201,11 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     }
   });
 
-  app.get("/:spaceId/information/runs/:runId", async (c) => {
-    const invalid = guard(c.req.param("spaceId"));
+  app.get("/:agentId/information/runs/:runId", async (c) => {
+    const invalid = guard(c.req.param("agentId"));
     if (invalid) return c.json(invalid.body, invalid.status);
     try {
-      return c.json(await information.getRun(c.req.param("spaceId"), c.req.param("runId")));
+      return c.json(await information.getRun(c.req.param("agentId"), c.req.param("runId")));
     } catch (error) {
       if (error instanceof InformationError) {
         const result = failure(error);

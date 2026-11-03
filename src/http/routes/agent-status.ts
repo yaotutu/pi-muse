@@ -5,11 +5,11 @@ import { agentStatusQuery } from "../contracts/agent-status.js";
 /** 结果不明时按同一run身份查询；不调用模型、不建立会话、不与Activity历史维护第二套记录。 */
 export const createAgentStatusRoutes = (dependencies: Pick<HttpDependencies, "conversationHub" | "workspaceEvents">) => {
   const app = new Hono();
-  app.get("/api/agent/status", async (c) => {
+  app.get("/api/runs/status", async (c) => {
     const parsed = agentStatusQuery.safeParse(c.req.query());
     if (!parsed.success) return c.json({ error: "Invalid execution status query", code: "INVALID_REQUEST" }, 400);
-    const spaceId = parsed.data.spaceId;
-    const conversation = await dependencies.conversationHub.findSpace(spaceId);
+    const agentId = parsed.data.agentId;
+    const conversation = await dependencies.conversationHub.findAgent(agentId);
     const status = conversation?.executionStatus(parsed.data.runId);
     return status ? c.json({ instanceId: dependencies.workspaceEvents.instanceId, status }) : c.json({ error: "Execution status not found", code: "NOT_FOUND" }, 404);
   });

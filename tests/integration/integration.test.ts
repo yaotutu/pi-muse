@@ -12,7 +12,7 @@ import { type BaseEvent, type Message } from "@ag-ui/core";
 import { sseEventSchema } from "../../src/http/contracts/sse-events.js";
 import type { ConversationInput } from "../../src/features/conversation/types.js";
 import { createSessionHistory } from "../../src/adapters/pi/session-history.js";
-import { createDataLayout, threadWorkspaceDir, sharedWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout, agentWorkspaceDir, sharedWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createEventProjector } from "../../src/adapters/ag-ui/events.js";
 import { createConfig, type ConfigFileInput } from "../../src/config/load-config.js";
@@ -24,7 +24,7 @@ const snapshotRevisions = new WeakMap<Message, string>();
 const input = (messages: Message[], runId: string = randomUUID()): ConversationInput => {
   const message = messages.findLast((item) => item.role === "user")!;
   const expectedRevision = messages.map((item) => snapshotRevisions.get(item)).findLast(Boolean) ?? "empty";
-  return { spaceId: "local-main", runId, expectedRevision,
+  return { agentId: "local-main", runId, expectedRevision,
     message: { id: message.id, content: String(message.content ?? "") } };
 };
 const user = (content: string, id: string = randomUUID()): Message => ({
@@ -45,6 +45,7 @@ const declaredTools = (request: ModelRequest) =>
 const expectedTools = [
   "act",
   "activity",
+  "agent",
   "currentTime",
   "edit",
   "feature",
@@ -63,7 +64,6 @@ const expectedTools = [
   "search_web",
   "skills",
   "snapshot",
-  "space",
   "subagent",
   "tab",
   "web_fetch",
@@ -187,8 +187,8 @@ async function harness(
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
-    const getHistory = (threadId = "local-main") =>
-      request("/api/conversation?spaceId=" + encodeURIComponent(threadId))
+    const getHistory = (agentId = "local-main") =>
+      request("/api/conversation?agentId=" + encodeURIComponent(agentId))
         .then((x) => x.json())
         .then((snapshot) => {
           const messages = snapshot.messages as Message[];
@@ -406,7 +406,7 @@ test("early stop during retry preserves failed history, then retry after restart
   );
   const previous = await h.getHistory();
   const emitted: BaseEvent[] = [];
-  const conversation = await h.service().conversationHub.forThread("local-main");
+  const conversation = await h.service().conversationHub.forAgent("local-main");
   const pending = conversation.run(input(previous, "early-retry"), createEventProjector((event) => {
     emitted.push(event);
   }));
@@ -462,14 +462,14 @@ test("stop waits for pi idle, rejects concurrent run, preserves partial text and
   const concurrent = await h.events(
     input([submitted, user("other")], "other-run"),
   );
-  assert.equal(concurrent.at(-1)?.code, "agent_thread_locked");
+  assert.equal(concurrent.at(-1)?.code, "agent_locked");
   assert.equal(h.model.requests.length, 1);
   const stop = await h
-    .request("/api/conversation/stop", { spaceId: "local-main", runId: "slow-run" })
+    .request("/api/conversation/stop", { agentId: "local-main", runId: "slow-run" })
     .then((x) => x.json());
   assert.equal(stop.stopped, true);
   assert.equal(
-    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    (await h.service().conversationHub.forAgent("local-main")).isRunning(),
     false,
   );
   const events = await pending;
@@ -489,7 +489,7 @@ test("stop waits for pi idle, rejects concurrent run, preserves partial text and
   assert.equal(
     (
       await h
-        .request("/api/conversation/stop", { spaceId: "local-main", runId: "slow-run" })
+        .request("/api/conversation/stop", { agentId: "local-main", runId: "slow-run" })
         .then((x) => x.json())
     ).stopped,
     false,
@@ -510,7 +510,7 @@ test("HTTP SSE disconnect aborts provider and releases session", {
   await until(() => h.model.requests.length > 0);
   await sleep(100);
   await reader.cancel();
-  const released = await h.service().conversationHub.forThread("local-main");
+  const released = await h.service().conversationHub.forAgent("local-main");
   await until(() => !released.isRunning());
   await until(() => h.model.slowClosed() > 0);
   const messages = await h.getHistory();
@@ -529,7 +529,7 @@ test("timeout and broken endpoint terminate with errors; validation cannot mutat
   const timed = await h.events(input([user("freeze")]));
   assert.equal(timed.at(-1)?.code, "TIMEOUT");
   assert.equal(
-    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    (await h.service().conversationHub.forAgent("local-main")).isRunning(),
     false,
   );
   const messages = await h.getHistory();
@@ -539,9 +539,9 @@ test("timeout and broken endpoint terminate with errors; validation cannot mutat
   const stale = await h.events(input([user("stale")]));
   assert.equal(stale.at(-1)?.code, "HISTORY_CONFLICT");
   assert.deepEqual(await h.getHistory(), canonical);
-  // 非法 threadId 在宿主预校验即被拒绝（HTTP 400），不再进入 SSE 流。
+  // 非法 agentId 在宿主预校验即被拒绝（HTTP 400），不再进入 SSE 流。
   const wrong = input([...canonical, user("wrong")]);
-  wrong.spaceId = "../../evil";
+  wrong.agentId = "../../evil";
   assert.equal(
     (await h.request("/api/conversation/run", wrong)).status,
     400,
@@ -556,7 +556,7 @@ for (const failure of ["empty", "malformed", "broken"] as const) {
     assert.equal(events.at(-1)?.type, "RUN_ERROR");
     assert.ok(!events.some((event) => event.type === "RUN_FINISHED"));
     assert.equal(
-    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    (await h.service().conversationHub.forAgent("local-main")).isRunning(),
     false,
   );
     assert.equal(h.model.requests.length, 1, "provider failures must not auto-retry");
@@ -575,7 +575,7 @@ for (const tool of ["memory", "schedule"] as const) {
     assert.equal(events.at(-1)?.code, "MODEL_ERROR");
     assert.match(String(events.at(-1)?.message), /not rolled back/);
     assert.equal(
-    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    (await h.service().conversationHub.forAgent("local-main")).isRunning(),
     false,
   );
     assert.equal(h.model.requests.length, 2, "one tool round and one failed final reply, without retries");
@@ -603,7 +603,7 @@ test("tool effects survive a final model timeout without automatic execution ret
   assert.equal((await h.service().memory.list()).length, 1);
   assert.equal(h.model.requests.length, 2);
   assert.equal(
-    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    (await h.service().conversationHub.forAgent("local-main")).isRunning(),
     false,
   );
   const history = await h.getHistory();
@@ -617,10 +617,10 @@ test("stop after a tool preserves its effect and displayed history while pi filt
   const pending = h.events(input([user("记住工具后慢流")], "tool-stop"));
   await until(() => h.model.requests.length === 2);
   await sleep(100);
-  assert.equal((await h.request("/api/conversation/stop", { spaceId: "local-main", runId: "tool-stop" }).then((response) => response.json())).stopped, true);
+  assert.equal((await h.request("/api/conversation/stop", { agentId: "local-main", runId: "tool-stop" }).then((response) => response.json())).stopped, true);
   assert.equal((await pending).at(-1)?.code, "STOPPED");
   assert.equal(
-    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    (await h.service().conversationHub.forAgent("local-main")).isRunning(),
     false,
   );
   assert.equal((await h.service().memory.list()).length, 1);
@@ -740,7 +740,7 @@ test("hidden tool presentation keeps complete model/pi result while Web sees onl
 }, async (t) => {
   const h = await harness(30000, { tools: { presentation: { default: "hidden" } } });
   t.after(h.close);
-  await writeFile(join(threadWorkspaceDir(h.service().layout, "local-main"), "private.txt"), "HIDDEN-FIXTURE secret body\\n");
+  await writeFile(join(agentWorkspaceDir(h.service().layout, "local-main"), "private.txt"), "HIDDEN-FIXTURE secret body\\n");
   const events = await h.events(input([user("读资料 private.txt")], "hidden-read"));
   assert.equal(events.at(-1)?.type, "RUN_FINISHED");
   assert.equal(events.some((event) => event.type.startsWith("TOOL_CALL_")), false);
@@ -780,7 +780,7 @@ for (const scenario of ["工具后失败", "工具后挂起", "工具后慢流"]
         assert.ok(Date.now() < deadline, "Tool result must reach the model before Stop");
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      const stopped = await h.request("/api/conversation/stop", { spaceId: "local-main", runId: "hidden-failure" });
+      const stopped = await h.request("/api/conversation/stop", { agentId: "local-main", runId: "hidden-failure" });
       assert.equal(stopped.status, 200);
     }
     const events = await running;
@@ -910,10 +910,10 @@ test("Jobs REST API: list filtering, sorting, patch update and delete lifecycle"
   const allRes = await h.request("/api/jobs").then((r) => r.json());
   assert.equal(allRes.jobs.length, 2);
 
-  // 2. 按空间过滤
-  const spaceFiltered = await h.request("/api/jobs?spaceId=project-a").then((r) => r.json());
-  assert.equal(spaceFiltered.jobs.length, 1);
-  assert.equal(spaceFiltered.jobs[0].id, job2.id);
+  // 2. 按智能体过滤
+  const agentFiltered = await h.request("/api/jobs?agentId=project-a").then((r) => r.json());
+  assert.equal(agentFiltered.jobs.length, 1);
+  assert.equal(agentFiltered.jobs[0].id, job2.id);
 
   // 3. 排序 (按 nextRunAt asc / desc)
   const sortedAsc = await h.request("/api/jobs?sort=nextRunAt&order=asc").then((r) => r.json());
@@ -986,7 +986,7 @@ test("file tools: read documents, deny outside paths, keep tool events and histo
   const h = await harness();
   t.after(h.close);
   await writeFile(
-    join(threadWorkspaceDir(h.service().layout, "local-main"), "notes.txt"),
+    join(agentWorkspaceDir(h.service().layout, "local-main"), "notes.txt"),
     "PI-TOOL-FIXTURE the answer is 42\n",
   );
   // 正常读取：read 工具事件 → 结果含文件内容 → 回答引用它。
@@ -1109,7 +1109,7 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
     })
     .then((x) => x.json());
   assert.ok(created.id);
-  let agent = await h.request("/api/agent").then((x) => x.json());
+  let agent = await h.request("/api/identity").then((x) => x.json());
   assert.equal(Object.hasOwn(agent, "memories"), false);
   assert.equal(agent.identity.name, "pi-muse");
   let memoriesRes = await h.request("/api/memories").then((x) => x.json());
@@ -1158,7 +1158,7 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
   );
   // 身份设置：保存后 GET 反映 + system prompt 注入 name/tone。
   const identity = await h
-    .request("/api/agent/identity", {
+    .request("/api/identity", {
       name: "小水豚",
       tone: "concise",
       avatar: "sky",
@@ -1166,13 +1166,13 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
     })
     .then((x) => x.json());
   assert.equal(identity.name, "小水豚");
-  agent = await h.request("/api/agent").then((x) => x.json());
+  agent = await h.request("/api/identity").then((x) => x.json());
   assert.equal(agent.identity.name, "小水豚");
   await h.events(input([...(await h.getHistory()), user("hi")], "identity-run"));
   assert.match(String(h.model.requests.at(-1)!.messages[0]?.content), /小水豚/);
   // 重启后记忆与身份仍在。
   await h.restart();
-  agent = await h.request("/api/agent").then((x) => x.json());
+  agent = await h.request("/api/identity").then((x) => x.json());
   assert.equal(agent.identity.name, "小水豚");
   assert.equal(Object.hasOwn(agent, "memories"), false);
   memoriesRes = await h.request("/api/memories").then((x) => x.json());
@@ -1255,106 +1255,106 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed one-sh
   assert.equal(reply.at(-1)?.type, "RUN_FINISHED");
 });
 
-test("multi-thread: independent histories, thread listing and stop scoped per thread", {
+test("multi-agent: independent histories, agent listing and stop scoped per agent", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
   t.after(h.close);
-  // 两个 thread 各聊一轮，历史互不污染。
-  await h.events(input([user("main thread question")], "t-main-1"));
+  // 两个 agent 各聊一轮，历史互不污染。
+  await h.events(input([user("main agent question")], "t-main-1"));
   const trip = input([user("trip plan question")], "t-trip-1");
-  trip.spaceId = "trip-2026";
+  trip.agentId = "trip-2026";
   await h.events(trip);
   const mainHistory = await h.getHistory();
-  assert.ok(mainHistory.some((x) => x.role === "user" && String(x.content).includes("main thread")));
+  assert.ok(mainHistory.some((x) => x.role === "user" && String(x.content).includes("main agent")));
   assert.ok(!mainHistory.some((x) => String(x.content).includes("trip plan")));
   const tripHistory = await h.getHistory("trip-2026");
   assert.ok(tripHistory.some((x) => String(x.content).includes("trip plan")));
   const follow = input([...tripHistory, user("trip followup")], "t-trip-2");
-  follow.spaceId = "trip-2026";
+  follow.agentId = "trip-2026";
   assert.equal((await h.events(follow)).at(-1)?.type, "RUN_FINISHED");
-  // thread 列表包含两个 id；非法 id 的请求被拒绝。
-  const threads = await h
-    .request("/api/spaces")
+  // agent 列表包含两个 id；非法 id 的请求被拒绝。
+  const agents = await h
+    .request("/api/agents")
     .then((x) => x.json())
-    .then((x) => (x.spaces as { id: string }[]).map((y) => y.id).sort());
-  assert.deepEqual(threads, ["local-main", "trip-2026"]);
-  // 非法 threadId 现在在宿主预校验被 HTTP 400 拒绝（不进 SSE 流）。
+    .then((x) => (x.agents as { id: string }[]).map((y) => y.id).sort());
+  assert.deepEqual(agents, ["local-main", "news-internal", "sms-internal", "trip-2026"]);
+  // 非法 agentId 现在在宿主预校验被 HTTP 400 拒绝（不进 SSE 流）。
   const evil = input([user("x")], "t-evil");
-  evil.spaceId = "../evil";
+  evil.agentId = "../evil";
   assert.equal(
     (await h.request("/api/conversation/run", evil)).status,
     400,
   );
-  // 重启后两个 thread 历史仍独立。
+  // 重启后两个 agent 历史仍独立。
   await h.restart();
-  const after = await h.request("/api/spaces")
+  const after = await h.request("/api/agents")
     .then((x) => x.json())
-    .then((x) => (x.spaces as { id: string }[]).map((y) => y.id).sort());
-  assert.deepEqual(after, ["local-main", "trip-2026"]);
+    .then((x) => (x.agents as { id: string }[]).map((y) => y.id).sort());
+  assert.deepEqual(after, ["local-main", "news-internal", "sms-internal", "trip-2026"]);
   const mainAfter = await h.getHistory();
   assert.ok(!mainAfter.some((x) => String(x.content).includes("trip")));
 });
 
-test("thread lifecycle: protected local-main, DELETE cascades jobs/monitors and cleans files", {
+test("agent lifecycle: protected local-main, DELETE cascades jobs/monitors and cleans files", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
   t.after(h.close);
 
   // 1. DELETE local-main 返回 409
-  const deleteMain = await h.request("/api/spaces/local-main", undefined, "DELETE");
+  const deleteMain = await h.request("/api/agents/local-main", undefined, "DELETE");
   assert.equal(deleteMain.status, 409);
 
-  // 2. DELETE 未存在的 thread 返回 404
-  const deleteNonExistent = await h.request("/api/spaces/ghost-thread", undefined, "DELETE");
+  // 2. DELETE 未存在的 agent 返回 404
+  const deleteNonExistent = await h.request("/api/agents/ghost-agent", undefined, "DELETE");
   assert.equal(deleteNonExistent.status, 404);
 
-  // 3. 创建一个 thread 并关联 job、monitor
-  const threadId = "thread-to-delete";
-  const runInput = input([user("hello from thread to delete")], "del-init");
-  runInput.spaceId = threadId;
+  // 3. 创建一个 agent 并关联 job、monitor
+  const agentId = "agent-to-delete";
+  const runInput = input([user("hello from agent to delete")], "del-init");
+  runInput.agentId = agentId;
   assert.equal((await h.events(runInput)).at(-1)?.type, "RUN_FINISHED");
 
-  await h.service().jobs.add("bound reminder", false, new Date(0).toISOString(), threadId);
+  await h.service().jobs.add("bound reminder", false, new Date(0).toISOString(), agentId);
   await h.service().monitors.create({
     url: "https://example.com/test",
     condition: "change",
-    originSpaceId: threadId,
+    originAgentId: agentId,
   });
 
   // 确认已建好
-  assert.ok((await h.service().jobs.list()).some((j) => j.originSpaceId === threadId));
-  assert.ok((await h.service().monitors.list()).some((m) => m.originSpaceId === threadId));
+  assert.ok((await h.service().jobs.list()).some((j) => j.originAgentId === agentId));
+  assert.ok((await h.service().monitors.list()).some((m) => m.originAgentId === agentId));
 
-  // 4. 调用 DELETE /api/spaces/:spaceId
-  const res = await h.request(`/api/spaces/${threadId}`, undefined, "DELETE");
+  // 4. 调用 DELETE /api/agents/:agentId
+  const res = await h.request(`/api/agents/${agentId}`, undefined, "DELETE");
   assert.equal(res.status, 200);
   const body = (await res.json()) as { ok: boolean; removed: { jobs: number; monitors: number } };
   assert.deepEqual(body, { ok: true, removed: { jobs: 1, monitors: 1 } });
 
   // 5. 校验级联结果
-  assert.ok(!(await h.service().jobs.list()).some((j) => j.originSpaceId === threadId));
-  assert.ok(!(await h.service().monitors.list()).some((m) => m.originSpaceId === threadId));
+  assert.ok(!(await h.service().jobs.list()).some((j) => j.originAgentId === agentId));
+  assert.ok(!(await h.service().monitors.list()).some((m) => m.originAgentId === agentId));
 
-  // 6. 校验 thread 目录和列表
-  const threads = await h.request("/api/spaces").then((x) => x.json()).then((x) => (x.spaces as { id: string }[]).map((y) => y.id));
-  assert.ok(!threads.includes(threadId));
-  assert.ok(threads.includes("local-main"));
+  // 6. 校验 agent 目录和列表
+  const agents = await h.request("/api/agents").then((x) => x.json()).then((x) => (x.agents as { id: string }[]).map((y) => y.id));
+  assert.ok(!agents.includes(agentId));
+  assert.ok(agents.includes("local-main"));
 
   // 再次 DELETE 返回 404
-  const res2 = await h.request(`/api/spaces/${threadId}`, undefined, "DELETE");
+  const res2 = await h.request(`/api/agents/${agentId}`, undefined, "DELETE");
   assert.equal(res2.status, 404);
 });
 
-test("session skills: GET/PUT overrides, validation and thread isolation", {
+test("session skills: GET/PUT overrides, validation and agent isolation", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
   t.after(h.close);
 
   // 1. GET 默认技能列表（所有内置技能默认开启）
-  const res1 = await h.request("/api/spaces/thread-skills-test/skills");
+  const res1 = await h.request("/api/agents/agent-skills-test/skills");
   assert.equal(res1.status, 200);
   const data1 = (await res1.json()) as { skills: { name: string; defaultEnabled: boolean; enabled: boolean }[] };
   const cronSkill = data1.skills.find((s) => s.name === "cron");
@@ -1363,7 +1363,7 @@ test("session skills: GET/PUT overrides, validation and thread isolation", {
   assert.equal(cronSkill.enabled, true);
 
   // 2. PUT 覆盖：关闭 cron 和 web
-  const res2 = await h.request("/api/spaces/thread-skills-test/skills", {
+  const res2 = await h.request("/api/agents/agent-skills-test/skills", {
     overrides: { cron: false, web: false },
   }, "PUT");
   assert.equal(res2.status, 200);
@@ -1372,19 +1372,19 @@ test("session skills: GET/PUT overrides, validation and thread isolation", {
   assert.equal(data2.skills.find((s) => s.name === "web")?.enabled, false);
   assert.equal(data2.skills.find((s) => s.name === "memory")?.enabled, true);
 
-  // 3. 验证另外一个 thread-other 不受影响
-  const res3 = await h.request("/api/spaces/thread-other/skills");
+  // 3. 验证另外一个 agent-other 不受影响
+  const res3 = await h.request("/api/agents/agent-other/skills");
   const data3 = (await res3.json()) as { skills: { name: string; enabled: boolean }[] };
   assert.equal(data3.skills.find((s) => s.name === "cron")?.enabled, true);
 
   // 4. PUT 未知技能名返回 400
-  const res4 = await h.request("/api/spaces/thread-skills-test/skills", {
+  const res4 = await h.request("/api/agents/agent-skills-test/skills", {
     overrides: { non_existent_skill: true },
   }, "PUT");
   assert.equal(res4.status, 400);
 
-  // 5. 非法 threadId 返回 400
-  const res5 = await h.request("/api/spaces/@invalid/skills");
+  // 5. 非法 agentId 返回 400
+  const res5 = await h.request("/api/agents/@invalid/skills");
   assert.equal(res5.status, 400);
 
 });
@@ -1395,14 +1395,14 @@ test("session skills: tool trimming in model call", {
   const h = await harness();
   t.after(h.close);
 
-  // 1. 在 thread-no-cron 中关闭 cron 和 web
-  await h.request("/api/spaces/thread-no-cron/skills", {
+  // 1. 在 agent-no-cron 中关闭 cron 和 web
+  await h.request("/api/agents/agent-no-cron/skills", {
     overrides: { cron: false, web: false },
   }, "PUT");
 
   // 发起一轮对话
   const run1 = input([user("hello")], "run-1");
-  run1.spaceId = "thread-no-cron";
+  run1.agentId = "agent-no-cron";
   assert.equal((await h.events(run1)).at(-1)?.type, "RUN_FINISHED");
 
   // 校验发送给模型的工具列表中不包含被关闭的 schedule, search_web, web_fetch
@@ -1418,9 +1418,9 @@ test("session skills: tool trimming in model call", {
   assert.ok(tools1.includes("currentTime"), "currentTime is always-on");
   assert.ok(tools1.includes("read"), "read is always-on");
 
-  // 2. 在 thread-with-cron 中发送消息（默认全开）
+  // 2. 在 agent-with-cron 中发送消息（默认全开）
   const run2 = input([user("hello")], "run-2");
-  run2.spaceId = "thread-with-cron";
+  run2.agentId = "agent-with-cron";
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
 
   const req2 = h.model.requests.at(-1);
@@ -1478,7 +1478,7 @@ export default function (api) {
 
   // 1. 发起对话，验证 ping_custom 工具存在，且同名的 fake read 没有覆盖内置 read
   const run1 = input([user("hello")], "run-ext-1");
-  run1.spaceId = "custom-ext-thread";
+  run1.agentId = "custom-ext-agent";
   assert.equal((await h.events(run1)).at(-1)?.type, "RUN_FINISHED");
 
   const req1 = h.model.requests.at(-1);
@@ -1492,13 +1492,13 @@ export default function (api) {
   assert.notEqual(readTool.description, "Fake read tool", "Builtin read must not be overwritten by extension");
 
   // 2. 关闭 custom-ping 技能后，ping_custom 工具应该消失
-  await h.request("/api/spaces/custom-ext-thread/skills", {
+  await h.request("/api/agents/custom-ext-agent/skills", {
     overrides: { "custom-ping": false },
   }, "PUT");
 
-  const extHistory = await h.getHistory("custom-ext-thread");
+  const extHistory = await h.getHistory("custom-ext-agent");
   const run2 = input([...extHistory, user("hello again")], "run-ext-2");
-  run2.spaceId = "custom-ext-thread";
+  run2.agentId = "custom-ext-agent";
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
 
   const req2 = h.model.requests.at(-1);
@@ -1531,7 +1531,7 @@ test("session skills: enable loads skill text and only supported resources on th
   assert.match(firstEvents.map((event) => JSON.stringify(event)).join(""), /Access denied/);
   assert.ok(!h.model.requests.at(-1)!.messages.some((message) => String(message.content).includes("RESOURCE_SKILL_MARKER")));
 
-  const enabled = await h.request("/api/spaces/local-main/skills", {
+  const enabled = await h.request("/api/agents/local-main/skills", {
     overrides: { "resource-skill": true },
   }, "PUT");
   assert.equal(enabled.status, 200);
@@ -1552,27 +1552,27 @@ test("session skills: enable loads skill text and only supported resources on th
   assert.ok(!thirdEvents.map((event) => JSON.stringify(event)).join("").includes("OTHER_SKILL_TEXT"));
 });
 
-test("thread instructions: GET/PUT REST endpoints and prompt injection per thread", {
+test("agent instructions: GET/PUT REST endpoints and prompt injection per agent", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
   t.after(h.close);
 
   // 1. GET 初始为空
-  const res1 = await h.request("/api/spaces/email-thread/instructions");
+  const res1 = await h.request("/api/agents/email-agent/instructions");
   assert.equal(res1.status, 200);
   assert.deepEqual(await res1.json(), { instructions: "" });
 
   // 2. PUT 设置会话专属规则
-  const res2 = await h.request("/api/spaces/email-thread/instructions", {
+  const res2 = await h.request("/api/agents/email-agent/instructions", {
     instructions: "RULE: Every email reply must sign as Chief Assistant.",
   }, "PUT");
   assert.equal(res2.status, 200);
   assert.deepEqual(await res2.json(), { instructions: "RULE: Every email reply must sign as Chief Assistant." });
 
-  // 3. 在 email-thread 发起对话，检查 System Prompt 注入
+  // 3. 在 email-agent 发起对话，检查 System Prompt 注入
   const run1 = input([user("hello email")], "run-inst-1");
-  run1.spaceId = "email-thread";
+  run1.agentId = "email-agent";
   assert.equal((await h.events(run1)).at(-1)?.type, "RUN_FINISHED");
 
   const req1 = h.model.requests.at(-1);
@@ -1581,9 +1581,9 @@ test("thread instructions: GET/PUT REST endpoints and prompt injection per threa
   assert.ok(systemMsg1.includes("Current conversation instructions"));
   assert.ok(systemMsg1.includes("Chief Assistant"));
 
-  // 4. 在另一个会话 code-thread 发起对话，System Prompt 不包含 email-thread 的规则
+  // 4. 在另一个会话 code-agent 发起对话，System Prompt 不包含 email-agent 的规则
   const run2 = input([user("hello code")], "run-inst-2");
-  run2.spaceId = "code-thread";
+  run2.agentId = "code-agent";
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
 
   const req2 = h.model.requests.at(-1);
@@ -1592,7 +1592,7 @@ test("thread instructions: GET/PUT REST endpoints and prompt injection per threa
   assert.ok(!systemMsg2.includes("Chief Assistant"));
 });
 
-test("thread instructions: conversation can modify its own instructions via instructions tool", {
+test("agent instructions: conversation can modify its own instructions via instructions tool", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
@@ -1600,22 +1600,22 @@ test("thread instructions: conversation can modify its own instructions via inst
 
   // 1. 发送触发词"设定规则"，模型调用 instructions 工具 set "RULE-FROM-CHAT: Always be polite."
   const run1 = input([user("请设定规则")], "run-tool-inst-1");
-  run1.spaceId = "chat-inst-thread";
+  run1.agentId = "chat-inst-agent";
   const ev1 = await h.events(run1);
   assert.equal(ev1.at(-1)?.type, "RUN_FINISHED");
   const toolCall = ev1.find((e) => e.type === "TOOL_CALL_START") as any;
   assert.equal(toolCall?.toolCallName, "instructions");
 
   // 2. 检查会话 INSTRUCTIONS.md 文件与 GET 接口
-  const res = await h.request("/api/spaces/chat-inst-thread/instructions");
+  const res = await h.request("/api/agents/chat-inst-agent/instructions");
   assert.equal(res.status, 200);
   const data = (await res.json()) as { instructions: string };
   assert.ok(data.instructions.includes("RULE-FROM-CHAT: Always be polite."));
 
   // 3. 下一轮对话，System Prompt 应包含刚设定的规则
-  const hist = await h.getHistory("chat-inst-thread");
+  const hist = await h.getHistory("chat-inst-agent");
   const run2 = input([...hist, user("hello next")], "run-tool-inst-2");
-  run2.spaceId = "chat-inst-thread";
+  run2.agentId = "chat-inst-agent";
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
 
   const req = h.model.requests.at(-1);
@@ -1624,97 +1624,97 @@ test("thread instructions: conversation can modify its own instructions via inst
   assert.ok(systemMsg.includes("RULE-FROM-CHAT: Always be polite."));
 });
 
-test("thread workspace: physical isolation per thread, shared workspace access and cascade deletion", {
+test("agent workspace: physical isolation per agent, shared workspace access and cascade deletion", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
   t.after(h.close);
   const { existsSync } = await import("node:fs");
   const { readFile, writeFile: fsWriteFile } = await import("node:fs/promises");
-  const { threadWorkspaceDir, sharedWorkspaceDir } = await import("../../src/adapters/storage/data-layout.js");
+  const { agentWorkspaceDir, sharedWorkspaceDir } = await import("../../src/adapters/storage/data-layout.js");
 
-  const emailThread = "thread-ws-email";
-  const codeThread = "thread-ws-code";
+  const emailAgent = "agent-ws-email";
+  const codeAgent = "agent-ws-code";
 
   // 1. 触发会话初始化，专属工作目录被创建
   const run1 = input([user("hello email ws")], "ws-1");
-  run1.spaceId = emailThread;
+  run1.agentId = emailAgent;
   assert.equal((await h.events(run1)).at(-1)?.type, "RUN_FINISHED");
 
   const run2 = input([user("hello code ws")], "ws-2");
-  run2.spaceId = codeThread;
+  run2.agentId = codeAgent;
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
 
-  const emailDir = threadWorkspaceDir(h.service().layout, emailThread);
-  const codeDir = threadWorkspaceDir(h.service().layout, codeThread);
+  const emailDir = agentWorkspaceDir(h.service().layout, emailAgent);
+  const codeDir = agentWorkspaceDir(h.service().layout, codeAgent);
   const sharedDir = sharedWorkspaceDir(h.service().layout);
 
   assert.ok(existsSync(emailDir), "email workspace dir must exist");
   assert.ok(existsSync(codeDir), "code workspace dir must exist");
   assert.ok(existsSync(sharedDir), "shared workspace dir must exist");
 
-  // 2. 在 emailThread 中写一个私有文件和一个共享文件
+  // 2. 在 emailAgent 中写一个私有文件和一个共享文件
   await fsWriteFile(join(emailDir, "private-note.txt"), "email private note", "utf-8");
   await fsWriteFile(join(sharedDir, "shared-note.txt"), "global shared note", "utf-8");
 
-  // 3. 验证 emailThread 目录有 private-note.txt，而 codeThread 目录没有
+  // 3. 验证 emailAgent 目录有 private-note.txt，而 codeAgent 目录没有
   assert.ok(existsSync(join(emailDir, "private-note.txt")));
   assert.ok(!existsSync(join(codeDir, "private-note.txt")));
 
-  // 4. 删除 emailThread 会话，其专属工作目录被销毁，而 shared 保持
-  const delRes = await h.request(`/api/spaces/${emailThread}`, undefined, "DELETE");
+  // 4. 删除 emailAgent 会话，其专属工作目录被销毁，而 shared 保持
+  const delRes = await h.request(`/api/agents/${emailAgent}`, undefined, "DELETE");
   assert.equal(delRes.status, 200);
-  assert.ok(!existsSync(emailDir), "email workspace dir must be removed on thread deletion");
-  assert.ok(existsSync(sharedDir), "shared workspace dir must remain after thread deletion");
+  assert.ok(!existsSync(emailDir), "email workspace dir must be removed on agent deletion");
+  assert.ok(existsSync(sharedDir), "shared workspace dir must remain after agent deletion");
   assert.equal(await readFile(join(sharedDir, "shared-note.txt"), "utf-8"), "global shared note");
 });
 
-test("thread workspace: main and other threads deny private escapes, share files and reopen the same cwd", { timeout: 30000 }, async (t) => {
+test("agent workspace: main and other agents deny private escapes, share files and reopen the same cwd", { timeout: 30000 }, async (t) => {
   const h = await harness();
   t.after(h.close);
   const layout = h.service().layout;
-  const mainRoot = threadWorkspaceDir(layout, "local-main");
-  const mailRoot = threadWorkspaceDir(layout, "mail-isolated");
-  await h.service().conversationHub.forThread("mail-isolated");
+  const mainRoot = agentWorkspaceDir(layout, "local-main");
+  const mailRoot = agentWorkspaceDir(layout, "mail-isolated");
+  await h.service().conversationHub.forAgent("mail-isolated");
   await writeFile(join(mainRoot, "private.txt"), "MAIN-ONLY-CANARY");
   await writeFile(join(mailRoot, "private.txt"), "MAIL-ONLY-CANARY");
   await writeFile(join(sharedWorkspaceDir(layout), "team.txt"), "TEAM-SHARED-CANARY");
   await writeFile(join(layout.workspaceDir, "old-root.txt"), "OLD-ROOT-UNREACHABLE");
   await symlink(join(mailRoot, "private.txt"), join(mainRoot, "mail-link.txt"));
-  const read = async (threadId: string, path: string) => {
-    const before = await h.getHistory(threadId);
+  const read = async (agentId: string, path: string) => {
+    const before = await h.getHistory(agentId);
     const request = input([...before, user(`读文件 ${path}`)]);
-    request.spaceId = threadId;
+    request.agentId = agentId;
     assert.equal((await h.events(request)).at(-1)?.type, "RUN_FINISHED");
     return h.model.requests.at(-1)!.messages.filter((message) => message.role === "tool").at(-1)?.content;
   };
   assert.match(String(await read("local-main", "private.txt")), /MAIN-ONLY-CANARY/);
   assert.match(String(await read("mail-isolated", "private.txt")), /MAIL-ONLY-CANARY/);
-  for (const [threadId, path] of [
+  for (const [agentId, path] of [
     ["local-main", "../mail-isolated/private.txt"],
     ["mail-isolated", "../local-main/private.txt"],
     ["local-main", join(mailRoot, "private.txt")],
     ["local-main", "mail-link.txt"],
   ]) {
-    const result = String(await read(threadId, path));
+    const result = String(await read(agentId, path));
     assert.match(result, /Access denied/);
     assert.doesNotMatch(result, /MAIN-ONLY-CANARY|MAIL-ONLY-CANARY/);
   }
-  for (const threadId of ["local-main", "mail-isolated"]) {
-    assert.match(String(await read(threadId, "shared/team.txt")), /TEAM-SHARED-CANARY/);
+  for (const agentId of ["local-main", "mail-isolated"]) {
+    assert.match(String(await read(agentId, "shared/team.txt")), /TEAM-SHARED-CANARY/);
   }
   // 旧的父目录访问方式不再可达，也不为这条路径隐式迁移文件。
-  assert.doesNotMatch(String(await read("local-main", "threads/mail-isolated/private.txt")), /MAIL-ONLY-CANARY/);
+  assert.doesNotMatch(String(await read("local-main", "agents/mail-isolated/private.txt")), /MAIL-ONLY-CANARY/);
   assert.doesNotMatch(String(await read("local-main", "old-root.txt")), /OLD-ROOT-UNREACHABLE/);
   const before = new Map(await Promise.all(["local-main", "mail-isolated"].map(async (id) =>
-    [id, await h.request(`/api/conversation?spaceId=${id}`).then((response) => response.json())] as const)));
+    [id, await h.request(`/api/conversation?agentId=${id}`).then((response) => response.json())] as const)));
   await h.restart();
   for (const [id, snapshot] of before) {
-    assert.deepEqual(await h.request(`/api/conversation?spaceId=${id}`).then((response) => response.json()), snapshot);
+    assert.deepEqual(await h.request(`/api/conversation?agentId=${id}`).then((response) => response.json()), snapshot);
     const dir = join(layout.sessionsDir, id);
     for (const name of (await readdir(dir)).filter((file) => file.endsWith(".jsonl"))) {
       const header = JSON.parse((await readFile(join(dir, name), "utf8")).split("\n")[0]);
-      assert.equal(header.cwd, threadWorkspaceDir(layout, id));
+      assert.equal(header.cwd, agentWorkspaceDir(layout, id));
     }
   }
   assert.equal(await readFile(join(layout.workspaceDir, "old-root.txt"), "utf8"), "OLD-ROOT-UNREACHABLE");
@@ -1725,14 +1725,14 @@ test("subagent: parent delegates to an isolated child and receives its result wi
 }, async (t) => {
   const h = await harness();
   t.after(h.close);
-  await h.request("/api/spaces/local-main/information/settings", {
+  await h.request("/api/agents/local-main/information/settings", {
     enabled: true,
     batchWindowSeconds: 3600,
   }, "PUT");
   const ev = await h.events(input([user("请用子代理完成一次测试")], "subagent-run"));
   assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
   assert.ok(ev.some((event) => event.type === "TOOL_CALL_START" && event.toolCallName === "subagent"));
-  const snapshot = await h.request("/api/agent").then((response) => response.json());
+  const snapshot = await h.request("/api/identity").then((response) => response.json());
   assert.equal(Object.hasOwn(snapshot, "worker"), false);
   assert.equal(Object.hasOwn(snapshot, "tasks"), false);
   const jobsRes = await h.request("/api/jobs").then((response) => response.json());
@@ -1765,7 +1765,7 @@ test("subagent: permissions inherit parent ceilings and shared reads preserve pr
   t.after(h.close);
   await mkdir(join(h.dataDir, "workspace", "shared"), { recursive: true });
   await writeFile(join(h.dataDir, "workspace", "shared", "subagent-test.md"), "SUBAGENT-SHARED-CONTENT");
-  await h.request("/api/spaces/local-main/skills", { overrides: { memory: false, write: false, web: false } }, "PUT");
+  await h.request("/api/agents/local-main/skills", { overrides: { memory: false, write: false, web: false } }, "PUT");
   const events = await h.events(input([user("请让只读子代理读取共享文件")], "child-read"));
   assert.equal(events.at(-1)?.type, "RUN_FINISHED");
   const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: ")));
@@ -1775,7 +1775,7 @@ test("subagent: permissions inherit parent ceilings and shared reads preserve pr
     assert.ok(!tools.includes(name), name);
   assert.ok(tools.includes("read"));
   assert.ok(children.some((request) => JSON.stringify(request.messages).includes("SUBAGENT-SHARED-CONTENT")));
-  const directories = await readdir(join(h.dataDir, "workspace", "threads"));
+  const directories = await readdir(join(h.dataDir, "workspace", "agents"));
   assert.equal(directories.filter((directory) => directory.startsWith("subagent-")).length, 1);
   const sessions = await readdir(join(h.dataDir, "sessions"));
   assert.ok(sessions.every((directory) => !directory.startsWith("subagent-")), "child sessions are not durable");
@@ -1794,9 +1794,9 @@ test("subagent: write approval is owned by the parent run and Stop cancels child
     await sleep(10);
   }
   assert.ok(action, "child should wait for approval");
-  assert.equal(action.spaceId, "local-main");
+  assert.equal(action.agentId, "local-main");
   assert.equal(action.runId, run.runId);
-  const stopped = await h.request("/api/conversation/stop", { spaceId: run.spaceId, runId: run.runId });
+  const stopped = await h.request("/api/conversation/stop", { agentId: run.agentId, runId: run.runId });
   assert.equal((await stopped.json()).stopped, true);
   const events = await pendingRun;
   assert.equal(events.at(-1)?.type, "RUN_ERROR");
@@ -1804,10 +1804,10 @@ test("subagent: write approval is owned by the parent run and Stop cancels child
   assert.equal(settled.status, "cancelled");
   assert.equal(settled.revision, 2);
   assert.equal(settled.decidedAt, null);
-  for (const directory of await readdir(join(h.dataDir, "workspace", "threads"))) {
-    if (directory.startsWith("subagent-")) await assert.rejects(readFile(join(h.dataDir, "workspace", "threads", directory, "draft.md")), { code: "ENOENT" });
+  for (const directory of await readdir(join(h.dataDir, "workspace", "agents"))) {
+    if (directory.startsWith("subagent-")) await assert.rejects(readFile(join(h.dataDir, "workspace", "agents", directory, "draft.md")), { code: "ENOENT" });
   }
-  assert.equal((await h.service().conversationHub.forThread("local-main")).isRunning(), false);
+  assert.equal((await h.service().conversationHub.forAgent("local-main")).isRunning(), false);
 });
 
 test("subagent: Stop interrupts the child provider and releases the parent run", { timeout: 30000 }, async (t) => {
@@ -1817,11 +1817,11 @@ test("subagent: Stop interrupts the child provider and releases the parent run",
   const response = h.events(run);
   await until(() => h.model.requests.length >= 2);
   const before = h.model.slowClosed();
-  await h.request("/api/conversation/stop", { spaceId: run.spaceId, runId: run.runId });
+  await h.request("/api/conversation/stop", { agentId: run.agentId, runId: run.runId });
   const events = await response;
   assert.equal(events.at(-1)?.type, "RUN_ERROR");
   await until(() => h.model.slowClosed() > before);
-  assert.equal((await h.service().conversationHub.forThread("local-main")).isRunning(), false);
+  assert.equal((await h.service().conversationHub.forAgent("local-main")).isRunning(), false);
 });
 
 test("goal domain: chat tool create, REST CRUD, milestone toggle and on-demand prompt guidance", {
@@ -1836,7 +1836,7 @@ test("goal domain: chat tool create, REST CRUD, milestone toggle and on-demand p
     toolCallName: string;
   };
   assert.equal(goalStart.toolCallName, "goal");
-  let agent = await h.request("/api/agent").then((x) => x.json());
+  let agent = await h.request("/api/identity").then((x) => x.json());
   assert.equal(Object.hasOwn(agent, "goals"), false);
   let goalsList = await h.request("/api/goals").then((x) => x.json());
   assert.equal(goalsList.goals.length, 1);
@@ -1909,7 +1909,7 @@ test("write approval gate: approve writes the file, deny and boundary paths beha
   );
   const ev1 = await run1;
   assert.equal(ev1.at(-1)?.type, "RUN_FINISHED");
-  const written = await readFile(join(threadWorkspaceDir(h.service().layout, "local-main"), "draft.md"), "utf8");
+  const written = await readFile(join(agentWorkspaceDir(h.service().layout, "local-main"), "draft.md"), "utf8");
   assert.match(written, /DRAFT-CONTENT/);
   assert.ok(
     ev1.filter((x) => x.type === "TEXT_MESSAGE_CONTENT").map((x) => (x as { delta?: string }).delta ?? "").join("").startsWith("write reply:"),
@@ -1923,7 +1923,7 @@ test("write approval gate: approve writes the file, deny and boundary paths beha
   assert.equal(conflictBody.approval.revision, 4);
   assert.equal(conflictBody.approval.execution.status, "succeeded");
   // 2) deny：拒绝后文件不变，模型收到受控拒绝文案并正常收尾。
-  const before = await readFile(join(threadWorkspaceDir(h.service().layout, "local-main"), "draft.md"), "utf8");
+  const before = await readFile(join(agentWorkspaceDir(h.service().layout, "local-main"), "draft.md"), "utf8");
   const run2 = h.events(input([...(await h.getHistory()), user("再写入一次")], "write-deny"));
   let action2: { id: string } | undefined;
   for (let i = 0; i < 15 && !action2; i++) {
@@ -1935,7 +1935,7 @@ test("write approval gate: approve writes the file, deny and boundary paths beha
   await h.request(`/api/approvals/${action2.id}/decision`, { decision: "deny" });
   const ev2 = await run2;
   assert.equal(ev2.at(-1)?.type, "RUN_FINISHED");
-  assert.equal(await readFile(join(threadWorkspaceDir(h.service().layout, "local-main"), "draft.md"), "utf8"), before);
+  assert.equal(await readFile(join(agentWorkspaceDir(h.service().layout, "local-main"), "draft.md"), "utf8"), before);
   // 3) edit：批准后替换生效（oldText 唯一）。
   const run3 = h.events(input([...(await h.getHistory()), user("改一下草稿")], "edit-ok"));
   let action3: { id: string } | undefined;
@@ -1947,7 +1947,7 @@ test("write approval gate: approve writes the file, deny and boundary paths beha
   await h.request(`/api/approvals/${action3!.id}/decision`, { decision: "approve" });
   assert.equal((await run3).at(-1)?.type, "RUN_FINISHED");
   assert.match(
-    await readFile(join(threadWorkspaceDir(h.service().layout, "local-main"), "draft.md"), "utf8"),
+    await readFile(join(agentWorkspaceDir(h.service().layout, "local-main"), "draft.md"), "utf8"),
     /marker-edited/,
   );
 });
@@ -2002,7 +2002,7 @@ test("monitors: full loop with real fetch — baseline, change notify, keyword h
       (x) => x.role === "assistant" && String(x.content).startsWith("📡") && String(x.content).includes("页面变化"),
     );
   }
-  assert.ok(notified, "change should notify main thread with 📡");
+  assert.ok(notified, "change should notify main agent with 📡");
 
   // contains：首查未命中建状态 → 命中 → 通知一次；持续命中不重复。
   const containsRes = await h.request("/api/monitors", {
@@ -2036,7 +2036,7 @@ test("monitors: full loop with real fetch — baseline, change notify, keyword h
   );
 
   // 独立列表查询与快照解耦验证
-  const snapshotRes = await h.request("/api/agent").then((x) => x.json());
+  const snapshotRes = await h.request("/api/identity").then((x) => x.json());
   assert.equal(Object.hasOwn(snapshotRes, "monitors"), false);
 
   const listRes = await h.request("/api/monitors").then((x) => x.json());
@@ -2077,7 +2077,7 @@ test("history larger than 1 MiB still accepts a small incremental turn and rejec
   assert.equal(after.length, history.length + 2);
   // 旧的全量 body 即使足够小也应按契约拒绝，而不是靠请求体大小限制偶然拒绝。
   const legacy = await h.request("/api/conversation/run", {
-    spaceId: "local-main", runId: "legacy-body", messages: [user("legacy")],
+    agentId: "local-main", runId: "legacy-body", messages: [user("legacy")],
     state: {}, tools: [], context: [], forwardedProps: {},
   });
   assert.equal(legacy.status, 400);
@@ -2101,11 +2101,11 @@ test("stale revisions and completed-message reuse return HTTP 409, late stop can
   assert.equal((await reused.json()).code, "MESSAGE_ID_CONFLICT");
   const pending = h.events(input([...history, user("freeze")], "new-active-run"));
   await until(() => h.model.requests.length === 2);
-  const lateStop = await h.request("/api/conversation/stop", { spaceId: "local-main", runId: "completed-run" });
+  const lateStop = await h.request("/api/conversation/stop", { agentId: "local-main", runId: "completed-run" });
   assert.equal(lateStop.status, 200);
   assert.equal((await lateStop.json()).stopped, false);
-  assert.equal((await h.service().conversationHub.forThread("local-main")).isRunning(), true);
-  const stopped = await h.request("/api/conversation/stop", { spaceId: "local-main", runId: "new-active-run" });
+  assert.equal((await h.service().conversationHub.forAgent("local-main")).isRunning(), true);
+  const stopped = await h.request("/api/conversation/stop", { agentId: "local-main", runId: "new-active-run" });
   assert.equal((await stopped.json()).stopped, true);
   assert.equal((await pending).at(-1)?.code, "STOPPED");
 });

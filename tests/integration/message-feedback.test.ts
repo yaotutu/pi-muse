@@ -36,17 +36,17 @@ const fixture = async (t: TestContext) => {
   });
   const request = (path: string, init?: RequestInit) =>
     service.app.request(path, { headers, ...init });
-  const get = async (spaceId: string) => {
-    const response = await request(`/api/conversation?spaceId=${encodeURIComponent(spaceId)}`);
+  const get = async (agentId: string) => {
+    const response = await request(`/api/conversation?agentId=${encodeURIComponent(agentId)}`);
     assert.equal(response.status, 200);
     return conversationResponse.parse(await response.json());
   };
-  const runToCompletion = async (spaceId: string, text: string, ids = { run: randomUUID(), message: randomUUID() }) => {
-    const before = await get(spaceId);
+  const runToCompletion = async (agentId: string, text: string, ids = { run: randomUUID(), message: randomUUID() }) => {
+    const before = await get(agentId);
     const response = await request("/api/conversation/run", {
       method: "POST",
       body: JSON.stringify({
-        spaceId,
+        agentId,
         runId: ids.run,
         expectedRevision: before.revision,
         message: { id: ids.message, content: text },
@@ -78,9 +78,9 @@ const targetMessage = (snapshot: Snapshot, role: "user" | "assistant") => {
 
 test("message feedback persists full events, coordinates sessions, and never changes chat history", async (t) => {
   const h = await fixture(t);
-  const spaceId = "feedback-integration";
-  const first = await h.runToCompletion(spaceId, "hello");
-  const afterRun = await h.get(spaceId);
+  const agentId = "feedback-integration";
+  const first = await h.runToCompletion(agentId, "hello");
+  const afterRun = await h.get(agentId);
   const user = targetMessage(afterRun, "user");
   const assistant = targetMessage(afterRun, "assistant");
   assert.equal(user.metadata.source, "chat");
@@ -88,7 +88,7 @@ test("message feedback persists full events, coordinates sessions, and never cha
   assert.ok(afterRun.sessionId);
 
   const reactionPath = (id: string) =>
-    `/api/spaces/${spaceId}/messages/${encodeURIComponent(id)}/feedback/reaction`;
+    `/api/agents/${agentId}/messages/${encodeURIComponent(id)}/feedback/reaction`;
   let result = await h.feedback(reactionPath(user.id), {
     method: "PUT", body: JSON.stringify({ sessionId: afterRun.sessionId, reaction: "like" }),
   });
@@ -104,7 +104,7 @@ test("message feedback persists full events, coordinates sessions, and never cha
   assert.equal(messageFeedbackResponse.parse(result.body).reaction, null);
 
   const commentPath = (id: string) =>
-    `/api/spaces/${spaceId}/messages/${encodeURIComponent(id)}/feedback/comments`;
+    `/api/agents/${agentId}/messages/${encodeURIComponent(id)}/feedback/comments`;
   result = await h.feedback(commentPath(assistant.id), {
     method: "POST", body: JSON.stringify({ sessionId: afterRun.sessionId, text: " first " }),
   });
@@ -121,7 +121,7 @@ test("message feedback persists full events, coordinates sessions, and never cha
   assert.equal(current.comments[0]!.text, "edited");
 
   const eventsResponse = await h.feedback(
-    `/api/spaces/${spaceId}/messages/${encodeURIComponent(assistant.id)}/feedback/events?sessionId=${encodeURIComponent(afterRun.sessionId)}`,
+    `/api/agents/${agentId}/messages/${encodeURIComponent(assistant.id)}/feedback/events?sessionId=${encodeURIComponent(afterRun.sessionId)}`,
   );
   assert.equal(eventsResponse.status, 200);
   const events = (eventsResponse.body as { events: Array<{ type: string; fromText?: string; toText?: string }> }).events;
@@ -129,21 +129,21 @@ test("message feedback persists full events, coordinates sessions, and never cha
   assert.equal(events[1]!.fromText, "first");
   assert.equal(events[1]!.toText, "edited");
   const userEvents = await h.feedback(
-    `/api/spaces/${spaceId}/messages/${encodeURIComponent(user.id)}/feedback/events?sessionId=${encodeURIComponent(afterRun.sessionId)}`,
+    `/api/agents/${agentId}/messages/${encodeURIComponent(user.id)}/feedback/events?sessionId=${encodeURIComponent(afterRun.sessionId)}`,
   );
   assert.deepEqual(
     (userEvents.body as { events: Array<{ type: string }> }).events.map((event) => event.type),
     ["reaction_changed", "reaction_changed", "reaction_changed"],
   );
 
-  const afterFeedback = await h.get(spaceId);
+  const afterFeedback = await h.get(agentId);
   assert.equal(afterFeedback.revision, afterRun.revision);
   assert.equal(afterFeedback.messages.length, afterRun.messages.length);
   assert.equal(afterFeedback.messages.find((item) => item.id === assistant.id)?.feedback?.comments.length, 1);
 
   // 服务重启后重新投影 PI 事实并读取独立反馈文件，不迁移或清空真实历史。
   await h.restart();
-  const restarted = await h.get(spaceId);
+  const restarted = await h.get(agentId);
   assert.equal(restarted.sessionId, afterRun.sessionId);
   assert.equal(restarted.messages.find((item) => item.id === assistant.id)?.feedback?.comments[0]?.text, "edited");
 
@@ -151,7 +151,7 @@ test("message feedback persists full events, coordinates sessions, and never cha
   const replay = await h.request("/api/conversation/run", {
     method: "POST",
     body: JSON.stringify({
-      spaceId,
+      agentId,
       runId: first.ids.run,
       expectedRevision: "stale-after-completion",
       message: { id: first.ids.message, content: "hello" },
@@ -165,18 +165,18 @@ test("message feedback persists full events, coordinates sessions, and never cha
   assert.equal(snapshotMessage.messages.find((item) => item.id === assistant.id)?.metadata?.feedbackAvailable, true);
 
   // 反馈期间模型可继续运行；只有当前 run 的目标不可用，旧历史仍可操作。
-  const beforeFreeze = await h.get(spaceId);
+  const beforeFreeze = await h.get(agentId);
   const freezeIds = { run: randomUUID(), message: randomUUID() };
   const freezeResponse = h.request("/api/conversation/run", {
     method: "POST",
     body: JSON.stringify({
-      spaceId, runId: freezeIds.run, expectedRevision: beforeFreeze.revision,
+      agentId, runId: freezeIds.run, expectedRevision: beforeFreeze.revision,
       message: { id: freezeIds.message, content: "freeze" },
     }),
   });
   // 等到 run_started 后用独立 HTTP 读当前快照并反馈旧消息。
   await new Promise((resolve) => setTimeout(resolve, 100));
-  const runningSnapshot = await h.get(spaceId);
+  const runningSnapshot = await h.get(agentId);
   const currentUser = runningSnapshot.messages.find((item) => item.id === freezeIds.message);
   assert.equal(currentUser?.metadata?.feedbackAvailable, false);
   const currentReaction = await h.feedback(reactionPath(currentUser!.id), {
@@ -189,12 +189,12 @@ test("message feedback persists full events, coordinates sessions, and never cha
   assert.equal(oldReaction.status, 200);
   assert.equal((await h.request("/api/conversation/stop", {
     method: "POST",
-    body: JSON.stringify({ spaceId, runId: freezeIds.run }),
+    body: JSON.stringify({ agentId, runId: freezeIds.run }),
   })).status, 200);
   assert.match(await (await freezeResponse).text(), /RUN_ERROR/);
 
   // reset 生成新 sessionId；旧反馈代次拒绝且文件不迁移到新会话。
-  const reset = await h.request(`/api/spaces/${spaceId}/reset`, {
+  const reset = await h.request(`/api/agents/${agentId}/reset`, {
     method: "POST", body: JSON.stringify({ clearSchedules: false }),
   });
   assert.equal(reset.status, 200);
@@ -203,12 +203,12 @@ test("message feedback persists full events, coordinates sessions, and never cha
     method: "PUT", body: JSON.stringify({ sessionId: afterRun.sessionId, reaction: "like" }),
   });
   assert.equal(oldSessionCall.status, 409);
-  await assert.rejects(stat(join(h.dataDir, "messages", spaceId)), { code: "ENOENT" });
-  const newSnapshot = await h.get(spaceId);
+  await assert.rejects(stat(join(h.dataDir, "messages", agentId)), { code: "ENOENT" });
+  const newSnapshot = await h.get(agentId);
   assert.equal(newSnapshot.sessionId, newSessionId);
   assert.deepEqual(newSnapshot.messages, []);
 
-  const deleteResult = await h.request(`/api/spaces/${spaceId}`, { method: "DELETE" });
+  const deleteResult = await h.request(`/api/agents/${agentId}`, { method: "DELETE" });
   assert.equal(deleteResult.status, 200);
   const missing = await h.feedback(reactionPath(user.id), {
     method: "PUT", body: JSON.stringify({ sessionId: newSessionId, reaction: "like" }),
@@ -218,7 +218,7 @@ test("message feedback persists full events, coordinates sessions, and never cha
 
 test("message feedback validates auth, ownership, notification facts, and raw event scope", async (t) => {
   const h = await fixture(t);
-  const conversation = await h.service().conversationHub.forSpace("local-main");
+  const conversation = await h.service().conversationHub.forAgent("local-main");
   await conversation.notify("notification fact", "feedback-notification");
   const snapshot = await h.get("local-main");
   const notification = snapshot.messages.find((item) => item.id === "feedback-notification");
@@ -228,11 +228,11 @@ test("message feedback validates auth, ownership, notification facts, and raw ev
   const sessionId = snapshot.sessionId;
   assert.ok(sessionId);
 
-  const base = `/api/spaces/local-main/messages/feedback-notification/feedback`;
+  const base = `/api/agents/local-main/messages/feedback-notification/feedback`;
   assert.equal((await h.feedback(`${base}?sessionId=${encodeURIComponent(sessionId)}`)).status, 200);
   assert.equal((await h.feedback(`${base}?sessionId=other-session`)).status, 409);
   assert.equal((await h.service().app.request(base)).status, 401);
-  assert.equal((await h.feedback(`/api/spaces/missing-space/messages/x/feedback?sessionId=s`)).status, 404);
+  assert.equal((await h.feedback(`/api/agents/missing-agent/messages/x/feedback?sessionId=s`)).status, 404);
 
   const eventsPath = `${base}/events?sessionId=${encodeURIComponent(sessionId)}`;
   const events = (await (await h.feedback(eventsPath)).body as { events: unknown[] }).events;

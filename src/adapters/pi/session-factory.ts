@@ -1,6 +1,6 @@
-import { isFeatureSpace } from "../../features/feature-spaces/types.js";
+import { isFeatureAgent } from "../../features/agent-extensions/types.js";
 import { FEATURE_TOOL_INSTRUCTIONS } from "./tools/feature.js";
-import { SPACE_TOOL_INSTRUCTIONS } from "./tools/space.js";
+import { AGENT_TOOL_INSTRUCTIONS } from "./tools/agent.js";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
@@ -19,8 +19,8 @@ import {
   type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 import type { DataLayout } from "../storage/data-layout.js";
-import { threadWorkspaceDir, sharedWorkspaceDir, ensureThreadWorkspace, threadInstructionsFile } from "../storage/data-layout.js";
-import { readThreadInstructions } from "../storage/thread-instructions.js";
+import { agentWorkspaceDir, sharedWorkspaceDir, ensureAgentWorkspace, agentInstructionsFile } from "../storage/data-layout.js";
+import { readAgentInstructions } from "../storage/agent-instructions.js";
 import { getBuiltinSkillsDir } from "../storage/builtin-skills.js";
 import type { Config } from "../../config/load-config.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
@@ -65,8 +65,8 @@ export type PiDeps = {
   memory: MemoryService;
   jobs: JobService;
   /** 仅子会话使用：父会话技能/工具快照作为权限上限，角色只可收窄。 */
-  child?: { role: SubagentRole; enabledSkills: readonly string[]; allowedTools: readonly string[]; ownerSpaceId: string; ownerRunId?: string };
-  spaceId: string;
+  child?: { role: SubagentRole; enabledSkills: readonly string[]; allowedTools: readonly string[]; ownerAgentId: string; ownerRunId?: string };
+  agentId: string;
   runId?: string;
   /** 当前轮次的用户输入文本，用于自动召回长会话记忆线索并注入提示词。 */
   userText?: string;
@@ -86,13 +86,13 @@ export type PiDeps = {
   presentation?: ToolPresentation;
   /** 与手动 HTTP 文件入口共用，保证最终版本检查与提交按物理路径串行。 */
   workspaceCommits?: WorkspaceCommitQueue;
-  /** 普通聊天的空间局部信息查询；后台信息 runner 不装配该入口。 */
-  features?: import("../../features/feature-spaces/service.js").FeatureService;
-  communication?: import("../../features/space-communication/service.js").SpaceCommunication;
-  /** 业务空间中的独立讨论；即使后台自动处理关闭，仍可主动查询本空间已有信息。 */
+  /** 普通聊天的智能体局部信息查询；后台信息 runner 不装配该入口。 */
+  features?: import("../../features/agent-extensions/service.js").FeatureService;
+  communication?: import("../../features/agent-communication/service.js").AgentCommunication;
+  /** 业务智能体中的独立讨论；即使后台自动处理关闭，仍可主动查询本智能体已有信息。 */
   communicationDiscussion?: string;
-  /** 跨空间写入的审批回到原调用者；工作区与实际文件版本仍属于执行空间。 */
-  communicationOwner?: { spaceId: string; runId: string };
+  /** 跨智能体写入的审批回到原调用者；工作区与实际文件版本仍属于执行智能体。 */
+  communicationOwner?: { agentId: string; runId: string };
   information?: Pick<import("../../features/information/service.js").InformationService, "getSettings" | "query">;
 };
 
@@ -148,18 +148,18 @@ export async function openPi(deps: PiDeps) {
   const { config, layout, sessionManager, memory, jobs, modelRuntime } = deps;
   const { goals, actions, actionTimeoutMs, monitors, web, weather, browser, skills, child } = deps;
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
-  const cwd = threadWorkspaceDir(layout, deps.spaceId);
+  const cwd = agentWorkspaceDir(layout, deps.agentId);
   const sharedDir = sharedWorkspaceDir(layout);
-  await ensureThreadWorkspace(layout, deps.spaceId);
+  await ensureAgentWorkspace(layout, deps.agentId);
   const agentDir = layout.agentDir;
   // openPi 每轮执行都会重新创建；设置读取失败必须中止本轮，不能伪装成关闭。
-  const informationEnabled = !child && deps.information && deps.spaceId
-    ? (await deps.information.getSettings(deps.spaceId)).enabled
+  const informationEnabled = !child && deps.information && deps.agentId
+    ? (await deps.information.getSettings(deps.agentId)).enabled
     : false;
 
   // 1. 加载技能并计算生效值
-  const effectiveSkills = !child && skills && deps.spaceId
-    ? await skills.getEffectiveSkills(deps.spaceId)
+  const effectiveSkills = !child && skills && deps.agentId
+    ? await skills.getEffectiveSkills(deps.agentId)
     : [];
   const enabledSkillNames = new Set(
     child?.enabledSkills ?? effectiveSkills.filter(s => s.enabled).map(s => s.name)
@@ -195,11 +195,11 @@ export async function openPi(deps: PiDeps) {
     root: cwd,
     sharedDir,
     readOnlyFiles: await collectReadableSkillFiles(activeSkills),
-    spaceId: child?.ownerSpaceId ?? deps.spaceId,
+    agentId: child?.ownerAgentId ?? deps.agentId,
     runId: child?.ownerRunId ?? deps.runId,
     isSubagent: Boolean(child),
     subagentId: deps.statusSubagentId,
-    workspaceSpaceId: child?.ownerSpaceId ?? deps.spaceId,
+    workspaceAgentId: child?.ownerAgentId ?? deps.agentId,
     currentActivityId: () => deps.status?.snapshot().activityId ?? null,
     activity: child ? undefined : deps.activity,
     activityObservation: deps.activity ? {
@@ -220,13 +220,13 @@ export async function openPi(deps: PiDeps) {
     skillsService: skills,
     writableEnabled: deps.config.writable.enabled,
     workspaceCommits: deps.workspaceCommits,
-    information: informationEnabled || isFeatureSpace(deps.spaceId) || Boolean(deps.communicationDiscussion) ? deps.information : undefined,
+    information: informationEnabled || isFeatureAgent(deps.agentId) || Boolean(deps.communicationDiscussion) ? deps.information : undefined,
     features: !child ? deps.features : undefined,
     communication: !child ? deps.communication : undefined,
-    approvalOwner: deps.communicationOwner ?? (deps.runId ? { spaceId: child?.ownerSpaceId ?? deps.spaceId, runId: child?.ownerRunId ?? deps.runId } : undefined),
+    approvalOwner: deps.communicationOwner ?? (deps.runId ? { agentId: child?.ownerAgentId ?? deps.agentId, runId: child?.ownerRunId ?? deps.runId } : undefined),
     communicationCaller: {
       sessionId: sessionManager.getSessionId(), discussionId: deps.communicationDiscussion,
-      approvalOwner: deps.communicationOwner ?? (deps.runId ? { spaceId: deps.spaceId, runId: deps.runId } : undefined),
+      approvalOwner: deps.communicationOwner ?? (deps.runId ? { agentId: deps.agentId, runId: deps.runId } : undefined),
     },
   });
 
@@ -302,12 +302,12 @@ export async function openPi(deps: PiDeps) {
       deps.status?.observe({ kind: "subagent", phase: "start", id: childId, role: role.name });
       const parentStepId = `main:tool:${parentToolCallId}`;
       deps.activity?.observe({ id: childId, parentId: parentStepId, kind: "subagent", phase: "start", title: "Subagent executing" });
-      await ensureThreadWorkspace(layout, childId);
+      await ensureAgentWorkspace(layout, childId);
       signal?.throwIfAborted();
-      const manager = SessionManager.inMemory(threadWorkspaceDir(layout, childId));
+      const manager = SessionManager.inMemory(agentWorkspaceDir(layout, childId));
       const session = await openPi({
-        ...deps, sessionManager: manager, spaceId: childId,
-        child: { role, enabledSkills: [...enabledSkillNames], allowedTools: [...allowedToolNames], ownerSpaceId: deps.spaceId, ownerRunId: deps.runId },
+        ...deps, sessionManager: manager, agentId: childId,
+        child: { role, enabledSkills: [...enabledSkillNames], allowedTools: [...allowedToolNames], ownerAgentId: deps.agentId, ownerRunId: deps.runId },
         activity: deps.activity,
         activityPrefix: childId,
         activityParentId: childId,
@@ -377,16 +377,16 @@ export async function openPi(deps: PiDeps) {
   }
 
   // 4. 构建 System Prompt 并注入技能、专属会话指令与 Extension
-  const instructionsFile = !child && deps.spaceId ? threadInstructionsFile(layout, deps.spaceId) : undefined;
-  const threadInstructions = instructionsFile ? await readThreadInstructions(instructionsFile) : undefined;
+  const instructionsFile = !child && deps.agentId ? agentInstructionsFile(layout, deps.agentId) : undefined;
+  const agentInstructions = instructionsFile ? await readAgentInstructions(instructionsFile) : undefined;
   const recalledMemories = (deps.userText && memory) ? await memory.recall(deps.userText) : [];
   const systemPrompt = await buildSystemPrompt(
-    { layout, memory, allowedToolNames, threadInstructions, recalledMemories },
+    { layout, memory, allowedToolNames, agentInstructions, recalledMemories },
   ) +
     (informationEnabled ? INFORMATION_BACKGROUND_SYSTEM_PROMPT : "") +
     (!child && deps.features ? `\n## Feature interactions\n${FEATURE_TOOL_INSTRUCTIONS}\n` : "") +
-    (!child && deps.communication ? `\n## Space communication\nCurrent space: ${deps.spaceId}.\n${SPACE_TOOL_INSTRUCTIONS}\n` : "") +
-    (deps.communicationDiscussion ? "\nThis is a separate discussion owned by this space, not its primary chat. Use this space's rules, tools, workspace and information. Answer the caller here; do not send a notification just to return the result. A completed turn may ask the user a question; never invent missing user choices.\n" : "") +
+    (!child && deps.communication ? `\n## Agent communication\nCurrent agent: ${deps.agentId}.\n${AGENT_TOOL_INSTRUCTIONS}\n` : "") +
+    (deps.communicationDiscussion ? "\nThis is a separate discussion owned by this agent, not its primary chat. Use this agent's rules, tools, workspace and information. Answer the caller here; do not send a notification just to return the result. A completed turn may ask the user a question; never invent missing user choices.\n" : "") +
     (allowedToolNames.includes(ACTIVITY_TOOL_NAME)
       ? `\n\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}`
       : "") +

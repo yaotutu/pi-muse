@@ -22,8 +22,8 @@ const fixture = async () => {
     },
   };
   const monitors = createMonitorService(repository);
-  const first = await monitors.create({ url: "https://example.com/first", condition: "contains", value: "yes", originSpaceId: "first" });
-  const second = await monitors.create({ url: "https://example.com/second", condition: "contains", value: "yes", originSpaceId: "second" });
+  const first = await monitors.create({ url: "https://example.com/first", condition: "contains", value: "yes", originAgentId: "first" });
+  const second = await monitors.create({ url: "https://example.com/second", condition: "contains", value: "yes", originAgentId: "second" });
   return { monitors, first, second };
 };
 
@@ -34,9 +34,9 @@ test("busy notification does not block other monitors, duplicate delivery, or sc
   const busy = new Promise<void>((resolve) => { release = resolve; });
   const delivered: string[] = [];
   let fetches = 0;
-  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetches++; return fetchedPage("yes"); } } }, monitors, { notify: async () => ({ notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }) }, async (thread) => ({ notify: async () => {
-    delivered.push(thread);
-    if (thread === "first") await busy;
+  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetches++; return fetchedPage("yes"); } } }, monitors, { notify: async () => ({ notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }) }, async (agent) => ({ notify: async () => {
+    delivered.push(agent);
+    if (agent === "first") await busy;
     return { notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" };
   } }));
   scheduler.start();
@@ -69,8 +69,8 @@ test("failed delivery and failed check leave other monitors running", async (t) 
       if (id === first.id) throw new Error("write failed");
       return monitors.check(id, result);
     },
-  }, { notify: async () => ({ notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }) }, async (thread) => ({ notify: async () => {
-    if (thread === "first" && ++attempts === 1) throw new Error("delivery failed");
+  }, { notify: async () => ({ notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }) }, async (agent) => ({ notify: async () => {
+    if (agent === "first" && ++attempts === 1) throw new Error("delivery failed");
     delivered++;
     return { notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" };
   } }));
@@ -124,7 +124,7 @@ test("deleted monitor snapshots never notify a recreated source or fall back to 
   scheduler.start();
   t.mock.timers.tick(10);
   await until(() => resolving);
-  await monitors.removeByOriginSpaceId("first");
+  await monitors.removeByOriginAgentId("first");
   resume();
   await scheduler.close();
   assert.deepEqual(notifications, []);

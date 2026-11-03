@@ -35,7 +35,7 @@ const repository = <T>(): { read: () => Promise<T[]>; update: <R>(change: (items
 const conversationFixture = async (t: TestContext) => {
   const facts: ConversationNotification[] = [];
   const calls: string[] = [];
-  const published: Array<{ spaceId: string; sessionId: string }> = [];
+  const published: Array<{ agentId: string; sessionId: string }> = [];
   let listener: (event: ExecutionEvent) => void = () => {};
   const done = deferred();
   const history: ConversationHistoryPort = {
@@ -54,13 +54,13 @@ const conversationFixture = async (t: TestContext) => {
     subscribe: (next) => { listener = next; return () => {}; },
   };
   const messageFeedback = await createMessageFeedbackFixture({
-    spaceId: "source", sessionId: "unit-session", facts: history.messageFacts,
+    agentId: "source", sessionId: "unit-session", facts: history.messageFacts,
   });
   t.after(messageFeedback.cleanup);
   const conversation = createConversation(
     { configured: true, runTimeoutMs: 5000 },
     {
-      spaceId: "source",
+      agentId: "source",
       history,
       messages: messageFeedback.messages,
       openSession: async () => session,
@@ -76,10 +76,10 @@ test("hub permanently closes, drains successful creations even if another reject
   const good = deferred<typeof fixture.conversation>();
   const bad = deferred<typeof fixture.conversation>();
   const hub = createConversationHub((id) => id === "good" ? good.promise : bad.promise, async () => []);
-  const first = hub.forThread("good");
-  const second = hub.forThread("bad").catch(() => undefined);
+  const first = hub.forAgent("good");
+  const second = hub.forAgent("bad").catch(() => undefined);
   const closing = hub.closeAll();
-  assert.throws(() => hub.forThread("new"), { code: "SHUTDOWN" });
+  assert.throws(() => hub.forAgent("new"), { code: "SHUTDOWN" });
   good.resolve({ ...fixture.conversation, close: async () => { disposed = true; return true; } });
   bad.reject(new Error("initialization failed"));
   await Promise.all([first, second, closing]);
@@ -92,15 +92,15 @@ test("retained task source survives idle cache eviction but deletion closes its 
   const hub = createConversationHub(async (id) => {
     const fixture = await conversationFixture(t); instances.set(id, fixture); return fixture.conversation;
   }, async () => [...instances.keys()].map((id) => ({ id, updatedAt: new Date(0).toISOString() })));
-  await hub.forThread("source");
-  const retained = await hub.retainThread("source");
+  await hub.forAgent("source");
+  const retained = await hub.retainAgent("source");
   assert.ok(retained);
   await hub.release("source");
-  assert.equal(await hub.findThread("source"), retained.conversation);
+  assert.equal(await hub.findAgent("source"), retained.conversation);
   await retained.conversation.notify("kept", "fact");
-  await hub.deleteThread("source", async () => { instances.delete("source"); });
+  await hub.deleteAgent("source", async () => { instances.delete("source"); });
   await assert.rejects(retained.conversation.notify("late", "late"), /closed/);
-  const fresh = await hub.forThread("source");
+  const fresh = await hub.forAgent("source");
   assert.notEqual(fresh, retained.conversation);
   retained.release(); retained.release();
   await hub.closeAll();
@@ -120,7 +120,7 @@ test("trigger cancelled while session opens never starts prompt; closed coordina
   await closing;
   assert.equal(fixture.calls.includes("prompt"), false);
   assert.equal((await conversation.trigger("later", "later")).status, "failed");
-  await assert.rejects(conversation.run({ spaceId: "main", runId: "r", expectedRevision: "empty", message: { id: "u", content: "hello" } }, () => {}), { code: "SHUTDOWN" });
+  await assert.rejects(conversation.run({ agentId: "main", runId: "r", expectedRevision: "empty", message: { id: "u", content: "hello" } }, () => {}), { code: "SHUTDOWN" });
 });
 
 test("queued notification can be cancelled before it is written to PI history", async (t) => {
@@ -149,7 +149,7 @@ test("busy conversation queues factual notification without another model turn a
   assert.deepEqual(await delivered, { notificationId: "notification-1", sessionId: "unit-session", messageId: "notification-1" });
   await conversation.notify("monitor changed", "notification-1");
   assert.deepEqual(facts, [{ id: "notification-1", text: "monitor changed" }]);
-  assert.deepEqual(published, [{ spaceId: "source", sessionId: "unit-session" }]);
+  assert.deepEqual(published, [{ agentId: "source", sessionId: "unit-session" }]);
   assert.equal(calls.filter((call) => call === "prompt").length, 1);
 });
 
@@ -163,7 +163,7 @@ test("notification invalidation is published only after a successful append", as
 
   await conversation.notify("first delivery", "notification-once");
   assert.deepEqual(facts.map((fact) => fact.id), ["notification-once"]);
-  assert.deepEqual(published, [{ spaceId: "source", sessionId: "unit-session" }]);
+  assert.deepEqual(published, [{ agentId: "source", sessionId: "unit-session" }]);
 
   const originalAppend = history.appendNotification;
   let appendCalls = 0;

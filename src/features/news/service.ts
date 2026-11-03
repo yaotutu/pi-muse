@@ -3,7 +3,7 @@ import type { InformationService } from "../information/service.js";
 import type { InformationArticleFeedback } from "../information/types.js";
 import { NewsError } from "./errors.js";
 import type { NewsRepository, NewsSource, ParsedFeed } from "./types.js";
-import { NEWS_INTERNAL_SPACE_ID } from "./types.js";
+import { NEWS_INTERNAL_AGENT_ID } from "./types.js";
 
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 const SOURCE_ERROR = "RSS source fetch or parse failed";
@@ -23,7 +23,7 @@ const assertPublicFeedUrl = (raw: string) => {
 export type NewsServiceDependencies = {
   repository: NewsRepository;
   information: InformationService;
-  ensureInternalSpace: () => Promise<void>;
+  ensureInternalAgent: () => Promise<void>;
   fetchFeed: (url: string, signal: AbortSignal) => Promise<ParsedFeed>;
 };
 
@@ -41,8 +41,8 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
 
   const initialize = async () => {
     requireOpen();
-    await deps.ensureInternalSpace();
-    await deps.information.configureSpace(NEWS_INTERNAL_SPACE_ID, {
+    await deps.ensureInternalAgent();
+    await deps.information.configureAgent(NEWS_INTERNAL_AGENT_ID, {
       enabled: true,
       batchWindowSeconds: 0,
       mode: "recommendations",
@@ -51,7 +51,7 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
 
   const status = async () => {
     const state = await deps.repository.read();
-    const counts = await deps.information.getNewsCounts(NEWS_INTERNAL_SPACE_ID);
+    const counts = await deps.information.getNewsCounts(NEWS_INTERNAL_AGENT_ID);
     return {
       refreshing,
       ...counts,
@@ -133,7 +133,7 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
             ...(item.publishedAt ? { receivedAt: item.publishedAt } : {}),
             metadata: { sourceId: source.id, sourceTitle: source.title, url: item.url },
           }));
-          added += (await deps.information.ingestNews(NEWS_INTERNAL_SPACE_ID, items)).length;
+          added += (await deps.information.ingestNews(NEWS_INTERNAL_AGENT_ID, items)).length;
           await deps.repository.update((state) => ({
             state: {
               ...state,
@@ -166,7 +166,7 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
         result: undefined,
       }));
       if (options.retryFailed) {
-        await deps.information.retryFailedNews(NEWS_INTERNAL_SPACE_ID);
+        await deps.information.retryFailedNews(NEWS_INTERNAL_AGENT_ID);
       }
       return { added };
     })();
@@ -185,10 +185,10 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
     savedOnly: boolean;
     limit: number;
     cursor?: string;
-  }) => deps.information.listNewsArticles(NEWS_INTERNAL_SPACE_ID, query);
+  }) => deps.information.listNewsArticles(NEWS_INTERNAL_AGENT_ID, query);
 
   const getArticle = (articleId: string) =>
-    deps.information.getNewsArticle(NEWS_INTERNAL_SPACE_ID, articleId);
+    deps.information.getNewsArticle(NEWS_INTERNAL_AGENT_ID, articleId);
 
   const feedback = async (work: () => Promise<InformationArticleFeedback>) => {
     const value = await work();
@@ -206,11 +206,11 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
     };
   };
 
-  const preferences = () => deps.information.getNewsPreferences(NEWS_INTERNAL_SPACE_ID);
+  const preferences = () => deps.information.getNewsPreferences(NEWS_INTERNAL_AGENT_ID);
 
   const savePreferences = async (notes: string) => {
     requireOpen();
-    await deps.information.savePreferences(NEWS_INTERNAL_SPACE_ID, { notes });
+    await deps.information.savePreferences(NEWS_INTERNAL_AGENT_ID, { notes });
     return preferences();
   };
 
@@ -240,13 +240,13 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
     listArticles,
     getArticle,
     setReaction: (articleId: string, reaction: "like" | "dislike" | null) =>
-      feedback(() => deps.information.setArticleReaction(NEWS_INTERNAL_SPACE_ID, articleId, reaction)),
+      feedback(() => deps.information.setArticleReaction(NEWS_INTERNAL_AGENT_ID, articleId, reaction)),
     setSaved: (articleId: string, saved: boolean) =>
-      feedback(() => deps.information.setArticleSaved(NEWS_INTERNAL_SPACE_ID, articleId, saved)),
+      feedback(() => deps.information.setArticleSaved(NEWS_INTERNAL_AGENT_ID, articleId, saved)),
     addComment: (articleId: string, text: string) =>
-      feedback(() => deps.information.addArticleComment(NEWS_INTERNAL_SPACE_ID, articleId, text)),
+      feedback(() => deps.information.addArticleComment(NEWS_INTERNAL_AGENT_ID, articleId, text)),
     deleteComment: (articleId: string, commentId: string) =>
-      feedback(() => deps.information.deleteArticleComment(NEWS_INTERNAL_SPACE_ID, articleId, commentId)),
+      feedback(() => deps.information.deleteArticleComment(NEWS_INTERNAL_AGENT_ID, articleId, commentId)),
     preferences,
     savePreferences,
     start,

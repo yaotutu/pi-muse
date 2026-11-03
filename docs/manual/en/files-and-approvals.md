@@ -12,21 +12,21 @@ This page distinguishes three easily confused concepts: attachments sent with a 
 
 | Concept | Entry point | Ownership and use | Key boundary |
 | --- | --- | --- | --- |
-| Message attachment | 「+」 to the left of the chat input | Enters this space's chat history with the user message and is supplied to the model as untrusted data | Not a workspace file and has no readable or writable relative path; it does not automatically become a persistent file |
-| Workspace file | member profile → 「文件」 | Private server files of the current space; no shared-area or other-space selector | Manual text saves require a complete before/after preview; model access is constrained by workspace boundaries |
+| Message attachment | 「+」 to the left of the chat input | Enters this agent's chat history with the user message and is supplied to the model as untrusted data | Not a workspace file and has no readable or writable relative path; it does not automatically become a persistent file |
+| Workspace file | member profile → 「文件」 | Private server files of the current agent; no shared-area or other-agent selector | Manual text saves require a complete before/after preview; model access is constrained by workspace boundaries |
 | Model file approval | Session panel 「审批」 | Temporary authorization for a model-initiated `write` create/overwrite or `edit` exact edit | Each operation is approved separately; approval covers one bound version and does not guarantee execution success |
 
-Ordinary file tools can access only the current space's private workspace and the explicitly designated `shared/...` area. They have no parent-directory privilege and cannot use absolute paths, escape directories, or bypass boundaries with symlinks. The server does not provide `bash` to the model.
+Ordinary file tools can access only the current agent's private workspace and the explicitly designated `shared/...` area. They have no parent-directory privilege and cannot use absolute paths, escape directories, or bypass boundaries with symlinks. The server does not provide `bash` to the model.
 
 ## Send Attachments {#send-attachments}
 
-1. On the chat page, confirm the current space and that no reply is running and no submission is awaiting confirmation.
+1. On the chat page, confirm the current agent and that no reply is running and no submission is awaiting confirmation.
 2. Tap 「+」 to the left of the input field. Its accessibility name is 「添加图片或文本附件」.
 3. Select one or more local files in the system picker. The picker requests multiple selection; cancelling it does not modify existing drafts.
 4. After returning to Pi Muse, attachments appear above the input field. Tap the remove icon on an item to remove it before sending.
 5. Enter text and tap the send arrow, or send attachments only. An attachment-only message is still processed through a model request.
 
-After a successful send, attachments are persisted with that message in the space's chat history and are sent to the configured external model service while that message is processed. The user message shows each attachment's name, size, and type. Images can be tapped for preview; text attachments show metadata only. Attachment content is marked as untrusted data, but this does not guarantee that the model is unaffected by that content. Before sending, do not include credentials or content you do not want to provide to that model service; after sending, continue to review model output and file approvals.
+After a successful send, attachments are persisted with that message in the agent's chat history and are sent to the configured external model service while that message is processed. The user message shows each attachment's name, size, and type. Images can be tapped for preview; text attachments show metadata only. Attachment content is marked as untrusted data, but this does not guarantee that the model is unaffected by that content. Before sending, do not include credentials or content you do not want to provide to that model service; after sending, continue to review model output and file approvals.
 
 Limits:
 
@@ -40,12 +40,12 @@ Limits:
 ## Manage Workspace Files {#manage-workspace-files}
 
 1. Confirm the name on the member profile, then open 「文件」. This is a full-screen page, separate from the avatar panel.
-2. Tap a directory to enter it. 「上级」 or system Back moves up one level; 「根目录」 returns to this space's root. Returning from a file preserves its directory and list scroll position.
-3. Tap a text file to open its source editor directly. The title shows the file name; the subtitle shows the space and parent directory. Markdown and other UTF-8 text display their complete original content, without Markdown rendering, HTML execution, or remote image loading. PNG, JPEG, GIF, and WebP can be previewed safely; other binary files can be downloaded. The top-right information icon reveals the full path, size, modification time, type, and download/delete actions.
+2. Tap a directory to enter it. 「上级」 or system Back moves up one level; 「根目录」 returns to this agent's root. Returning from a file preserves its directory and list scroll position.
+3. Tap a text file to open its source editor directly. The title shows the file name; the subtitle shows the agent and parent directory. Markdown and other UTF-8 text display their complete original content, without Markdown rendering, HTML execution, or remote image loading. PNG, JPEG, GIF, and WebP can be previewed safely; other binary files can be downloaded. The top-right information icon reveals the full path, size, modification time, type, and download/delete actions.
 4. Tap 「新建文本」 to create a file; edit existing text directly in the file without entering a separate mode. 「预览保存」 (preview save) and 「放弃修改」 (discard changes) appear only after a change; returning from an unchanged file does not prompt to keep a draft. Markdown saves remain original text, not a rich-text conversion.
-5. Primary bottom navigation is hidden during editing. Back from a save preview returns to the draft. Leaving editing offers continuing, keeping the draft and returning to the space home, or explicitly discarding it. Drafts last only for this connection; resolve unfinished file work before switching spaces.
+5. Primary bottom navigation is hidden during editing. Back from a save preview returns to the draft. Leaving editing offers continuing, keeping the draft and returning to the agent home, or explicitly discarding it. Drafts last only for this connection; resolve unfinished file work before switching agents.
 
-Existing non-ASCII file names can be read, but cannot be saved or deleted through this entry. Manual creation and editing support UTF-8 text only, with complete content limited to 100,000 bytes. A new path is relative to the current space root; each path segment may contain only ASCII letters, numbers, `.`, `-`, and `_`, separated by `/`. If a directory exceeds 1,000 entries or reading a file exceeds 8 MiB, the server rejects the request instead of truncating the list or content.
+Existing non-ASCII file names can be read, but cannot be saved or deleted through this entry. Manual creation and editing support UTF-8 text only, with complete content limited to 100,000 bytes. A new path is relative to the current agent root; each path segment may contain only ASCII letters, numbers, `.`, `-`, and `_`, separated by `/`. If a directory exceeds 1,000 entries or reading a file exceeds 8 MiB, the server rejects the request instead of truncating the list or content.
 
 ### Download to Device {#download-to-device}
 
@@ -68,7 +68,7 @@ Manual saves do not create model approval records. Their safety confirmation is 
 Ordinary manual saves take effect as the last successful save; there is no automatic merging or version-conflict protection. Refresh and verify the complete current content before editing. Do not apply the model approval's file-version binding to manual saves.
 
 ::: danger Irreversible deletion
-Deleting a regular workspace file immediately removes it and cannot be recovered from the app. Check the current space and path before confirming; the mobile file entry does not operate on shared files.
+Deleting a regular workspace file immediately removes it and cannot be recovered from the app. Check the current agent and path before confirming; the mobile file entry does not operate on shared files.
 :::
 
 ## Approve Model File Writes {#approve-model-file-writes}
@@ -78,7 +78,7 @@ For ordinary workspace files, `write` creates or completely overwrites a text fi
 1. When the model requests `write` or `edit`, session state shows a waiting approval. Tap the session information area and open the 「审批」 page.
 2. Tap the pending item to view details. A decision is possible only after the complete preview is loaded; buttons remain unavailable while details are synchronizing.
 3. Check:
-   - Scope: current-space private file or shared file.
+   - Scope: current-agent private file or shared file.
    - Path and kind: create, overwrite, or exact edit.
    - The ends of both 「修改前全文」 and 「计划写入全文」. Do not rely on the title or summary.
 4. Tap 「拒绝本次操作」 or 「批准本次操作」.
@@ -97,11 +97,11 @@ If the execution receipt is `unknown`, or you are unsure after stopping or disco
 | --- | --- | --- |
 | Attachments cannot be selected | Whether you are in the Android client; whether a run or unconfirmed submission is active | Wait for the run to finish and synchronize; select local files with the Android system picker |
 | Attachment sending fails | Count, size, UTF-8 validity, and actual image type | Fix the limits above and select again; a rejected attachment does not enter the draft |
-| File not found | The current space and file path | Check the current space and path, then refresh the directory; a read failure is not shown as an empty directory |
+| File not found | The current agent and file path | Check the current agent and path, then refresh the directory; a read failure is not shown as an empty directory |
 | Download unavailable | Whether you are in the Android client and whether the system picker was cancelled or access denied | The current Web preview cannot save to a device directory. On Android, choose a directory again and allow access when prompted |
 | Same-name conflict | Whether the selected device directory already has a file with that name | The app never overwrites it. Choose another directory, or verify and move or rename the old file in the system file manager |
 | Manual save fails | More than 100,000 bytes, invalid path, existing create target, or missing edit target | Fix content or path; use another path to create, and refresh the current file before editing |
 | Approval buttons unavailable | Whether approvals are synchronizing, expired, or missing loaded details | Tap 「重新同步审批」 and reopen details; the model must request again after expiry |
 | File unchanged after approval | Whether the execution receipt succeeded and whether the file changed meanwhile | Read the complete file first; do not repeatedly approve the old approval |
 
-Space rules and skills are separate entries on the space home, not duplicate files in the private workspace. Rules use the server's dedicated instructions file; the skills page changes only this space's enabled switches, not global skill source files. Missing parent directories may be created when saving a new file; there is no separate directory-management action.
+Agent rules and skills are separate entries on the agent home, not duplicate files in the private workspace. Rules use the server's dedicated instructions file; the skills page changes only this agent's enabled switches, not global skill source files. Missing parent directories may be created when saving a new file; there is no separate directory-management action.

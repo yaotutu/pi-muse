@@ -3,13 +3,13 @@ import { test, type TestContext } from "node:test";
 import { mkdir, mkdtemp, readFile, rm, rmdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { isThreadId } from "../../src/features/conversation/space-id.js";
+import { isAgentId } from "../../src/features/conversation/agent-id.js";
 import {
   createDataLayout,
-  ensureThreadLayout,
-  ensureThreadWorkspace,
+  ensureAgentLayout,
+  ensureAgentWorkspace,
   sharedWorkspaceDir,
-  threadWorkspaceDir,
+  agentWorkspaceDir,
 } from "../../src/adapters/storage/data-layout.js";
 import { createFileTools } from "../../src/adapters/pi/tools/files.js";
 import { createWritableFileTools } from "../../src/adapters/pi/tools/files-writable.js";
@@ -59,15 +59,15 @@ const callTool = (tool: Tools[number] | WriteTools[number], params: unknown) =>
   );
 
 /** 工具装载统一入口；boundaryDir 限制跨容器链接替换与边界外的父目录回退。 */
-const setupTwoThreads = async (t: TestContext) => {
+const setupTwoAgents = async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), "workspace-isolation-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const layout = createDataLayout(directory);
-  await ensureThreadLayout(layout);
-  const rootA = threadWorkspaceDir(layout, "local-main");
-  const rootB = threadWorkspaceDir(layout, "trip-2026");
-  await ensureThreadWorkspace(layout, "local-main");
-  await ensureThreadWorkspace(layout, "trip-2026");
+  await ensureAgentLayout(layout);
+  const rootA = agentWorkspaceDir(layout, "local-main");
+  const rootB = agentWorkspaceDir(layout, "trip-2026");
+  await ensureAgentWorkspace(layout, "local-main");
+  await ensureAgentWorkspace(layout, "trip-2026");
   const sharedDir = sharedWorkspaceDir(layout);
   const toolsA = createFileTools(rootA, sharedDir, { boundaryDir: layout.workspaceDir });
   const toolsB = createFileTools(rootB, sharedDir, { boundaryDir: layout.workspaceDir });
@@ -88,19 +88,19 @@ const lsTool = (tools: Tools) => tools.find((tool) => tool.name === "ls")!;
 /** 1×1 RGB PNG，IHDR/IDAT/IEND 均包含有效 CRC，保留 pi 原生图片处理链路。 */
 const PNG_1X1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC", "base64");
 
-// 1. 所有会话（含 local-main）拥有互不相同的私有并列目录，非法 threadId 必须拒绝。
+// 1. 所有会话（含 local-main）拥有互不相同的私有并列目录，非法 agentId 必须拒绝。
 test("every session gets its own private workspace and invalid ids are refused", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "workspace-iso-threads-"));
+  const directory = await mkdtemp(join(tmpdir(), "workspace-iso-agents-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const layout = createDataLayout(directory);
-  await ensureThreadLayout(layout);
-  for (const threadId of ["local-main", "trip-2026", "task-feed-1"]) {
-    await ensureThreadWorkspace(layout, threadId);
-    assert.equal(isThreadId(threadId), true);
+  await ensureAgentLayout(layout);
+  for (const agentId of ["local-main", "trip-2026", "task-feed-1"]) {
+    await ensureAgentWorkspace(layout, agentId);
+    assert.equal(isAgentId(agentId), true);
   }
-  const mainDir = threadWorkspaceDir(layout, "local-main");
-  const tripDir = threadWorkspaceDir(layout, "trip-2026");
-  const taskDir = threadWorkspaceDir(layout, "task-feed-1");
+  const mainDir = agentWorkspaceDir(layout, "local-main");
+  const tripDir = agentWorkspaceDir(layout, "trip-2026");
+  const taskDir = agentWorkspaceDir(layout, "task-feed-1");
   assert.notEqual(mainDir, tripDir);
   assert.notEqual(tripDir, taskDir);
   for (const directory of [mainDir, tripDir, taskDir]) {
@@ -108,15 +108,15 @@ test("every session gets its own private workspace and invalid ids are refused",
     assert.equal(stat.isDirectory(), true);
     assert.equal(stat.isSymbolicLink(), false);
   }
-  for (const invalid of ["", "../escape", "with space", "weird/char", "a".repeat(65), "\u0000null"]) {
-    assert.equal(isThreadId(invalid), false);
-    assert.throws(() => threadWorkspaceDir(layout, invalid), /Invalid threadId/);
+  for (const invalid of ["", "../escape", "with agent", "weird/char", "a".repeat(65), "\u0000null"]) {
+    assert.equal(isAgentId(invalid), false);
+    assert.throws(() => agentWorkspaceDir(layout, invalid), /Invalid agentId/);
   }
 });
 
 // 2. 双向普通读取/grep/find/ls 不能越私有区，但可通过 shared 别名访问 shared 目录。
 test("read/grep/find/ls cannot cross private zones but reach shared via the shared/ alias", async (t) => {
-  const { rootA, rootB, sharedDir, toolsA, toolsB } = await setupTwoThreads(t);
+  const { rootA, rootB, sharedDir, toolsA, toolsB } = await setupTwoAgents(t);
   await writeFile(join(rootA, "main-note.md"), "alpha content from local-main");
   await writeFile(join(rootB, "trip-note.md"), "beta content from trip-2026");
   await writeFile(join(sharedDir, "shared-doc.md"), "alpha and beta shared content");
@@ -159,7 +159,7 @@ test("read/grep/find/ls cannot cross private zones but reach shared via the shar
 
 // 3. 符号链接（文件、目录、断链）无论直接还是递归访问，都不能跟随到另一会话/实例配置/外部目录/shared/同根环回。
 test("symlinks are never dereferenced even when listed or discovered through find", async (t) => {
-  const { directory, rootA, rootB, sharedDir, layout, toolsA } = await setupTwoThreads(t);
+  const { directory, rootA, rootB, sharedDir, layout, toolsA } = await setupTwoAgents(t);
   const outside = join(directory, "outside");
   const otherRoot = join(rootB, "trip-note.md");
   await mkdir(outside, { recursive: true });
@@ -207,58 +207,58 @@ test("symlinks are never dereferenced even when listed or discovered through fin
   await assert.rejects(safeWorkspacePath(rootA, join(outside, "secret.md"), { boundaryDir: layout.workspaceDir }), UnsafeFilePathError);
 });
 
-// 4. 把 root/threads 容器/shared 容器替换为符号链接后，初始化必须拒绝；不通过链接为别的会话创建目录。
+// 4. 把 root/agents 容器/shared 容器替换为符号链接后，初始化必须拒绝；不通过链接为别的会话创建目录。
 test("ensuring layout refuses when container or shared is a symlink and never creates directories via a symlink", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "workspace-iso-init-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const layout = createDataLayout(directory);
   // 三个容器先建空目录后再用链接替换为外部目标；初始化必须因为 lstat 是链接而拒绝。
   await mkdir(join(directory, "workspace"), { recursive: true });
-  await mkdir(join(directory, "workspace", "threads"), { recursive: true });
+  await mkdir(join(directory, "workspace", "agents"), { recursive: true });
   await mkdir(join(directory, "workspace", "shared"), { recursive: true });
-  await mkdir(join(directory, "workspace", "threads", "local-main"), { recursive: true });
+  await mkdir(join(directory, "workspace", "agents", "local-main"), { recursive: true });
 
-  // 替换 threads 容器为指向外部的链接：必须抛出，且不能在外部创建任何目录。
+  // 替换 agents 容器为指向外部的链接：必须抛出，且不能在外部创建任何目录。
   const outsideDecoy = join(directory, "outside-decoy");
-  await rm(join(directory, "workspace", "threads"), { recursive: true, force: true });
-  await symlink(outsideDecoy, join(directory, "workspace", "threads"));
-  await assert.rejects(ensureThreadLayout(layout), /Unsafe workspace directory/);
+  await rm(join(directory, "workspace", "agents"), { recursive: true, force: true });
+  await symlink(outsideDecoy, join(directory, "workspace", "agents"));
+  await assert.rejects(ensureAgentLayout(layout), /Unsafe workspace directory/);
   const { stat } = await import("node:fs/promises");
   assert.equal(await stat(outsideDecoy).catch(() => null), null);
 
   // 替换 shared 容器：失败并保留目标目录的现有内容。
-  await rm(join(directory, "workspace", "threads"), { recursive: true, force: true });
-  await mkdir(join(directory, "workspace", "threads"), { recursive: true });
+  await rm(join(directory, "workspace", "agents"), { recursive: true, force: true });
+  await mkdir(join(directory, "workspace", "agents"), { recursive: true });
   const fakeShared = join(directory, "shared-decoy");
   await mkdir(fakeShared);
   await writeFile(join(fakeShared, "pre-existing"), "keep-me");
   await rm(join(directory, "workspace", "shared"), { recursive: true, force: true });
   await symlink(fakeShared, join(directory, "workspace", "shared"));
-  await assert.rejects(ensureThreadLayout(layout), /Unsafe workspace directory/);
+  await assert.rejects(ensureAgentLayout(layout), /Unsafe workspace directory/);
   assert.equal(await readFile(join(fakeShared, "pre-existing"), "utf8"), "keep-me");
 
-  // 替换某个 threadId 的私有目录为指向外部的链接：ensureThreadWorkspace 必须失败，不得替外部创建子目录。
+  // 替换某个 agentId 的私有目录为指向外部的链接：ensureAgentWorkspace 必须失败，不得替外部创建子目录。
   await rm(join(directory, "workspace", "shared"), { recursive: true, force: true });
   await mkdir(join(directory, "workspace", "shared"), { recursive: true });
-  await rm(join(directory, "workspace", "threads"), { recursive: true, force: true });
-  await mkdir(join(directory, "workspace", "threads"), { recursive: true });
-  await mkdir(join(directory, "workspace", "threads", "local-main"), { recursive: true });
-  const externalTarget = join(directory, "external-thread-decoy");
-  await rm(join(directory, "workspace", "threads", "local-main"), { recursive: true, force: true });
-  await symlink(externalTarget, join(directory, "workspace", "threads", "local-main"));
-  await assert.rejects(ensureThreadWorkspace(layout, "local-main"), /Unsafe workspace directory/);
+  await rm(join(directory, "workspace", "agents"), { recursive: true, force: true });
+  await mkdir(join(directory, "workspace", "agents"), { recursive: true });
+  await mkdir(join(directory, "workspace", "agents", "local-main"), { recursive: true });
+  const externalTarget = join(directory, "external-agent-decoy");
+  await rm(join(directory, "workspace", "agents", "local-main"), { recursive: true, force: true });
+  await symlink(externalTarget, join(directory, "workspace", "agents", "local-main"));
+  await assert.rejects(ensureAgentWorkspace(layout, "local-main"), /Unsafe workspace directory/);
   assert.equal(await stat(externalTarget).catch(() => null), null);
 
   // 链接全部清空再初始化，所有容器与 local-main 私有目录都应是真实目录。
-  await rm(join(directory, "workspace", "threads", "local-main"), { force: true });
-  await rm(join(directory, "workspace", "threads"), { recursive: true, force: true });
+  await rm(join(directory, "workspace", "agents", "local-main"), { force: true });
+  await rm(join(directory, "workspace", "agents"), { recursive: true, force: true });
   await rm(join(directory, "workspace", "shared"), { recursive: true, force: true });
-  await ensureThreadLayout(layout);
+  await ensureAgentLayout(layout);
   for (const directory of [
     layout.root, layout.sessionsDir, layout.workspaceDir,
-    join(layout.workspaceDir, "threads"),
+    join(layout.workspaceDir, "agents"),
     sharedWorkspaceDir(layout),
-    threadWorkspaceDir(layout, "local-main"),
+    agentWorkspaceDir(layout, "local-main"),
   ]) {
     const stats = await stat(directory);
     assert.equal(stats.isDirectory(), true);
@@ -271,8 +271,8 @@ test("readOnlyFiles opens only the exact SKILL.md path; siblings, listing tools 
   const directory = await mkdtemp(join(tmpdir(), "workspace-iso-skill-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const layout = createDataLayout(directory);
-  await ensureThreadLayout(layout);
-  // skills 位置与 thread 容器并列；不能因 readOnlyFiles 解锁兄弟目录
+  await ensureAgentLayout(layout);
+  // skills 位置与 agent 容器并列；不能因 readOnlyFiles 解锁兄弟目录
   const skillsBase = join(directory, "skills");
   const skillPath = join(skillsBase, "weather", "SKILL.md");
   const siblingPath = join(skillsBase, "weather", "OTHER.md");
@@ -282,9 +282,9 @@ test("readOnlyFiles opens only the exact SKILL.md path; siblings, listing tools 
   await writeFile(siblingPath, "private neighbour");
   await mkdir(dirname(deepResourcePath), { recursive: true });
   await writeFile(deepResourcePath, "deep resource");
-  // thread 里再放一份普通文件，验证 ls/grep/find 不因 SKILL 路径被读取而扩大视野
-  const rootA = threadWorkspaceDir(layout, "local-main");
-  await ensureThreadWorkspace(layout, "local-main");
+  // agent 里再放一份普通文件，验证 ls/grep/find 不因 SKILL 路径被读取而扩大视野
+  const rootA = agentWorkspaceDir(layout, "local-main");
+  await ensureAgentWorkspace(layout, "local-main");
   await writeFile(join(rootA, "inside.md"), "alpha");
 
   const tools = createFileTools(rootA, sharedWorkspaceDir(layout), {
@@ -313,7 +313,7 @@ test("readOnlyFiles opens only the exact SKILL.md path; siblings, listing tools 
   for (const path of [siblingPath, join(skillsBase, "weather", "ABSENT.md"), join(skillsBase, "weather"), join(skillsBase, "OTHER.md")]) {
     den(await callTool(readTool(tools), { path }));
   }
-  // ls/grep/find 不能越过 thread 容器看到 skills：列出的是 thread 的内容
+  // ls/grep/find 不能越过 agent 容器看到 skills：列出的是 agent 的内容
   const ls = await callTool(lsTool(tools), { path: "." });
   assert.equal(ls.isError, undefined);
   assert.match((ls.content[0].text ?? ""), /inside\.md/);
@@ -325,7 +325,7 @@ test("readOnlyFiles opens only the exact SKILL.md path; siblings, listing tools 
   assert.equal(find.isError, undefined);
   assert.doesNotMatch((find.content[0].text ?? ""), /SKILL\.md|OTHER\.md|weather/);
 
-  // 把 SKILL.md 换成符号链接（指向 thread 已有文件），read 仍然拒绝访问
+  // 把 SKILL.md 换成符号链接（指向 agent 已有文件），read 仍然拒绝访问
   await rm(skillPath);
   await symlink(join(rootA, "inside.md"), skillPath);
   den(await callTool(readTool(tools), { path: skillPath }));
@@ -348,7 +348,7 @@ test("readOnlyFiles opens only the exact SKILL.md path; siblings, listing tools 
 
 // 6. PNG 文件读取仍返回 image 类型内容（即便 sandbox 拒绝进入 vision model 渲染）。
 test("reading a valid PNG file returns an image content block", async (t) => {
-  const { rootA, toolsA } = await setupTwoThreads(t);
+  const { rootA, toolsA } = await setupTwoAgents(t);
   const pngPath = join(rootA, "logo.png");
   await writeFile(pngPath, PNG_1X1);
   const result = await callTool(readTool(toolsA), { path: "logo.png" });
@@ -361,7 +361,7 @@ test("reading a valid PNG file returns an image content block", async (t) => {
 
 // 7. 两个会话对同一 shared 文件并发提交审批，只能有一个真正写入。
 test("two sessions approving the same shared file only let one commit, even when versions race", async (t) => {
-  const { directory, layout, rootA, rootB, sharedDir } = await setupTwoThreads(t);
+  const { directory, layout, rootA, rootB, sharedDir } = await setupTwoAgents(t);
   await writeFile(join(sharedDir, "note.md"), "original");
   const repository = memoryRepository();
   const actions = createActionService(repository);
@@ -382,8 +382,8 @@ test("two sessions approving the same shared file only let one commit, even when
     poll: actions.poll,
     cancel: actions.cancel,
   };
-  const factoryA = createWritableFileTools(rootA, approving, 5_000, { spaceId: "local-main", runId: "run-a" }, sharedDir, layout.workspaceDir);
-  const factoryB = createWritableFileTools(rootB, approving, 5_000, { spaceId: "trip-2026", runId: "run-b" }, sharedDir, layout.workspaceDir);
+  const factoryA = createWritableFileTools(rootA, approving, 5_000, { agentId: "local-main", runId: "run-a" }, sharedDir, layout.workspaceDir);
+  const factoryB = createWritableFileTools(rootB, approving, 5_000, { agentId: "trip-2026", runId: "run-b" }, sharedDir, layout.workspaceDir);
   const writeTool = (tools: WriteTools) => tools.find((tool) => tool.name === "write")!;
   const results = await Promise.all([
     callTool(writeTool(factoryA), { path: "shared/note.md", content: "from-A" }),

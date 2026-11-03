@@ -19,7 +19,7 @@ const makeActivity = (
 ): ActivityDetail => ({
   activity: {
     id,
-    spaceId: "thread-1",
+    agentId: "agent-1",
     title: `Activity ${id}`,
     goal: "Goal",
     deliverable: "Deliverable",
@@ -106,20 +106,20 @@ test("activity-query: multi-page pagination with cursor across identical timesta
   assert.equal(page3.nextCursor, null);
 });
 
-test("activity-query: filter by spaceId and status", () => {
+test("activity-query: filter by agentId and status", () => {
   const items = [
-    makeActivity("act-1", "2026-10-18T10:00:00.000Z", { spaceId: "thread-a", status: "completed" }),
-    makeActivity("act-2", "2026-10-18T11:00:00.000Z", { spaceId: "thread-b", status: "running" }),
-    makeActivity("act-3", "2026-10-18T12:00:00.000Z", { spaceId: "thread-a", status: "running" }),
+    makeActivity("act-1", "2026-10-18T10:00:00.000Z", { agentId: "agent-a", status: "completed" }),
+    makeActivity("act-2", "2026-10-18T11:00:00.000Z", { agentId: "agent-b", status: "running" }),
+    makeActivity("act-3", "2026-10-18T12:00:00.000Z", { agentId: "agent-a", status: "running" }),
   ];
 
-  const byThread = queryActivities(items, { filter: { spaceId: "thread-a" }, limit: 10 });
-  assert.deepEqual(byThread.activities.map((a) => a.id), ["act-3", "act-1"]);
+  const byAgent = queryActivities(items, { filter: { agentId: "agent-a" }, limit: 10 });
+  assert.deepEqual(byAgent.activities.map((a) => a.id), ["act-3", "act-1"]);
 
   const byStatus = queryActivities(items, { filter: { status: "running" }, limit: 10 });
   assert.deepEqual(byStatus.activities.map((a) => a.id), ["act-3", "act-2"]);
 
-  const byBoth = queryActivities(items, { filter: { spaceId: "thread-a", status: "running" }, limit: 10 });
+  const byBoth = queryActivities(items, { filter: { agentId: "agent-a", status: "running" }, limit: 10 });
   assert.deepEqual(byBoth.activities.map((a) => a.id), ["act-3"]);
 });
 
@@ -134,7 +134,7 @@ test("activity-query: cursor round-trip encoding and canonical validation", () =
   const cursor: ActivityCursor = {
     createdAt: "2026-10-18T10:00:00.000Z",
     id: "act-123",
-    spaceId: "thread-main",
+    agentId: "agent-main",
     status: "running",
   };
 
@@ -156,13 +156,13 @@ test("activity-query: activityCursorMatchesFilter checks bound filters", () => {
   const cursor: ActivityCursor = {
     createdAt: "2026-10-18T10:00:00.000Z",
     id: "act-1",
-    spaceId: "thread-a",
+    agentId: "agent-a",
     status: "running",
   };
 
-  assert.equal(activityCursorMatchesFilter(cursor, { spaceId: "thread-a", status: "running" }), true);
-  assert.equal(activityCursorMatchesFilter(cursor, { spaceId: "thread-b", status: "running" }), false);
-  assert.equal(activityCursorMatchesFilter(cursor, { spaceId: "thread-a", status: "completed" }), false);
+  assert.equal(activityCursorMatchesFilter(cursor, { agentId: "agent-a", status: "running" }), true);
+  assert.equal(activityCursorMatchesFilter(cursor, { agentId: "agent-b", status: "running" }), false);
+  assert.equal(activityCursorMatchesFilter(cursor, { agentId: "agent-a", status: "completed" }), false);
   assert.equal(activityCursorMatchesFilter(cursor, {}), false);
 
   const unboundedCursor: ActivityCursor = {
@@ -170,7 +170,7 @@ test("activity-query: activityCursorMatchesFilter checks bound filters", () => {
     id: "act-1",
   };
   assert.equal(activityCursorMatchesFilter(unboundedCursor, {}), true);
-  assert.equal(activityCursorMatchesFilter(unboundedCursor, { spaceId: "thread-a" }), false);
+  assert.equal(activityCursorMatchesFilter(unboundedCursor, { agentId: "agent-a" }), false);
 });
 
 test("activity-query: activitiesQuerySchema accepts valid limits and rejects decimals/strings/extras", () => {

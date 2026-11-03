@@ -167,7 +167,7 @@ const decodeEntities = (value: string) =>
     .replace(/&#(\d+);/g, (_m, code: string) => String.fromCodePoint(Number(code)));
 
 const textOf = (html: string) =>
-  normalizeSpace(
+  normalizeAgent(
     decodeEntities(
       html
         .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -175,7 +175,7 @@ const textOf = (html: string) =>
         .replace(/<[^>]+>/g, " "),
     ),
   );
-const normalizeSpace = (value: string) =>
+const normalizeAgent = (value: string) =>
   value.replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
 
 const resultUrl = (href: string) => {

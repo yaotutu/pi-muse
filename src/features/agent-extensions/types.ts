@@ -1,17 +1,17 @@
 export const FEATURE_IDS = ["news", "sms"] as const;
 export type FeatureId = typeof FEATURE_IDS[number];
-export const FEATURE_SPACES: Record<FeatureId, string> = { news: "news-internal", sms: "sms-internal" };
+export const FEATURE_AGENTS: Record<FeatureId, string> = { news: "news-internal", sms: "sms-internal" };
 export const FEATURE_NAMES: Record<FeatureId, string> = { news: "新闻", sms: "短信" };
 export const isFeatureId = (value: unknown): value is FeatureId => value === "news" || value === "sms";
-export const isFeatureSpace = (value: unknown) => Object.values(FEATURE_SPACES).includes(value as string);
-export const featureForSpace = (spaceId: string): FeatureId | undefined => FEATURE_IDS.find((id) => FEATURE_SPACES[id] === spaceId);
+export const isFeatureAgent = (value: unknown) => Object.values(FEATURE_AGENTS).includes(value as string);
+export const featureForAgent = (agentId: string): FeatureId | undefined => FEATURE_IDS.find((id) => FEATURE_AGENTS[id] === agentId);
 
-/** 来源由服务端写入 PI 通知，不从正文或客户端参数推断跨空间权限。 */
+/** 来源由服务端写入 PI 通知，不从正文或客户端参数推断跨智能体权限。 */
 export type FeatureSource = { featureId: FeatureId; itemIds: string[] };
-export type FeatureLink = FeatureSource & { spaceId: string; sessionId: string; messageId: string };
+export type FeatureLink = FeatureSource & { agentId: string; sessionId: string; messageId: string };
 /** 只读展示投影；正文仍只保存在实际承接会话的 PI 历史。 */
 export type FeatureNotification = {
-  id: string; featureId: FeatureId; targetSpaceId: string; sessionId: string;
+  id: string; featureId: FeatureId; targetAgentId: string; sessionId: string;
   messageId: string; createdAt: string; content: string;
 };
 export type FeatureState = { schemaVersion: 1; bindings: Record<FeatureId, string>; links: FeatureLink[] };

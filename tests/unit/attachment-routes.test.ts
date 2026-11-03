@@ -16,7 +16,7 @@ const imageBody = (size: number) => {
   const bytes = Buffer.alloc(size, 0);
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   const input: ConversationInput = {
-    spaceId: "local-main",
+    agentId: "local-main",
     runId: "boundary-run",
     expectedRevision: "empty",
     message: {
@@ -37,7 +37,7 @@ const hubWithValidation = (
   history: Parameters<typeof validateConversationInput>[1],
   turns: Parameters<typeof validateConversationInput>[2]["turns"] = [],
 ) => ({
-  forSpace: async () => ({
+  forAgent: async () => ({
     validate: (input: ConversationInput) =>
       validateConversationInput(input, history, { turns, results: new Map() }, "empty"),
   }),

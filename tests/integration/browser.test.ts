@@ -413,7 +413,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   // Chrome 上的 tab/navigate/snapshot/act，而不是只检查注册表。
   assert.ok(skillToToolsMap.browser.every((name) => registeredToolNames.includes(name)));
   const tools = createTools({
-    root: join(dataDir, "workspace", "threads", "local-main"),
+    root: join(dataDir, "workspace", "agents", "local-main"),
     memory: service.memory,
     jobs: service.jobs,
     browser: browserService,

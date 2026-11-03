@@ -3,10 +3,10 @@ import { test } from "node:test";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createDataLayout, threadSkillsFile, threadInstructionsFile } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout, agentSkillsFile, agentInstructionsFile } from "../../src/adapters/storage/data-layout.js";
 import { createSkillRepository } from "../../src/adapters/storage/skill-repository.js";
 import { createSkillsService, UnknownSkillError } from "../../src/features/skills/service.js";
-import { readThreadInstructions, writeThreadInstructions } from "../../src/adapters/storage/thread-instructions.js";
+import { readAgentInstructions, writeAgentInstructions } from "../../src/adapters/storage/agent-instructions.js";
 import { instructionsTool } from "../../src/adapters/pi/tools/instructions.js";
 
 const fixture = async (t: { after: (fn: () => Promise<void>) => void }) => {
@@ -19,14 +19,14 @@ const fixture = async (t: { after: (fn: () => Promise<void>) => void }) => {
 
 test("skill overrides only default on missing files and preserve damaged documents", async (t) => {
   const { layout, repository } = await fixture(t);
-  assert.deepEqual(await repository.getThreadOverrides("a"), {});
-  const file = threadSkillsFile(layout, "a");
+  assert.deepEqual(await repository.getAgentOverrides("a"), {});
+  const file = agentSkillsFile(layout, "a");
   await assert.rejects(stat(dirname(file)), { code: "ENOENT" });
   await mkdir(dirname(file), { recursive: true });
   for (const original of ["{broken", "[]", '{"overrides":{"cron":"yes"}}', '{"overrides":{},"schemaVersion":1}']) {
     await writeFile(file, original);
-    await assert.rejects(repository.getThreadOverrides("a"), /Invalid skills-overrides document/);
-    await assert.rejects(repository.setThreadOverrides("a", { cron: false }), /Invalid skills-overrides document/);
+    await assert.rejects(repository.getAgentOverrides("a"), /Invalid skills-overrides document/);
+    await assert.rejects(repository.setAgentOverrides("a", { cron: false }), /Invalid skills-overrides document/);
     assert.equal(await readFile(file, "utf8"), original);
   }
 });
@@ -68,28 +68,28 @@ test("skill diagnostics use logical builtin/ user paths while keeping the skill 
 
 test("overrides replace serially with private permissions and unknown names fail visibly", async (t) => {
   const { layout, repository, service } = await fixture(t);
-  const writes = Array.from({ length: 12 }, (_, index) => repository.setThreadOverrides("a", { cron: index % 2 === 0 }));
+  const writes = Array.from({ length: 12 }, (_, index) => repository.setAgentOverrides("a", { cron: index % 2 === 0 }));
   await Promise.all(writes);
-  assert.deepEqual(await repository.getThreadOverrides("a"), { cron: false });
-  assert.equal((await stat(threadSkillsFile(layout, "a"))).mode & 0o777, 0o600);
-  assert.deepEqual(await readdir(dirname(threadSkillsFile(layout, "a"))), ["skills.json"]);
-  await assert.rejects(service.updateThreadOverrides("a", { "unknown-skill": true }), UnknownSkillError);
-  await service.updateThreadOverrides("a", {});
-  assert.deepEqual(await repository.getThreadOverrides("a"), {});
+  assert.deepEqual(await repository.getAgentOverrides("a"), { cron: false });
+  assert.equal((await stat(agentSkillsFile(layout, "a"))).mode & 0o777, 0o600);
+  assert.deepEqual(await readdir(dirname(agentSkillsFile(layout, "a"))), ["skills.json"]);
+  await assert.rejects(service.updateAgentOverrides("a", { "unknown-skill": true }), UnknownSkillError);
+  await service.updateAgentOverrides("a", {});
+  assert.deepEqual(await repository.getAgentOverrides("a"), {});
 });
 
-test("thread instructions share an atomic writer and a missing tool argument cannot clear rules", async (t) => {
+test("agent instructions share an atomic writer and a missing tool argument cannot clear rules", async (t) => {
   const { layout } = await fixture(t);
-  const file = threadInstructionsFile(layout, "a");
-  assert.equal(await readThreadInstructions(file), "");
-  await Promise.all([writeThreadInstructions(file, "first"), writeThreadInstructions(file, "second")]);
-  assert.equal(await readThreadInstructions(file), "second");
+  const file = agentInstructionsFile(layout, "a");
+  assert.equal(await readAgentInstructions(file), "");
+  await Promise.all([writeAgentInstructions(file, "first"), writeAgentInstructions(file, "second")]);
+  assert.equal(await readAgentInstructions(file), "second");
   assert.equal((await stat(file)).mode & 0o777, 0o600);
   const tool = instructionsTool(layout, "a");
   const denied = await tool.execute("id", { action: "set" }, undefined, undefined, {} as never);
   assert.equal(denied.isError, true);
-  assert.equal(await readThreadInstructions(file), "second");
+  assert.equal(await readAgentInstructions(file), "second");
   await tool.execute("clear", { action: "set", content: "" }, undefined, undefined, {} as never);
-  assert.equal(await readThreadInstructions(file), "");
+  assert.equal(await readAgentInstructions(file), "");
   assert.deepEqual(await readdir(dirname(file)), ["INSTRUCTIONS.md"]);
 });

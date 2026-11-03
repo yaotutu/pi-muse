@@ -3,10 +3,10 @@ import { constants } from "node:fs";
 import { link, lstat, mkdir, open, readdir, rename, unlink } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import {
-  ensureSpaceWorkspace,
-  ensureThreadLayout,
+  ensureAgentWorkspace,
+  ensureAgentLayout,
   sharedWorkspaceDir,
-  spaceWorkspaceDir,
+  agentWorkspaceDir,
   type DataLayout,
 } from "../storage/data-layout.js";
 import { safeWorkspacePath, UnsafeFilePathError } from "../pi/tools/workspace-path.js";
@@ -28,8 +28,8 @@ const isMissing = (error: unknown) =>
   (error as NodeJS.ErrnoException).code === "ENOTDIR";
 
 const rootOf = (layout: DataLayout, selector: WorkspaceFileSelector) =>
-  selector.scope === "space"
-    ? spaceWorkspaceDir(layout, selector.spaceId!)
+  selector.scope === "agent"
+    ? agentWorkspaceDir(layout, selector.agentId!)
     : sharedWorkspaceDir(layout);
 
 const targetOf = (root: string, path: string) =>
@@ -144,8 +144,8 @@ const checkedTarget = async (
 ) => {
   const root = rootOf(layout, selector);
   if (options.createDirectories) {
-    if (selector.scope === "space") await ensureSpaceWorkspace(layout, selector.spaceId!);
-    else await ensureThreadLayout(layout);
+    if (selector.scope === "agent") await ensureAgentWorkspace(layout, selector.agentId!);
+    else await ensureAgentLayout(layout);
   }
   const lexical = targetOf(root, selector.path);
   try {
@@ -172,7 +172,7 @@ const writeTemporary = async (target: string, content: string) => {
 };
 
 /**
- * HTTP 手动文件适配器。读操作不创建目录；写操作在确认空间已存在后只创建
+ * HTTP 手动文件适配器。读操作不创建目录；写操作在确认智能体已存在后只创建
  * 工作区内部目录。所有错误使用受控文案，不透出服务端绝对路径或 fs 诊断。
  */
 export const createWorkspaceFileStore = (layout: DataLayout, commitQueue: WorkspaceCommitQueue) => {

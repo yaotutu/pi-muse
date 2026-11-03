@@ -20,26 +20,26 @@ test("information repository serializes update and delete without file revival",
   const repository = createInformationRepository(createDataLayout(dataDir));
 
   await assert.rejects(
-    repository.update("space", (state) => ({ state, result: state.settings })),
+    repository.update("agent", (state) => ({ state, result: state.settings })),
     /Information document not found/,
   );
-  assert.equal(await repository.update("space", (state) => ({
+  assert.equal(await repository.update("agent", (state) => ({
     state: { ...state, settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" } },
     result: true,
   }), { allowCreate: true }), true);
 
   const holding = deferred();
-  const writing = repository.update("space", async (state) => {
+  const writing = repository.update("agent", async (state) => {
     await holding.promise;
     return { state: { ...state, preferences: { notes: "serialized", learnedNotes: "" } }, result: undefined };
   });
-  const removing = repository.removeSpace("space");
+  const removing = repository.removeAgent("agent");
   holding.finish();
   await Promise.all([writing, removing]);
-  assert.equal(existsSync(join(dataDir, "information", "space.json")), false);
-  assert.deepEqual(await repository.read("space"), defaultInformationState());
+  assert.equal(existsSync(join(dataDir, "information", "agent.json")), false);
+  assert.deepEqual(await repository.read("agent"), defaultInformationState());
   await assert.rejects(
-    repository.update("space", (state) => ({ state, result: state.settings })),
+    repository.update("agent", (state) => ({ state, result: state.settings })),
     /Information document not found/,
   );
 });
@@ -53,22 +53,22 @@ test("startup reconcile closes interrupted models and completed pending publicat
     ...defaultInformationState(),
     settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
     items: [
-      { id: "item-running", spaceId: "space", source: "rss", externalId: "1", content: "one", receivedAt: at, acceptedAt: at, status: "processing", runId: "run-running" },
-      { id: "item-completed", spaceId: "space", source: "rss", externalId: "2", content: "two", receivedAt: at, acceptedAt: at, status: "processed", runId: "run-completed" },
+      { id: "item-running", agentId: "agent", source: "rss", externalId: "1", content: "one", receivedAt: at, acceptedAt: at, status: "processing", runId: "run-running" },
+      { id: "item-completed", agentId: "agent", source: "rss", externalId: "2", content: "two", receivedAt: at, acceptedAt: at, status: "processed", runId: "run-completed" },
     ],
     runs: [
-      { id: "run-running", spaceId: "space", itemIds: ["item-running"], status: "running", createdAt: at, startedAt: at, publications: [] },
+      { id: "run-running", agentId: "agent", itemIds: ["item-running"], status: "running", createdAt: at, startedAt: at, publications: [] },
       {
-        id: "run-completed", spaceId: "space", itemIds: ["item-completed"], status: "completed",
+        id: "run-completed", agentId: "agent", itemIds: ["item-completed"], status: "completed",
         createdAt: at, startedAt: at, model: { status: "succeeded" },
         decisions: [{ itemId: "item-completed", decision: "notify", reason: "test" }],
         publications: [{ notificationId: "notification", itemIds: ["item-completed"], text: "test", status: "pending" }],
       },
     ],
   };
-  await repository.update("space", (current) => ({ state, result: current }), { allowCreate: true });
+  await repository.update("agent", (current) => ({ state, result: current }), { allowCreate: true });
   await repository.reconcileOnStart();
-  const reconciled = await repository.read("space");
+  const reconciled = await repository.read("agent");
   assert.equal(reconciled.items[0]?.status, "failed");
   assert.equal(reconciled.runs[0]?.status, "failed");
   assert.equal(reconciled.runs[1]?.model?.status, "succeeded");
@@ -80,18 +80,18 @@ test("additive information fields default without discarding an existing valid d
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const at = new Date().toISOString();
   await mkdir(join(dataDir, "information"), { recursive: true });
-  await writeFile(join(dataDir, "information", "space.json"), JSON.stringify({
+  await writeFile(join(dataDir, "information", "agent.json"), JSON.stringify({
     schemaVersion: 1,
     settings: { enabled: true, batchWindowSeconds: 0 },
     preferences: { notes: "keep me" },
     items: [{
-      id: "item-1", spaceId: "space", source: "rss", externalId: "1",
+      id: "item-1", agentId: "agent", source: "rss", externalId: "1",
       content: "original", receivedAt: at, acceptedAt: at, status: "pending",
     }],
     runs: [],
   }));
   const repository = createInformationRepository(createDataLayout(dataDir));
-  const state = await repository.read("space");
+  const state = await repository.read("agent");
   assert.equal(state.settings.mode, "notifications");
   assert.equal(state.preferences.notes, "keep me");
   assert.equal(state.preferences.learnedNotes, "");

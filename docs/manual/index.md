@@ -5,7 +5,7 @@
 ## 从哪里开始 {#where-to-start}
 
 - [快速上手](getting-started.md)：安装服务端、连接手机、发送消息并收到回复。
-- [对话与空间](conversations-and-spaces.md)：发送和停止对话、切换空间、重置会话与删除空间。
+- [对话与智能体](conversations-and-agents.md)：发送和停止对话、切换智能体、重置会话与删除智能体。
 - [新闻阅读](news.md)：管理 RSS 源、浏览推荐与全部时间线，以及使用逐篇反馈。
 - [附件、文件与审批](files-and-approvals.md)：区分消息附件、工作区文件和模型文件写入审批。
 - [任务与网页监控](tasks-and-monitors.md)：通过聊天工具管理定时任务和网页监控，查看活动记录。

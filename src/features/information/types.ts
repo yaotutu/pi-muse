@@ -26,7 +26,7 @@ export type InformationItemStatus = "pending" | "processing" | "processed" | "fa
 
 export type InformationItem = {
   id: string;
-  spaceId: string;
+  agentId: string;
   source: string;
   externalId: string;
   title?: string;
@@ -81,7 +81,7 @@ export type InformationRunStatus = "running" | "completed" | "failed" | "cancell
 
 export type InformationRun = {
   id: string;
-  spaceId: string;
+  agentId: string;
   itemIds: string[];
   status: InformationRunStatus;
   createdAt: string;
@@ -114,14 +114,14 @@ export const defaultInformationState = (): InformationState => ({
 });
 
 export type InformationRepository = {
-  read: (spaceId: string) => Promise<InformationState>;
+  read: (agentId: string) => Promise<InformationState>;
   update: <T>(
-    spaceId: string,
+    agentId: string,
     change: (state: InformationState) => MaybePromise<{ state?: InformationState; result: T }>,
     options?: { allowCreate?: boolean },
   ) => Promise<T>;
-  listSpaceIds: () => Promise<string[]>;
-  removeSpace: (spaceId: string) => Promise<void>;
+  listAgentIds: () => Promise<string[]>;
+  removeAgent: (agentId: string) => Promise<void>;
   reconcileOnStart: () => Promise<void>;
   validateAll: () => Promise<void>;
 };
@@ -129,7 +129,7 @@ export type InformationRepository = {
 type MaybePromise<T> = T | Promise<T>;
 
 export type InformationModelInput = {
-  spaceId: string;
+  agentId: string;
   runId: string;
   mode: "notifications" | "recommendations";
   instructions: string;

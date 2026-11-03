@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-const spaceIdSchema = z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
-const scopeSchema = z.enum(["space", "shared"]).describe("文件根选择器：space=指定空间私有区；shared=全局共享区");
+const agentIdSchema = z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
+const scopeSchema = z.enum(["agent", "shared"]).describe("文件根选择器：agent=指定智能体私有区；shared=全局共享区");
 const readPathSchema = z.string().min(1).max(2048).describe(
   "相对所选根的路径。列表可传 `.` 表示根目录；读取现存文件时允许历史遗留的非 ASCII 名称，但拒绝绝对路径、反斜杠、空段、`.`/`..` 与 NUL。",
 );
@@ -10,41 +10,41 @@ const writePathSchema = z.string().min(1).max(2048).regex(/^[A-Za-z0-9._-]+(?:\/
 );
 
 const selectorRules = (
-  value: { scope: "space" | "shared"; spaceId?: string },
+  value: { scope: "agent" | "shared"; agentId?: string },
   ctx: z.RefinementCtx,
 ) => {
-    if (value.scope === "space" && !value.spaceId)
-      ctx.addIssue({ code: "custom", path: ["spaceId"], message: "scope=space 时 spaceId 必填" });
-    if (value.scope === "shared" && value.spaceId)
-      ctx.addIssue({ code: "custom", path: ["spaceId"], message: "scope=shared 时必须省略 spaceId" });
+    if (value.scope === "agent" && !value.agentId)
+      ctx.addIssue({ code: "custom", path: ["agentId"], message: "scope=agent 时 agentId 必填" });
+    if (value.scope === "shared" && value.agentId)
+      ctx.addIssue({ code: "custom", path: ["agentId"], message: "scope=shared 时必须省略 agentId" });
 };
 
 const selectorCheck = <S extends z.ZodRawShape>(shape: S) =>
   z.strictObject(shape).superRefine((value, ctx) => {
-    selectorRules(value as { scope: "space" | "shared"; spaceId?: string }, ctx);
+    selectorRules(value as { scope: "agent" | "shared"; agentId?: string }, ctx);
   });
 
 export const workspaceListQuerySchema = selectorCheck({
   scope: scopeSchema,
-  spaceId: spaceIdSchema.optional().describe("空间 ID；仅 scope=space 时必填，且空间必须已存在"),
+  agentId: agentIdSchema.optional().describe("智能体 ID；仅 scope=agent 时必填，且智能体必须已存在"),
   path: readPathSchema.default(".").describe("要列出的目录路径；默认 `.` 表示所选根目录"),
 });
 
 export const workspaceContentQuerySchema = selectorCheck({
   scope: scopeSchema,
-  spaceId: spaceIdSchema.optional().describe("空间 ID；仅 scope=space 时必填，且空间必须已存在"),
+  agentId: agentIdSchema.optional().describe("智能体 ID；仅 scope=agent 时必填，且智能体必须已存在"),
   path: readPathSchema.describe("要完整打开/下载的现存普通文件路径"),
 });
 
 export const workspaceDeleteQuerySchema = selectorCheck({
   scope: scopeSchema,
-  spaceId: spaceIdSchema.optional().describe("空间 ID；仅 scope=space 时必填，且空间必须已存在"),
+  agentId: agentIdSchema.optional().describe("智能体 ID；仅 scope=agent 时必填，且智能体必须已存在"),
   path: writePathSchema.describe("要删除的普通文件路径；目录与符号链接拒绝"),
 });
 
 const writeRequestShape = {
   scope: scopeSchema,
-  spaceId: spaceIdSchema.optional().describe("空间 ID；仅 scope=space 时必填，且空间必须已存在；GET 或写入都不会隐式创建空间"),
+  agentId: agentIdSchema.optional().describe("智能体 ID；仅 scope=agent 时必填，且智能体必须已存在；GET 或写入都不会隐式创建智能体"),
   path: writePathSchema,
   content: z.string().describe("完整 UTF-8 文本内容；最大 100000 字节，禁止 NUL，不用于任意二进制"),
   confirmed: z.literal(true).describe("客户端必须已向用户展示完整 before/after 并获得明确确认；false/省略返回 400"),
@@ -59,7 +59,7 @@ export const workspaceUpdateTextSchema = selectorCheck(writeRequestShape).descri
 
 const selectorFields = {
   scope: scopeSchema,
-  spaceId: z.string().nullable().describe("scope=space 时为空间 ID；scope=shared 时固定为 null"),
+  agentId: z.string().nullable().describe("scope=agent 时为智能体 ID；scope=shared 时固定为 null"),
 };
 
 export const workspaceListEntry = z.object({

@@ -9,7 +9,7 @@ tools: read, grep, find, ls, search_web, web_fetch, get_weather, currentTime
 你的输出会交给一个**没有看过你读过的文件**的代理，所以要把关键引用精确列出，便于对方按图索骥。
 
 ## 适用边界
-- 用户级个人助手：默认在当前会话工作目录（`workspace/threads/<threadId>/` 与 `shared/`）下侦察。
+- 用户级个人助手：默认在当前会话工作目录（`workspace/agents/<agentId>/` 与 `shared/`）下侦察。
 - 联网仅用 `search_web`/`web_fetch`/`get_weather`；不能写入、不能修改、不能委派或开启定时/监控。
 - 你能看到模型看不到的运行时上下文，但**不要**承诺权限突破或越权读取。
 

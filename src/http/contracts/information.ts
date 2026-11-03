@@ -11,12 +11,12 @@ export const informationSettingsRequestSchema = z.strictObject({
     .describe("首条待处理信息到期后的聚合窗口秒数；0 表示下一轮调度立即处理"),
 });
 export const informationPreferencesRequestSchema = z.strictObject({
-  notes: z.string().max(20000).describe("当前空间的显式偏好备注；空串等于清空，最后保存生效"),
+  notes: z.string().max(20000).describe("当前智能体的显式偏好备注；空串等于清空，最后保存生效"),
 });
 export const informationIngestRequestSchema = z.strictObject({
   items: z.array(z.strictObject({
     source: informationSourceSchema.describe("通用来源标识；仅 ASCII identifier，不含短信供应商专有命名"),
-    externalId: informationExternalIdSchema.describe("来源内稳定 ID；同一空间内 source+externalId 是幂等键"),
+    externalId: informationExternalIdSchema.describe("来源内稳定 ID；同一智能体内 source+externalId 是幂等键"),
     content: z.string().min(1).max(20000).refine((value) => value.trim().length > 0).describe("原始信息正文；仅拒绝全空白，不 trim、不裁剪、不改写"),
     title: z.string().min(1).max(500).refine((value) => value.trim().length > 0).optional().describe("可选原始标题；仅拒绝全空白并按原文保存，不 trim"),
     receivedAt: z.string().datetime().optional().describe("来源时间；省略时使用服务端接纳时间"),
@@ -57,7 +57,7 @@ const decisionSchema = z.strictObject({
 });
 export const informationItemResponse = z.strictObject({
   id: z.string(),
-  spaceId: z.string(),
+  agentId: z.string(),
   source: z.string(),
   externalId: z.string(),
   title: z.string().optional(),
@@ -69,7 +69,7 @@ export const informationItemResponse = z.strictObject({
 });
 export const informationRunResponse = z.strictObject({
   id: z.string(),
-  spaceId: z.string(),
+  agentId: z.string(),
   itemIds: z.array(z.string()),
   status: informationRunStatusSchema,
   createdAt: z.string().datetime(),

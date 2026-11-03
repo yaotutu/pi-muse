@@ -96,11 +96,11 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const { token } = await login.json() as { token: string };
     const client = createTestClient(() => baseUrl, token, 260_000);
     version = (await client.json("/api/health")).serviceVersion;
-    const spaceId = "live-skill-authoring";
+    const agentId = "live-skill-authoring";
 
     const begin = async (prompt: string) => {
       const baseline = proxy!.traces.length;
-      return { ...(await client.startRun(prompt, spaceId)), baseline };
+      return { ...(await client.startRun(prompt, agentId)), baseline };
     };
     const finish = async (running: Awaited<ReturnType<typeof begin>>, type = "RUN_FINISHED") => {
       const events = await running.done;
@@ -127,7 +127,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       120_000,
     );
     assert.equal(firstAction.preview.scope, "skill");
-    assert.equal(firstAction.preview.ownerSpaceId, null);
+    assert.equal(firstAction.preview.ownerAgentId, null);
     assert.equal(firstAction.preview.path, `${skillName}/SKILL.md`);
     assert.equal(firstAction.preview.after, firstSkill);
     assert.equal((await humanDecision(firstAction)), "approve");
@@ -147,17 +147,17 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.equal(await readFile(join(dataDir, "skills", skillName, "SKILL.md"), "utf8"), firstSkill);
     assert.equal(await readFile(join(dataDir, "skills", skillName, "references", "seasoning.md"), "utf8"), resource);
     assert.deepEqual(JSON.parse(await readFile(join(dataDir, "skills", skillName, "config.json"), "utf8")), { defaultEnabled: false });
-    const beforeEnable = await client.json(`/api/spaces/${spaceId}/skills`) as { skills: { name: string; enabled: boolean }[] };
+    const beforeEnable = await client.json(`/api/agents/${agentId}/skills`) as { skills: { name: string; enabled: boolean }[] };
     assert.equal(beforeEnable.skills.find((skill) => skill.name === skillName)?.enabled, false);
-    await client.json(`/api/spaces/${spaceId}/skills`, { overrides: { [skillName]: true } }, "PUT");
-    const afterEnable = await client.json(`/api/spaces/${spaceId}/skills`) as { skills: { name: string; enabled: boolean }[] };
+    await client.json(`/api/agents/${agentId}/skills`, { overrides: { [skillName]: true } }, "PUT");
+    const afterEnable = await client.json(`/api/agents/${agentId}/skills`) as { skills: { name: string; enabled: boolean }[] };
     assert.equal(afterEnable.skills.find((skill) => skill.name === skillName)?.enabled, true);
     record("real-model-authoring-and-enable", { approvalScope: "skill", savedFiles: 2, defaultEnabled: false, enabled: true });
 
     const skillDocPath = join(dataDir, "skills", skillName, "SKILL.md");
     const resourcePath = join(dataDir, "skills", skillName, "references", "seasoning.md");
     const useRun = await begin(
-      "继续同一空间。请只用普通 read 工具依次读取以下两个绝对路径各一次，不要使用 skills 工具：" +
+      "继续同一智能体。请只用普通 read 工具依次读取以下两个绝对路径各一次，不要使用 skills 工具：" +
       `${JSON.stringify(skillDocPath)} 与 ${JSON.stringify(resourcePath)}。` +
       "读取完成后，用文件中的原始指令与资源内容各回复一句话；不要提前编造。",
     );
@@ -188,7 +188,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.equal(await readFile(skillDocPath, "utf8"), revisedSkill);
 
     const revisedRun = await begin(
-      "继续同一空间。请只用普通 read 工具读取以下绝对路径一次，不要使用 skills 工具：" +
+      "继续同一智能体。请只用普通 read 工具读取以下绝对路径一次，不要使用 skills 工具：" +
       `${JSON.stringify(skillDocPath)}。读取完成后复述文件中的原始指令；不要提前编造。`,
     );
     traces = await finish(revisedRun);
@@ -227,7 +227,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     );
     assert.equal(stopAction.preview.after, stoppedSkill);
     assert.equal(await humanDecision(stopAction, "cancel"), "cancel");
-    await client.json("/api/conversation/stop", { spaceId, runId: stopRun.runId });
+    await client.json("/api/conversation/stop", { agentId, runId: stopRun.runId });
     await finish(stopRun, "RUN_ERROR");
     const stopped = await client.approval(stopAction.id);
     assert.equal(stopped.status, "cancelled");

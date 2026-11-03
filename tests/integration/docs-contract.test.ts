@@ -41,21 +41,7 @@ const STEP_STATUSES = [
   "interrupted",
 ];
 const STEP_KINDS = ["execution", "model", "tool", "subagent", "approval", "file_commit"];
-const OVERVIEW_FIELDS = [
-  "id",
-  "spaceId",
-  "title",
-  "goal",
-  "deliverable",
-  "status",
-  "progress",
-  "result",
-  "runIds",
-  "currentRunId",
-  "createdAt",
-  "updatedAt",
-  "finishedAt",
-];
+const OVERVIEW_FIELDS = ["agentId", "createdAt", "currentRunId", "deliverable", "finishedAt", "goal", "id", "progress", "result", "runIds", "status", "title", "updatedAt"];
 const STEP_FIELDS = [
   "id",
   "runId",
@@ -275,7 +261,7 @@ test("docs: workspace file endpoints pin explicit selectors, manual confirmation
     ],
   );
 
-  for (const rule of [/scope=space 或 shared/, /spaceId 必填/, /不隐式创建空间/, /1000 项/, /413/])
+  for (const rule of [/scope=agent 或 shared/, /agentId 必填/, /不隐式创建智能体/, /1000 项/, /413/])
     assert.match(fileOperations.list!.description ?? "", rule);
   for (const rule of [/8388608 字节/, /严格 UTF-8/, /无 NUL/, /PNG\/JPEG\/GIF\/WebP/, /dataBase64/, /不透出绝对路径/])
     assert.match(fileOperations.content!.description ?? "", rule);
@@ -295,7 +281,7 @@ test("docs: activity list pins limit range, filter enums, cursor binding and no 
   const parameters = list.parameters ?? [];
 
   // 参数集合必须精确：多一个未声明过滤（如 since/days）就会让客户端误以为有留存窗口。
-  assert.deepEqual(parameters.map((parameter) => parameter.name).sort(), ["cursor", "limit", "spaceId", "status"]);
+  assert.deepEqual(parameters.map((parameter) => parameter.name).sort(), ["agentId", "cursor", "limit", "status"]);
   for (const parameter of parameters) {
     assert.equal(parameter.in, "query", `${parameter.name} must be a query parameter`);
     assert.equal(parameter.required, false, `${parameter.name} must be optional`);
@@ -315,14 +301,14 @@ test("docs: activity list pins limit range, filter enums, cursor binding and no 
   assert.equal(cursor.minLength, 1);
   assert.equal(cursor.maxLength, 1024);
   assert.match(cursor.description ?? "", /不透明 base64url/);
-  assert.match(cursor.description ?? "", /(spaceId|threadId)\/status/);
+  assert.match(cursor.description ?? "", /agentId\/status/);
   assert.match(cursor.description ?? "", /过滤条件与本次不一致返回 400/);
 
-  const spaceIdParam = queryParameter(list, "spaceId").schema;
-  assert.equal(spaceIdParam.minLength, 1);
-  assert.equal(spaceIdParam.maxLength, 64);
-  assert.equal(spaceIdParam.pattern, "^[a-zA-Z0-9][a-zA-Z0-9_-]*$");
-  assert.match(spaceIdParam.description ?? "", /只返回该来源空间的活动/);
+  const agentIdParam = queryParameter(list, "agentId").schema;
+  assert.equal(agentIdParam.minLength, 1);
+  assert.equal(agentIdParam.maxLength, 64);
+  assert.equal(agentIdParam.pattern, "^[a-zA-Z0-9][a-zA-Z0-9_-]*$");
+  assert.match(agentIdParam.description ?? "", /只返回该来源智能体的活动/);
 
   const status = queryParameter(list, "status").schema;
   assert.deepEqual(status.enum, ACTIVITY_STATUSES);
@@ -333,7 +319,7 @@ test("docs: activity list pins limit range, filter enums, cursor binding and no 
     /createdAt 降序、同一时间按 id 降序/,
     /limit 默认 20、范围 1–100/,
     /cursor 是上一页返回的不透明 base64url/,
-    /绑定生成时的 (spaceId|threadId)\/status 过滤条件/,
+    /绑定生成时的 agentId\/status 过滤条件/,
     /改变过滤后必须从第一页重新开始/,
     /未声明参数、重复参数、非法 limit、非法游标/,
     /一律 400/,
@@ -358,7 +344,7 @@ test("docs: activity detail has only the path id parameter and no list-style fil
   assert.deepEqual(
     detail.parameters?.map(({ name, in: location, required }) => ({ name, in: location, required })),
     [{ name: "id", in: "path", required: true }],
-    "detail must not accept threadId/status/limit/cursor or any time-window filter",
+    "detail must not accept agentId/status/limit/cursor or any time-window filter",
   );
 });
 
@@ -403,8 +389,8 @@ test("docs: activity overview pins eight statuses, explicit registration, delaye
   // 继续原记录：活动 ID 不变，runIds 追加新 run，不新建活动。
   assert.match(overview.properties?.id?.description ?? "", /保持不变，不新建活动/);
   assert.match(overview.properties?.runIds?.description ?? "", /追加新 run，不新建活动/);
-  // 删除级联：来源空间/会话删除后活动随之消失。
-  assert.match((overview.properties?.spaceId ?? overview.properties?.threadId)?.description ?? "", /随该(空间|会话)删除而删除/);
+  // 删除级联：来源智能体/会话删除后活动随之消失。
+  assert.match((overview.properties?.agentId)?.description ?? "", /随该(智能体|会话)删除而删除/);
 
   // 显式登记而非每轮自动生成，且概览是只读投影。
   const overviewDescription = overview.description ?? "";
@@ -421,7 +407,7 @@ test("docs: activity overview pins eight statuses, explicit registration, delaye
   assert.match(operationDescription, /awaiting_continuation/);
   assert.match(operationDescription, /需用户明确要求继续/);
   assert.match(operationDescription, /继续同一工作时更新原活动（runIds 追加新 run），不新建活动/);
-  assert.match(operationDescription, /活动随来源(空间|会话)删除而删除/);
+  assert.match(operationDescription, /活动随来源(智能体|会话)删除而删除/);
 
   // 列表响应外壳：三字段必填、严格对象，nextCursor 与 hasMore 的互斥语义明确。
   assert.deepEqual(Object.keys(page.properties ?? {}).sort(), ["activities", "hasMore", "nextCursor"]);
@@ -481,9 +467,9 @@ test("docs: activity detail pins overview plus real-step schema, nullable fields
   assert.match(detailDescription, /activity 概览与 steps 逐步明细/);
   assert.match(detailDescription, /失败、拒绝、取消、过期与中断如实保留/);
   assert.match(detailDescription, /安全投影/);
-  assert.match(detailDescription, /活动不存在或来源(空间|会话)已删除返回 404/);
+  assert.match(detailDescription, /活动不存在或来源(智能体|会话)已删除返回 404/);
   assert.match(detailDescription, /不新增 SSE 事件/);
-  assert.match(detailSchema.description ?? "", /活动不存在或所属(空间|会话)已删除时返回 404/);
+  assert.match(detailSchema.description ?? "", /活动不存在或所属(智能体|会话)已删除时返回 404/);
 });
 
 test("docs: activity endpoints enforce auth and list query/cursor behavior matches the generated contract", async (t) => {
@@ -522,27 +508,27 @@ test("docs: activity endpoints enforce auth and list query/cursor behavior match
   assert.ok(listEndpoint.response.safeParse(await ok.json()).success, "empty activity list must match response schema");
 
   // limit 只接受十进制整数 1–100；重复、未知、空值和越界参数都按契约 400。
-  for (const query of ["limit=1", "limit=100", "spaceId=local-main", "status=completed"]) {
+  for (const query of ["limit=1", "limit=100", "agentId=local-main", "status=completed"]) {
     const response = await service.app.request(`/api/activities?${query}`, { headers });
     assert.equal(response.status, 200, `${query} should be accepted`);
   }
-  for (const query of ["limit=0", "limit=101", "limit=1.5", "limit=abc", "limit=", "limit=1&limit=2", "unknown=1", "spaceId=-bad", "status=bogus"]) {
+  for (const query of ["limit=0", "limit=101", "limit=1.5", "limit=abc", "limit=", "limit=1&limit=2", "unknown=1", "agentId=-bad", "status=bogus"]) {
     const response = await service.app.request(`/api/activities?${query}`, { headers });
     assert.equal(response.status, 400, `${query} should be rejected`);
     assert.equal(typeof ((await response.json()) as { error?: unknown }).error, "string");
   }
 
-  // 游标绑定生成时的过滤条件：结构非法、时间非法或与本次 threadId/status 不一致都 400。
+  // 游标绑定生成时的过滤条件：结构非法、时间非法或与本次 agentId/status 不一致都 400。
   const encode = (payload: unknown) => Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  const bound = encode({ createdAt: "2026-10-18T10:00:00.000Z", id: "act-x", spaceId: "local-main", status: "completed" });
-  const matched = await service.app.request(`/api/activities?spaceId=local-main&status=completed&cursor=${bound}`, { headers });
+  const bound = encode({ createdAt: "2026-10-18T10:00:00.000Z", id: "act-x", agentId: "local-main", status: "completed" });
+  const matched = await service.app.request(`/api/activities?agentId=local-main&status=completed&cursor=${bound}`, { headers });
   assert.equal(matched.status, 200, "cursor with matching filters must be accepted");
   for (const query of [
-    `spaceId=local-main&cursor=${bound}`,
+    `agentId=local-main&cursor=${bound}`,
     `cursor=${bound}`,
-    `threadId=local-main&status=completed&cursor=not-a-cursor`,
-    `threadId=local-main&status=completed&cursor=${encode({ createdAt: "not-a-date", id: "act-x" })}`,
-    `threadId=local-main&status=completed&cursor=${encode({ createdAt: "2026-10-18T10:00:00.000Z", id: "act-x", extra: true })}`,
+    `agentId=local-main&status=completed&cursor=not-a-cursor`,
+    `agentId=local-main&status=completed&cursor=${encode({ createdAt: "not-a-date", id: "act-x" })}`,
+    `agentId=local-main&status=completed&cursor=${encode({ createdAt: "2026-10-18T10:00:00.000Z", id: "act-x", extra: true })}`,
   ]) {
     const response = await service.app.request(`/api/activities?${query}`, { headers });
     assert.equal(response.status, 400, `cursor mismatch must be rejected: ${query}`);
@@ -568,9 +554,9 @@ test("docs: source routing, deletion, safe errors and deployed code identity are
     const text = description(path, "post");
     assert.match(text, /仅省略/);
     assert.match(text, /新 ID[\s\S]*建立/);
-    assert.match(text, /(409 SPACE_DELETING|409 THREAD_DELETING)/);
+    assert.match(text, /(409 AGENT_DELETING|409 THREAD_DELETING)/);
     assert.match(text, /不自动重试/);
-    assert.match(text, /不[\s\S]*改投主(空间|会话)/);
+    assert.match(text, /不[\s\S]*改投主(智能体|会话)/);
     assert.doesNotMatch(text, /通知进主聊天流|结果以 📡 进主聊天流/);
   }
   const controlText = description("/api/jobs/{id}/control", "post");
@@ -579,7 +565,7 @@ test("docs: source routing, deletion, safe errors and deployed code identity are
   assert.match(description("/api/conversation", "get"), /已删除[\s\S]*不创建[\s\S]*列表/);
   assert.match(description("/api/conversation", "get"), /模型上下文与历史前脱敏/);
   assert.match(description("/api/conversation/stop", "post"), /不建立/);
-  assert.match(description("/api/spaces/{spaceId}", "delete"), /新同名(空间|会话)[\s\S]*任务详情/);
+  assert.match(description("/api/agents/{agentId}", "delete"), /新同名(智能体|会话)[\s\S]*任务详情/);
   assert.match(description("/api/health", "get"), /commit[\s\S]*dirty[\s\S]*sourceHash/);
 });
 
@@ -589,7 +575,7 @@ test("docs: subagent stays inside the parent run and no background task creation
   const chat = doc.paths["/api/conversation/run"].post as Operation;
   for (const rule of [/subagent/, /最多8项/, /最多4个/, /结果后主模型继续/, /写入仍逐次审批/, /绑定父运行/, /取消并等待子会话清理/])
     assert.match(chat.description, rule);
-  const snapshot = doc.paths["/api/agent"].get as Operation;
+  const snapshot = doc.paths["/api/identity"].get as Operation;
   assert.match(snapshot.description, /jobs/i);
   assert.match(snapshot.description, /不提供 POST \/api\/agent\/tasks/);
   assert.equal(Object.hasOwn(snapshot.responses["200"].content["application/json"].schema.properties, "worker"), false);
@@ -605,18 +591,18 @@ test("docs: subagent stays inside the parent run and no background task creation
     requestBody?: { content: Record<string, { schema: JsonSchema }> };
   } | undefined;
   const updateJobDesc = updateJobOp?.description ?? "";
-  assert.match(updateJobDesc, /originSpaceId 省略时保留原绑定/);
-  assert.match(updateJobDesc, /显式改绑新 ID 时在接纳前先建立目标空间/);
-  assert.match(updateJobDesc, /409 SPACE_DELETING/);
-  assert.match(updateJobDesc, /随新空间删除级联清理/);
-  assert.match(updateJobDesc, /来源删除后绝不改投主空间/);
+  assert.match(updateJobDesc, /originAgentId 省略时保留原绑定/);
+  assert.match(updateJobDesc, /显式改绑新 ID 时在接纳前先建立目标智能体/);
+  assert.match(updateJobDesc, /409 AGENT_DELETING/);
+  assert.match(updateJobDesc, /随新智能体删除级联清理/);
+  assert.match(updateJobDesc, /来源删除后绝不改投主智能体/);
   const patchBody = updateJobOp?.requestBody?.content?.["application/json"]?.schema;
-  const originFieldDesc = patchBody?.properties?.originSpaceId?.description ?? "";
+  const originFieldDesc = patchBody?.properties?.originAgentId?.description ?? "";
   assert.match(originFieldDesc, /创建时省略默认 local-main，PATCH 修改时省略保留原绑定/);
-  assert.match(originFieldDesc, /显式指定新 ID 在接纳前先建立空间/);
-  assert.match(originFieldDesc, /409 SPACE_DELETING/);
-  assert.match(originFieldDesc, /删除来源空间将级联清理名下任务/);
-  assert.match(originFieldDesc, /绝不改投主空间/);
+  assert.match(originFieldDesc, /显式指定新 ID 在接纳前先建立智能体/);
+  assert.match(originFieldDesc, /409 AGENT_DELETING/);
+  assert.match(originFieldDesc, /删除来源智能体将级联清理名下任务/);
+  assert.match(originFieldDesc, /绝不改投主智能体/);
 
   // A03: updateJob description 与 at 字段必须说明严格两位 HH:mm、00:00 至 23:59、
   // 非法日程 400 INVALID_SCHEDULE_FORMAT 且不自动进位、不写入；合法日程按服务器时区。
@@ -676,7 +662,7 @@ test("docs: notification stream documents the client sync protocol and keeps eve
     /ready[\s\S]*agentStatuses[\s\S]*pendingApprovals[\s\S]*activities/,
     /agent_status_updated/, /approval_pending/, /approval_updated/, /activity_updated/, /conversation_updated/,
     /GET \/api\/conversation/, /不得伪造状态事件/, /同 ID 幂等 noop/,
-    /GET \/api\/agent\/status\?(spaceId|threadId)=/, /GET \/api\/activities/,
+    /GET \/api\/runs\/status\?agentId=/, /GET \/api\/activities/,
     /instanceId[\s\S]*revision/, /\(id, revision\)/,
     /30 秒[\s\S]*keep-alive/,
     /不发送事件 id/, /不支持历史重放/, /忽略 Last-Event-ID/,
@@ -733,7 +719,7 @@ test("docs: /api/events SSE schema is text/event-stream with six bounded client 
   for (const name of ["activity_updated", "agent_status_updated", "approval_pending", "approval_updated", "conversation_updated"])
     assert.ok(Object.hasOwn(table[name].schema.properties as object, "instanceId"), `${name} 顶层必须带 instanceId`);
   const conversationProps = table.conversation_updated.schema.properties as Record<string, unknown>;
-  assert.deepEqual(Object.keys(conversationProps).sort(), ["instanceId", "sessionId", "spaceId"]);
+  assert.deepEqual(Object.keys(conversationProps).sort(), ["agentId", "instanceId", "sessionId"]);
   assert.equal(table.conversation_updated.schema.additionalProperties, false);
   // 审批新增推完整预览；审批终态推轻量投影（不含 title/kind/preview）。
   const pendingProps = Object.keys(table.approval_pending.schema.properties as object);
@@ -773,7 +759,7 @@ test("docs: approvals replace legacy actions endpoints and pin strict list/detai
 
   const list = paths["/api/approvals"]!.get!;
   assert.deepEqual(list.security, [{ bearerAuth: [] }]);
-  assert.deepEqual(list.parameters?.map((parameter) => parameter.name).sort(), ["activityId", "cursor", "limit", "spaceId", "status"]);
+  assert.deepEqual(list.parameters?.map((parameter) => parameter.name).sort(), ["activityId", "agentId", "cursor", "limit", "status"]);
   for (const parameter of list.parameters ?? []) {
     assert.equal(parameter.in, "query");
     assert.equal(parameter.required, false);
@@ -803,10 +789,7 @@ test("docs: approvals replace legacy actions endpoints and pin strict list/detai
   // 详情返回完整视图，字段与必填项精确；preview 全文不截断。
   const detail = paths["/api/approvals/{id}"]!.get!;
   const view = responseSchema(detail as never);
-  const viewFields = [
-    "activityId", "createdAt", "decidedAt", "execution", "expiresAt", "id", "kind", "preview", "resolvedAt",
-    "revision", "runId", "spaceId", "status", "subagentId", "title", "toolCallId", "workspaceSpaceId",
-  ];
+  const viewFields = ["activityId", "agentId", "createdAt", "decidedAt", "execution", "expiresAt", "id", "kind", "preview", "resolvedAt", "revision", "runId", "status", "subagentId", "title", "toolCallId", "workspaceAgentId"];
   assert.deepEqual(Object.keys(view.properties ?? {}).sort(), viewFields);
   assert.deepEqual([...(view.required ?? [])].sort(), viewFields);
   assert.equal(view.additionalProperties, false);
@@ -816,7 +799,7 @@ test("docs: approvals replace legacy actions endpoints and pin strict list/detai
   assert.deepEqual(nullableTypes(view.properties?.decidedAt), ["null", "string"]);
   assert.deepEqual(nullableTypes(view.properties?.resolvedAt), ["null", "string"]);
   const preview = view.properties?.preview;
-  assert.deepEqual(Object.keys(preview?.properties ?? {}).sort(), ["after", "before", "beforeExists", "ownerSpaceId", "path", "scope"]);
+  assert.deepEqual(Object.keys(preview?.properties ?? {}).sort(), ["after", "before", "beforeExists", "ownerAgentId", "path", "scope"]);
   assert.equal(preview?.additionalProperties, false);
   assert.match(preview?.properties?.before?.description ?? "", /不截断/);
   assert.match(view.description ?? "", /1\.5MB/);
@@ -849,12 +832,12 @@ test("docs: agent status query is read-only, requires both ids and shares the ru
     responses: Record<string, { content?: Record<string, { schema?: JsonSchema }> }>;
   };
   const paths = doc.paths as unknown as Record<string, Record<string, Operation>>;
-  const operation = paths["/api/agent/status"]!.get!;
+  const operation = paths["/api/runs/status"]!.get!;
   assert.deepEqual(operation.security, [{ bearerAuth: [] }]);
   assert.deepEqual(
     operation.parameters?.map(({ name, in: location, required }) => ({ name, in: location, required })),
     [
-      { name: "spaceId", in: "query", required: true },
+      { name: "agentId", in: "query", required: true },
       { name: "runId", in: "query", required: true },
     ],
     "both ids are required query parameters; no undeclared parameters",
@@ -863,7 +846,7 @@ test("docs: agent status query is read-only, requires both ids and shares the ru
   assert.match(operation.description ?? "", /运行结束后的最终终态/);
   assert.match(operation.description ?? "", /普通 chat 可能没有登记 Activity[\s\S]*activityId 为 null/);
   assert.match(operation.description ?? "", /GET \/api\/activities/);
-  assert.match(operation.description ?? "", /不(调用模型、不)?建立(空间|会话)、不创建目录/);
+  assert.match(operation.description ?? "", /不(调用模型、不)?建立(智能体|会话)、不创建目录/);
   assert.match(operation.description ?? "", /instanceId/);
   assert.match(operation.description ?? "", /revision/);
   assert.match(operation.description ?? "", /运行不存在或已被清理返回 404/);
@@ -899,7 +882,7 @@ test("docs: agent status query is read-only, requires both ids and shares the ru
 
 test("docs: snapshot points approvals at the SSE stream and keeps the existing read aggregation", () => {
   const doc = buildOpenApiDocument();
-  const snapshot = doc.paths["/api/agent"].get as unknown as { description: string };
+  const snapshot = doc.paths["/api/identity"].get as unknown as { description: string };
   assert.match(snapshot.description, /GET \/api\/events/);
   assert.match(snapshot.description, /ready\.pendingApprovals/);
   assert.doesNotMatch(snapshot.description, /GET \/api\/actions\/pending/);
@@ -969,55 +952,45 @@ test("docs: memory and Dream endpoints pin layering, capacity, prompt inheritanc
   assert.ok(memoryDetail && memoryPatch && memoryDelete);
 
   // 全局与会话 Dream 端点完整声明。
-  const globalGet = paths["/api/agent/dream"]?.get;
-  const globalPut = paths["/api/agent/dream"]?.put;
+  const globalGet = paths["/api/dream"]?.get;
+  const globalPut = paths["/api/dream"]?.put;
   assert.ok(globalGet && globalPut);
   assert.deepEqual(Object.keys(responseSchema(globalGet as never).properties ?? {}).sort(), [
+    "agents",
     "defaultPrompt",
     "globalPrompt",
     "intervalHours",
     "running",
-    "spaces",
-    "threads",
   ]);
   assert.match(globalGet.description ?? "", /DREAM\.md/);
   assert.match(globalPut.description ?? "", /空串清空/);
 
-  const spaceDreamGet = (paths["/api/spaces/{spaceId}/dream"] ?? paths["/api/threads/{threadId}/dream"])?.get;
-  const spaceDreamPut = (paths["/api/spaces/{spaceId}/dream"] ?? paths["/api/threads/{threadId}/dream"])?.put;
-  const spaceDreamRun = (paths["/api/spaces/{spaceId}/dream/run"] ?? paths["/api/threads/{threadId}/dream/run"])?.post;
-  const spaceDreamPending = (paths["/api/spaces/{spaceId}/dream/pending/{pendingId}"] ?? paths["/api/threads/{threadId}/dream/pending/{pendingId}"])?.post;
-  assert.ok(spaceDreamGet && spaceDreamPut && spaceDreamRun && spaceDreamPending);
-  assert.deepEqual(Object.keys(responseSchema(spaceDreamGet as never).properties ?? {}).sort(), [
-    "cursor",
-    "enabled",
-    "inheritGlobalPrompt",
-    "lastRun",
-    "pending",
-    "prompt",
-    "purpose",
-    "spaceId",
-  ]);
-  assert.match(spaceDreamGet.description ?? "", /不创建任何目录或文件/);
-  assert.match(spaceDreamRun.description ?? "", /cursor/);
-  assert.match(spaceDreamRun.description ?? "", /409/);
+  const agentDreamGet = (paths["/api/agents/{agentId}/dream"])?.get;
+  const agentDreamPut = (paths["/api/agents/{agentId}/dream"])?.put;
+  const agentDreamRun = (paths["/api/agents/{agentId}/dream/run"])?.post;
+  const agentDreamPending = (paths["/api/agents/{agentId}/dream/pending/{pendingId}"])?.post;
+  assert.ok(agentDreamGet && agentDreamPut && agentDreamRun && agentDreamPending);
+  assert.deepEqual(Object.keys(responseSchema(agentDreamGet as never).properties ?? {}).sort(), ["agentId", "cursor", "enabled", "inheritGlobalPrompt", "lastRun", "pending", "prompt", "purpose"]);
+  assert.match(agentDreamGet.description ?? "", /不创建任何目录或文件/);
+  assert.match(agentDreamRun.description ?? "", /cursor/);
+  assert.match(agentDreamRun.description ?? "", /409/);
   assert.deepEqual(
-    spaceDreamPending.requestBody?.content["application/json"]?.schema.properties?.action?.enum,
+    agentDreamPending.requestBody?.content["application/json"]?.schema.properties?.action?.enum,
     ["apply", "dismiss"],
   );
   assert.deepEqual(
-    spaceDreamPending.requestBody?.content["application/json"]?.schema.properties?.target?.enum,
+    agentDreamPending.requestBody?.content["application/json"]?.schema.properties?.target?.enum,
     ["user", "soul", "instructions", "memory"],
   );
 
-  // 空间指令端点支持可选 purpose 维护 `## 空间用途`。
-  const instructionsPut = (paths["/api/spaces/{spaceId}/instructions"] ?? paths["/api/threads/{threadId}/instructions"])?.put;
+  // 智能体指令端点支持可选 purpose 维护 `## 智能体用途`。
+  const instructionsPut = (paths["/api/agents/{agentId}/instructions"])?.put;
   assert.ok(instructionsPut);
   assert.deepEqual(
     Object.keys(instructionsPut.requestBody?.content["application/json"]?.schema.properties ?? {}).sort(),
     ["instructions", "purpose"],
   );
-  assert.match(instructionsPut.description ?? "", /## 空间用途/);
+  assert.match(instructionsPut.description ?? "", /## 智能体用途/);
 });
 test("docs: /openapi.json and /docs are served without auth", async (t) => {
   const model = await createFakeModel();
@@ -1084,12 +1057,12 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
     }),
   );
   const headers = { Authorization: `Bearer ${service.auth.login()}` };
-  // 无路径参数、无必填查询参数的 GET 才可直接请求；/api/agent/status 需要 threadId+runId，
+  // 无路径参数、无必填查询参数的 GET 才可直接请求；/api/runs/status 需要 agentId+runId，
   // 单独在下方验证其 400/404 语义，不能用一个缺参请求冒充成功响应。
   const cases: { path: string }[] = endpoints
     .filter((e) => e.method === "get" && !e.path.includes(":") || e.path === "/api/health")
     .filter((e) => !e.sse) // SSE 端点响应是流，不是 JSON schema；safeParse 不适用
-    .filter((e) => e.path !== "/api/agent/status")
+    .filter((e) => e.path !== "/api/runs/status")
     .filter((e) => e.path !== "/browser/desktop/launch") // 需票据，下方单独验证 401 契约。
     .filter((e) => e.responseContentType !== "text/html") // 调试页与桌面静态页是 HTML/二进制，不参与 JSON response safeParse。
     // 工作区文件 GET 需要显式 selector/path，且 content 需要先准备现存文件；下方单独覆盖。
@@ -1110,31 +1083,31 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
   assert.equal(typeof launchNoTicketBody.error, "string");
 
   // 运行状态查询：缺参 400、未声明参数 400、不存在的 run 404；均不得建立会话或目录。
-  for (const query of ["", "?spaceId=local-main", "?runId=run-1", "?threadId=local-main&runId=run-1&extra=1"]) {
-    const response = await service.app.request(`/api/agent/status${query}`, { headers });
-    assert.equal(response.status, 400, `/api/agent/status${query} should be 400`);
+  for (const query of ["", "?agentId=local-main", "?runId=run-1", "?agentId=local-main&runId=run-1&extra=1"]) {
+    const response = await service.app.request(`/api/runs/status${query}`, { headers });
+    assert.equal(response.status, 400, `/api/runs/status${query} should be 400`);
   }
-  const missingStatus = await service.app.request("/api/agent/status?spaceId=local-main&runId=missing-run", { headers });
+  const missingStatus = await service.app.request("/api/runs/status?agentId=local-main&runId=missing-run", { headers });
   assert.equal(missingStatus.status, 404);
   assert.equal(typeof ((await missingStatus.json()) as { error?: unknown }).error, "string");
   const approvalPage = await service.app.request("/api/approvals", { headers });
   assert.equal(approvalPage.status, 200);
   const approvalEndpoint = endpoints.find((e) => e.path === "/api/approvals" && e.method === "get")!;
   assert.ok(approvalEndpoint.response.safeParse(await approvalPage.json()).success, "empty approval page must match schema");
-  const conv = await service.app.request("/api/conversation?spaceId=local-main", { headers });
+  const conv = await service.app.request("/api/conversation?agentId=local-main", { headers });
   assert.equal(conv.status, 200);
   const convEndpoint = endpoints.find((e) => e.path === "/api/conversation")!;
   assert.ok(convEndpoint.response.safeParse(await conv.json()).success, "conversation response drifted");
   const profile = await service.app.request("/api/profile", { headers });
   const profileEndpoint = endpoints.find((e) => e.path === "/api/profile" && e.method === "get")!;
   assert.ok(profileEndpoint.response.safeParse(await profile.json()).success, "profile response drifted");
-  await writeFile(join(dataDir, "workspace", "threads", "local-main", "docs-file.txt"), "docs");
-  const workspaceList = await service.app.request("/api/workspace/files?scope=space&spaceId=local-main", { headers });
+  await writeFile(join(dataDir, "workspace", "agents", "local-main", "docs-file.txt"), "docs");
+  const workspaceList = await service.app.request("/api/workspace/files?scope=agent&agentId=local-main", { headers });
   assert.equal(workspaceList.status, 200);
   const workspaceListEndpoint = endpoints.find((e) => e.path === "/api/workspace/files" && e.method === "get")!;
   assert.ok(workspaceListEndpoint.response.safeParse(await workspaceList.json()).success, "workspace list response drifted");
   const workspaceContent = await service.app.request(
-    "/api/workspace/files/content?scope=space&spaceId=local-main&path=docs-file.txt",
+    "/api/workspace/files/content?scope=agent&agentId=local-main&path=docs-file.txt",
     { headers },
   );
   assert.equal(workspaceContent.status, 200);
@@ -1184,20 +1157,20 @@ test("docs: every served route is registered and every registration is served (n
   }
 });
 
-test("docs: information endpoints expose a bounded authenticated space-scoped API", () => {
+test("docs: information endpoints expose a bounded authenticated agent-scoped API", () => {
   const doc = buildOpenApiDocument();
   const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;
   const informationPaths = Object.entries(paths)
-    .filter(([path]) => path.startsWith("/api/spaces/{spaceId}/information"))
+    .filter(([path]) => path.startsWith("/api/agents/{agentId}/information"))
     .map(([path, operations]) => [path, Object.keys(operations).sort()] as const)
     .sort(([left], [right]) => left.localeCompare(right));
   assert.deepEqual(informationPaths, [
-    ["/api/spaces/{spaceId}/information/items", ["get", "post"]],
-    ["/api/spaces/{spaceId}/information/items/{itemId}", ["get"]],
-    ["/api/spaces/{spaceId}/information/preferences", ["get", "put"]],
-    ["/api/spaces/{spaceId}/information/runs", ["get", "post"]],
-    ["/api/spaces/{spaceId}/information/runs/{runId}", ["get"]],
-    ["/api/spaces/{spaceId}/information/settings", ["get", "put"]],
+    ["/api/agents/{agentId}/information/items", ["get", "post"]],
+    ["/api/agents/{agentId}/information/items/{itemId}", ["get"]],
+    ["/api/agents/{agentId}/information/preferences", ["get", "put"]],
+    ["/api/agents/{agentId}/information/runs", ["get", "post"]],
+    ["/api/agents/{agentId}/information/runs/{runId}", ["get"]],
+    ["/api/agents/{agentId}/information/settings", ["get", "put"]],
   ]);
 
   for (const operations of Object.values(paths)) {
@@ -1207,15 +1180,15 @@ test("docs: information endpoints expose a bounded authenticated space-scoped AP
     }
   }
 
-  assert.match(paths["/api/spaces/{spaceId}/information/items"]!.post!.description ?? "", /最多 50 条/);
-  assert.match(paths["/api/spaces/{spaceId}/information/items"]!.post!.description ?? "", /同内容幂等回读/);
-  assert.match(paths["/api/spaces/{spaceId}/information/items"]!.post!.description ?? "", /不同内容返回 409/);
-  assert.match(paths["/api/spaces/{spaceId}/information/runs"]!.post!.description ?? "", /409 BUSY/);
-  assert.match(paths["/api/spaces/{spaceId}/information/runs"]!.post!.description ?? "", /不自动重试/);
-  assert.match(paths["/api/spaces/{spaceId}/information/runs"]!.post!.description ?? "", /发布失败与模型失败分开/);
-  assert.match(paths["/api/spaces/{spaceId}/information/runs"]!.get!.description ?? "", /notificationId\/sessionId\/messageId/);
-  assert.match(paths["/api/spaces/{spaceId}/information/preferences"]!.get!.description ?? "", /当前投影/);
-  assert.match(paths["/api/spaces/{spaceId}/information/settings"]!.put!.description ?? "", /取消该空间在途信息轮/);
+  assert.match(paths["/api/agents/{agentId}/information/items"]!.post!.description ?? "", /最多 50 条/);
+  assert.match(paths["/api/agents/{agentId}/information/items"]!.post!.description ?? "", /同内容幂等回读/);
+  assert.match(paths["/api/agents/{agentId}/information/items"]!.post!.description ?? "", /不同内容返回 409/);
+  assert.match(paths["/api/agents/{agentId}/information/runs"]!.post!.description ?? "", /409 BUSY/);
+  assert.match(paths["/api/agents/{agentId}/information/runs"]!.post!.description ?? "", /不自动重试/);
+  assert.match(paths["/api/agents/{agentId}/information/runs"]!.post!.description ?? "", /发布失败与模型失败分开/);
+  assert.match(paths["/api/agents/{agentId}/information/runs"]!.get!.description ?? "", /notificationId\/sessionId\/messageId/);
+  assert.match(paths["/api/agents/{agentId}/information/preferences"]!.get!.description ?? "", /当前投影/);
+  assert.match(paths["/api/agents/{agentId}/information/settings"]!.put!.description ?? "", /取消该智能体在途信息轮/);
 });
 
 test("docs: browser desktop gateway endpoints document status, ticket and redirect contracts", () => {
@@ -1282,7 +1255,7 @@ test("docs: browser desktop gateway endpoints document status, ticket and redire
   assert.ok(wsContracts?.browserDesktop, "OpenAPI must include browserDesktop WebSocket contract");
 });
 
-test("docs: news endpoints freeze the client contract without exposing the internal space", () => {
+test("docs: news endpoints freeze the client contract without exposing the internal agent", () => {
   const doc = buildOpenApiDocument();
   const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;
   const newsPaths = Object.entries(paths)
@@ -1308,7 +1281,7 @@ test("docs: news endpoints freeze the client contract without exposing the inter
       if (operation.tags?.[0] !== "新闻") continue;
       assert.deepEqual(operation.security, [{ bearerAuth: [] }]);
       assert.ok(!JSON.stringify(operation).includes("news-internal"));
-      assert.ok(!JSON.stringify(operation).includes("spaceId"));
+      assert.ok(!JSON.stringify(operation).includes("agentId"));
     }
   }
 

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createConfig } from "../../src/config/load-config.js";
-import { FEATURE_SPACES, FeatureError } from "../../src/features/feature-spaces/types.js";
+import { FEATURE_AGENTS, FeatureError } from "../../src/features/agent-extensions/types.js";
 import { featureDiscussionResponse, featuresResponse } from "../../src/http/contracts/features.js";
 import { createFeatureTool } from "../../src/adapters/pi/tools/feature.js";
 import { createNotificationMessage, featureSourceOf } from "../../src/adapters/pi/notification-message.js";
@@ -21,25 +21,31 @@ const start = async (t: test.TestContext) => {
   return { root, service, call };
 };
 
-test("feature binding defaults to main, persists, excludes internal spaces and protects bound target deletion", async (t) => {
+test("feature binding defaults to main, persists, includes extension agents and protects bound target deletion", async (t) => {
   const { root, service, call } = await start(t);
   assert.equal((await service.app.request("/api/features")).status, 401);
-  assert.deepEqual(featuresResponse.parse(await (await call("/api/features")).json()).features.map((f) => f.targetSpaceId), ["local-main", "local-main"]);
+  assert.deepEqual(featuresResponse.parse(await (await call("/api/features")).json()).features.map((f) => f.targetAgentId), ["local-main", "local-main"]);
   const tool = createFeatureTool(service.features, "local-main");
   assert.deepEqual(tool.parameters.properties.action.enum, ["overview", "read", "feedback"]);
   assert.equal("anyOf" in tool.parameters.properties.action, false);
-  for (const id of Object.values(FEATURE_SPACES)) {
-    assert.equal((await call(`/api/spaces/${id}/instructions`)).status, 200);
-    assert.equal((await call(`/api/conversation?spaceId=${id}`)).status, 200);
-    assert.equal((await call(`/api/workspace/files?scope=space&spaceId=${id}`)).status, 200);
-    assert.equal((await call(`/api/spaces/${id}`, "DELETE")).status, 409);
+  for (const id of Object.values(FEATURE_AGENTS)) {
+    assert.equal((await call(`/api/agents/${id}/instructions`)).status, 200);
+    assert.equal((await call(`/api/conversation?agentId=${id}`)).status, 200);
+    assert.equal((await call(`/api/workspace/files?scope=agent&agentId=${id}`)).status, 200);
+    assert.equal((await call(`/api/agents/${id}/skills`)).status, 200);
+    assert.equal((await call(`/api/agents/${id}/dream`)).status, 200);
+    assert.equal((await call(`/api/agents/${id}/dream`, "PUT", { enabled: false, prompt: "Own consolidation rules" })).status, 200);
+    assert.equal((await call(`/api/agents/${id}/reset`, "POST", {})).status, 200);
+    assert.equal((await call(`/api/agents/${id}`, "DELETE")).status, 409);
   }
-  assert.equal((await call("/api/features/news/binding", "PUT", { spaceId: "missing" })).status, 404);
-  assert.equal((await call("/api/features/news/binding", "PUT", { spaceId: FEATURE_SPACES.sms })).status, 400);
-  await service.conversationHub.forSpace("research");
-  assert.equal((await call("/api/features/news/binding", "PUT", { spaceId: "research" })).status, 200);
-  assert.equal((await call("/api/spaces/research", "DELETE")).status, 409);
-  assert.equal((await call("/api/spaces/research/reset", "POST", {})).status, 200);
+  const overview = await (await call("/api/dream")).json() as { agents: { agentId: string }[] };
+  for (const id of Object.values(FEATURE_AGENTS)) assert.ok(overview.agents.some((agent) => agent.agentId === id));
+  assert.equal((await call("/api/features/news/binding", "PUT", { agentId: "missing" })).status, 404);
+  assert.equal((await call("/api/features/news/binding", "PUT", { agentId: FEATURE_AGENTS.sms })).status, 200);
+  await service.conversationHub.forAgent("research");
+  assert.equal((await call("/api/features/news/binding", "PUT", { agentId: "research" })).status, 200);
+  assert.equal((await call("/api/agents/research", "DELETE")).status, 409);
+  assert.equal((await call("/api/agents/research/reset", "POST", {})).status, 200);
   assert.equal(await service.features.targetFor("news"), "research");
   await service.close();
   const reopened = await createService(configFor(root));
@@ -49,13 +55,13 @@ test("feature binding defaults to main, persists, excludes internal spaces and p
 
 test("news discussions carry durable source; feedback goes back only through that conversation's source", async (t) => {
   const { service, call } = await start(t);
-  const [item] = await service.information.ingestNews(FEATURE_SPACES.news, [{ source: "feed", externalId: "discussion-fixture", title: "新闻原文", content: "原文 <untrusted> 保留", metadata: { sourceId: "feed", sourceTitle: "测试来源", url: "https://example.com/article" } }]);
-  await service.conversationHub.forSpace("unrelated");
+  const [item] = await service.information.ingestNews(FEATURE_AGENTS.news, [{ source: "feed", externalId: "discussion-fixture", title: "新闻原文", content: "原文 <untrusted> 保留", metadata: { sourceId: "feed", sourceTitle: "测试来源", url: "https://example.com/article" } }]);
+  await service.conversationHub.forAgent("unrelated");
   const response = await call("/api/features/news/discussions", "POST", { articleId: item!.id });
   assert.equal(response.status, 200);
   const receipt = featureDiscussionResponse.parse(await response.json());
-  assert.equal(receipt.spaceId, "local-main");
-  const main = await service.conversationHub.forSpace("local-main");
+  assert.equal(receipt.agentId, "local-main");
+  const main = await service.conversationHub.forAgent("local-main");
   const message = (await main.snapshot()).messages.find((m) => m.id === receipt.messageId)!;
   assert.deepEqual(message.metadata?.featureSource, { featureId: "news", itemIds: [item!.id] });
   assert.ok(message.content.includes("原文 <untrusted> 保留"));
@@ -71,29 +77,29 @@ test("news discussions carry durable source; feedback goes back only through tha
   assert.equal((await service.features.feedbackExamples("news"))[0]?.reaction, "like");
   await service.features.bind("news", "unrelated");
   assert.equal((await service.features.feedbackExamples("news"))[0]?.reaction, "like");
-  await call("/api/spaces/local-main/reset", "POST", {});
+  await call("/api/agents/local-main/reset", "POST", {});
   assert.deepEqual(await service.features.feedbackExamples("news"), []);
   assert.equal((await service.news.getArticle(item!.id)).article.feedback.reaction, "dislike");
 });
 
-test("SMS facade stores independent information and does not change ordinary-space settings or records", async (t) => {
+test("SMS facade stores independent information and does not change ordinary-agent settings or records", async (t) => {
   const { service, call } = await start(t);
   await service.information.saveSettings("local-main", { enabled: true, batchWindowSeconds: 3600 });
-  const original = await service.information.ingest("local-main", [{ source: "sms", externalId: "old-item", content: "历史普通空间信息" }]);
+  const original = await service.information.ingest("local-main", [{ source: "sms", externalId: "old-item", content: "历史普通智能体信息" }]);
   const settings = await call("/api/features/sms/settings");
   assert.deepEqual(await settings.json(), { enabled: false, batchWindowSeconds: 15 });
   assert.equal((await call("/api/features/sms/settings", "PUT", { enabled: true, batchWindowSeconds: 3600 })).status, 200);
   const input = { items: [{ source: "sms", externalId: "new-item", content: "新短信独立保存" }] };
   const first = await call("/api/features/sms/items", "POST", input);
   assert.equal(first.status, 200);
-  const firstBody = await first.json() as { items: { id: string; spaceId: string }[] };
-  assert.equal(firstBody.items[0]!.spaceId, FEATURE_SPACES.sms);
+  const firstBody = await first.json() as { items: { id: string; agentId: string }[] };
+  assert.equal(firstBody.items[0]!.agentId, FEATURE_AGENTS.sms);
   assert.deepEqual(await (await call("/api/features/sms/items", "POST", input)).json(), firstBody);
   assert.equal((await call("/api/features/sms/items", "POST", { items: [{ source: "rss", externalId: "invalid", content: "invalid" }] })).status, 400);
   assert.equal((await call("/api/features/sms/items?limit=1&limit=2")).status, 400);
   assert.equal((await call("/api/features/sms/runs?limit=1&limit=2")).status, 400);
   assert.equal((await service.information.listItems("local-main", { limit: 10 })).items[0]?.id, original[0]!.id);
-  assert.deepEqual((await (await call("/api/spaces")).json() as { spaces: { id: string }[] }).spaces.map((s) => s.id), ["local-main"]);
+  assert.deepEqual((await (await call("/api/agents")).json() as { agents: { id: string }[] }).agents.map((s) => s.id), ["local-main", "news-internal", "sms-internal"]);
 });
 
 test("feature source remains verified when ordinary information is disabled, never promoted from text", () => {
@@ -114,9 +120,9 @@ test("feature source remains verified when ordinary information is disabled, nev
 
 test("feature delivery sources and feedback links survive service restart", async (t) => {
   const { root, service } = await start(t);
-  const [item] = await service.information.ingestNews(FEATURE_SPACES.news, [{ source: "feed", externalId: "restart-source", title: "持久来源", content: "隔离验收原文", metadata: { sourceId: "feed", sourceTitle: "来源", url: null } }]);
+  const [item] = await service.information.ingestNews(FEATURE_AGENTS.news, [{ source: "feed", externalId: "restart-source", title: "持久来源", content: "隔离验收原文", metadata: { sourceId: "feed", sourceTitle: "来源", url: null } }]);
   const receipt = await service.features.discussNews(item!.id);
-  await (await service.conversationHub.forSpace("local-main")).messages.setReaction(receipt.sessionId, receipt.messageId, "dislike");
+  await (await service.conversationHub.forAgent("local-main")).messages.setReaction(receipt.sessionId, receipt.messageId, "dislike");
   await service.close();
   const reopened = await createService(configFor(root));
   try {

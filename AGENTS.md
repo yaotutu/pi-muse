@@ -1,6 +1,6 @@
 # AGENTS.md — pi-muse 服务端开发入口
 
-基于 pi 的个人助手服务端：单用户、多 space、单业务模型；每个 space 绑定独立 pi 会话。`web/` 只是接口与 renderer 联调工作台，不是移动端产品；不做多用户、多 channel 或 OpenMuse/CopilotKit 宿主兼容层。
+基于 pi 的个人助手服务端：单用户、多 agent、单业务模型；每个 agent 绑定独立 pi 会话。`web/` 只是接口与 renderer 联调工作台，不是移动端产品；不做多用户、多 channel 或 OpenMuse/CopilotKit 宿主兼容层。
 
 所有开发工作先读[根规则](../AGENTS.md)与[Agent 协作指南](docs/agent-workflow-guide.md)，再按下表读取专项文档。链接不代表内容已自动加载；跨层任务要读完所有适用项。
 
@@ -22,7 +22,7 @@
 - 使用 Node.js 24+ 与 `package.json` 声明的 pnpm 版本；依赖安装与脚本以当前工程定义为准，不改全局工具配置。
 - JS/TS 优先函数式工厂和显式依赖注入，不引入 DI 框架、空壳抽象、万能 `utils.ts`、通用插件框架或事件总线。
 - 交互、HTTP、AG-UI 报文与工具卡先核对自有 `web/` 和 `src/http/contracts/`；能力语义、调度、副作用与失败策略先核对 nanobot 源码再适配 pi。冲突时不改 pi 底层、不用假数据伪装兼容，明确差异并记录。
-- pi 的 `createAgentSession` 是执行循环、工具执行与持久化权威：不手写第二套 agent loop，不修改 pi 底层。各 thread 的 SessionManager/JSONL 是聊天正文、附件事实与工具结果唯一历史；Pi Muse 自有业务事实使用独立 repository，不为存储这些事实 append 到 PI branch、隐式注入模型上下文或改变会话 revision。显式信息处理与只读工具查询的消费边界见架构规范。
+- pi 的 `createAgentSession` 是执行循环、工具执行与持久化权威：不手写第二套 agent loop，不修改 pi 底层。各 agent 的 SessionManager/JSONL 是聊天正文、附件事实与工具结果唯一历史；Pi Muse 自有业务事实使用独立 repository，不为存储这些事实 append 到 PI branch、隐式注入模型上下文或改变会话 revision。显式信息处理与只读工具查询的消费边界见架构规范。
 - 开发用子 Agent 与产品内 subagent 是两套机制；开发委派不增加产品能力或权限。产品内新增网络、文件、MCP、委托等能力前，先定义权限、审批与错误边界，注册工具名不等于授权。
 
 ## 安全与数据边界
@@ -31,7 +31,7 @@
 - 模型 API Key 只留在受保护实例配置与服务端内存，不写日志、不返回客户端、不进会话文件；备份按敏感凭据处理。
 - Web 抓取默认仅允许公网 HTTP(S)，保留 DNS/固定 IP/重定向/大小/超时等 SSRF 防护，外部内容标记不可信；私网例外必须显式配置，不能顺带关闭其他保护。
 - 模型/工具错误在进入模型上下文和 pi 持久化前脱敏，仅受控拒绝文案可透传；不能只清洗 SSE。
-- 普通文件工具仅访问当前 thread 私有根与显式 `shared/...`；无父目录特权，不允许越界或符号链接绕过，技能读取例外见架构规范。
+- 普通文件工具仅访问当前 agent 私有根与显式 `shared/...`；无父目录特权，不允许越界或符号链接绕过，技能读取例外见架构规范。
 - 单进程绑定单 DATA_DIR，保留 AccessKey 鉴权。仅缺失数据文件可初始化；损坏或非法数据必须报错，不得静默置空、过滤坏条目或删文件消除错误。
 - 未经明确授权不修改真实 `.pi-muse/`、备份、凭据或 OpenMuse 仓库；测试与临时验收使用独立临时实例。开发进程启停、模块收尾与本地提交按根规则长期授权执行。
 

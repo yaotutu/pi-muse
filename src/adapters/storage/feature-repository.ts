@@ -1,14 +1,14 @@
 import { readFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
-import { defaultFeatureState, isFeatureSpace, type FeatureRepository, type FeatureState } from "../../features/feature-spaces/types.js";
+import { defaultFeatureState, type FeatureRepository, type FeatureState } from "../../features/agent-extensions/types.js";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
 import { writeJsonDocument } from "./json-document.js";
-const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/).refine((value) => !isFeatureSpace(value));
+const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
 const schema = z.strictObject({
   schemaVersion: z.literal(1),
   bindings: z.strictObject({ news: id, sms: id }),
-  links: z.array(z.strictObject({ featureId: z.enum(["news", "sms"]), itemIds: z.array(z.string().min(1).max(128)).min(1).max(20), spaceId: id, sessionId: z.string().min(1).max(128), messageId: z.string().min(1).max(200) })),
+  links: z.array(z.strictObject({ featureId: z.enum(["news", "sms"]), itemIds: z.array(z.string().min(1).max(128)).min(1).max(20), agentId: id, sessionId: z.string().min(1).max(128), messageId: z.string().min(1).max(200) })),
 });
 const parse = (value: unknown): FeatureState => {
   const parsed = schema.safeParse(value);

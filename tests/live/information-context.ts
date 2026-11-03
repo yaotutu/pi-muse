@@ -90,24 +90,24 @@ const execute = async (options: { configPath: string }) => {
       assert.equal(result.status, 200, `${path} returned ${result.status}`);
       return result;
     };
-    const saveSettings = (spaceId: string, enabled: boolean) =>
-      expectApi(`/api/spaces/${spaceId}/information/settings`, {
+    const saveSettings = (agentId: string, enabled: boolean) =>
+      expectApi(`/api/agents/${agentId}/information/settings`, {
         method: "PUT",
         body: JSON.stringify({ enabled, batchWindowSeconds: 3600 }),
       });
-    const establishSpace = (spaceId: string) =>
-      expectApi(`/api/spaces/${spaceId}/instructions`, {
+    const establishAgent = (agentId: string) =>
+      expectApi(`/api/agents/${agentId}/instructions`, {
         method: "PUT",
-        body: JSON.stringify({ instructions: "Information context live test space." }),
+        body: JSON.stringify({ instructions: "Information context live test agent." }),
       });
-    const history = async (spaceId: string) =>
-      conversationResponse.parse((await expectApi(`/api/conversation?spaceId=${spaceId}`)).body);
-    const startChat = async (spaceId: string, marker: string) => {
-      const before = await history(spaceId);
+    const history = async (agentId: string) =>
+      conversationResponse.parse((await expectApi(`/api/conversation?agentId=${agentId}`)).body);
+    const startChat = async (agentId: string, marker: string) => {
+      const before = await history(agentId);
       const result = await api("/api/conversation/run", {
         method: "POST",
         body: JSON.stringify({
-          spaceId,
+          agentId,
           runId: `live-info-context-${randomUUID()}`,
           expectedRevision: before.revision,
           message: {
@@ -119,9 +119,9 @@ const execute = async (options: { configPath: string }) => {
       assert.equal(result.status, 200, `chat HTTP ${result.status}`);
       assert.ok(sseFinished(result.text), `chat ${marker} did not finish successfully`);
     };
-    const checkCapability = async (label: string, spaceId: string, enabled: boolean, marker: string) => {
+    const checkCapability = async (label: string, agentId: string, enabled: boolean, marker: string) => {
       const baseline = proxy!.traces.length;
-      await startChat(spaceId, marker);
+      await startChat(agentId, marker);
       const requests = proxy!.traces.slice(baseline);
       assert.ok(requests.length > 0, `${label}: no real model request`);
       for (const request of requests) {
@@ -138,23 +138,23 @@ const execute = async (options: { configPath: string }) => {
 
     const main = "local-main";
     const other = "live-information-context-closed";
-    await establishSpace(main);
-    const initialSettings = (await expectApi(`/api/spaces/${main}/information/settings`)).body as { enabled: boolean };
-    assert.equal(initialSettings.enabled, false, "new main space must default to information disabled");
-    await checkCapability("default-disabled-space", main, false, "LIVE_INFORMATION_CONTEXT_CLOSED");
+    await establishAgent(main);
+    const initialSettings = (await expectApi(`/api/agents/${main}/information/settings`)).body as { enabled: boolean };
+    assert.equal(initialSettings.enabled, false, "new main agent must default to information disabled");
+    await checkCapability("default-disabled-agent", main, false, "LIVE_INFORMATION_CONTEXT_CLOSED");
 
     await saveSettings(main, true);
-    await checkCapability("enabled-space", main, true, "LIVE_INFORMATION_CONTEXT_ENABLED");
+    await checkCapability("enabled-agent", main, true, "LIVE_INFORMATION_CONTEXT_ENABLED");
 
-    await establishSpace(other);
+    await establishAgent(other);
     await saveSettings(other, false);
-    await checkCapability("other-disabled-space", other, false, "LIVE_INFORMATION_CONTEXT_OTHER_CLOSED");
+    await checkCapability("other-disabled-agent", other, false, "LIVE_INFORMATION_CONTEXT_OTHER_CLOSED");
 
     await saveSettings(main, false);
     await checkCapability("disabled-after-enable", main, false, "LIVE_INFORMATION_CONTEXT_DISABLED");
 
     await saveSettings(main, true);
-    await checkCapability("reenabled-space", main, true, "LIVE_INFORMATION_CONTEXT_REENABLED");
+    await checkCapability("reenabled-agent", main, true, "LIVE_INFORMATION_CONTEXT_REENABLED");
   } catch (error) {
     executionError = error;
     throw error;

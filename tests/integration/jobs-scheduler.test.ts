@@ -56,7 +56,7 @@ test("deleted job snapshot cannot execute after asynchronous destination resolut
   t.after(async () => { resume(); await scheduler.close(); });
   scheduler.start();
   await waitFor(() => reached);
-  await jobs.removeByOriginSpaceId("deleted");
+  await jobs.removeByOriginAgentId("deleted");
   resume();
   await waitFor(() => !scheduler.isBusy());
   await scheduler.close();
@@ -197,21 +197,21 @@ test("restart rereads stored outcomes and schedules only future work", async (t)
   assert.equal(calls, 2, "restart neither replays completed work nor catches up missed schedules");
 });
 
-test("scheduler dispatches to originSpaceId and skips busy origin while letting other threads run", async (t) => {
+test("scheduler dispatches to originAgentId and skips busy origin while letting other agents run", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "personal-bot-scheduler-multi-"));
   const file = join(directory, "jobs.json");
   const jobs = createJobService(createJobRepository(file));
-  const threadRuns: Record<string, number> = { "thread-a": 0, "thread-b": 0 };
-  let threadABusy = true;
+  const agentRuns: Record<string, number> = { "agent-a": 0, "agent-b": 0 };
+  let agentABusy = true;
 
   const conversationMap: Record<string, Pick<Conversation, "isRunning" | "trigger">> = {
-    "thread-a": {
-      isRunning: () => threadABusy,
-      trigger: async () => { threadRuns["thread-a"]++; return { status: "completed", text: "done" }; },
+    "agent-a": {
+      isRunning: () => agentABusy,
+      trigger: async () => { agentRuns["agent-a"]++; return { status: "completed", text: "done" }; },
     },
-    "thread-b": {
+    "agent-b": {
       isRunning: () => false,
-      trigger: async () => { threadRuns["thread-b"]++; return { status: "completed", text: "done" }; },
+      trigger: async () => { agentRuns["agent-b"]++; return { status: "completed", text: "done" }; },
     },
   };
 
@@ -224,7 +224,7 @@ test("scheduler dispatches to originSpaceId and skips busy origin while letting 
     { schedulerIntervalMs: 10 },
     jobs,
     defaultConv,
-    async (threadId) => conversationMap[threadId] ?? defaultConv,
+    async (agentId) => conversationMap[agentId] ?? defaultConv,
   );
 
   t.after(async () => {
@@ -232,32 +232,32 @@ test("scheduler dispatches to originSpaceId and skips busy origin while letting 
     finally { await rm(directory, { recursive: true, force: true }); }
   });
 
-  // 添加属于 thread-a 和 thread-b 的即刻到期任务
+  // 添加属于 agent-a 和 agent-b 的即刻到期任务
   const past = new Date(0).toISOString();
-  await jobs.add("job for a", false, past, "thread-a");
-  await jobs.add("job for b", false, past, "thread-b");
+  await jobs.add("job for a", false, past, "agent-a");
+  await jobs.add("job for b", false, past, "agent-b");
 
   scheduler.start();
 
-  // thread-b 应该顺利运行并完成，而 thread-a 正在 busy 所以被跳过
+  // agent-b 应该顺利运行并完成，而 agent-a 正在 busy 所以被跳过
   await waitFor(async () => {
     const list = await jobs.list();
-    const jobB = list.find((j) => j.originSpaceId === "thread-b");
+    const jobB = list.find((j) => j.originAgentId === "agent-b");
     return jobB?.lastStatus === "completed";
   });
 
-  assert.equal(threadRuns["thread-b"], 1);
-  assert.equal(threadRuns["thread-a"], 0);
+  assert.equal(agentRuns["agent-b"], 1);
+  assert.equal(agentRuns["agent-a"], 0);
 
-  // 解除 thread-a 的 busy
-  threadABusy = false;
+  // 解除 agent-a 的 busy
+  agentABusy = false;
 
-  // 等待 thread-a 触发并完成
+  // 等待 agent-a 触发并完成
   await waitFor(async () => {
     const list = await jobs.list();
-    const jobA = list.find((j) => j.originSpaceId === "thread-a");
+    const jobA = list.find((j) => j.originAgentId === "agent-a");
     return jobA?.lastStatus === "completed";
   });
 
-  assert.equal(threadRuns["thread-a"], 1);
+  assert.equal(agentRuns["agent-a"], 1);
 });

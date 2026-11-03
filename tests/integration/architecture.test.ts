@@ -28,7 +28,7 @@ const dueJob = (id = "test-job"): Job => ({
   enabled: true,
   createdAt: new Date(0).toISOString(),
   nextRunAt: new Date(0).toISOString(),
-  originSpaceId: "local-main",
+  originAgentId: "local-main",
 });
 const schedulerConfig = createConfig({ runtime: { schedulerIntervalMs: 10 } });
 // 调度器只需三个方法；生产会话仍由组合入口创建，不为测试另造执行内核。
@@ -472,7 +472,7 @@ test("HTTP construction does not own or implicitly restart the scheduler", async
   await service.monitorScheduler.close();
   t.mock.timers.enable({ apis: ["setInterval"] });
   const scans = t.mock.method(service.jobs, "list");
-  const main = await service.conversationHub.forThread("local-main");
+  const main = await service.conversationHub.forAgent("local-main");
   const triggers = t.mock.method(main, "trigger");
   const app = await createHttpApp(service);
   t.mock.timers.tick(60_000);
@@ -497,7 +497,7 @@ test("HTTP and pi tools use the same composed stores; conversation exposes no st
       finally { await rm(dataDir, { recursive: true, force: true }); }
     }
   });
-  const main = await service.conversationHub.forThread("local-main");
+  const main = await service.conversationHub.forAgent("local-main");
   assert.equal("memory" in main, false);
   assert.equal("jobs" in main, false);
   const memoryWrites = t.mock.method(service.memory, "add");
@@ -511,14 +511,14 @@ test("HTTP and pi tools use the same composed stores; conversation exposes no st
   })).status, 200);
   assert.equal(memoryWrites.mock.callCount(), 1);
   const run = async (content: string, id: string) => main.run({
-    spaceId: "local-main", runId: id,
+    agentId: "local-main", runId: id,
     expectedRevision: (await main.snapshot()).revision, message: { id, content },
   }, () => {});
   await run("记住我喜欢喝茶", "memory-turn");
   assert.equal(memoryWrites.mock.callCount(), 2, "pi tool must share the UI writer");
   await run("提醒我喝茶", "schedule-turn");
   assert.equal(jobWrites.mock.callCount(), 1);
-  const snapshot = await (await service.app.request("/api/agent", { headers })).json();
+  const snapshot = await (await service.app.request("/api/identity", { headers })).json();
   assert.equal(Object.hasOwn(snapshot, "memories"), false);
   const memoriesRes = await (await service.app.request("/api/memories", { headers })).json();
   assert.equal(memoriesRes.memories.length, 2);
@@ -549,7 +549,7 @@ test("service close cancels a running scheduled pi turn before draining its stat
     try { await closeProvider(); await service.close(); }
     finally { await rm(dataDir, { recursive: true, force: true }); }
   });
-  const main = await service.conversationHub.forThread("local-main");
+  const main = await service.conversationHub.forAgent("local-main");
   const trigger = main.trigger;
   t.mock.method(main, "trigger", (_text: string, id: string) => trigger("freeze", id));
   const job = await service.jobs.add("test close", false, new Date(0).toISOString(), "local-main");

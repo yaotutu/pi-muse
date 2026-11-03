@@ -1,6 +1,6 @@
 import { lstat, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { isSpaceId } from "../../features/conversation/space-id.js";
+import { isAgentId } from "../../features/conversation/agent-id.js";
 
 /**
  * 统一描述个人助手的数据文件布局。
@@ -61,60 +61,65 @@ export const createDataLayout = (dataDir: string): DataLayout => {
   };
 };
 
-/** 单 owner 多会话：每个 thread 独占 sessions/<threadId>/ 下的 pi 会话树。 */
-export const spaceSessionsDir = (layout: DataLayout, spaceId: string) =>
-  join(layout.sessionsDir, spaceId);
-export const threadSessionsDir = spaceSessionsDir;
-
-/** 跨空间讨论归目标空间所有；与该空间主聊天的 JSONL 分开，reset/delete 一并清理。 */
-export const spaceDiscussionsDir = (layout: DataLayout, spaceId: string) => {
-  if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
-  return join(spaceSessionsDir(layout, spaceId), "discussions");
+/** 旧布局不参与运行时读取；必须先停服显式转换，不能悄悄创建一套空工作区。 */
+export const assertAgentDataLayout = async (layout: DataLayout) => {
+  try {
+    await lstat(join(layout.workspaceDir, "threads"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error("Legacy Space data layout detected. Stop the service and explicitly convert a backup before starting the Agent version; no data was migrated.");
 };
-export const spaceDiscussionDir = (layout: DataLayout, spaceId: string, discussionId: string) => {
+
+/** 单 owner 多会话：每个 agent 独占 sessions/<agentId>/ 下的 pi 会话树。 */
+export const agentSessionsDir = (layout: DataLayout, agentId: string) =>
+  join(layout.sessionsDir, agentId);
+
+/** 跨智能体讨论归目标智能体所有；与该智能体主聊天的 JSONL 分开，reset/delete 一并清理。 */
+export const agentDiscussionsDir = (layout: DataLayout, agentId: string) => {
+  if (!isAgentId(agentId)) throw new Error("Invalid agentId");
+  return join(agentSessionsDir(layout, agentId), "discussions");
+};
+export const agentDiscussionDir = (layout: DataLayout, agentId: string, discussionId: string) => {
   if (!/^[a-f0-9-]{36}$/.test(discussionId)) throw new Error("Invalid discussionId");
-  return join(spaceDiscussionsDir(layout, spaceId), discussionId);
+  return join(agentDiscussionsDir(layout, agentId), discussionId);
 };
 
-/** 反馈按空间和 PI session 双重隔离；reset 后旧 session 文件不再可寻址。 */
-export const messageFeedbackFile = (layout: DataLayout, spaceId: string, sessionId: string): string => {
-  if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId / Invalid threadId");
+/** 反馈按智能体和 PI session 双重隔离；reset 后旧 session 文件不再可寻址。 */
+export const messageFeedbackFile = (layout: DataLayout, agentId: string, sessionId: string): string => {
+  if (!isAgentId(agentId)) throw new Error("Invalid agentId");
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(sessionId)) throw new Error("Invalid sessionId");
-  return join(layout.messageFeedbackDir, spaceId, `${sessionId}.json`);
+  return join(layout.messageFeedbackDir, agentId, `${sessionId}.json`);
 };
 
-/** 每个会话的技能覆盖文件：sessions/<threadId>/skills.json */
-export const spaceSkillsFile = (layout: DataLayout, spaceId: string) =>
-  join(spaceSessionsDir(layout, spaceId), "skills.json");
-export const threadSkillsFile = spaceSkillsFile;
+/** 每个会话的技能覆盖文件：sessions/<agentId>/skills.json */
+export const agentSkillsFile = (layout: DataLayout, agentId: string) =>
+  join(agentSessionsDir(layout, agentId), "skills.json");
 
-/** 每个会话的专属指令文件：sessions/<threadId>/INSTRUCTIONS.md */
-export const spaceInstructionsFile = (layout: DataLayout, spaceId: string) =>
-  join(spaceSessionsDir(layout, spaceId), "INSTRUCTIONS.md");
-export const threadInstructionsFile = spaceInstructionsFile;
+/** 每个会话的专属指令文件：sessions/<agentId>/INSTRUCTIONS.md */
+export const agentInstructionsFile = (layout: DataLayout, agentId: string) =>
+  join(agentSessionsDir(layout, agentId), "INSTRUCTIONS.md");
 
-/** 每个会话的 Dream 补充提示词：sessions/<threadId>/DREAM.md */
-export const spaceDreamPromptFile = (layout: DataLayout, spaceId: string) =>
-  join(spaceSessionsDir(layout, spaceId), "DREAM.md");
-export const threadDreamPromptFile = spaceDreamPromptFile;
+/** 每个会话的 Dream 补充提示词：sessions/<agentId>/DREAM.md */
+export const agentDreamPromptFile = (layout: DataLayout, agentId: string) =>
+  join(agentSessionsDir(layout, agentId), "DREAM.md");
 
-/** 每个会话的 Dream 状态文件：sessions/<threadId>/dream.json */
-export const spaceDreamFile = (layout: DataLayout, spaceId: string) =>
-  join(spaceSessionsDir(layout, spaceId), "dream.json");
-export const threadDreamFile = spaceDreamFile;
+/** 每个会话的 Dream 状态文件：sessions/<agentId>/dream.json */
+export const agentDreamFile = (layout: DataLayout, agentId: string) =>
+  join(agentSessionsDir(layout, agentId), "dream.json");
 
 /** 信息接入域独立于 PI 会话；reset 保留，delete 级联删除。 */
-export const spaceInformationFile = (layout: DataLayout, spaceId: string): string => {
-  if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
-  return join(layout.informationDir, `${spaceId}.json`);
+export const agentInformationFile = (layout: DataLayout, agentId: string): string => {
+  if (!isAgentId(agentId)) throw new Error("Invalid agentId");
+  return join(layout.informationDir, `${agentId}.json`);
 };
 
-/** workspace/ 与 threads/ 仅为容器；空间与内部任务没有父目录访问特权。 */
-export const spaceWorkspaceDir = (layout: DataLayout, spaceId: string) => {
-  if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId / Invalid threadId");
-  return join(layout.workspaceDir, "threads", spaceId);
+/** workspace/ 与 agents/ 仅为容器；智能体与内部任务没有父目录访问特权。 */
+export const agentWorkspaceDir = (layout: DataLayout, agentId: string) => {
+  if (!isAgentId(agentId)) throw new Error("Invalid agentId");
+  return join(layout.workspaceDir, "agents", agentId);
 };
-export const threadWorkspaceDir = spaceWorkspaceDir;
 
 /** 所有会话通过 shared/ 别名显式访问的共享目录，不在私有目录内建立链接。 */
 export const sharedWorkspaceDir = (layout: DataLayout) =>
@@ -131,23 +136,21 @@ const ensureWorkspaceDirectory = async (directory: string) => {
 };
 
 /** 只初始化新布局，不读取、搬移或删除原 workspace 根目录下的旧文件。 */
-export const ensureSpaceLayout = async (layout: DataLayout) => {
+export const ensureAgentLayout = async (layout: DataLayout) => {
   await mkdir(layout.root, { recursive: true, mode: 0o700 });
   await mkdir(layout.profileDir, { recursive: true, mode: 0o700 });
   await mkdir(layout.sessionsDir, { recursive: true, mode: 0o700 });
   await ensureWorkspaceDirectory(layout.workspaceDir);
-  await ensureWorkspaceDirectory(join(layout.workspaceDir, "threads"));
+  await ensureWorkspaceDirectory(join(layout.workspaceDir, "agents"));
   await ensureWorkspaceDirectory(sharedWorkspaceDir(layout));
-  await ensureWorkspaceDirectory(spaceWorkspaceDir(layout, "local-main"));
+  await ensureWorkspaceDirectory(agentWorkspaceDir(layout, "local-main"));
 };
-export const ensureThreadLayout = ensureSpaceLayout;
 
-/** 从容器到私有根逐级拒绝链接，避免初始化本身跟随链接替其他空间创建目录。 */
-export const ensureSpaceWorkspace = async (layout: DataLayout, spaceId: string) => {
-  const directory = spaceWorkspaceDir(layout, spaceId);
+/** 从容器到私有根逐级拒绝链接，避免初始化本身跟随链接替其他智能体创建目录。 */
+export const ensureAgentWorkspace = async (layout: DataLayout, agentId: string) => {
+  const directory = agentWorkspaceDir(layout, agentId);
   await ensureWorkspaceDirectory(layout.workspaceDir);
-  await ensureWorkspaceDirectory(join(layout.workspaceDir, "threads"));
+  await ensureWorkspaceDirectory(join(layout.workspaceDir, "agents"));
   await ensureWorkspaceDirectory(sharedWorkspaceDir(layout));
   await ensureWorkspaceDirectory(directory);
 };
-export const ensureThreadWorkspace = ensureSpaceWorkspace;

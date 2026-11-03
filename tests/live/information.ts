@@ -146,41 +146,41 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       return result;
     };
     serviceVersion = ((await expectApi("health", "/api/health", 200)).body as { serviceVersion?: unknown }).serviceVersion;
-    const history = async (spaceId: string) =>
-      conversationResponse.parse((await expectApi("history", `/api/conversation?spaceId=${spaceId}`, 200)).body);
-    const setupSpace = async (
-      spaceId: string,
+    const history = async (agentId: string) =>
+      conversationResponse.parse((await expectApi("history", `/api/conversation?agentId=${agentId}`, 200)).body);
+    const setupAgent = async (
+      agentId: string,
       settings: { enabled: boolean; batchWindowSeconds: number },
       instructions: string,
     ) => {
-      await expectApi("instructions", `/api/spaces/${spaceId}/instructions`, 200, {
+      await expectApi("instructions", `/api/agents/${agentId}/instructions`, 200, {
         method: "PUT", body: JSON.stringify({ instructions }),
       });
-      await expectApi("settings", `/api/spaces/${spaceId}/information/settings`, 200, {
+      await expectApi("settings", `/api/agents/${agentId}/information/settings`, 200, {
         method: "PUT", body: JSON.stringify(settings),
       });
     };
-    const ingest = async (spaceId: string, items: Array<{ source: string; externalId: string; content: string; title?: string; receivedAt?: string }>) => {
-      const result = await expectApi("ingest", `/api/spaces/${spaceId}/information/items`, 200, {
+    const ingest = async (agentId: string, items: Array<{ source: string; externalId: string; content: string; title?: string; receivedAt?: string }>) => {
+      const result = await expectApi("ingest", `/api/agents/${agentId}/information/items`, 200, {
         method: "POST", body: JSON.stringify({ items }),
       });
       return (result.body as { items: Array<{ id: string; content: string; status: string }> }).items;
     };
-    const runDetail = async (spaceId: string, runId: string) =>
-      (await expectApi("run detail", `/api/spaces/${spaceId}/information/runs/${runId}`, 200)).body as InformationRunDetail;
-    const latestRun = async (spaceId: string, status?: string): Promise<InformationRun | undefined> => {
+    const runDetail = async (agentId: string, runId: string) =>
+      (await expectApi("run detail", `/api/agents/${agentId}/information/runs/${runId}`, 200)).body as InformationRunDetail;
+    const latestRun = async (agentId: string, status?: string): Promise<InformationRun | undefined> => {
       const query = status ? `?status=${status}` : "";
-      const page = (await expectApi("runs", `/api/spaces/${spaceId}/information/runs${query}`, 200)).body as { runs: InformationRun[] };
+      const page = (await expectApi("runs", `/api/agents/${agentId}/information/runs${query}`, 200)).body as { runs: InformationRun[] };
       return page.runs[0];
     };
-    const runInformation = (spaceId: string) =>
-      api(`/api/spaces/${spaceId}/information/runs`, { method: "POST", body: "{}" });
-    const startChat = async (spaceId: string, prompt: string) => {
-      const before = await history(spaceId);
+    const runInformation = (agentId: string) =>
+      api(`/api/agents/${agentId}/information/runs`, { method: "POST", body: "{}" });
+    const startChat = async (agentId: string, prompt: string) => {
+      const before = await history(agentId);
       const result = await api("/api/conversation/run", {
         method: "POST",
         body: JSON.stringify({
-          spaceId,
+          agentId,
           runId: `live-info-chat-${randomUUID()}`,
           expectedRevision: before.revision,
           message: { id: `live-info-user-${randomUUID()}`, content: prompt },
@@ -200,19 +200,19 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       process.stdout.write(`[PASS] ${name}\n`);
     };
 
-      const mainSpace = "live-information-main";
+      const mainAgent = "live-information-main";
       const policy = [
-        "Information processing policy for this test space:",
+        "Information processing policy for this test agent:",
         "- Notify only for URGENT items that require the user to act now.",
         "- Prefer one aggregated notification when several urgent items belong to the same batch.",
         "- Keep routine logs and unchanged status reports silent.",
       ].join("\n");
-      await setupSpace(mainSpace, { enabled: true, batchWindowSeconds: 3600 }, policy);
+      await setupAgent(mainAgent, { enabled: true, batchWindowSeconds: 3600 }, policy);
       assert.deepEqual(
-        (await expectApi("default readback", `/api/spaces/${mainSpace}/information/settings`, 200)).body,
+        (await expectApi("default readback", `/api/agents/${mainAgent}/information/settings`, 200)).body,
         { enabled: true, batchWindowSeconds: 3600 },
       );
-      await expectApi("notes", `/api/spaces/${mainSpace}/information/preferences`, 200, {
+      await expectApi("notes", `/api/agents/${mainAgent}/information/preferences`, 200, {
         method: "PUT", body: JSON.stringify({ notes: "Prefer concise notifications with source and action." }),
       });
 
@@ -221,17 +221,17 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         { source: "live-log", externalId: "mixed-routine", content: "ROUTINE: daily disk usage remained stable; no action is required." },
         { source: "live-feed", externalId: "mixed-urgent-2", content: "URGENT: live test dependency has a confirmed vulnerability and needs an upgrade now.", title: "Dependency upgrade" },
       ];
-      const mixedItems = await ingest(mainSpace, mixedInputs);
-      const repeat = await ingest(mainSpace, [mixedInputs[0]!]);
+      const mixedItems = await ingest(mainAgent, mixedInputs);
+      const repeat = await ingest(mainAgent, [mixedInputs[0]!]);
       assert.equal(repeat[0]?.id, mixedItems[0]?.id);
-      const conflict = await api(`/api/spaces/${mainSpace}/information/items`, {
+      const conflict = await api(`/api/agents/${mainAgent}/information/items`, {
         method: "POST", body: JSON.stringify({ items: [{ ...mixedInputs[0]!, content: "different raw content" }] }),
       });
       assert.equal(conflict.status, 409);
 
-      const baselineHistory = await history(mainSpace);
+      const baselineHistory = await history(mainAgent);
       const baselineTraces = proxy.traces.length;
-      const mixedRunResult = await runInformation(mainSpace);
+      const mixedRunResult = await runInformation(mainAgent);
       assert.equal(mixedRunResult.status, 200);
       const mixedRun = mixedRunResult.body as InformationRunDetail;
       assert.equal(mixedRun.run.status, "completed");
@@ -245,7 +245,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       assert.equal(publication?.status, "published");
       assert.deepEqual(new Set(publication?.itemIds), new Set([mixedItems[0]!.id, mixedItems[2]!.id]));
       assert.ok(publication?.receipt?.sessionId && publication.receipt.messageId);
-      const notifiedHistory = await history(mainSpace);
+      const notifiedHistory = await history(mainAgent);
       const notification = notifiedHistory.messages.find((message) => message.id === publication?.receipt?.messageId);
       assert.equal(notification?.metadata?.source, "notification");
       assert.equal(notification?.metadata?.notificationId, publication?.notificationId);
@@ -263,18 +263,18 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         modelRequests: mixedTraces.length,
       });
 
-      const silentBefore = await history(mainSpace);
+      const silentBefore = await history(mainAgent);
       const silentTracesBefore = proxy.traces.length;
-      const silentItems = await ingest(mainSpace, [
+      const silentItems = await ingest(mainAgent, [
         { source: "live-log", externalId: "silent-1", content: "ROUTINE: cleanup job completed with no changes." },
         { source: "live-log", externalId: "silent-2", content: "ROUTINE: cache hit ratio stayed in the normal range." },
       ]);
-      const silentRunResult = await runInformation(mainSpace);
+      const silentRunResult = await runInformation(mainAgent);
       assert.equal(silentRunResult.status, 200);
       const silentRun = silentRunResult.body as InformationRunDetail;
       assert.deepEqual(silentRun.run.decisions?.map((decision) => decision.decision), ["silent", "silent"]);
       assert.deepEqual(silentRun.run.publications, []);
-      const silentAfter = await history(mainSpace);
+      const silentAfter = await history(mainAgent);
       assert.equal(silentAfter.revision, silentBefore.revision);
       assert.equal(silentAfter.messages.length, silentBefore.messages.length);
       const silentTraces = proxy.traces.slice(silentTracesBefore).filter((trace) => trace.toolNames.includes("submit_information_result"));
@@ -283,17 +283,17 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
       const feedbackMessageId = publication!.receipt!.messageId;
       const feedbackSessionId = publication!.receipt!.sessionId;
-      const addComment = await expectApi("feedback comment", `/api/spaces/${mainSpace}/messages/${feedbackMessageId}/feedback/comments`, 200, {
+      const addComment = await expectApi("feedback comment", `/api/agents/${mainAgent}/messages/${feedbackMessageId}/feedback/comments`, 200, {
         method: "POST", body: JSON.stringify({ sessionId: feedbackSessionId, text: "stale feedback wording" }),
       });
       const comments = (addComment.body as { comments: Array<{ id: string }> }).comments;
-      await expectApi("edit feedback comment", `/api/spaces/${mainSpace}/messages/${feedbackMessageId}/feedback/comments/${comments.at(-1)!.id}`, 200, {
+      await expectApi("edit feedback comment", `/api/agents/${mainAgent}/messages/${feedbackMessageId}/feedback/comments/${comments.at(-1)!.id}`, 200, {
         method: "PATCH", body: JSON.stringify({ sessionId: feedbackSessionId, text: "latest live feedback: keep notifications concise" }),
       });
-      await expectApi("feedback reaction", `/api/spaces/${mainSpace}/messages/${feedbackMessageId}/feedback/reaction`, 200, {
+      await expectApi("feedback reaction", `/api/agents/${mainAgent}/messages/${feedbackMessageId}/feedback/reaction`, 200, {
         method: "PUT", body: JSON.stringify({ sessionId: feedbackSessionId, reaction: "like" }),
       });
-      const preferences = (await expectApi("preferences", `/api/spaces/${mainSpace}/information/preferences`, 200)).body as {
+      const preferences = (await expectApi("preferences", `/api/agents/${mainAgent}/information/preferences`, 200)).body as {
         notes: string;
         feedbackExamples: Array<{ comments: string[]; reaction: string | null; items: Array<{ source: string; content: string }> }>;
       };
@@ -303,10 +303,10 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       assert.ok(preferences.feedbackExamples[0]?.items.some((item) => item.source === "live-feed"));
 
       const feedbackTracesBefore = proxy.traces.length;
-      const feedbackItems = await ingest(mainSpace, [
+      const feedbackItems = await ingest(mainAgent, [
         { source: "live-feed", externalId: "feedback-projection", content: "URGENT: The customer appointment is tomorrow morning and must be confirmed today before 5 PM." },
       ]);
-      const feedbackRunResult = await runInformation(mainSpace);
+      const feedbackRunResult = await runInformation(mainAgent);
       assert.equal(feedbackRunResult.status, 200);
       const feedbackRun = feedbackRunResult.body as InformationRunDetail;
       const feedbackTraces = proxy.traces.slice(feedbackTracesBefore).filter((trace) => backgroundTraces(feedbackRun.run.id).includes(trace));
@@ -318,28 +318,28 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       assert.ok(!modelInput.includes("stale feedback wording"));
       record("current-feedback-projection", { runId: feedbackRun.run.id, modelRequests: feedbackTraces.length, feedbackItemId: feedbackItems[0]?.id });
 
-      const otherSpace = "live-information-other";
-      await setupSpace(otherSpace, { enabled: true, batchWindowSeconds: 3600 }, "Keep information notifications concise.");
-      const otherItems = await ingest(otherSpace, [mixedInputs[0]!]);
+      const otherAgent = "live-information-other";
+      await setupAgent(otherAgent, { enabled: true, batchWindowSeconds: 3600 }, "Keep information notifications concise.");
+      const otherItems = await ingest(otherAgent, [mixedInputs[0]!]);
       assert.notEqual(otherItems[0]?.id, mixedItems[0]?.id);
-      assert.equal((await latestRun(otherSpace)), undefined);
-      const otherRun = await runInformation(otherSpace);
+      assert.equal((await latestRun(otherAgent)), undefined);
+      const otherRun = await runInformation(otherAgent);
       assert.equal(otherRun.status, 200);
-      const mainAfterOther = await latestRun(mainSpace);
+      const mainAfterOther = await latestRun(mainAgent);
       assert.notEqual(mainAfterOther?.id, (otherRun.body as InformationRunDetail).run.id);
-      record("cross-space-isolation", { mainItem: mixedItems[0]?.id, otherItem: otherItems[0]?.id });
+      record("cross-agent-isolation", { mainItem: mixedItems[0]?.id, otherItem: otherItems[0]?.id });
 
       const chatTraceBefore = proxy.traces.length;
-      const chatText = await startChat(mainSpace, "请调用 information 工具查询当前空间的信息处理概览，然后用一句话汇报。不要读取其他空间。");
+      const chatText = await startChat(mainAgent, "请调用 information 工具查询当前智能体的信息处理概览，然后用一句话汇报。不要读取其他智能体。");
       assert.ok(sseFinished(chatText));
       const chatTraces = proxy.traces.slice(chatTraceBefore);
       assert.ok(chatTraces.length > 0);
       assert.ok(chatTraces.every((trace) => trace.systemMarkers.informationBackground));
       const informationCall = chatTraces.flatMap((trace) => trace.calls).find((call) => call.name === "information");
       assert.ok(informationCall, "ordinary chat must actually call information");
-      const informationArgs = JSON.parse(informationCall!.arguments) as { action?: string; spaceId?: string };
+      const informationArgs = JSON.parse(informationCall!.arguments) as { action?: string; agentId?: string };
       assert.equal(informationArgs.action, "overview");
-      assert.equal(informationArgs.spaceId, undefined);
+      assert.equal(informationArgs.agentId, undefined);
       assert.ok(chatTraces.some((trace) => trace.toolResults.some((result) => result.includes(mixedRun.run.id))));
       const wrappedSources = chatTraces
         .flatMap((trace) => trace.assistantContexts)
@@ -358,7 +358,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         assert.ok(source.notificationId && publishedSources.has(source.notificationId));
         assert.equal(source.informationRunId, publishedSources.get(source.notificationId));
       }
-      const itemCountAfterChat = ((await expectApi("items after chat", `/api/spaces/${mainSpace}/information/items?limit=100`, 200)).body as { items: unknown[] }).items.length;
+      const itemCountAfterChat = ((await expectApi("items after chat", `/api/agents/${mainAgent}/information/items?limit=100`, 200)).body as { items: unknown[] }).items.length;
       assert.equal(itemCountAfterChat, mixedItems.length + silentItems.length + feedbackItems.length);
       record("ordinary-chat-readonly-tool-and-source", {
         toolArguments: informationArgs,
@@ -367,14 +367,14 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         sourceNotifications: [...new Set(wrappedSources.map((source) => source.notificationId))],
       });
 
-      const autoSpace = "live-information-auto";
-      await setupSpace(autoSpace, { enabled: true, batchWindowSeconds: 0 }, policy);
+      const autoAgent = "live-information-auto";
+      await setupAgent(autoAgent, { enabled: true, batchWindowSeconds: 0 }, policy);
       const autoTracesBefore = proxy.traces.length;
-      const autoItems = await ingest(autoSpace, [
+      const autoItems = await ingest(autoAgent, [
         { source: "live-feed", externalId: "automatic", content: "URGENT: The staging server certificate expires in 30 minutes and must be renewed now." },
       ]);
       const automatic = await waitFor("automatic information run", async () => {
-        const run = await latestRun(autoSpace);
+        const run = await latestRun(autoAgent);
         if (!run || !["completed", "failed", "cancelled"].includes(run.status)) return undefined;
         return run.publications?.some((publication) => publication.status === "pending") ? undefined : run;
       });
@@ -386,9 +386,9 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       assert.ok(autoTraces.some((trace) => trace.calls.some((call) => call.name === "submit_information_result")));
       record("automatic-scheduler", { runId: automatic.id, itemId: autoItems[0]?.id, modelRequests: autoTraces.length });
 
-      const waitQueued = async (spaceId: string) => {
+      const waitQueued = async (agentId: string) => {
         const run = await waitFor("queued publication", async () => {
-          const current = await latestRun(spaceId);
+          const current = await latestRun(agentId);
           if (!current) return undefined;
           if (current.status === "failed" || current.status === "cancelled") {
             throw new Error(`queued publication run ${current.id} ended ${current.status}: ${current.model?.error ?? "no model error"}`);
@@ -405,65 +405,65 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         assert.equal(run.model?.status, "succeeded");
         return run;
       };
-      const startBusyChat = (spaceId: string, marker: string) => {
+      const startBusyChat = (agentId: string, marker: string) => {
         const prompt = `${marker} Please write a detailed, well-organized 2500-word technical essay about reliable personal server architecture. Do not call any tool.`;
-        const text = startChat(spaceId, prompt);
+        const text = startChat(agentId, prompt);
         return {
           text,
           started: waitFor("busy chat model request", () => Promise.resolve(proxy!.traces.some((trace) => trace.users.some((user) => user.includes(marker))))),
         };
       };
 
-      const disableSpace = "live-information-disable";
-      await setupSpace(disableSpace, { enabled: true, batchWindowSeconds: 3600 }, policy);
-      const disableChat = startBusyChat(disableSpace, "LIVE_INFORMATION_DISABLE_BUSY");
+      const disableAgent = "live-information-disable";
+      await setupAgent(disableAgent, { enabled: true, batchWindowSeconds: 3600 }, policy);
+      const disableChat = startBusyChat(disableAgent, "LIVE_INFORMATION_DISABLE_BUSY");
       await disableChat.started;
-      await ingest(disableSpace, [{ source: "live-feed", externalId: "disable", content: "URGENT: The production certificate expires in 30 minutes and must be renewed now." }]);
-      const disableRunPromise = runInformation(disableSpace);
-      const queuedDisable = await waitQueued(disableSpace);
-      await expectApi("disable", `/api/spaces/${disableSpace}/information/settings`, 200, {
+      await ingest(disableAgent, [{ source: "live-feed", externalId: "disable", content: "URGENT: The production certificate expires in 30 minutes and must be renewed now." }]);
+      const disableRunPromise = runInformation(disableAgent);
+      const queuedDisable = await waitQueued(disableAgent);
+      await expectApi("disable", `/api/agents/${disableAgent}/information/settings`, 200, {
         method: "PUT", body: JSON.stringify({ enabled: false, batchWindowSeconds: 3600 }),
       });
       const disableRun = (await disableRunPromise).body as InformationRunDetail;
       assert.equal(disableRun.run.id, queuedDisable.id);
       assert.equal(disableRun.run.publications?.[0]?.status, "failed");
       assert.ok(sseFinished(await disableChat.text));
-      assert.equal((await history(disableSpace)).messages.filter((message) => message.metadata?.source === "notification").length, 0);
-      const disabledIngest = await api(`/api/spaces/${disableSpace}/information/items`, {
+      assert.equal((await history(disableAgent)).messages.filter((message) => message.metadata?.source === "notification").length, 0);
+      const disabledIngest = await api(`/api/agents/${disableAgent}/information/items`, {
         method: "POST", body: JSON.stringify({ items: [{ source: "live-feed", externalId: "after-disable", content: "must reject" }] }),
       });
       assert.equal(disabledIngest.status, 409);
       record("disable-cancels-queued-notification", { runId: queuedDisable.id });
 
-      const resetSpace = "live-information-reset";
-      await setupSpace(resetSpace, { enabled: true, batchWindowSeconds: 3600 }, policy);
-      await expectApi("reset notes", `/api/spaces/${resetSpace}/information/preferences`, 200, {
+      const resetAgent = "live-information-reset";
+      await setupAgent(resetAgent, { enabled: true, batchWindowSeconds: 3600 }, policy);
+      await expectApi("reset notes", `/api/agents/${resetAgent}/information/preferences`, 200, {
         method: "PUT", body: JSON.stringify({ notes: "reset preserves these notes" }),
       });
-      const resetChat = startBusyChat(resetSpace, "LIVE_INFORMATION_RESET_BUSY");
+      const resetChat = startBusyChat(resetAgent, "LIVE_INFORMATION_RESET_BUSY");
       await resetChat.started;
-      await ingest(resetSpace, [{ source: "live-feed", externalId: "reset", content: "URGENT: The customer appointment is tomorrow at 9 AM and must be confirmed today." }]);
-      const resetRunPromise = runInformation(resetSpace);
-      const queuedReset = await waitQueued(resetSpace);
-      await expectApi("reset", `/api/spaces/${resetSpace}/reset`, 200, { method: "POST", body: "{}" });
+      await ingest(resetAgent, [{ source: "live-feed", externalId: "reset", content: "URGENT: The customer appointment is tomorrow at 9 AM and must be confirmed today." }]);
+      const resetRunPromise = runInformation(resetAgent);
+      const queuedReset = await waitQueued(resetAgent);
+      await expectApi("reset", `/api/agents/${resetAgent}/reset`, 200, { method: "POST", body: "{}" });
       const resetRun = (await resetRunPromise).body as InformationRunDetail;
       assert.equal(resetRun.run.id, queuedReset.id);
       assert.equal(resetRun.run.publications?.[0]?.status, "failed");
       assert.match(await resetChat.text, /RUN_ERROR/);
-      const resetHistory = await history(resetSpace);
+      const resetHistory = await history(resetAgent);
       assert.deepEqual(resetHistory.messages, []);
-      assert.deepEqual((await expectApi("reset settings", `/api/spaces/${resetSpace}/information/settings`, 200)).body, { enabled: true, batchWindowSeconds: 3600 });
-      assert.equal(((await expectApi("reset preferences", `/api/spaces/${resetSpace}/information/preferences`, 200)).body as { notes: string }).notes, "reset preserves these notes");
+      assert.deepEqual((await expectApi("reset settings", `/api/agents/${resetAgent}/information/settings`, 200)).body, { enabled: true, batchWindowSeconds: 3600 });
+      assert.equal(((await expectApi("reset preferences", `/api/agents/${resetAgent}/information/preferences`, 200)).body as { notes: string }).notes, "reset preserves these notes");
       record("reset-cancels-and-preserves-information", { runId: queuedReset.id });
 
-      const deleteSpace = "live-information-delete";
-      await setupSpace(deleteSpace, { enabled: true, batchWindowSeconds: 3600 }, policy);
-      const deleteChat = startBusyChat(deleteSpace, "LIVE_INFORMATION_DELETE_BUSY");
+      const deleteAgent = "live-information-delete";
+      await setupAgent(deleteAgent, { enabled: true, batchWindowSeconds: 3600 }, policy);
+      const deleteChat = startBusyChat(deleteAgent, "LIVE_INFORMATION_DELETE_BUSY");
       await deleteChat.started;
-      await ingest(deleteSpace, [{ source: "live-feed", externalId: "delete", content: "URGENT: The payment authorization expires in 30 minutes and requires immediate action." }]);
-      const deleteRunPromise = runInformation(deleteSpace);
-      const queuedDelete = await waitQueued(deleteSpace);
-      await expectApi("delete", `/api/spaces/${deleteSpace}`, 200, { method: "DELETE" });
+      await ingest(deleteAgent, [{ source: "live-feed", externalId: "delete", content: "URGENT: The payment authorization expires in 30 minutes and requires immediate action." }]);
+      const deleteRunPromise = runInformation(deleteAgent);
+      const queuedDelete = await waitQueued(deleteAgent);
+      await expectApi("delete", `/api/agents/${deleteAgent}`, 200, { method: "DELETE" });
       const deletedRunResult = await deleteRunPromise;
       if (deletedRunResult.status === 200) {
         const deletedRun = deletedRunResult.body as InformationRunDetail;
@@ -474,15 +474,15 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         assert.equal(deletedRunResult.status, 404);
       }
       assert.match(await deleteChat.text, /RUN_ERROR/);
-      assert.equal(existsSync(join(dataDir, "information", `${deleteSpace}.json`)), false);
+      assert.equal(existsSync(join(dataDir, "information", `${deleteAgent}.json`)), false);
       record("delete-cancels-and-cascades", { runId: queuedDelete.id });
 
-      const restartSpace = "live-information-restart";
-      await setupSpace(restartSpace, { enabled: true, batchWindowSeconds: 3600 }, policy);
-      await expectApi("restart notes", `/api/spaces/${restartSpace}/information/preferences`, 200, {
+      const restartAgent = "live-information-restart";
+      await setupAgent(restartAgent, { enabled: true, batchWindowSeconds: 3600 }, policy);
+      await expectApi("restart notes", `/api/agents/${restartAgent}/information/preferences`, 200, {
         method: "PUT", body: JSON.stringify({ notes: "restart preserves pending input" }),
       });
-      const restartItems = await ingest(restartSpace, [
+      const restartItems = await ingest(restartAgent, [
         { source: "live-feed", externalId: "restart-pending", content: "URGENT: this pending fact must survive service restart." },
       ]);
       const traceCountBeforeRestart = proxy!.traces.length;
@@ -516,9 +516,9 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         assert.equal(response.status, 200);
         return response.json();
       };
-      const restartedSettings = await restartedGet(`/api/spaces/${restartSpace}/information/settings`);
-      const restartedPrefs = await restartedGet(`/api/spaces/${restartSpace}/information/preferences`) as { notes: string };
-      const restartedItems = await restartedGet(`/api/spaces/${restartSpace}/information/items?limit=100`) as { items: Array<{ id: string; status: string }> };
+      const restartedSettings = await restartedGet(`/api/agents/${restartAgent}/information/settings`);
+      const restartedPrefs = await restartedGet(`/api/agents/${restartAgent}/information/preferences`) as { notes: string };
+      const restartedItems = await restartedGet(`/api/agents/${restartAgent}/information/items?limit=100`) as { items: Array<{ id: string; status: string }> };
       assert.deepEqual(restartedSettings, { enabled: true, batchWindowSeconds: 3600 });
       assert.equal(restartedPrefs.notes, "restart preserves pending input");
       assert.deepEqual(restartedItems.items.map((item) => [item.id, item.status]), [[restartItems[0]?.id, "pending"]]);

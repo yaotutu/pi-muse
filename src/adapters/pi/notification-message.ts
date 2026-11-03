@@ -1,4 +1,4 @@
-import { isFeatureId, type FeatureSource } from "../../features/feature-spaces/types.js";
+import { isFeatureId, type FeatureSource } from "../../features/agent-extensions/types.js";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ConversationNotification } from "../../features/conversation/types.js";
 

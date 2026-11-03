@@ -1,5 +1,5 @@
-import { FEATURE_SPACES } from "../feature-spaces/types.js";
-export const NEWS_INTERNAL_SPACE_ID = FEATURE_SPACES.news;
+import { FEATURE_AGENTS } from "../agent-extensions/types.js";
+export const NEWS_INTERNAL_AGENT_ID = FEATURE_AGENTS.news;
 
 export type NewsSource = {
   id: string;

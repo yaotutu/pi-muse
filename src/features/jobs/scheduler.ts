@@ -19,7 +19,7 @@ export const createScheduler = (
   config: { schedulerIntervalMs: number },
   jobs: Pick<JobService, "list" | "markRun">,
   conversation: Pick<Conversation, "isRunning" | "trigger">,
-  forSpace?: (spaceId: string) => Promise<Pick<Conversation, "isRunning" | "trigger"> | undefined>,
+  forAgent?: (agentId: string) => Promise<Pick<Conversation, "isRunning" | "trigger"> | undefined>,
 ): Scheduler => {
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
@@ -56,7 +56,7 @@ export const createScheduler = (
         await savePendingOutcome();
         return;
       }
-      if (!forSpace && conversation.isRunning()) return;
+      if (!forAgent && conversation.isRunning()) return;
       const due = (await jobs.list()).filter(
         (job) => job.enabled && Date.now() >= Date.parse(job.nextRunAt),
       );
@@ -75,16 +75,16 @@ export const createScheduler = (
         )
           continue;
 
-        const targetSpaceId = current.originSpaceId ?? "local-main";
-        const targetConversation = targetSpaceId && forSpace
-          ? await forSpace(targetSpaceId)
+        const targetAgentId = current.originAgentId ?? "local-main";
+        const targetConversation = targetAgentId && forAgent
+          ? await forAgent(targetAgentId)
           : conversation;
 
         if (!targetConversation || closed) continue;
-        if (forSpace) {
+        if (forAgent) {
           const latest = (await jobs.list()).find((item) => item.id === current.id);
-          const latestSpace = latest?.originSpaceId ?? "local-main";
-          if (closed || !latest?.enabled || latestSpace !== targetSpaceId ||
+          const latestAgent = latest?.originAgentId ?? "local-main";
+          if (closed || !latest?.enabled || latestAgent !== targetAgentId ||
             latest.nextRunAt !== current.nextRunAt) continue;
         }
         if (targetConversation.isRunning()) continue;
@@ -92,7 +92,7 @@ export const createScheduler = (
         const outcome = await targetConversation.trigger(
           `⏰ [定时任务] ${current.prompt}`,
           `job-${current.id}-${Date.now()}`,
-          { jobId: current.id, spaceId: targetSpaceId },
+          { jobId: current.id, agentId: targetAgentId },
         );
         // busy 表示尚未开始执行，不是模型失败；不消耗一次性任务，留到
         // 下次普通扫描。真正已执行的失败仍按原规则 markRun，不自动重跑。

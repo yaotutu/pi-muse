@@ -6,12 +6,12 @@ export type ActivityService = {
   get: (id: string) => Promise<ActivityDetail | undefined>;
 };
 
-/** 活动只从已有空间的当前会话权威记录投影；删除后不另建存储或复活来源。 */
+/** 活动只从已有智能体的当前会话权威记录投影；删除后不另建存储或复活来源。 */
 export const createActivityService = (conversationHub: ConversationHub): ActivityService => {
   const list = async (): Promise<ActivityDetail[]> => {
     const all: ActivityDetail[] = [];
-    for (const space of await conversationHub.spaces()) {
-      const conversation = await conversationHub.findSpace(space.id);
+    for (const agent of await conversationHub.agents()) {
+      const conversation = await conversationHub.findAgent(agent.id);
       if (conversation) all.push(...conversation.activities());
     }
     return all;

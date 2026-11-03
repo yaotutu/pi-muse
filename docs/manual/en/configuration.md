@@ -114,7 +114,7 @@ By default, the `.pi-muse/` directory containing `.pi-muse/config.json` is also 
 
 `runtime.dataDir: "."` also denotes the configuration file's directory, regardless of the starting process's cwd. If `".pi-muse"` is placed inside `.pi-muse/config.json`, it points to a nested `.pi-muse/` beneath it, not the identically named directory at the project root.
 
-Sessions are stored under `sessions/<threadId>/`; each thread has an independent pi session. A single user can have multiple threads. Internal subagent `subagent-<uuid>` workspaces and legacy worker `task-*` directories are not shown in the user conversation list. Each thread's working directory is fixed at `workspace/threads/<threadId>/`, and the shared area is `workspace/shared/`; see [Instance directory structure](#instance-directory-structure) below for the complete tree. There is no configurable global workspace fallback, and legacy root files or old cwd history are not migrated or cleaned automatically.
+Sessions are stored under `sessions/<agentId>/`; each agent has an independent pi session. A single user can have multiple agents. Internal subagent `subagent-<uuid>` workspaces and legacy worker `task-*` directories are not shown in the user conversation list. Each agent's working directory is fixed at `workspace/agents/<agentId>/`, and the shared area is `workspace/shared/`; see [Instance directory structure](#instance-directory-structure) below for the complete tree. There is no configurable global workspace fallback, and legacy root files or old cwd history are not migrated or cleaned automatically.
 
 ## Instance Directory Structure {#instance-directory-structure}
 
@@ -129,16 +129,16 @@ Sessions are stored under `sessions/<threadId>/`; each thread has an independent
 │   └── memory.json                     # long-term memory and identity settings (retrieved on demand)
 ├── jobs.json / goals.json / actions.json / monitors.json
 ├── news.json                            # RSS source configuration and collection health
-├── information/<spaceId>.json           # space-local information/news items, decisions, and per-article feedback
-├── sessions/<threadId>/
+├── information/<agentId>.json           # agent-local information/news items, decisions, and per-article feedback
+├── sessions/<agentId>/
 │   ├── *.jsonl                          # authoritative pi history
-│   ├── INSTRUCTIONS.md                  # conversation-specific instructions (including ## Space purpose), present as needed
+│   ├── INSTRUCTIONS.md                  # conversation-specific instructions (including ## Agent purpose), present as needed
 │   ├── DREAM.md                         # supplemental Dream prompt for this conversation, present as needed
 │   ├── dream.json                       # conversation Dream switch, cursor, latest result, and pending items, present as needed
 │   └── skills.json                      # conversation skill overrides, present as needed
 ├── workspace/
 │   ├── shared/                          # accessed explicitly with shared/...
-│   └── threads/<threadId>/              # each conversation's private file area
+│   └── agents/<agentId>/              # each conversation's private file area
 ├── skills/<name>/                         # optional instance skill; config is system-maintained
 │   ├── SKILL.md                           # skill definition
 │   ├── config.json                        # defaultEnabled; false for newly saved skills
@@ -162,13 +162,13 @@ The legacy `.personal-bot/` is not automatically used as a fallback. Migration m
 
 ## File Write Approvals {#file-write-approvals}
 
-- `write` / `edit` can operate only in the private `DATA_DIR/workspace/threads/<threadId>/` area and in `workspace/shared/` accessed explicitly through `shared/...`. The main conversation likewise uses `threads/local-main/`, not a parent directory. Both reading and writing reject absolute paths, `..`, and root/target/parent-directory symlinks; `bash` is never exposed.
+- `write` / `edit` can operate only in the private `DATA_DIR/workspace/agents/<agentId>/` area and in `workspace/shared/` accessed explicitly through `shared/...`. The main conversation likewise uses `agents/local-main/`, not a parent directory. Both reading and writing reject absolute paths, `..`, and root/target/parent-directory symlinks; `bash` is never exposed.
 - Every operation requires separate manual approval. The approval payload retains the complete before/after text and file version; the text to replace for `edit` must match exactly one location.
 - Path safety and file version are checked again before commit. If the file changes while waiting, the old approval cannot authorize an overwrite; the operation and approval must be initiated again.
 - Rejection, approval expiration, or cancellation of the run prevents that modification from being committed. A service restart cancels pending approvals left by the previous process. Approval validity is fixed by the `expiresAt` recorded when it is created, and expiry and cancellation state are checked again before commit.
 - The `skills` tool takes `action=list|read|save`, `name`, optional `file` (default `SKILL.md`), and the complete `content` required by save. A name may contain only lowercase letters, digits, or single hyphens and is limited to 64 characters. Allowed files are `SKILL.md` and supported UTF-8 text under `references/` or `assets/` with `.md`, `.txt`, `.json`, `.csv`, `.yaml`, or `.yml` extensions; each file is limited to 100KB.
-- Use `skills.save` only for an explicit user request. It writes only `DATA_DIR/skills/<name>`; saving a built-in name creates an instance override and never changes the built-in file. A resource can be saved only after a valid instance `SKILL.md` exists. Its approval preview uses `scope=skill`, `ownerSpaceId=null`, and path `<name>/<file>`, with the same version binding and pre-commit path, cancellation, expiry, and file-change checks.
-- A new skill's `config.json` is exactly `{ "defaultEnabled": false }`; neither the global catalog nor the current space is enabled implicitly. After you enable it for a space, its new definition, references, and assets take effect on the next model turn—the current turn does not gain new instructions or extension capabilities. Rejection, expiry, Stop, or a file change while waiting writes nothing, and an unknown result is never resent automatically.
+- Use `skills.save` only for an explicit user request. It writes only `DATA_DIR/skills/<name>`; saving a built-in name creates an instance override and never changes the built-in file. A resource can be saved only after a valid instance `SKILL.md` exists. Its approval preview uses `scope=skill`, `ownerAgentId=null`, and path `<name>/<file>`, with the same version binding and pre-commit path, cancellation, expiry, and file-change checks.
+- A new skill's `config.json` is exactly `{ "defaultEnabled": false }`; neither the global catalog nor the current agent is enabled implicitly. After you enable it for an agent, its new definition, references, and assets take effect on the next model turn—the current turn does not gain new instructions or extension capabilities. Rejection, expiry, Stop, or a file change while waiting writes nothing, and an unknown result is never resent automatically.
 - Skill maintenance refuses deletion, directory operations, direct `config.json` edits, scripts/code, binaries, nested `SKILL.md`, absolute paths, traversal, and symlinks. For an enabled skill, ordinary `read` additionally exposes only its `SKILL.md` and supported resource text—not ls/grep/find or neighboring files. Subagents do not receive `skills`.
 - Disabling `tools.writable.enabled` removes `write` / `edit` and refuses `skills.save` in a controlled way while retaining `skills.list/read`. Tool presentation policy cannot skip approval or enable write capability that has been disabled.
 
@@ -176,7 +176,7 @@ To create and use a skill in the mobile client:
 
 1. Tell the assistant which skill to create or revise in chat, for example, "Create a Linux news filtering skill that prioritizes kernel and distribution updates."
 2. Tap the avatar at the top to open the session panel, then open approvals. Review the target file and complete before/after content under "技能库" (skill library). Approve only if it matches your intent, then wait for the "文件写入成功" (file written successfully) execution receipt.
-3. In the same panel, open the workspace, find the skill, turn it on, and save the space's skills. New skills are off by default and must be enabled separately in each space where you want to use them.
+3. In the same panel, open the workspace, find the skill, turn it on, and save the agent's skills. New skills are off by default and must be enabled separately in each agent where you want to use them.
 4. Send the next message to use the skill. Revisions to an enabled skill also load on the next turn; approving a save does not itself enable the skill.
 
 ## Tool Presentation Policy {#tool-presentation-policy}

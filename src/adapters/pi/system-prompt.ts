@@ -44,13 +44,13 @@ requests; changes apply next turn.`;
 
 const skillsPrompt = `
 For maintaining Pi Muse product skills, consult skill-creator and use the skills
-tool. Skill assets are stored once for the instance; the current space only
+tool. Skill assets are stored once for the instance; the current agent only
 selects whether a skill is enabled; enabling never happens implicitly through
 another tool.`;
 
 const memoryPrompt = `
 Saved long-term memories are global and not loaded into this prompt; use
-memory_search to look them up by keyword when cross-space facts about the user
+memory_search to look them up by keyword when cross-agent facts about the user
 may matter. Use memory to remember, edit or forget a fact (edit/forget take the
 id from memory_search) only on explicit user requests. Never store credentials,
 API keys, or secrets.`;
@@ -67,7 +67,7 @@ requests. Checks and notifications follow the current monitor tool contract; do
 not promise capabilities not present in that tool.`;
 
 const goalPrompt = `
-goal manages the user's global personal goals across spaces. Query it only when
+goal manages the user's global personal goals across agents. Query it only when
 the user asks about goals or clearly needs that information; active goals are not
 preloaded into this prompt.`;
 
@@ -101,9 +101,9 @@ const section = (heading: string, text: string): string =>
 export type SystemPromptOptions = {
   layout: Pick<DataLayout, "soulFile" | "userFile">;
   memory: Pick<MemoryService, "renderForPrompt">;
-  /** 最终模型工具名单：已经包含空间技能与 child 角色过滤。 */
+  /** 最终模型工具名单：已经包含智能体技能与 child 角色过滤。 */
   allowedToolNames: readonly string[];
-  threadInstructions?: string;
+  agentInstructions?: string;
   recalledMemories?: readonly MemoryItem[];
 };
 
@@ -112,7 +112,7 @@ export const buildSystemPrompt = async ({
   layout,
   memory,
   allowedToolNames,
-  threadInstructions,
+  agentInstructions,
   recalledMemories,
 }: SystemPromptOptions): Promise<string> => {
   const tools = new Set(allowedToolNames);
@@ -137,6 +137,6 @@ export const buildSystemPrompt = async ({
     capabilityPrompt +
     section("Your identity (SOUL)", await readProfileFile(layout.soulFile)) +
     section("The user (USER)", await readProfileFile(layout.userFile)) +
-    section("Current conversation instructions", threadInstructions ?? "") +
+    section("Current conversation instructions", agentInstructions ?? "") +
     (await memory.renderForPrompt({ includeMemory: has("memory_search"), recalledMemories }));
 };

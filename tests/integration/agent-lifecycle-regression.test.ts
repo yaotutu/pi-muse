@@ -11,7 +11,7 @@ import { createService } from "../../src/bootstrap/create-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
 import { createMonitorScheduler } from "../../src/features/monitors/monitor-scheduler.js";
-import { threadWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
+import { agentWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
 
 const deferred = () => {
   let resolve!: () => void;
@@ -26,7 +26,7 @@ const until = async (condition: () => Promise<boolean>) => {
   assert.fail("condition did not settle");
 };
 const fixture = async (t: TestContext) => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-muse-thread-regression-"));
+  const dir = await mkdtemp(join(tmpdir(), "pi-muse-agent-regression-"));
   let model: Awaited<ReturnType<typeof createFakeModel>> | undefined;
   let service: Awaited<ReturnType<typeof createService>> | undefined;
   let server: ReturnType<typeof serve> | undefined;
@@ -65,20 +65,20 @@ const fixture = async (t: TestContext) => {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const snapshot = async (id: string) => {
-    const response = await request(`/api/conversation?spaceId=${id}`);
+    const response = await request(`/api/conversation?agentId=${id}`);
     assert.equal(response.status, 200);
     return response.json() as Promise<{ sessionId: string | null; messages: { role: string; content?: string }[]; revision: string }>;
   };
   const listed = async (id: string) => {
-    const response = await request("/api/spaces");
+    const response = await request("/api/agents");
     assert.equal(response.status, 200);
-    const body = (await response.json()) as { spaces?: { id: string }[]; threads?: { id: string }[] };
-    return (body.spaces || body.threads || []).some((thread: { id: string }) => thread.id === id);
+    const body = (await response.json()) as { agents?: { id: string }[] };
+    return (body.agents || []).some((agent: { id: string }) => agent.id === id);
   };
   const run = async (id: string, text: string) => {
     const before = await snapshot(id);
     const response = await request("/api/conversation/run", "POST", {
-      spaceId: id, runId: randomUUID(), expectedRevision: before.revision,
+      agentId: id, runId: randomUUID(), expectedRevision: before.revision,
       message: { id: randomUUID(), content: text },
     });
     assert.equal(response.status, 200);
@@ -91,77 +91,77 @@ const fixture = async (t: TestContext) => {
 };
 const assertMissing = async (path: string) => assert.rejects(stat(path), { code: "ENOENT" });
 
-test("thread reads and late stop never create absent or deleted sessions, including during deletion", async (t) => {
+test("agent reads and late stop never create absent or deleted sessions, including during deletion", async (t) => {
   const h = await fixture(t);
   const id = "deleted-read";
   assert.deepEqual(await h.snapshot(id), { sessionId: null, messages: [], revision: "empty" });
   assert.equal(await h.listed(id), false);
   await assertMissing(join(h.dir, "sessions", id));
-  await assertMissing(join(h.dir, "workspace", "threads", id));
-  assert.equal((await h.request(`/api/spaces/${id}/instructions`, "PUT", { instructions: "test" })).status, 200);
+  await assertMissing(join(h.dir, "workspace", "agents", id));
+  assert.equal((await h.request(`/api/agents/${id}/instructions`, "PUT", { instructions: "test" })).status, 200);
   const entered = deferred();
   const proceed = deferred();
-  const removeJobs = h.service().jobs.removeByOriginSpaceId;
-  h.service().jobs.removeByOriginSpaceId = async (origin) => {
+  const removeJobs = h.service().jobs.removeByOriginAgentId;
+  h.service().jobs.removeByOriginAgentId = async (origin) => {
     entered.resolve(); await proceed.promise;
     return removeJobs(origin);
   };
   h.releaseGates.push(proceed.resolve);
-  const deleting = h.request(`/api/spaces/${id}`, "DELETE");
+  const deleting = h.request(`/api/agents/${id}`, "DELETE");
   await entered.promise;
   assert.deepEqual(await h.snapshot(id), { sessionId: null, messages: [], revision: "empty" });
-  const stop = await h.request("/api/conversation/stop", "POST", { spaceId: id, runId: "old" });
+  const stop = await h.request("/api/conversation/stop", "POST", { agentId: id, runId: "old" });
   assert.deepEqual(await stop.json(), { stopped: false });
   for (const [path, body] of [
-    [`/api/spaces/${id}/instructions`, { instructions: "late" }],
-    ["/api/monitors", { url: "https://example.com", condition: "change", originSpaceId: id }],
+    [`/api/agents/${id}/instructions`, { instructions: "late" }],
+    ["/api/monitors", { url: "https://example.com", condition: "change", originAgentId: id }],
   ] as const) {
     const response = await h.request(path, path.includes("instructions") ? "PUT" : "POST", body);
     assert.equal(response.status, 409, path);
-    assert.match(await response.text(), /(SPACE|THREAD)_DELETING/);
+    assert.match(await response.text(), /(AGENT|THREAD)_DELETING/);
   }
   proceed.resolve();
   assert.equal((await deleting).status, 200);
-  h.service().jobs.removeByOriginSpaceId = removeJobs;
+  h.service().jobs.removeByOriginAgentId = removeJobs;
   assert.deepEqual(await h.snapshot(id), { sessionId: null, messages: [], revision: "empty" });
-  await h.request("/api/conversation/stop", "POST", { spaceId: id, runId: "old" });
+  await h.request("/api/conversation/stop", "POST", { agentId: id, runId: "old" });
   assert.equal(await h.listed(id), false);
   await assertMissing(join(h.dir, "sessions", id));
-  await assertMissing(join(h.dir, "workspace", "threads", id));
+  await assertMissing(join(h.dir, "workspace", "agents", id));
   // 显式发起新一轮仍可复用 ID，但读取历史和迟到 stop 不代表创建意图。
   await h.run(id, "hello intentional recreate");
   assert.equal(await h.listed(id), true);
 });
 
-test("history reads remain side-effect free while unrelated threads are deleted", async (t) => {
+test("history reads remain side-effect free while unrelated agents are deleted", async (t) => {
   const h = await fixture(t);
-  for (let index = 0; index < 12; index++) await h.service().conversationHub.forSpace(`list-race-${index}`);
+  for (let index = 0; index < 12; index++) await h.service().conversationHub.forAgent(`list-race-${index}`);
   const responses = await Promise.all([
-    ...Array.from({ length: 12 }, (_, index) => h.request(`/api/spaces/list-race-${index}`, "DELETE")),
-    ...Array.from({ length: 30 }, (_, index) => h.request(`/api/conversation?spaceId=never-created-${index}`)),
-    ...Array.from({ length: 15 }, () => h.request("/api/spaces")),
+    ...Array.from({ length: 12 }, (_, index) => h.request(`/api/agents/list-race-${index}`, "DELETE")),
+    ...Array.from({ length: 30 }, (_, index) => h.request(`/api/conversation?agentId=never-created-${index}`)),
+    ...Array.from({ length: 15 }, () => h.request("/api/agents")),
   ]);
   for (const response of responses) assert.equal(response.status, 200);
-  const listing = (await (await h.request("/api/spaces")).json()) as { spaces?: { id: string }[]; threads?: { id: string }[] };
-  assert.deepEqual((listing.spaces || listing.threads || []).map((thread: { id: string }) => thread.id), ["local-main"]);
+  const listing = (await (await h.request("/api/agents")).json()) as { agents?: { id: string }[] };
+  assert.deepEqual((listing.agents || listing.agents || []).map((agent: { id: string }) => agent.id), ["local-main", "news-internal", "sms-internal"]);
 });
 
 test("new monitor source receives notifications and deleted monitor snapshots cannot rebuild it", async (t) => {
   const h = await fixture(t);
   const id = "new-monitor-source";
   const response = await h.request("/api/monitors", "POST", {
-    title: "MONITOR-ORIGIN", url: "https://example.com", condition: "contains", value: "MATCH", originSpaceId: id,
+    title: "MONITOR-ORIGIN", url: "https://example.com", condition: "contains", value: "MATCH", originAgentId: id,
   });
   assert.equal(response.status, 200);
   const monitor = await response.json() as { id: string };
   await h.service().monitors.check(monitor.id, { body: "MATCH-FACT" });
   const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10 }, h.service().monitors,
-    await h.service().conversationHub.forSpace("local-main"), (thread) => h.service().conversationHub.findThread(thread));
+    await h.service().conversationHub.forAgent("local-main"), (agent) => h.service().conversationHub.findAgent(agent));
   scheduler.start();
   try {
     await until(async () => JSON.stringify(await h.snapshot(id)).includes("MONITOR-ORIGIN"));
     assert.doesNotMatch(JSON.stringify(await h.snapshot("local-main")), /MONITOR-ORIGIN/);
-    assert.equal((await h.request(`/api/spaces/${id}`, "DELETE")).status, 200);
+    assert.equal((await h.request(`/api/agents/${id}`, "DELETE")).status, 200);
     await h.snapshot(id);
     assert.equal(await h.listed(id), false);
     await assertMissing(join(h.dir, "sessions", id));
@@ -191,76 +191,76 @@ test("missing-file diagnostics are safe in SSE, next model request, JSONL and re
   assert.deepEqual((await h.snapshot(id)).messages, messages);
 });
 
-test("space reset: new sessionId generated, history cleared, workspace/instructions/skills survive, approvals cancelled, schedules conditionally cleared", async (t) => {
+test("agent reset: new sessionId generated, history cleared, workspace/instructions/skills survive, approvals cancelled, schedules conditionally cleared", async (t) => {
   const h = await fixture(t);
-  const spaceId = "reset-space-test";
+  const agentId = "reset-agent-test";
 
   // 1. 发起一轮对话，产生会话历史
-  await h.run(spaceId, "hello before reset");
-  const beforeSnapshot = await h.snapshot(spaceId);
+  await h.run(agentId, "hello before reset");
+  const beforeSnapshot = await h.snapshot(agentId);
   assert.ok(beforeSnapshot.messages.length > 0);
 
-  // 2. 设置空间规则与技能覆盖
-  const instRes = await h.request(`/api/spaces/${spaceId}/instructions`, "PUT", {
+  // 2. 设置智能体规则与技能覆盖
+  const instRes = await h.request(`/api/agents/${agentId}/instructions`, "PUT", {
     instructions: "KEEP-THESE-INSTRUCTIONS",
   });
   assert.equal(instRes.status, 200);
 
-  const skillsRes = await h.request(`/api/spaces/${spaceId}/skills`, "PUT", {
+  const skillsRes = await h.request(`/api/agents/${agentId}/skills`, "PUT", {
     overrides: { cron: false, web: false },
   });
   assert.equal(skillsRes.status, 200);
 
   // 3. 在工作区中写入文件
-  const wsDir = threadWorkspaceDir(h.service().layout, spaceId);
+  const wsDir = agentWorkspaceDir(h.service().layout, agentId);
   await writeFile(join(wsDir, "my-note.md"), "WORKSPACE-FILE-CONTENT", "utf-8");
 
   // 4. 添加定时任务与监控
-  await h.service().jobs.add("bound reminder", false, new Date(0).toISOString(), spaceId);
+  await h.service().jobs.add("bound reminder", false, new Date(0).toISOString(), agentId);
   await h.service().monitors.create({
     url: "https://example.com/test",
     condition: "change",
-    originSpaceId: spaceId,
+    originAgentId: agentId,
   });
 
-  // 5. 提交一个属于该空间的待审批
+  // 5. 提交一个属于该智能体的待审批
   const pendingAction = await h.service().actions.submit("file_write", "test write", {
     path: "test.txt",
     originalContent: "",
     content: "hello",
-  }, { spaceId });
+  }, { agentId });
   assert.equal(pendingAction.status, "pending");
 
-  // 确认初始列表信息包含 spaceId 和 sessionId
-  const spacesListBefore = await (await h.request("/api/spaces")).json() as { spaces: { id: string; sessionId: string }[] };
-  const spaceEntryBefore = spacesListBefore.spaces.find((s) => s.id === spaceId);
-  assert.ok(spaceEntryBefore);
-  const originalSessionId = spaceEntryBefore.sessionId;
+  // 确认初始列表信息包含 agentId 和 sessionId
+  const agentsListBefore = await (await h.request("/api/agents")).json() as { agents: { id: string; sessionId: string }[] };
+  const agentEntryBefore = agentsListBefore.agents.find((s) => s.id === agentId);
+  assert.ok(agentEntryBefore);
+  const originalSessionId = agentEntryBefore.sessionId;
 
   // 6. 执行默认重置（clearSchedules: false）
-  const resetRes1 = await h.request(`/api/spaces/${spaceId}/reset`, "POST", { clearSchedules: false });
+  const resetRes1 = await h.request(`/api/agents/${agentId}/reset`, "POST", { clearSchedules: false });
   assert.equal(resetRes1.status, 200);
   const resetBody1 = await resetRes1.json() as {
     ok: boolean;
-    spaceId: string;
+    agentId: string;
     sessionId: string;
     cancelledApprovals: number;
     removed: { jobs: number; monitors: number };
   };
   assert.equal(resetBody1.ok, true);
-  assert.equal(resetBody1.spaceId, spaceId);
+  assert.equal(resetBody1.agentId, agentId);
   assert.notEqual(resetBody1.sessionId, originalSessionId);
   assert.equal(resetBody1.cancelledApprovals, 1);
   assert.deepEqual(resetBody1.removed, { jobs: 0, monitors: 0 });
 
   // 7. 验证会话历史已清空，但工作区、指令、技能保留
-  const afterSnapshot = await h.snapshot(spaceId);
+  const afterSnapshot = await h.snapshot(agentId);
   assert.deepEqual(afterSnapshot.messages, []);
 
-  const instAfter = await (await h.request(`/api/spaces/${spaceId}/instructions`)).json() as { instructions: string };
+  const instAfter = await (await h.request(`/api/agents/${agentId}/instructions`)).json() as { instructions: string };
   assert.ok(instAfter.instructions.includes("KEEP-THESE-INSTRUCTIONS"));
 
-  const skillsAfter = await (await h.request(`/api/spaces/${spaceId}/skills`)).json() as { skills: { name: string; enabled: boolean }[] };
+  const skillsAfter = await (await h.request(`/api/agents/${agentId}/skills`)).json() as { skills: { name: string; enabled: boolean }[] };
   assert.equal(skillsAfter.skills.find((s) => s.name === "cron")?.enabled, false);
 
   assert.equal(await readFile(join(wsDir, "my-note.md"), "utf-8"), "WORKSPACE-FILE-CONTENT");
@@ -270,28 +270,28 @@ test("space reset: new sessionId generated, history cleared, workspace/instructi
   assert.equal(actionAfter?.status, "cancelled");
 
   // 验证定时任务和监控仍保留
-  assert.ok((await h.service().jobs.list()).some((j) => j.originSpaceId === spaceId));
-  assert.ok((await h.service().monitors.list()).some((m) => m.originSpaceId === spaceId));
+  assert.ok((await h.service().jobs.list()).some((j) => j.originAgentId === agentId));
+  assert.ok((await h.service().monitors.list()).some((m) => m.originAgentId === agentId));
 
   // 8. 再次重置，传入 clearSchedules: true
-  const resetRes2 = await h.request(`/api/spaces/${spaceId}/reset`, "POST", { clearSchedules: true });
+  const resetRes2 = await h.request(`/api/agents/${agentId}/reset`, "POST", { clearSchedules: true });
   assert.equal(resetRes2.status, 200);
   const resetBody2 = await resetRes2.json() as typeof resetBody1;
   assert.equal(resetBody2.ok, true);
   assert.deepEqual(resetBody2.removed, { jobs: 1, monitors: 1 });
 
   // 验证定时任务和监控被级联清除
-  assert.ok(!(await h.service().jobs.list()).some((j) => j.originSpaceId === spaceId));
-  assert.ok(!(await h.service().monitors.list()).some((m) => m.originSpaceId === spaceId));
+  assert.ok(!(await h.service().jobs.list()).some((j) => j.originAgentId === agentId));
+  assert.ok(!(await h.service().monitors.list()).some((m) => m.originAgentId === agentId));
 });
 
-test("space reset during in-flight active run with pending approval reports cancelledApprovals: 1", async (t) => {
+test("agent reset during in-flight active run with pending approval reports cancelledApprovals: 1", async (t) => {
   const h = await fixture(t);
-  const spaceId = "reset-inflight-approval";
+  const agentId = "reset-inflight-approval";
 
   // 1. 发起会话，触发写文件审批（"帮我写入草稿" 会让 fakeModel 触发 write 工具调用）
   const runPromise = h.request("/api/conversation/run", "POST", {
-    spaceId: spaceId,
+    agentId: agentId,
     runId: randomUUID(),
     expectedRevision: "empty",
     message: { id: randomUUID(), content: "帮我写入草稿" },
@@ -300,18 +300,18 @@ test("space reset during in-flight active run with pending approval reports canc
   // 2. 等待审批登记且状态为 pending
   await until(async () => {
     const pendings = await h.service().actions.snapshotPending();
-    return pendings.some((a) => a.spaceId === spaceId);
+    return pendings.some((a) => a.agentId === agentId);
   });
   const pendingsBefore = await h.service().actions.snapshotPending();
-  const pending = pendingsBefore.find((a) => a.spaceId === spaceId)!;
+  const pending = pendingsBefore.find((a) => a.agentId === agentId)!;
   assert.equal(pending.status, "pending");
 
   // 3. 在运行中且审批 pending 状态下调用 reset
-  const resetRes = await h.request(`/api/spaces/${spaceId}/reset`, "POST", { clearSchedules: false });
+  const resetRes = await h.request(`/api/agents/${agentId}/reset`, "POST", { clearSchedules: false });
   assert.equal(resetRes.status, 200);
   const resetBody = (await resetRes.json()) as {
     ok: boolean;
-    spaceId: string;
+    agentId: string;
     sessionId: string;
     cancelledApprovals: number;
   };
@@ -325,9 +325,9 @@ test("space reset during in-flight active run with pending approval reports canc
   const actionAfter = await h.service().actions.get(pending.id);
   assert.equal(actionAfter?.status, "cancelled");
   const pendingsAfter = await h.service().actions.snapshotPending();
-  assert.equal(pendingsAfter.filter((a) => a.spaceId === spaceId).length, 0);
+  assert.equal(pendingsAfter.filter((a) => a.agentId === agentId).length, 0);
 
   // 5. 验证历史已清空，可开启新对话
-  const snapshot = await h.snapshot(spaceId);
+  const snapshot = await h.snapshot(agentId);
   assert.deepEqual(snapshot.messages, []);
 });

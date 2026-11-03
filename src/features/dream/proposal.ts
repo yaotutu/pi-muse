@@ -139,7 +139,7 @@ export const appendInstructions = (current: string, addition: string): string =>
     if (isDuplicate) return base;
   }
 
-  // 若当前文本只有 `## 空间用途` 段落而尚无空行分隔，先空一行再追加规则，避免新规则并入用途段。
+  // 若当前文本只有 `## 智能体用途` 段落而尚无空行分隔，先空一行再追加规则，避免新规则并入用途段。
   const separator = base.includes(PURPOSE_HEADING) && !base.includes("\n\n") ? "\n\n" : "\n";
   return `${base}${separator}${normalizedAddition}`;
 };

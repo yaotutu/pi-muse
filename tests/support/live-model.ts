@@ -79,8 +79,8 @@ export const createLiveModel = async (model: { baseUrl: string; apiKey?: string 
           systemMarkers: {
             subagentRole: systemText.includes("## Subagent role"),
             informationBackground: systemText.includes("## Information background notifications"),
-            globalIdentitySentinel: normalizedSystemText.includes("LIVE_SPACE_PROMPT_IDENTITY_SENTINEL"),
-            activeGoalSentinel: normalizedSystemText.includes("LIVE_SPACE_PROMPT_GOAL_SENTINEL"),
+            globalIdentitySentinel: normalizedSystemText.includes("LIVE_AGENT_PROMPT_IDENTITY_SENTINEL"),
+            activeGoalSentinel: normalizedSystemText.includes("LIVE_AGENT_PROMPT_GOAL_SENTINEL"),
             longTermMemory: normalizedSystemText.includes("## Long-term memory"),
             write: normalizedSystemText.includes("write/edit can change"),
             instructions: normalizedSystemText.includes("instructions reads or replaces"),

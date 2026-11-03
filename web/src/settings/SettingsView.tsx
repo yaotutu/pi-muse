@@ -6,18 +6,18 @@ import {
   getAgentSnapshot,
   getDreamOverview,
   getProfile,
-  getSpaceDream,
-  getSpaceInstructions,
+  getAgentDream,
+  getAgentInstructions,
   listMemories,
-  resolveSpaceDreamPending,
-  runSpaceDream,
+  resolveAgentDreamPending,
+  runAgentDream,
   saveGlobalDreamPrompt,
   saveIdentity,
   saveProfile,
-  saveSpaceInstructions,
-  updateSpaceDream,
+  saveAgentInstructions,
+  updateAgentDream,
   type DreamOverviewDto,
-  type DreamSpaceDto,
+  type DreamAgentDto,
   type IdentityDto,
   type MemoryDto,
 } from "../lib/api";
@@ -31,13 +31,13 @@ const TONES: { value: string; label: string }[] = [
 const TARGET_LABELS: Record<"user" | "soul" | "instructions" | "memory", string> = {
   user: "USER.md（用户画像）",
   soul: "SOUL.md（助手人设）",
-  instructions: "本空间 INSTRUCTIONS.md",
+  instructions: "本智能体 INSTRUCTIONS.md",
   memory: "memory.json（长期记忆）",
 };
 
-/** 设置页：身份、按需检索记忆、SOUL/USER 人设、空间指令与 Dream 后台记忆整理。 */
-export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) => {
-  const currentSpaceId = spaceId;
+/** 设置页：身份、按需检索记忆、SOUL/USER 人设、智能体指令与 Dream 后台记忆整理。 */
+export const SettingsView = ({ agentId = "local-main" }: { agentId?: string }) => {
+  const currentAgentId = agentId;
   const [identity, setIdentity] = useState<IdentityDto | null>(null);
   const [memories, setMemories] = useState<MemoryDto[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -47,7 +47,7 @@ export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) =
   const [instructions, setInstructions] = useState("");
   const [purpose, setPurpose] = useState("");
   const [dreamOverview, setDreamOverview] = useState<DreamOverviewDto | null>(null);
-  const [spaceDream, setSpaceDream] = useState<DreamSpaceDto | null>(null);
+  const [agentDream, setAgentDream] = useState<DreamAgentDto | null>(null);
   const [pendingTargets, setPendingTargets] = useState<
     Record<string, "user" | "soul" | "instructions" | "memory">
   >({});
@@ -69,18 +69,18 @@ export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) =
     });
     reloadMemories();
     void getProfile().then(setProfile);
-    void getSpaceInstructions(currentSpaceId).then((data) => setInstructions(data.instructions));
+    void getAgentInstructions(currentAgentId).then((data) => setInstructions(data.instructions));
     void getDreamOverview().then(setDreamOverview);
-    void getSpaceDream(currentSpaceId).then((data) => {
-      setSpaceDream(data);
+    void getAgentDream(currentAgentId).then((data) => {
+      setAgentDream(data);
       setPurpose(data.purpose);
     });
   };
 
-  useEffect(reload, [currentSpaceId]);
+  useEffect(reload, [currentAgentId]);
 
-  const allPending = (dreamOverview?.spaces ?? []).flatMap((item) =>
-    item.pending.map((entry) => ({ ...entry, spaceId: item.spaceId })),
+  const allPending = (dreamOverview?.agents ?? []).flatMap((item) =>
+    item.pending.map((entry) => ({ ...entry, agentId: item.agentId })),
   );
 
   return (
@@ -133,7 +133,7 @@ export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) =
           </section>
         )}
 
-        {dreamOverview && spaceDream && (
+        {dreamOverview && agentDream && (
           <section className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -141,14 +141,14 @@ export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) =
                   Dream 后台记忆整理（每 {dreamOverview.intervalHours} 小时）
                 </h2>
                 <p className="mt-0.5 text-xs text-stone-400">
-                  当前空间：{currentSpaceId}。SOUL/USER/空间指令每轮常驻；memory.json 作为沉淀库按需检索。
+                  当前智能体：{currentAgentId}。SOUL/USER/智能体指令每轮常驻；memory.json 作为沉淀库按需检索。
                 </p>
               </div>
               <button
                 disabled={runningDream}
                 onClick={() => {
                   setRunningDream(true);
-                  void runSpaceDream(currentSpaceId)
+                  void runAgentDream(currentAgentId)
                     .then(
                       () => {
                         reload();
@@ -160,7 +160,7 @@ export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) =
                 }}
                 className="rounded-lg bg-stone-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-stone-700 disabled:opacity-50"
               >
-                {runningDream ? "整理中…" : "立即整理此空间"}
+                {runningDream ? "整理中…" : "立即整理此智能体"}
               </button>
             </div>
 
@@ -168,29 +168,29 @@ export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) =
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={spaceDream.enabled}
+                  checked={agentDream.enabled}
                   onChange={(e) =>
-                    void updateSpaceDream(currentSpaceId, { enabled: e.target.checked }).then(
+                    void updateAgentDream(currentAgentId, { enabled: e.target.checked }).then(
                       (next) => {
-                        setSpaceDream(next);
+                        setAgentDream(next);
                         flash(next.enabled ? "已开启自动整理" : "已关闭自动整理");
                       },
                       (err: Error) => flash(err.message),
                     )
                   }
                 />
-                <span>开启此空间自动整理</span>
+                <span>开启此智能体自动整理</span>
               </label>
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={spaceDream.inheritGlobalPrompt}
+                  checked={agentDream.inheritGlobalPrompt}
                   onChange={(e) =>
-                    void updateSpaceDream(currentSpaceId, {
+                    void updateAgentDream(currentAgentId, {
                       inheritGlobalPrompt: e.target.checked,
                     }).then(
                       (next) => {
-                        setSpaceDream(next);
+                        setAgentDream(next);
                         flash("已更新继承设置");
                       },
                       (err: Error) => flash(err.message),
@@ -201,30 +201,30 @@ export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) =
               </label>
             </div>
 
-            {spaceDream.lastRun && (
+            {agentDream.lastRun && (
               <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">
                 <div>
-                  最近整理：{spaceDream.lastRun.at} · 状态：{spaceDream.lastRun.status} · 处理新消息：
-                  {spaceDream.lastRun.processed} 条
-                  {spaceDream.lastRun.changed.length > 0 &&
-                    ` · 已更新：${spaceDream.lastRun.changed.join(", ")}`}
+                  最近整理：{agentDream.lastRun.at} · 状态：{agentDream.lastRun.status} · 处理新消息：
+                  {agentDream.lastRun.processed} 条
+                  {agentDream.lastRun.changed.length > 0 &&
+                    ` · 已更新：${agentDream.lastRun.changed.join(", ")}`}
                 </div>
-                {spaceDream.lastRun.error && (
-                  <div className="mt-1 text-red-600">错误：{spaceDream.lastRun.error}</div>
+                {agentDream.lastRun.error && (
+                  <div className="mt-1 text-red-600">错误：{agentDream.lastRun.error}</div>
                 )}
               </div>
             )}
 
             <div>
               <label className="text-xs font-medium text-stone-500">
-                空间指令（sessions/{currentSpaceId}/INSTRUCTIONS.md，每轮携带）
+                智能体指令（sessions/{currentAgentId}/INSTRUCTIONS.md，每轮携带）
               </label>
               {!purpose && (
                 <div className="mt-1 flex gap-2">
                   <input
                     value={purpose}
                     onChange={(e) => setPurpose(e.target.value)}
-                    placeholder="可选：声明空间用途（生成 ## 空间用途 段落，供 Dream 归类本空间规则）"
+                    placeholder="可选：声明智能体用途（生成 ## 智能体用途 段落，供 Dream 归类本智能体规则）"
                     className="flex-1 rounded-lg border border-stone-300 px-2.5 py-1 text-xs outline-none focus:border-stone-500"
                   />
                 </div>
@@ -233,57 +233,57 @@ export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) =
                 value={instructions}
                 onChange={(e) => setInstructions(e.target.value)}
                 rows={4}
-                placeholder="例如：## 空间用途\n处理工作邮件草稿\n\n每封回信以 Best regards 结尾。"
+                placeholder="例如：## 智能体用途\n处理工作邮件草稿\n\n每封回信以 Best regards 结尾。"
                 className="mt-1 w-full resize-y rounded-lg border border-stone-300 px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-stone-500"
               />
               <button
                 onClick={() =>
-                  void saveSpaceInstructions(
-                    currentSpaceId,
+                  void saveAgentInstructions(
+                    currentAgentId,
                     instructions,
-                    purpose && !instructions.includes("## 空间用途") ? purpose : undefined,
+                    purpose && !instructions.includes("## 智能体用途") ? purpose : undefined,
                   ).then(
                     (saved) => {
                       setInstructions(saved.instructions);
-                      void getSpaceDream(currentSpaceId).then((next) => {
-                        setSpaceDream(next);
+                      void getAgentDream(currentAgentId).then((next) => {
+                        setAgentDream(next);
                         setPurpose(next.purpose);
                       });
-                      flash("空间指令已保存");
+                      flash("智能体指令已保存");
                     },
                     (e: Error) => flash(e.message),
                   )
                 }
                 className="mt-2 rounded-lg border border-stone-300 px-3 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50"
               >
-                保存空间指令
+                保存智能体指令
               </button>
             </div>
 
             <div>
               <label className="text-xs font-medium text-stone-500">
-                此空间 Dream 补充提示词（sessions/{currentSpaceId}/DREAM.md）
+                此智能体 Dream 补充提示词（sessions/{currentAgentId}/DREAM.md）
               </label>
               <textarea
-                value={spaceDream.prompt}
-                onChange={(e) => setSpaceDream({ ...spaceDream, prompt: e.target.value })}
+                value={agentDream.prompt}
+                onChange={(e) => setAgentDream({ ...agentDream, prompt: e.target.value })}
                 rows={3}
-                placeholder="仅对当前空间生效的额外整理提示词…"
+                placeholder="仅对当前智能体生效的额外整理提示词…"
                 className="mt-1 w-full resize-y rounded-lg border border-stone-300 px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-stone-500"
               />
               <button
                 onClick={() =>
-                  void updateSpaceDream(currentSpaceId, { prompt: spaceDream.prompt }).then(
+                  void updateAgentDream(currentAgentId, { prompt: agentDream.prompt }).then(
                     (next) => {
-                      setSpaceDream(next);
-                      flash("空间 Dream 提示词已保存");
+                      setAgentDream(next);
+                      flash("智能体 Dream 提示词已保存");
                     },
                     (e: Error) => flash(e.message),
                   )
                 }
                 className="mt-2 rounded-lg border border-stone-300 px-3 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50"
               >
-                保存空间补充提示词
+                保存智能体补充提示词
               </button>
             </div>
 
@@ -329,7 +329,7 @@ export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) =
                       className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs space-y-2"
                     >
                       <div className="flex items-center justify-between text-stone-500">
-                        <span>来源空间：{item.spaceId}</span>
+                        <span>来源智能体：{item.agentId}</span>
                         <span>原因：{item.reason}</span>
                       </div>
                       <p className="whitespace-pre-wrap text-sm text-stone-800">{item.text}</p>
@@ -356,7 +356,7 @@ export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) =
                         </select>
                         <button
                           onClick={() =>
-                            void resolveSpaceDreamPending(item.spaceId, item.id, {
+                            void resolveAgentDreamPending(item.agentId, item.id, {
                               action: "apply",
                               target: chosen,
                             }).then(
@@ -373,7 +373,7 @@ export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) =
                         </button>
                         <button
                           onClick={() =>
-                            void resolveSpaceDreamPending(item.spaceId, item.id, {
+                            void resolveAgentDreamPending(item.agentId, item.id, {
                               action: "dismiss",
                             }).then(
                               () => {

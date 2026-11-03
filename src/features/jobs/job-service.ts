@@ -88,14 +88,14 @@ export const createJobService = (repository: JobRepository) => ({
     };
   }),
 
-  add: (prompt: string, daily: boolean, at: string, originSpaceId: string = "local-main"): Promise<Job> => repository.update((items) => {
+  add: (prompt: string, daily: boolean, at: string, originAgentId: string = "local-main"): Promise<Job> => repository.update((items) => {
     const trimmedPrompt = prompt.trim();
     const trimmedAt = at.trim();
     assertValidSchedule(daily, trimmedAt);
     const job: Job = {
       id: randomUUID(), prompt: trimmedPrompt, daily, at: trimmedAt, enabled: true,
       createdAt: new Date().toISOString(), nextRunAt: nextRunAfter(daily, trimmedAt, new Date()),
-      originSpaceId,
+      originAgentId,
     };
     return { items: [...items, job], result: job };
   }),
@@ -107,9 +107,9 @@ export const createJobService = (repository: JobRepository) => ({
     return result.code === "conflict";
   },
 
-  /** 级联删除属于指定空间的全部定时任务 */
-  removeByOriginSpaceId: (originSpaceId: string): Promise<number> => repository.update((items) => {
-    const remaining = items.filter((item) => (item.originSpaceId ?? "local-main") !== originSpaceId);
+  /** 级联删除属于指定智能体的全部定时任务 */
+  removeByOriginAgentId: (originAgentId: string): Promise<number> => repository.update((items) => {
+    const remaining = items.filter((item) => (item.originAgentId ?? "local-main") !== originAgentId);
     const count = items.length - remaining.length;
     return { items: remaining, result: count };
   }),
@@ -122,21 +122,21 @@ export const createJobService = (repository: JobRepository) => ({
   }),
 
   /**
-   * 修改定时任务的提示词、执行时刻（daily/at）或归属空间。
+   * 修改定时任务的提示词、执行时刻（daily/at）或归属智能体。
    * 无论任务是否处于调度中（包含 paused/cancelled 任务），最终合并后的 schedule
    * 必须通过领域排期校验，在 repository 读改写事务内校验防并发绕过；
    * 若设定时刻改变且任务处于调度中（enabled），基于当前时间重算 nextRunAt。
    */
   update: (
     id: string,
-    updates: { prompt?: string; daily?: boolean; at?: string; originSpaceId?: string },
+    updates: { prompt?: string; daily?: boolean; at?: string; originAgentId?: string },
   ): Promise<Job | undefined> => repository.update((items) => {
     const job = items.find((item) => item.id === id);
     if (!job) return { result: undefined };
     const prompt = updates.prompt !== undefined ? updates.prompt.trim() : job.prompt;
     const daily = updates.daily !== undefined ? updates.daily : job.daily;
     const at = updates.at !== undefined ? updates.at.trim() : job.at;
-    const originSpaceId = updates.originSpaceId !== undefined ? updates.originSpaceId : job.originSpaceId;
+    const originAgentId = updates.originAgentId !== undefined ? updates.originAgentId : job.originAgentId;
 
     // 校验合并后的排期设定；无论 enabled 与否都拒绝非法排期
     assertValidSchedule(daily, at);
@@ -150,7 +150,7 @@ export const createJobService = (repository: JobRepository) => ({
       daily,
       at,
       nextRunAt,
-      originSpaceId,
+      originAgentId,
       updatedAt,
     };
     return { items: items.map((item) => item === job ? updated : item), result: updated };

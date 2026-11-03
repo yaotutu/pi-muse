@@ -43,7 +43,7 @@ const fixture = async (t: TestContext, writable = true) => {
     actions,
     timeoutMs: 5_000,
     saveEnabled: writable,
-    spaceId: "local-main",
+    agentId: "local-main",
   });
   return { root, layout, repository, service, actions, tool };
 };
@@ -90,7 +90,7 @@ test("skills save validates with pi, creates default-off instance skill, and pre
     actions: approving(actions),
     timeoutMs: 5_000,
     saveEnabled: true,
-    spaceId: "local-main",
+    agentId: "local-main",
   });
   const result = await call(approvingTool, { action: "save", name: "recipe-helper", content: validSkill });
   assert.notEqual(result.isError, true);
@@ -106,7 +106,7 @@ test("skills save validates with pi, creates default-off instance skill, and pre
   });
   const [action] = await actions.list();
   assert.equal(action.kind, "file_write");
-  assert.equal(action.workspaceSpaceId, null);
+  assert.equal(action.workspaceAgentId, null);
   assert.equal(presentApproval(action).preview.scope, "skill");
   assert.equal(presentApproval(action).preview.path, "recipe-helper/SKILL.md");
   assert.match(text(result), /defaultEnabled=false/);
@@ -123,7 +123,7 @@ test("built-in overwrite lands only in the instance copy and remains disabled by
     actions: approving(actions),
     timeoutMs: 5_000,
     saveEnabled: true,
-    spaceId: "local-main",
+    agentId: "local-main",
   });
   const result = await call(approvingTool, { action: "save", name: "write", content });
   assert.notEqual(result.isError, true);
@@ -132,7 +132,7 @@ test("built-in overwrite lands only in the instance copy and remains disabled by
   const [action] = await actions.list();
   const view = presentApproval(action);
   assert.equal(view.preview.scope, "skill");
-  assert.equal(view.preview.ownerSpaceId, null);
+  assert.equal(view.preview.ownerAgentId, null);
 });
 
 test("skill save rejects invalid names, files, formats, symlinks, code, and config edits before approval", async (t) => {
@@ -194,7 +194,7 @@ test("skill resources require an existing valid instance skill and reject invali
     actions: approving(actions),
     timeoutMs: 5_000,
     saveEnabled: true,
-    spaceId: "local-main",
+    agentId: "local-main",
   });
   const result = await call(approvingTool, {
     action: "save",
@@ -214,7 +214,7 @@ test("skill saves share deny, cancellation, and file-version approval semantics"
     actions: denying(first.actions),
     timeoutMs: 5_000,
     saveEnabled: true,
-    spaceId: "local-main",
+    agentId: "local-main",
   });
   const denied = await call(denyTool, { action: "save", name: "recipe-helper", content: validSkill });
   assert.equal(denied.isError, true);
@@ -240,7 +240,7 @@ test("skill saves share deny, cancellation, and file-version approval semantics"
     }),
     timeoutMs: 5_000,
     saveEnabled: true,
-    spaceId: "local-main",
+    agentId: "local-main",
   });
   const conflict = await call(conflictTool, { action: "save", name: "recipe-helper", content: `${before}\nModel version.\n` });
   assert.equal(conflict.isError, true);

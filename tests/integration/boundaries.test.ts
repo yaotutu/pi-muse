@@ -231,9 +231,9 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
       "protected and unsupported API routes require a valid token",
       async () => {
         for (const path of [
-          "/api/threads",
+          "/api/agents",
           "/api/profile",
-          "/api/agent",
+          "/api/identity",
           "/api/conversation",
           "/api/approvals/pending",
           "/api/files",
@@ -261,7 +261,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
     await t.test(
       "agent snapshot and initial conversation are available without a model",
       async () => {
-        const response = await authorized("/api/agent");
+        const response = await authorized("/api/identity");
         assert.equal(response.status, 200);
         const agent = await response.json();
         assert.equal(agent.identity.name, "pi-muse");
@@ -300,7 +300,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           ["/api/agent/memories", "GET"],
           ["/api/agent/memories", "POST"],
           ["/api/agent/goals", "POST"],
-          ["/api/copilotkit/threads", "GET"],
+          ["/api/copilotkit/agents", "GET"],
           ["/api/copilotkit/agent/default/connect", "POST"],
         ] as const) {
           await jsonError(await authorized(path, { method }), 501);
@@ -388,7 +388,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           "{",
           "null",
           "{}",
-          JSON.stringify({ threadId: "local-main", messages: "invalid" }),
+          JSON.stringify({ agentId: "local-main", messages: "invalid" }),
         ]) {
           await jsonError(
             await authorized("/api/conversation/run", {

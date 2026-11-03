@@ -1,10 +1,12 @@
 import { createGroupChat, type GroupChat } from "../features/group-chat/service.js";
+import { createAgentService } from "../features/agents/service.js";
+import { createAgentStorage } from "../adapters/storage/agent-storage.js";
 import { createGroupRepository } from "../adapters/storage/group-repository.js";
 import { createFeatureRepository } from "../adapters/storage/feature-repository.js";
-import { createSpaceCommunication, type SpaceCommunication } from "../features/space-communication/service.js";
-import { createSpaceCommunicationRunner } from "../adapters/pi/space-communication-runner.js";
-import { createFeatureService, type FeatureService } from "../features/feature-spaces/service.js";
-import { FEATURE_SPACES, featureForSpace, isFeatureSpace } from "../features/feature-spaces/types.js";
+import { createAgentCommunication, type AgentCommunication } from "../features/agent-communication/service.js";
+import { createAgentCommunicationRunner } from "../adapters/pi/agent-communication-runner.js";
+import { createFeatureService, type FeatureService } from "../features/agent-extensions/service.js";
+import { FEATURE_AGENTS, featureForAgent, isFeatureAgent } from "../features/agent-extensions/types.js";
 import { join } from "node:path";
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { createAuth } from "../adapters/auth/token-service.js";
@@ -35,10 +37,10 @@ import { createInformationRunner, createInformationSkillTextReader } from "../ad
 import { createNewsRepository } from "../adapters/storage/news-repository.js";
 import { parseRss2 } from "../adapters/news/rss.js";
 import { createNewsService } from "../features/news/service.js";
-import { NEWS_INTERNAL_SPACE_ID } from "../features/news/types.js";
-import { threadInstructionsFile } from "../adapters/storage/data-layout.js";
+import { NEWS_INTERNAL_AGENT_ID } from "../features/news/types.js";
+import { agentInstructionsFile } from "../adapters/storage/data-layout.js";
 import { createHttpApp } from "../http/app.js";
-import { createDataLayout, ensureThreadLayout, threadSessionsDir } from "../adapters/storage/data-layout.js";
+import { createDataLayout, assertAgentDataLayout, ensureAgentLayout, agentSessionsDir } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
 import { createWebService } from "../features/web/web-service.js";
 import { createHttpWebTransport, safePublicGet } from "../adapters/web/http-transport.js";
@@ -60,7 +62,7 @@ import { createWorkspaceCommitQueue } from "../adapters/workspace/file-commit-qu
 import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
 import { createActivityService } from "../features/activities/service.js";
 import { createDreamRepository } from "../adapters/storage/dream-repository.js";
-import { readThreadInstructions, writeThreadInstructions } from "../adapters/storage/thread-instructions.js";
+import { readAgentInstructions, writeAgentInstructions } from "../adapters/storage/agent-instructions.js";
 import { createDreamService } from "../features/dream/service.js";
 import { createDreamScheduler } from "../features/dream/scheduler.js";
 import { createDreamProposer } from "../adapters/pi/dream-runner.js";
@@ -77,6 +79,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   close: () => Promise<void>;
 }> => {
   const layout = createDataLayout(config.dataDir);
+  await assertAgentDataLayout(layout);
   await mkdir(layout.root, { recursive: true, mode: 0o700 });
 
   const auth = await createAuth(config, layout);
@@ -93,7 +96,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const jobs = createJobService(createJobRepository(layout.jobsFile));
   await jobs.reconcileOnStart();
   const presentation = createToolPresentation(config.presentation);
-  await ensureThreadLayout(layout);
+  await ensureAgentLayout(layout);
   // Web 工具是只读能力；未启用时不创建 transport，也不向 pi 声明工具。
   const weather = config.weather.enabled
     ? createWeatherService(createOpenMeteoTransport(config.web), {
@@ -129,11 +132,11 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const newsRepository = createNewsRepository(layout.newsFile);
   const featureRepository = createFeatureRepository(join(layout.root, "features.json"));
   let features: FeatureService;
-  let communication: SpaceCommunication;
+  let communication: AgentCommunication;
   let group: GroupChat;
   let information: Awaited<ReturnType<typeof createInformationService>> | undefined;
 
-  // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
+  // 多会话：每个 agent 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
   // pi runtime 全进程一份：provider 与 runtime key 注册一次，所有线程共用；
   // 每轮会话重建只会重复读 auth 文件与注册表，无收益。
   const modelRuntime = await ModelRuntime.create({
@@ -167,34 +170,34 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   }
 
   const conversationHub = createConversationHub(
-    async (spaceId, initialSessionId) => {
-      const { manager, history, activities } = await createSessionHistory(layout, spaceId, presentation, initialSessionId);
+    async (agentId, initialSessionId) => {
+      const { manager, history, activities } = await createSessionHistory(layout, agentId, presentation, initialSessionId);
       const messages = createMessageFeedbackSession({
-        spaceId,
+        agentId,
         sessionId: () => history.sessionId(),
         facts: history.messageFacts,
         repository: messageFeedbackRepository,
       });
       return createConversation(config, {
-        spaceId,
+        agentId,
         history,
         activities,
         messages,
         beginStatus: (input) => workspaceEvents.beginRun(input),
         publishActivity: (overview) => workspaceEvents.activityChanged(overview),
         publishNotification: (identity) => workspaceEvents.conversationNotificationAppended(identity),
-        cancelApprovals: async (ownerSpaceId, runId) => {
-          for (const action of await actions.list()) if (action.spaceId === ownerSpaceId && action.runId === runId && action.status === "pending") await actions.cancel(action.id);
+        cancelApprovals: async (ownerAgentId, runId) => {
+          for (const action of await actions.list()) if (action.agentId === ownerAgentId && action.runId === runId && action.status === "pending") await actions.cancel(action.id);
         },
-        subscribeApprovals: (ownerSpaceId, runId, listener) => actions.subscribe(({ approval }) => {
-          if (approval.spaceId === ownerSpaceId && approval.runId === runId) {
+        subscribeApprovals: (ownerAgentId, runId, listener) => actions.subscribe(({ approval }) => {
+          if (approval.agentId === ownerAgentId && approval.runId === runId) {
             listener({ id: approval.id, pending: approval.status === "pending" });
           }
         }),
         openSession: async ({ runId, activity, status, userText }) => createPiExecution(
           await openPi({
             config,
-            spaceId,
+            agentId,
             runId,
             userText,
             activity,
@@ -227,7 +230,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       const snapshots = (await Promise.all(
         entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith("task-")).map(async (entry) => {
           try {
-            const directory = threadSessionsDir(layout, entry.name);
+            const directory = agentSessionsDir(layout, entry.name);
             const files = (await readdir(directory)).filter((name) => name.endsWith(".jsonl"));
             // JSONL 的追加不会更新目录 mtime，必须读取会话文件的实际活动时间。
             const stats = await Promise.all(
@@ -258,22 +261,22 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   );
   information = createInformationService({
     repository: informationRepository,
-    spaceExists: async (spaceId) => isFeatureSpace(spaceId) || spaceId === "local-main" || (await conversationHub.spaces()).some((space) => space.id === spaceId),
-    retainSpace: (spaceId) => conversationHub.retainSpace(spaceId),
+    agentExists: async (agentId) => isFeatureAgent(agentId) || agentId === "local-main" || (await conversationHub.agents()).some((agent) => agent.id === agentId),
+    retainAgent: (agentId) => conversationHub.retainAgent(agentId),
     feedback: messageFeedbackRepository,
-    deliveryTarget: async (spaceId) => { const id = featureForSpace(spaceId); return id ? features.targetFor(id) : spaceId; },
+    deliveryTarget: async (agentId) => { const id = featureForAgent(agentId); return id ? features.targetFor(id) : agentId; },
     recordFeatureDelivery: (link) => features.recordDelivery(link),
-    featureFeedback: (spaceId) => { const id = featureForSpace(spaceId); return id ? features.feedbackExamples(id) : Promise.resolve([]); },
+    featureFeedback: (agentId) => { const id = featureForAgent(agentId); return id ? features.feedbackExamples(id) : Promise.resolve([]); },
     runModel: createInformationRunner({ config, layout, modelRuntime }),
-    readInstructions: (spaceId) => readThreadInstructions(threadInstructionsFile(layout, spaceId)),
+    readInstructions: (agentId) => readAgentInstructions(agentInstructionsFile(layout, agentId)),
     enabledSkillTexts: createInformationSkillTextReader(skills),
   });
   features = createFeatureService({ repository: featureRepository, hub: conversationHub, information, feedback: messageFeedbackRepository });
-  const communicationRunner = createSpaceCommunicationRunner(() => ({
+  const communicationRunner = createAgentCommunicationRunner(() => ({
     config, layout, modelRuntime, memory, jobs, goals, actions, monitors, web, weather, browser, skills,
     actionTimeoutMs: config.writable.actionTimeoutMs, presentation, workspaceCommits, information, features, communication,
   }));
-  communication = createSpaceCommunication({
+  communication = createAgentCommunication({
     hub: conversationHub, timeoutMs: config.runTimeoutMs, runner: communicationRunner,
     onStart: (request) => group.start(request), onFinish: (receipt) => group.finish(receipt),
     onEvent: (id, event) => group.event(id, event),
@@ -283,15 +286,15 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const news = createNewsService({
     repository: newsRepository,
     information,
-    ensureInternalSpace: async () => {
-      await conversationHub.forSpace(NEWS_INTERNAL_SPACE_ID);
-      const instructionsFile = threadInstructionsFile(layout, NEWS_INTERNAL_SPACE_ID);
-      if (!(await readThreadInstructions(instructionsFile)).trim()) {
-        await writeThreadInstructions(
+    ensureInternalAgent: async () => {
+      await conversationHub.forAgent(NEWS_INTERNAL_AGENT_ID);
+      const instructionsFile = agentInstructionsFile(layout, NEWS_INTERNAL_AGENT_ID);
+      if (!(await readAgentInstructions(instructionsFile)).trim()) {
+        await writeAgentInstructions(
           instructionsFile,
           [
             "# News recommendation",
-            "This is an internal reading space. There is no user chat.",
+            "You are the news agent. You have your own chat, instructions, skills and workspace; RSS reading and recommendation are your additional responsibilities.",
             "Select a small number of articles with clear information value, substantive progress, or useful diversity; do not fill a quota.",
             "Write recommendation reasons and learnedNotes in concise Simplified Chinese.",
             "Keep RSS titles and article content in their original language; never translate them.",
@@ -316,14 +319,14 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     await browser?.close();
     throw error;
   }
-  let mainConversation: Awaited<ReturnType<typeof conversationHub.forSpace>>;
+  let mainConversation: Awaited<ReturnType<typeof conversationHub.forAgent>>;
   try {
-    mainConversation = await conversationHub.forSpace("local-main");
+    mainConversation = await conversationHub.forAgent("local-main");
     await news.initialize();
-    await conversationHub.forSpace(FEATURE_SPACES.sms);
-    // 独立短信空间首次默认关闭；不接管或迁移已有普通空间的信息记录。
-    if (!(await informationRepository.listSpaceIds()).includes(FEATURE_SPACES.sms)) {
-      await information.configureSpace(FEATURE_SPACES.sms, { enabled: false, batchWindowSeconds: 15, mode: "notifications" });
+    await conversationHub.forAgent(FEATURE_AGENTS.sms);
+    // 独立短信智能体首次默认关闭；不接管或迁移已有普通智能体的信息记录。
+    if (!(await informationRepository.listAgentIds()).includes(FEATURE_AGENTS.sms)) {
+      await information.configureAgent(FEATURE_AGENTS.sms, { enabled: false, batchWindowSeconds: 15, mode: "notifications" });
     }
   } catch (error) {
     await news.close();
@@ -332,10 +335,10 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     await browser?.close();
     throw error;
   }
-  const scheduler = createScheduler(config, jobs, mainConversation, (spaceId) => conversationHub.findSpace(spaceId));
+  const scheduler = createScheduler(config, jobs, mainConversation, (agentId) => conversationHub.findAgent(agentId));
   const monitorScheduler = createMonitorScheduler(
     { monitorScanIntervalMs: config.monitorScanIntervalMs, web }, monitors,
-    mainConversation, (spaceId) => conversationHub.findSpace(spaceId),
+    mainConversation, (agentId) => conversationHub.findAgent(agentId),
   );
   let closed = false;
   let approvalExpiry: Promise<unknown> | undefined;
@@ -366,29 +369,27 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       readSoul: () => readProfileFile(layout.soulFile),
       writeSoul: async (content) => { await identity.saveProfile({ soul: content }); },
       writeSoulIfUnchanged: (content, expected) => identity.writeIfUnchanged("soul", content, expected),
-      readInstructions: (spaceId) => readThreadInstructions(threadInstructionsFile(layout, spaceId)),
-      writeInstructions: async (spaceId, content) => {
-        await writeThreadInstructions(threadInstructionsFile(layout, spaceId), content);
+      readInstructions: (agentId) => readAgentInstructions(agentInstructionsFile(layout, agentId)),
+      writeInstructions: async (agentId, content) => {
+        await writeAgentInstructions(agentInstructionsFile(layout, agentId), content);
       },
-      writeInstructionsIfUnchanged: (spaceId, content, expected) =>
-        writeThreadInstructions(threadInstructionsFile(layout, spaceId), content, expected),
+      writeInstructionsIfUnchanged: (agentId, content, expected) =>
+        writeAgentInstructions(agentInstructionsFile(layout, agentId), content, expected),
     },
     memory,
     conversations: {
-      listSpaceIds: async () => (await conversationHub.spaces())
-        .map((item) => item.id)
-        .filter((spaceId) => !isFeatureSpace(spaceId)),
-      spaceExists: async (spaceId) =>
-        spaceId === "local-main" || (await conversationHub.findSpace(spaceId)) !== undefined,
-      isSpaceBusy: async (spaceId) =>
-        (await conversationHub.findSpace(spaceId))?.isRunning() ?? false,
-      readTranscript: (spaceId) => readDreamTranscript(layout, spaceId),
+      listAgentIds: async () => (await conversationHub.agents()).map((item) => item.id),
+      agentExists: async (agentId) =>
+        agentId === "local-main" || (await conversationHub.findAgent(agentId)) !== undefined,
+      isAgentBusy: async (agentId) =>
+        (await conversationHub.findAgent(agentId))?.isRunning() ?? false,
+      readTranscript: (agentId) => readDreamTranscript(layout, agentId),
     },
     propose: createDreamProposer({ config, layout, modelRuntime }),
   });
   const dreamScheduler = createDreamScheduler(dream);
   const workspaceFiles = createWorkspaceFileService(createWorkspaceFileStore(layout, workspaceCommits), {
-    spaceExists: async (spaceId) => isFeatureSpace(spaceId) || (await conversationHub.spaces()).some((space) => space.id === spaceId),
+    agentExists: async (agentId) => isFeatureAgent(agentId) || (await conversationHub.agents()).some((agent) => agent.id === agentId),
   });
   // 同源桌面网关单例：无论 browser.enabled 与否都创建，/api/browser/status 总是可答；
   // 关闭时仅清内存 ticket/session 与 WS 代理，不参与 feature/pi 生命周期。
@@ -396,7 +397,8 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     enabled: config.browser.enabled,
     desktopPort: config.browser.desktopPort,
   });
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, communication, group, browser, browserDesktop, messageFeedbackRepository };
+  const agents = createAgentService({ conversationHub, storage: createAgentStorage(layout), jobs, monitors, actions, dream, information, communication, group, features, messageFeedbackRepository });
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, communication, group, agents, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。

@@ -34,14 +34,14 @@ Deploy the server, install the app, then enter your server address and AccessKey
 Many personal-agent projects live inside an existing chat platform or a basic web chat window. For an assistant that handles ongoing personal work, that layout quickly becomes limiting:
 
 1. **A chat log is not a control room.** Conversation streams are good for immediate exchanges, but poor for managing recurring jobs, reviewing sub-agent progress, or checking milestones in a long-term plan.
-2. **Each capability has its own surface.** Pi Muse gives conversations, spaces, scheduled jobs, web monitors, goals, and approval workflows dedicated screens and action flows instead of burying them in scrollback.
+2. **Each capability has its own surface.** Pi Muse gives conversations, agents, scheduled jobs, web monitors, goals, and approval workflows dedicated screens and action flows instead of burying them in scrollback.
 3. **The client is treated as the product.** The mobile interface includes purposeful navigation, gesture support, an animated companion, and light and dark themes tuned for phone use.
 
 ---
 
 ## Core Features
 
-### Chat and Isolated Spaces
+### Chat and Isolated Agents
 
 <p align="center">
   <img src="docs/assets/chat-preview.png" width="88%" alt="Chat preview from an earlier version">
@@ -49,8 +49,8 @@ Many personal-agent projects live inside an existing chat platform or a basic we
 
 - **Streaming conversation and structured rendering.** Chat runs over AG-UI SSE and renders Markdown, copyable code blocks, nested lists, and inline tool-status cards in the client.
 - **Persistent message feedback.** Like, dislike, or comment on saved user and assistant messages. Pi Muse keeps reaction changes and original comment edits/deletions separately from PI's execution history, without triggering a model run or automatically changing your preferences.
-- **Isolated spaces.** Create contexts such as Work, Life, or Study. Each space has its own conversation tree, space instructions, and tool switches.
-- **Member profiles and private chats.** Current mobile source presents Spaces as members: tap an avatar for its profile and personal files/settings, or open its private chat. The shared group-style timeline is still pending.
+- **Isolated agents.** Create contexts such as Work, Life, or Study. Each agent has its own conversation tree, agent instructions, and tool switches.
+- **Member profiles and private chats.** Current mobile source presents Agents as members: tap an avatar for its profile and personal files/settings, or open its private chat. The shared group-style timeline is still pending.
 
 ---
 
@@ -78,15 +78,15 @@ Many personal-agent projects live inside an existing chat platform or a basic we
 
 ---
 
-### Session Center, Space Rules, and Human Approval
+### Session Center, Agent Rules, and Human Approval
 
 <p align="center">
-  <img src="docs/assets/session-preview.png" width="88%" alt="Activity center and space-rule settings">
+  <img src="docs/assets/session-preview.png" width="88%" alt="Activity center and agent-rule settings">
 </p>
 
 - **Activity center.** Open it from the chat screen to follow current agent activity, tool calls, and sub-agent collaboration. It shows activity events, not hidden model reasoning.
 - **Explicit file-change approval.** The agent has no shell tool. File `write` and `edit` operations are restricted to the current workspace and require a full before/after diff approval for every operation; stale or changed-file approvals cannot be committed.
-- **Per-space rules and tools.** Add instructions for the current space and enable or disable capabilities such as browser tools for that context.
+- **Per-agent rules and tools.** Add instructions for the current agent and enable or disable capabilities such as browser tools for that context.
 
 ---
 
@@ -182,7 +182,7 @@ Pi Muse uses HTTP for requests and management, plus one-way SSE streams for serv
 
 1. **Agent execution stream.** A chat request starts an AG-UI SSE response that carries tokens, tool events, and result updates from server to client.
 2. **Workspace notification stream.** `/api/events` is a shared SSE stream for status updates, pending file approvals, and activity events.
-3. **REST management.** Spaces, history reads, memory search, jobs, monitors, goals, approvals, and other controls use documented HTTP requests.
+3. **REST management.** Agents, history reads, memory search, jobs, monitors, goals, approvals, and other controls use documented HTTP requests.
 
 ---
 

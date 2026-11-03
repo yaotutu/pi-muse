@@ -1,6 +1,6 @@
 # 快速上手指南
 
-本页介绍从零配置并启动 Pi Muse 服务端，连接 Android 手机客户端，发送消息并收到回复。完整配置字段以[配置说明](configuration.md)为准；空间管理、附件、工作区文件和审批的日常操作分别见[对话与空间](conversations-and-spaces.md)和[附件、文件与审批](files-and-approvals.md)。
+本页介绍从零配置并启动 Pi Muse 服务端，连接 Android 手机客户端，发送消息并收到回复。完整配置字段以[配置说明](configuration.md)为准；智能体管理、附件、工作区文件和审批的日常操作分别见[对话与智能体](conversations-and-agents.md)和[附件、文件与审批](files-and-approvals.md)。
 
 本手册按当前仓库源码核对编写；源码能力不自动等于 [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases) 中某个已发布 APK 的能力。使用发布版时，以该版本实际界面和版本说明为准。
 
@@ -100,10 +100,10 @@ Pi Muse 服务端还承载定时提醒扫描、Dream 记忆整理和网页监控
 
 1. 连接后直接进入「群聊」，空群显示「有什么想聊的？」。不 `@` 时只由 Muse（main）回复；需要某个成员时，点击输入框左侧 `@` 选择。
 2. 在输入框占位符「消息」中输入一条简短、可验证的请求，例如让它回答一个你知道答案的问题。
-3. 点击输入框右侧的发送箭头。发送后可以看到你的消息气泡，右侧按钮变为停止方块；回复显示实际成员头像。群聊右上角是「群组信息」，私聊右上角才是该成员的「空间设置」。群聊文件操作等待审批时会显示「待处理审批」入口。
+3. 点击输入框右侧的发送箭头。发送后可以看到你的消息气泡，右侧按钮变为停止方块；回复显示实际成员头像。群聊右上角是「群组信息」，私聊右上角才是该成员的「智能体设置」。群聊文件操作等待审批时会显示「待处理审批」入口。
 4. 等待助手回复完成。真实回复会流式显示在聊天页；若模型调用工具，工具状态会以工具卡或会话面板中的动态展示。
 
-如果聊天页显示模型未配置、连接断开或需要重新认证，先按[常见问题](troubleshooting.md)排查，不要连续重发同一条消息。群聊目前只发文本；从成员主页进入私聊后，发送附件见[附件、文件与审批](files-and-approvals.md#send-attachments)；停止运行、重新同步和结果未明见[对话与空间](conversations-and-spaces.md#send-and-stop-conversations)。
+如果聊天页显示模型未配置、连接断开或需要重新认证，先按[常见问题](troubleshooting.md)排查，不要连续重发同一条消息。群聊目前只发文本；从成员主页进入私聊后，发送附件见[附件、文件与审批](files-and-approvals.md#send-attachments)；停止运行、重新同步和结果未明见[对话与智能体](conversations-and-agents.md#send-and-stop-conversations)。
 
 ## 网络安全边界 {#network-security-boundaries}
 

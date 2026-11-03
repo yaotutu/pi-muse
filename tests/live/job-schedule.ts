@@ -49,7 +49,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
   let baseUrl = "";
   let serviceVersion: unknown;
   let sessionToken: string | undefined;
-  const createdSpaceIds: string[] = [];
+  const createdAgentIds: string[] = [];
   const createdJobIds = new Set<string>();
 
   const stopService = async () => {
@@ -118,11 +118,11 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const jobsFile = join(dataDir, "jobs.json");
 
     // -------------------------------------------------------------------------
-    // 阶段 A：真实对话 + 真实模型调用 schedule 工具创建任务（5 个独立测试空间）
+    // 阶段 A：真实对话 + 真实模型调用 schedule 工具创建任务（5 个独立测试智能体）
     // -------------------------------------------------------------------------
     type PromptSpec = {
       scenario: string;
-      spaceId: string;
+      agentId: string;
       at: string;
       promptText: string;
       expectValid: boolean;
@@ -135,17 +135,17 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       `这是参数异常/边界测试用例，请务必把 at 原样传给工具验证，绝对不要自行纠正或改写时刻，不要重试，不要使用其它工具。调用完毕后请简短回复结果。`;
 
     const specs: PromptSpec[] = [
-      { scenario: "invalid-09-99", spaceId: "live-space-bad-0999", at: "09:99", promptText: makePrompt("09:99"), expectValid: false },
-      { scenario: "invalid-24-00", spaceId: "live-space-bad-2400", at: "24:00", promptText: makePrompt("24:00"), expectValid: false },
-      { scenario: "invalid-9-00", spaceId: "live-space-bad-900", at: "9:00", promptText: makePrompt("9:00"), expectValid: false },
-      { scenario: "valid-boundary-00-00", spaceId: "live-space-good-0000", at: "00:00", promptText: makePrompt("00:00"), expectValid: true, expectedHour: 0, expectedMinute: 0 },
-      { scenario: "valid-boundary-23-59", spaceId: "live-space-good-2359", at: "23:59", promptText: makePrompt("23:59"), expectValid: true, expectedHour: 23, expectedMinute: 59 },
+      { scenario: "invalid-09-99", agentId: "live-agent-bad-0999", at: "09:99", promptText: makePrompt("09:99"), expectValid: false },
+      { scenario: "invalid-24-00", agentId: "live-agent-bad-2400", at: "24:00", promptText: makePrompt("24:00"), expectValid: false },
+      { scenario: "invalid-9-00", agentId: "live-agent-bad-900", at: "9:00", promptText: makePrompt("9:00"), expectValid: false },
+      { scenario: "valid-boundary-00-00", agentId: "live-agent-good-0000", at: "00:00", promptText: makePrompt("00:00"), expectValid: true, expectedHour: 0, expectedMinute: 0 },
+      { scenario: "valid-boundary-23-59", agentId: "live-agent-good-2359", at: "23:59", promptText: makePrompt("23:59"), expectValid: true, expectedHour: 23, expectedMinute: 59 },
     ];
 
     const capturedValidJobIds: Record<string, string> = {};
 
     for (const spec of specs) {
-      if (!createdSpaceIds.includes(spec.spaceId)) createdSpaceIds.push(spec.spaceId);
+      if (!createdAgentIds.includes(spec.agentId)) createdAgentIds.push(spec.agentId);
       const baseline = proxy.traces.length;
       let outcome: ScenarioOutcome = {
         name: spec.scenario,
@@ -157,7 +157,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
       try {
         const referenceTime = new Date();
-        const runResult = await client.startRun(spec.promptText, spec.spaceId);
+        const runResult = await client.startRun(spec.promptText, spec.agentId);
         const events = await runResult.done;
         assert.equal(events.at(-1)?.type, "RUN_FINISHED");
 
@@ -200,10 +200,10 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
           );
           assert.ok(returnedTip, "受控拒绝提示必须回到模型上下文（tool result 包含 strict HH:mm between 00:00 and 23:59）");
 
-          // 2. 检查 jobs 列表：不能产生属于此 spaceId 的任务
-          const currentJobs = (await client.json("/api/jobs")).jobs as { id: string; originSpaceId: string }[];
+          // 2. 检查 jobs 列表：不能产生属于此 agentId 的任务
+          const currentJobs = (await client.json("/api/jobs")).jobs as { id: string; originAgentId: string }[];
           assert.equal(
-            currentJobs.some((j) => j.originSpaceId === spec.spaceId),
+            currentJobs.some((j) => j.originAgentId === spec.agentId),
             false,
             `非法排期 ${spec.at} 不得在 jobs 中创建任务`,
           );
@@ -222,11 +222,11 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
             id: string;
             at: string;
             daily: boolean;
-            originSpaceId: string;
+            originAgentId: string;
             nextRunAt: string;
             status: string;
           }[];
-          const found = currentJobs.find((j) => j.originSpaceId === spec.spaceId && j.at === spec.at);
+          const found = currentJobs.find((j) => j.originAgentId === spec.agentId && j.at === spec.at);
           assert.ok(found, `合法排期 ${spec.at} 必须在 jobs 中创建成功`);
           createdJobIds.add(found.id);
           capturedValidJobIds[spec.at] = found.id;
@@ -242,7 +242,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
           outcome.evidence = {
             jobId: found.id,
             at: found.at,
-            originSpaceId: found.originSpaceId,
+            originAgentId: found.originAgentId,
             nextRunAt: found.nextRunAt,
             pausedImmediately: true,
           };
@@ -292,18 +292,18 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
           assert.equal(bytesAfter, bytesBefore, `PATCH at='${badAt}' 失败时 jobs.json 字节不得变化`);
         }
 
-        // 2. 非法带新 originSpaceId：不建立空间、文件不落盘
-        const nonExistentSpace = "never-created-live-patch-space";
-        const bytesBeforeSpace = await readFile(jobsFile, "utf8");
-        const badSpacePatch = await client.request(
+        // 2. 非法带新 originAgentId：不建立智能体、文件不落盘
+        const nonExistentAgent = "never-created-live-patch-agent";
+        const bytesBeforeAgent = await readFile(jobsFile, "utf8");
+        const badAgentPatch = await client.request(
           `/api/jobs/${targetJobId}`,
-          { at: "24:00", originSpaceId: nonExistentSpace },
+          { at: "24:00", originAgentId: nonExistentAgent },
           "PATCH",
         );
-        assert.equal(badSpacePatch.status, 400);
-        assert.equal(await readFile(jobsFile, "utf8"), bytesBeforeSpace);
-        const spacesList = (await client.json("/api/spaces")).spaces as { id: string }[];
-        assert.equal(spacesList.some((s) => s.id === nonExistentSpace), false, "非法 PATCH 不得创建新空间");
+        assert.equal(badAgentPatch.status, 400);
+        assert.equal(await readFile(jobsFile, "utf8"), bytesBeforeAgent);
+        const agentsList = (await client.json("/api/agents")).agents as { id: string }[];
+        assert.equal(agentsList.some((s) => s.id === nonExistentAgent), false, "非法 PATCH 不得创建新智能体");
 
         // 3. 暂停状态修改为合法边界 23:59，再恢复后重算时间
         const pausePatch = await client.request(`/api/jobs/${targetJobId}`, { at: "23:59" }, "PATCH");
@@ -322,7 +322,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         patchOutcome.evidence = {
           badAtRejected: true,
           bytesPreserved: true,
-          noSpaceCreated: true,
+          noAgentCreated: true,
           pauseResumeRecalculated: true,
         };
         process.stdout.write("[PASS] patch-schedule-validation\n");
@@ -339,7 +339,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
   } finally {
     let cleanupFailed = false;
 
-    // 清理本次测试创建的所有任务与空间，并确认删除
+    // 清理本次测试创建的所有任务与智能体，并确认删除
     const authToken = sessionToken;
     if (baseUrl && service && authToken) {
       for (const jobId of createdJobIds) {
@@ -368,28 +368,28 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
           cleanupFailed = true;
         }
       }
-      // 清理本次测试创建的独立测试空间
-      for (const spaceId of createdSpaceIds) {
+      // 清理本次测试创建的独立测试智能体
+      for (const agentId of createdAgentIds) {
         try {
-          const res = await fetch(`${baseUrl}/api/spaces/${spaceId}`, {
+          const res = await fetch(`${baseUrl}/api/agents/${agentId}`, {
             method: "DELETE",
             headers: { Authorization: `Bearer ${authToken}` },
           });
           if (res.ok || res.status === 404) {
-            // 确认空间已被删除
-            const verifyRes = await fetch(`${baseUrl}/api/spaces`, {
+            // 确认智能体已被删除
+            const verifyRes = await fetch(`${baseUrl}/api/agents`, {
               headers: { Authorization: `Bearer ${authToken}` },
             });
             if (verifyRes.ok) {
-              const currentSpaces = (await verifyRes.json()) as { spaces: { id: string }[] };
-              if (currentSpaces.spaces.some((s) => s.id === spaceId)) {
+              const currentAgents = (await verifyRes.json()) as { agents: { id: string }[] };
+              if (currentAgents.agents.some((s) => s.id === agentId)) {
                 cleanupFailed = true;
-                process.stderr.write(`Cleanup verification failed: space ${spaceId} still exists\n`);
+                process.stderr.write(`Cleanup verification failed: agent ${agentId} still exists\n`);
               }
             }
           } else {
             cleanupFailed = true;
-            process.stderr.write(`Cleanup space ${spaceId} failed with HTTP ${res.status}\n`);
+            process.stderr.write(`Cleanup agent ${agentId} failed with HTTP ${res.status}\n`);
           }
         } catch {
           cleanupFailed = true;

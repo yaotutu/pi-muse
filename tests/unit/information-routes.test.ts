@@ -9,13 +9,13 @@ test("PUT preferences leaves the hub lock before retaining for feedback examples
   let state = { ...defaultInformationState(), preferences: { notes: "old", learnedNotes: "" } };
   const repository: InformationRepository = {
     read: async () => structuredClone(state),
-    update: async (_spaceId, change) => {
+    update: async (_agentId, change) => {
       const changed = await change(structuredClone(state));
       if (changed.state) state = changed.state;
       return changed.result;
     },
-    listSpaceIds: async () => ["space"],
-    removeSpace: async () => undefined,
+    listAgentIds: async () => ["agent"],
+    removeAgent: async () => undefined,
     reconcileOnStart: async () => undefined,
     validateAll: async () => undefined,
   };
@@ -23,9 +23,9 @@ test("PUT preferences leaves the hub lock before retaining for feedback examples
   const order: string[] = [];
   const information = createInformationService({
     repository,
-    spaceExists: async () => true,
-    retainSpace: async () => {
-      assert.equal(hubDepth, 0, "retainSpace must run outside withExistingSpace");
+    agentExists: async () => true,
+    retainAgent: async () => {
+      assert.equal(hubDepth, 0, "retainAgent must run outside withExistingAgent");
       order.push("retain");
       return {
         conversation: {
@@ -42,7 +42,7 @@ test("PUT preferences leaves the hub lock before retaining for feedback examples
   });
   const dependencies = {
     conversationHub: {
-      withExistingSpace: async <T>(_spaceId: string, change: () => Promise<T>) => {
+      withExistingAgent: async <T>(_agentId: string, change: () => Promise<T>) => {
         hubDepth++;
         order.push("lock");
         try {
@@ -55,7 +55,7 @@ test("PUT preferences leaves the hub lock before retaining for feedback examples
     information,
   } as unknown as HttpDependencies;
   const app = createInformationRoutes(dependencies);
-  const response = await app.request("/space/information/preferences", {
+  const response = await app.request("/agent/information/preferences", {
     method: "PUT",
     body: JSON.stringify({ notes: "latest" }),
   });
@@ -68,13 +68,13 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
   let state = defaultInformationState();
   const repository: InformationRepository = {
     read: async () => structuredClone(state),
-    update: async (_spaceId, change) => {
+    update: async (_agentId, change) => {
       const changed = await change(structuredClone(state));
       if (changed.state) state = changed.state;
       return changed.result;
     },
-    listSpaceIds: async () => ["space"],
-    removeSpace: async () => undefined,
+    listAgentIds: async () => ["agent"],
+    removeAgent: async () => undefined,
     reconcileOnStart: async () => undefined,
     validateAll: async () => undefined,
   };
@@ -84,8 +84,8 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
   const retainGate = new Promise<void>((resolve) => { releaseRetain = resolve; });
   const information = createInformationService({
     repository,
-    spaceExists: async () => true,
-    retainSpace: async () => {
+    agentExists: async () => true,
+    retainAgent: async () => {
       retainStarted = true;
       await retainGate;
       return {
@@ -101,19 +101,19 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
     readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
-  await information.saveSettings("space", { enabled: true, batchWindowSeconds: 0 });
-  await information.ingest("space", [{ source: "rss", externalId: "1", content: "one" }]);
+  await information.saveSettings("agent", { enabled: true, batchWindowSeconds: 0 });
+  await information.ingest("agent", [{ source: "rss", externalId: "1", content: "one" }]);
 
   const app = createInformationRoutes({
     conversationHub: {},
     information,
   } as unknown as HttpDependencies);
-  const responsePromise = app.request("/space/information/runs", {
+  const responsePromise = app.request("/agent/information/runs", {
     method: "POST",
     body: "{}",
   });
   while (!retainStarted) await new Promise((resolve) => setImmediate(resolve));
-  const pause = information.pauseSpace("space");
+  const pause = information.pauseAgent("agent");
   releaseRetain();
 
   const response = await responsePromise;

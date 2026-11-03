@@ -2,14 +2,14 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { isSpaceId } from "../../features/conversation/space-id.js";
+import { isAgentId } from "../../features/conversation/agent-id.js";
 import {
   defaultInformationState,
   type InformationRepository,
   type InformationState,
 } from "../../features/information/types.js";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
-import { spaceInformationFile, type DataLayout } from "./data-layout.js";
+import { agentInformationFile, type DataLayout } from "./data-layout.js";
 import { writeJsonDocument } from "./json-document.js";
 
 const isoTime = z.string().datetime();
@@ -20,7 +20,7 @@ const publicArticleUrl = z.string().url().max(2048).regex(/^https?:\/\//).refine
 }, "URL must not contain credentials");
 const itemSchema = z.strictObject({
   id: z.string().min(1).max(128),
-  spaceId: z.string().min(1).max(64),
+  agentId: z.string().min(1).max(64),
   source: z.string().min(1).max(128),
   externalId: z.string().min(1).max(256),
   title: z.string().min(1).max(500).optional(),
@@ -55,7 +55,7 @@ const publicationSchema = z.strictObject({
 });
 const runSchema = z.strictObject({
   id: z.string().min(1).max(128),
-  spaceId: z.string().min(1).max(64),
+  agentId: z.string().min(1).max(64),
   itemIds: z.array(z.string().min(1).max(128)).min(1),
   status: z.enum(["running", "completed", "failed", "cancelled"]),
   createdAt: isoTime,
@@ -115,35 +115,35 @@ const readState = async (file: string, logicalFile: string): Promise<Information
   }
 };
 
-/** 信息域使用每空间一个文档和一条串行写队列；损坏文件必须阻止启动。 */
+/** 信息域使用每智能体一个文档和一条串行写队列；损坏文件必须阻止启动。 */
 export const createInformationRepository = (layout: DataLayout): InformationRepository => {
   const serialized = createSerializedWriter();
-  const fileFor = (spaceId: string) => spaceInformationFile(layout, spaceId);
-  const logicalFor = (spaceId: string) => `information/${spaceId}.json`;
+  const fileFor = (agentId: string) => agentInformationFile(layout, agentId);
+  const logicalFor = (agentId: string) => `information/${agentId}.json`;
 
   const repository: InformationRepository = {
-    read: (spaceId) => serialized(() => {
-      if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
-      return readState(fileFor(spaceId), logicalFor(spaceId));
+    read: (agentId) => serialized(() => {
+      if (!isAgentId(agentId)) throw new Error("Invalid agentId");
+      return readState(fileFor(agentId), logicalFor(agentId));
     }),
-    update: (spaceId, change, options) => serialized(async () => {
-      if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
-      const file = fileFor(spaceId);
+    update: (agentId, change, options) => serialized(async () => {
+      if (!isAgentId(agentId)) throw new Error("Invalid agentId");
+      const file = fileFor(agentId);
       const mayCreate = options?.allowCreate === true;
       if (!mayCreate && !existsSync(file)) {
-        // 后台 claim/结果写入不得重建缺失文档；显式初始化只由已验空间入口完成。
-        throw new Error(`Information document not found: ${logicalFor(spaceId)}`);
+        // 后台 claim/结果写入不得重建缺失文档；显式初始化只由已验智能体入口完成。
+        throw new Error(`Information document not found: ${logicalFor(agentId)}`);
       }
-      const state = await readState(file, logicalFor(spaceId));
+      const state = await readState(file, logicalFor(agentId));
       const changed = await change(state);
       if (changed.state) {
-        const validated = parseState(changed.state, logicalFor(spaceId));
+        const validated = parseState(changed.state, logicalFor(agentId));
         await mkdir(dirname(file), { recursive: true, mode: 0o700 });
         await writeJsonDocument(file, validated);
       }
       return changed.result;
     }),
-    listSpaceIds: async () => {
+    listAgentIds: async () => {
       let entries;
       try {
         entries = await readdir(layout.informationDir, { withFileTypes: true });
@@ -154,18 +154,18 @@ export const createInformationRepository = (layout: DataLayout): InformationRepo
       return entries
         .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
         .map((entry) => entry.name.replace(/\.json$/, ""))
-        .filter(isSpaceId)
+        .filter(isAgentId)
         .sort();
     },
-    removeSpace: (spaceId) => serialized(async () => {
-      if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
-      await rm(fileFor(spaceId), { force: true });
+    removeAgent: (agentId) => serialized(async () => {
+      if (!isAgentId(agentId)) throw new Error("Invalid agentId");
+      await rm(fileFor(agentId), { force: true });
     }),
     reconcileOnStart: async () => {
-      const spaceIds = await repository.listSpaceIds();
+      const agentIds = await repository.listAgentIds();
       const now = new Date().toISOString();
-      for (const spaceId of spaceIds) {
-        await repository.update(spaceId, (state) => {
+      for (const agentId of agentIds) {
+        await repository.update(agentId, (state) => {
           let changed = false;
           const runs = state.runs.map((run) => {
             if (run.status !== "running") return run;
@@ -206,8 +206,8 @@ export const createInformationRepository = (layout: DataLayout): InformationRepo
       }
     },
     validateAll: async () => {
-      for (const spaceId of await repository.listSpaceIds()) {
-        await readState(fileFor(spaceId), logicalFor(spaceId));
+      for (const agentId of await repository.listAgentIds()) {
+        await readState(fileFor(agentId), logicalFor(agentId));
       }
     },
   };

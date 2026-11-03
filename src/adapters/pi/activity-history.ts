@@ -4,7 +4,7 @@ import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
 const date = z.string().datetime();
 const overview = z.object({
-  id: z.string().uuid(), spaceId: z.string(),
+  id: z.string().uuid(), agentId: z.string(),
   title: z.string().max(160), goal: z.string().max(2000), deliverable: z.string().max(2000),
   status: z.enum(activityStatuses), progress: z.string().max(2000), result: z.string().max(2000).nullable(),
   runIds: z.array(z.string()), currentRunId: z.string().nullable(), createdAt: date, updatedAt: date, finishedAt: date.nullable(),

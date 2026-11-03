@@ -1,11 +1,11 @@
 // 服务端契约类型（仅 import type，不进入打包产物）：字段变化即编译报错。
 import type {
-  AgentSnapshotDto,
+  IdentitySnapshotDto,
   ChatMessageDto,
   ConversationSnapshotDto,
   DreamOverviewDto,
   DreamPendingDto,
-  DreamSpaceDto,
+  DreamAgentDto,
   GoalDto,
   InstructionsDto,
   MemoriesResponseDto,
@@ -18,9 +18,9 @@ import type {
   DeleteJobResponseDto,
   GoalsResponseDto,
   DeleteGoalResponseDto,
-  SpaceDto,
-  ResetSpaceDto,
-  DeleteSpaceDto,
+  AgentDto,
+  ResetAgentDto,
+  DeleteAgentDto,
 } from "../../../src/http/contracts/responses.js";
 import type { RunRequestDto } from "../../../src/http/contracts/rest.js";
 import {
@@ -63,17 +63,15 @@ export type {
   MemoryDto,
   MonitorDto,
   GoalDto,
-  SpaceDto,
-  ResetSpaceDto,
-  DeleteSpaceDto,
+  AgentDto,
+  ResetAgentDto,
+  DeleteAgentDto,
   DreamOverviewDto,
   DreamPendingDto,
-  DreamSpaceDto,
+  DreamAgentDto,
   InstructionsDto,
 };
-export type ThreadDto = SpaceDto;
-export type DreamThreadDto = DreamSpaceDto;
-export type IdentityDto = NonNullable<AgentSnapshotDto["identity"]>;
+export type IdentityDto = NonNullable<IdentitySnapshotDto["identity"]>;
 export type MilestoneDto = GoalDto["milestones"][number];
 /**
  * 服务端 API 客户端：类型来自服务端契约模块（编译期对齐）。
@@ -133,18 +131,29 @@ export const login = async (accessKey?: string): Promise<boolean> => {
 };
 export const isLoggedIn = () => Boolean(getToken());
 
-export const listSpaces = async (): Promise<SpaceDto[]> => {
-  const response = await request("/api/spaces");
-  if (!response.ok) throw new ApiError(response.status, "无法加载空间列表");
-  return ((await response.json()) as { spaces: SpaceDto[] }).spaces;
+export const listAgents = async (): Promise<AgentDto[]> => {
+  const response = await request("/api/agents");
+  if (!response.ok) throw new ApiError(response.status, "无法加载智能体列表");
+  return ((await response.json()) as { agents: AgentDto[] }).agents;
 };
-export const listThreads = listSpaces;
 
-export const resetSpace = async (
-  spaceId: string,
+export const createAgent = async (agentId: string): Promise<AgentDto> => {
+  const response = await request("/api/agents", {
+    method: "POST",
+    body: JSON.stringify({ agentId }),
+  });
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+    throw new ApiError(response.status, failure?.error ?? "创建智能体失败");
+  }
+  return ((await response.json()) as { agent: AgentDto }).agent;
+};
+
+export const resetAgent = async (
+  agentId: string,
   clearSchedules?: boolean,
-): Promise<ResetSpaceDto> => {
-  const response = await request(`/api/spaces/${encodeURIComponent(spaceId)}/reset`, {
+): Promise<ResetAgentDto> => {
+  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/reset`, {
     method: "POST",
     body: JSON.stringify({ clearSchedules }),
   });
@@ -155,28 +164,28 @@ export const resetSpace = async (
   return response.json();
 };
 
-export const deleteSpace = async (spaceId: string): Promise<DeleteSpaceDto> => {
-  const response = await request(`/api/spaces/${encodeURIComponent(spaceId)}`, {
+export const deleteAgent = async (agentId: string): Promise<DeleteAgentDto> => {
+  const response = await request(`/api/agents/${encodeURIComponent(agentId)}`, {
     method: "DELETE",
   });
   if (!response.ok) {
     const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
-    throw new ApiError(response.status, failure?.error ?? "删除空间失败");
+    throw new ApiError(response.status, failure?.error ?? "删除智能体失败");
   }
   return response.json();
 };
 
 export const loadHistory = async (
-  spaceId: string,
+  agentId: string,
   signal?: AbortSignal,
 ): Promise<ConversationSnapshotDto> => {
-  const response = await request(`/api/conversation?spaceId=${encodeURIComponent(spaceId)}`, { signal });
+  const response = await request(`/api/conversation?agentId=${encodeURIComponent(agentId)}`, { signal });
   if (!response.ok) throw new ApiError(response.status, "无法加载历史");
   return response.json();
 };
 
-const messageFeedbackBase = (spaceId: string, messageId: string) =>
-  `/api/spaces/${encodeURIComponent(spaceId)}/messages/${encodeURIComponent(messageId)}/feedback`;
+const messageFeedbackBase = (agentId: string, messageId: string) =>
+  `/api/agents/${encodeURIComponent(agentId)}/messages/${encodeURIComponent(messageId)}/feedback`;
 
 const feedbackFailure = async (response: Response, action: string): Promise<never> => {
   const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
@@ -184,11 +193,11 @@ const feedbackFailure = async (response: Response, action: string): Promise<neve
 };
 
 export const getMessageFeedback = async (
-  input: { spaceId: string; sessionId: string; messageId: string },
+  input: { agentId: string; sessionId: string; messageId: string },
   signal?: AbortSignal,
 ): Promise<MessageFeedbackDto> => {
   const response = await request(
-    `${messageFeedbackBase(input.spaceId, input.messageId)}?sessionId=${encodeURIComponent(input.sessionId)}`,
+    `${messageFeedbackBase(input.agentId, input.messageId)}?sessionId=${encodeURIComponent(input.sessionId)}`,
     { signal },
   );
   if (!response.ok) await feedbackFailure(response, "读取反馈");
@@ -196,11 +205,11 @@ export const getMessageFeedback = async (
 };
 
 export const getMessageFeedbackEvents = async (
-  input: { spaceId: string; sessionId: string; messageId: string },
+  input: { agentId: string; sessionId: string; messageId: string },
   signal?: AbortSignal,
 ): Promise<MessageFeedbackEventsDto> => {
   const response = await request(
-    `${messageFeedbackBase(input.spaceId, input.messageId)}/events?sessionId=${encodeURIComponent(input.sessionId)}`,
+    `${messageFeedbackBase(input.agentId, input.messageId)}/events?sessionId=${encodeURIComponent(input.sessionId)}`,
     { signal },
   );
   if (!response.ok) await feedbackFailure(response, "读取反馈历史");
@@ -208,9 +217,9 @@ export const getMessageFeedbackEvents = async (
 };
 
 export const setMessageReaction = async (
-  input: { spaceId: string; sessionId: string; messageId: string; reaction: "like" | "dislike" | null },
+  input: { agentId: string; sessionId: string; messageId: string; reaction: "like" | "dislike" | null },
 ): Promise<MessageFeedbackDto> => {
-  const response = await request(`${messageFeedbackBase(input.spaceId, input.messageId)}/reaction`, {
+  const response = await request(`${messageFeedbackBase(input.agentId, input.messageId)}/reaction`, {
     method: "PUT",
     body: JSON.stringify({ sessionId: input.sessionId, reaction: input.reaction }),
   });
@@ -219,9 +228,9 @@ export const setMessageReaction = async (
 };
 
 export const addMessageComment = async (
-  input: { spaceId: string; sessionId: string; messageId: string; text: string },
+  input: { agentId: string; sessionId: string; messageId: string; text: string },
 ): Promise<MessageFeedbackDto> => {
-  const response = await request(messageFeedbackBase(input.spaceId, input.messageId) + "/comments", {
+  const response = await request(messageFeedbackBase(input.agentId, input.messageId) + "/comments", {
     method: "POST",
     body: JSON.stringify({ sessionId: input.sessionId, text: input.text }),
   });
@@ -230,10 +239,10 @@ export const addMessageComment = async (
 };
 
 export const editMessageComment = async (
-  input: { spaceId: string; sessionId: string; messageId: string; commentId: string; text: string },
+  input: { agentId: string; sessionId: string; messageId: string; commentId: string; text: string },
 ): Promise<MessageFeedbackDto> => {
   const response = await request(
-    `${messageFeedbackBase(input.spaceId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}`,
+    `${messageFeedbackBase(input.agentId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}`,
     { method: "PATCH", body: JSON.stringify({ sessionId: input.sessionId, text: input.text }) },
   );
   if (!response.ok) await feedbackFailure(response, "编辑评论");
@@ -241,10 +250,10 @@ export const editMessageComment = async (
 };
 
 export const deleteMessageComment = async (
-  input: { spaceId: string; sessionId: string; messageId: string; commentId: string },
+  input: { agentId: string; sessionId: string; messageId: string; commentId: string },
 ): Promise<MessageFeedbackDto> => {
   const response = await request(
-    `${messageFeedbackBase(input.spaceId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}?sessionId=${encodeURIComponent(input.sessionId)}`,
+    `${messageFeedbackBase(input.agentId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}?sessionId=${encodeURIComponent(input.sessionId)}`,
     { method: "DELETE" },
   );
   if (!response.ok) await feedbackFailure(response, "删除评论");
@@ -320,22 +329,22 @@ export const runConversation = async (
 // 任务（定时任务投影）、记忆、身份与 SOUL/USER 管理
 // ---------------------------------------------------------------------------
 
-export const getAgentSnapshot = async (signal?: AbortSignal): Promise<AgentSnapshotDto> => {
-  const response = await request("/api/agent", { signal });
+export const getAgentSnapshot = async (signal?: AbortSignal): Promise<IdentitySnapshotDto> => {
+  const response = await request("/api/identity", { signal });
   if (!response.ok) throw new ApiError(response.status, "无法加载工作区");
   return response.json();
 };
 
 export const listJobs = async (
   query?: {
-    spaceId?: string;
+    agentId?: string;
     sort?: "nextRunAt" | "updatedAt" | "createdAt";
     order?: "asc" | "desc";
   },
   signal?: AbortSignal,
 ): Promise<JobDto[]> => {
   const params = new URLSearchParams();
-  if (query?.spaceId) params.set("spaceId", query.spaceId);
+  if (query?.agentId) params.set("agentId", query.agentId);
   if (query?.sort) params.set("sort", query.sort);
   if (query?.order) params.set("order", query.order);
   const suffix = params.size ? `?${params.toString()}` : "";
@@ -370,7 +379,7 @@ export const controlTask = controlJob;
 
 export const updateJob = async (
   id: string,
-  updates: { prompt?: string; daily?: boolean; at?: string; originSpaceId?: string },
+  updates: { prompt?: string; daily?: boolean; at?: string; originAgentId?: string },
 ): Promise<JobDto> => {
   const response = await request(`/api/jobs/${encodeURIComponent(id)}`, {
     method: "PATCH",
@@ -435,7 +444,7 @@ export const forgetMemory = async (id: string): Promise<void> => {
 };
 
 export const saveIdentity = async (patch: IdentityDto): Promise<IdentityDto> => {
-  const response = await request("/api/agent/identity", {
+  const response = await request("/api/identity", {
     method: "POST",
     body: JSON.stringify(patch),
   });
@@ -461,35 +470,33 @@ export const saveProfile = async (patch: {
   return response.json();
 };
 
-export const getSpaceInstructions = async (spaceId: string): Promise<InstructionsDto> => {
-  const response = await request(`/api/spaces/${encodeURIComponent(spaceId)}/instructions`);
-  if (!response.ok) throw new ApiError(response.status, "无法加载空间指令");
+export const getAgentInstructions = async (agentId: string): Promise<InstructionsDto> => {
+  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/instructions`);
+  if (!response.ok) throw new ApiError(response.status, "无法加载智能体指令");
   return response.json();
 };
-export const getThreadInstructions = getSpaceInstructions;
 
-export const saveSpaceInstructions = async (
-  spaceId: string,
+export const saveAgentInstructions = async (
+  agentId: string,
   instructions: string,
   purpose?: string,
 ): Promise<InstructionsDto> => {
-  const response = await request(`/api/spaces/${encodeURIComponent(spaceId)}/instructions`, {
+  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/instructions`, {
     method: "PUT",
     body: JSON.stringify({ instructions, ...(purpose !== undefined ? { purpose } : {}) }),
   });
-  if (!response.ok) throw new ApiError(response.status, "保存空间指令失败");
+  if (!response.ok) throw new ApiError(response.status, "保存智能体指令失败");
   return response.json();
 };
-export const saveThreadInstructions = saveSpaceInstructions;
 
 export const getDreamOverview = async (): Promise<DreamOverviewDto> => {
-  const response = await request("/api/agent/dream");
+  const response = await request("/api/dream");
   if (!response.ok) throw new ApiError(response.status, "无法加载 Dream 概览");
   return response.json();
 };
 
 export const saveGlobalDreamPrompt = async (globalPrompt: string): Promise<DreamOverviewDto> => {
-  const response = await request("/api/agent/dream", {
+  const response = await request("/api/dream", {
     method: "PUT",
     body: JSON.stringify({ globalPrompt }),
   });
@@ -497,28 +504,26 @@ export const saveGlobalDreamPrompt = async (globalPrompt: string): Promise<Dream
   return response.json();
 };
 
-export const getSpaceDream = async (spaceId: string): Promise<DreamSpaceDto> => {
-  const response = await request(`/api/spaces/${encodeURIComponent(spaceId)}/dream`);
-  if (!response.ok) throw new ApiError(response.status, "无法加载空间 Dream 配置");
+export const getAgentDream = async (agentId: string): Promise<DreamAgentDto> => {
+  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/dream`);
+  if (!response.ok) throw new ApiError(response.status, "无法加载智能体 Dream 配置");
   return response.json();
 };
-export const getThreadDream = getSpaceDream;
 
-export const updateSpaceDream = async (
-  spaceId: string,
+export const updateAgentDream = async (
+  agentId: string,
   patch: { enabled?: boolean; inheritGlobalPrompt?: boolean; prompt?: string },
-): Promise<DreamSpaceDto> => {
-  const response = await request(`/api/spaces/${encodeURIComponent(spaceId)}/dream`, {
+): Promise<DreamAgentDto> => {
+  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/dream`, {
     method: "PUT",
     body: JSON.stringify(patch),
   });
-  if (!response.ok) throw new ApiError(response.status, "保存空间 Dream 配置失败");
+  if (!response.ok) throw new ApiError(response.status, "保存智能体 Dream 配置失败");
   return response.json();
 };
-export const updateThreadDream = updateSpaceDream;
 
-export const runSpaceDream = async (spaceId: string): Promise<DreamSpaceDto> => {
-  const response = await request(`/api/spaces/${encodeURIComponent(spaceId)}/dream/run`, {
+export const runAgentDream = async (agentId: string): Promise<DreamAgentDto> => {
+  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/dream/run`, {
     method: "POST",
     body: "{}",
   });
@@ -528,18 +533,17 @@ export const runSpaceDream = async (spaceId: string): Promise<DreamSpaceDto> => 
   }
   return response.json();
 };
-export const runThreadDream = runSpaceDream;
 
-export const resolveSpaceDreamPending = async (
-  spaceId: string,
+export const resolveAgentDreamPending = async (
+  agentId: string,
   pendingId: string,
   decision: {
     action: "apply" | "dismiss";
     target?: "user" | "soul" | "instructions" | "memory";
   },
-): Promise<DreamSpaceDto> => {
+): Promise<DreamAgentDto> => {
   const response = await request(
-    `/api/spaces/${encodeURIComponent(spaceId)}/dream/pending/${encodeURIComponent(pendingId)}`,
+    `/api/agents/${encodeURIComponent(agentId)}/dream/pending/${encodeURIComponent(pendingId)}`,
     {
       method: "POST",
       body: JSON.stringify(decision),
@@ -551,7 +555,6 @@ export const resolveSpaceDreamPending = async (
   }
   return response.json();
 };
-export const resolveThreadDreamPending = resolveSpaceDreamPending;
 
 // ---------------------------------------------------------------------------
 // 目标与里程碑
@@ -672,12 +675,12 @@ export const listPendingApprovals = async (signal?: AbortSignal): Promise<Approv
 // 网页监控
 // ---------------------------------------------------------------------------
 export const listMonitors = async (query?: {
-  spaceId?: string;
+  agentId?: string;
   sort?: "createdAt" | "lastCheckedAt" | "status";
   order?: "asc" | "desc";
 }): Promise<MonitorDto[]> => {
   const params = new URLSearchParams();
-  if (query?.spaceId) params.set("spaceId", query.spaceId);
+  if (query?.agentId) params.set("agentId", query.agentId);
   if (query?.sort) params.set("sort", query.sort);
   if (query?.order) params.set("order", query.order);
   const qs = params.toString();
@@ -699,7 +702,7 @@ export const createMonitor = async (input: {
   value?: string;
   title?: string;
   intervalMinutes?: number;
-  originSpaceId?: string;
+  originAgentId?: string;
 }): Promise<MonitorDto> => {
   const response = await request("/api/monitors", {
     method: "POST",
@@ -729,7 +732,7 @@ export const updateMonitor = async (
     condition?: "change" | "contains";
     value?: string;
     intervalMinutes?: number;
-    originSpaceId?: string;
+    originAgentId?: string;
   },
 ): Promise<MonitorDto> => {
   const response = await request(`/api/monitors/${id}`, {
@@ -864,7 +867,7 @@ export const subscribeWorkspaceEvents = async (
 };
 
 /** 显式停止必须等待服务端完成取消，随后读取的 revision 才是稳定终态。 */
-export const stopConversation = async (spaceId: string, runId: string, signal?: AbortSignal): Promise<void> => {
-  const response = await request("/api/conversation/stop", { method: "POST", signal, body: JSON.stringify({ spaceId, runId }) });
+export const stopConversation = async (agentId: string, runId: string, signal?: AbortSignal): Promise<void> => {
+  const response = await request("/api/conversation/stop", { method: "POST", signal, body: JSON.stringify({ agentId, runId }) });
   if (!response.ok) throw new ApiError(response.status, "停止失败，请重试");
 };

@@ -85,13 +85,13 @@ for (const kind of ["memory", "jobs"] as const) {
 }
 
 test("session layout initialization never migrates files from the root", async (t) => {
-  const { createDataLayout, ensureThreadLayout } = await import("../../src/adapters/storage/data-layout.js");
+  const { createDataLayout, ensureAgentLayout } = await import("../../src/adapters/storage/data-layout.js");
   const { directory } = await setup(t);
   const layout = createDataLayout(directory);
-  await ensureThreadLayout(layout);
+  await ensureAgentLayout(layout);
   const source = join(layout.sessionsDir, "old.jsonl");
   await writeFile(source, "original session");
-  await ensureThreadLayout(layout);
+  await ensureAgentLayout(layout);
   assert.equal(await readFile(source, "utf8"), "original session");
   assert.deepEqual(await readdir(layout.sessionsDir), ["old.jsonl"]);
 });

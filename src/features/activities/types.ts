@@ -6,7 +6,7 @@ export type StepKind = "execution" | "model" | "tool" | "subagent" | "approval" 
 
 export type ActivityOverview = {
   id: string;
-  spaceId: string;
+  agentId: string;
   title: string;
   goal: string;
   deliverable: string;

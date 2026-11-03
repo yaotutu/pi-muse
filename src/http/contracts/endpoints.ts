@@ -1,5 +1,5 @@
 import { featureEndpoints } from "./features.js";
-import { spaceCommunicationEndpoints } from "./space-communication.js";
+import { agentCommunicationEndpoints } from "./agent-communication.js";
 import { groupEndpoints } from "./group-chat.js";
 import { z } from "zod";
 import * as req from "./rest.js";
@@ -61,18 +61,14 @@ export type EndpointSpec = {
   /**
    * 响应为 SSE 流时不生成 JSON schema，改挂 x-sse-events 事件契约。
    * 每端点显式提供 events map：聊天 SSE 绑定 sseEvents；工作区通知流绑定 workspaceEvents；
-   * 互不复用，确保 OpenAPI 文档与生成器按各自命名空间渲染。
+   * 互不复用，确保 OpenAPI 文档与生成器按各自事件命名空间渲染。
    */
   sse?: SseSpec;
 };
 
-const conversationQuery = z.object({
-  spaceId: z.string().optional().describe("空间标识；缺省 local-main"),
-});
-
 export const endpoints: EndpointSpec[] = [
   ...featureEndpoints,
-  ...spaceCommunicationEndpoints,
+  ...agentCommunicationEndpoints,
   ...groupEndpoints,
   // ---- 基础 ----
   {
@@ -88,261 +84,255 @@ export const endpoints: EndpointSpec[] = [
     auth: false, request: req.sessionRequestSchema, response: resp.sessionResponse,
   },
   {
-    operationId: "listMembers",
-    method: "get", path: "/api/members", tag: "空间", summary: "列出聊天成员",
-    hint: "既有 Space 的只读成员目录，含新闻和短信内置成员。未开始聊天的成员 sessionId 为 null；读取不会创建会话或开启后台处理。成员私聊、文件、规则和技能仍归属各自 spaceId。",
-    auth: true, response: resp.membersResponse,
+    operationId: "listAgents",
+    method: "get", path: "/api/agents", tag: "智能体", summary: "列出智能体（按活跃倒序）",
+    hint: "统一智能体目录，包含新闻与短信，extensions 声明附加视图与业务能力，不限制核心聊天、指令、技能、文件或 Dream。智能体默认互信，通信无额外白名单；先取列表再选 agentId 聊天；客户端添加成员通过 POST 显式创建，尚无消息也能持久显示。run、规则/技能保存或显式来源绑定仍可建立智能体。历史 GET 和迟到 Stop 不会建立智能体。",
+    auth: true, response: resp.agentsResponse,
   },
   {
-    operationId: "listSpaces",
-    method: "get", path: "/api/spaces", tag: "空间", summary: "列出空间（按活跃倒序）",
-    hint: "多空间入口：先取列表再选 spaceId 聊天；客户端添加成员通过 POST 显式创建，尚无消息也能持久显示。run、规则/技能保存或显式来源绑定仍可建立空间。历史 GET 和迟到 Stop 不会建立空间。",
-    auth: true, response: resp.spacesResponse,
+    operationId: "createAgent", method: "post", path: "/api/agents", tag: "智能体", summary: "创建自定义智能体",
+    hint: "按客户端生成的 agentId 建立真实智能体，不触发模型或插入聊天消息。相同 ID 已存在时只返回当前绑定，不重置历史；内置新闻与短信已由实例初始化，不使用此入口重复创建。结果未明时按原 ID 回读成员目录核对，不另造一个成员自动重试。",
+    auth: true, request: req.createAgentSchema, response: resp.createAgentResponse,
   },
   {
-    operationId: "createSpace", method: "post", path: "/api/spaces", tag: "空间", summary: "创建普通空间成员",
-    hint: "按客户端生成的 spaceId 建立真实空间，不触发模型或插入聊天消息。相同 ID 已存在时只返回当前绑定，不重置历史；禁止用此入口创建内置功能空间。结果未明时按原 ID 回读成员目录核对，不另造一个成员自动重试。",
-    auth: true, request: req.createSpaceSchema, response: resp.createSpaceResponse,
-  },
-  {
-    operationId: "resetSpace",
-    method: "post", path: "/api/spaces/:spaceId/reset", tag: "空间", summary: "重置空间会话（更换 session ID，清空会话历史并作废待审批，保留工作区与规则）",
-    hint: "清空当前空间的会话聊天历史并生成全新 session ID，同时清理该空间全部消息反馈事件；当前空间的私有工作区文件、INSTRUCTIONS.md、技能开关与 Dream 配置均完整保留。若存在正在进行的运行或待审批操作，均安全取消；可选传入 clearSchedules: true 同时清理该空间绑定的定时任务与网页监控，默认 false 保留并转绑到新会话。",
-    auth: true, request: req.resetSpaceSchema, response: resp.resetSpaceResponse,
+    operationId: "resetAgent",
+    method: "post", path: "/api/agents/:agentId/reset", tag: "智能体", summary: "重置智能体会话（更换 session ID，清空会话历史并作废待审批，保留工作区与规则）",
+    hint: "清空当前智能体的会话聊天历史并生成全新 session ID，同时清理该智能体全部消息反馈事件；当前智能体的私有工作区文件、INSTRUCTIONS.md、技能开关与 Dream 配置均完整保留。若存在正在进行的运行或待审批操作，均安全取消；可选传入 clearSchedules: true 同时清理该智能体绑定的定时任务与网页监控，默认 false 保留并转绑到新会话。",
+    auth: true, request: req.resetAgentSchema, response: resp.resetAgentResponse,
   },
   {
     operationId: "getConversation",
-    method: "get", path: "/api/conversation", tag: "空间", summary: "读取会话权威历史",
-    hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。合法但不存在、已删除或正在删除的 ID 返回 200 {sessionId:null, messages:[], revision:'empty'}，不创建会话或工作区，不使其出现在列表；非法 ID 返回 400。空历史不代表空间存在，存在性以 GET /api/spaces 为准。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）；user/assistant 消息必带 metadata（PI entry 时间、chat/job/notification 可靠来源、run/job/notification 关联与 feedbackAvailable）和当前 feedback。role=user 还可有 attachments；每项为 id/name/kind/mimeType/size/sha256，kind=image 还可带 image:{mimeType,dataBase64} 并按本条 SDK user 的 image blocks 顺序关联，文本正文不自动展开。文件/模型原始错误在进入模型上下文与历史前脱敏，文件缺失使用受控提示，不返回服务端绝对路径。",
-    auth: true, query: conversationQuery, response: resp.conversationResponse,
+    method: "get", path: "/api/conversation", tag: "智能体", summary: "读取会话权威历史",
+    hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。合法但不存在、已删除或正在删除的 ID 返回 200 {sessionId:null, messages:[], revision:'empty'}，不创建会话或工作区，不使其出现在列表；非法 ID 返回 400。空历史不代表智能体存在，存在性以 GET /api/agents 为准。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）；user/assistant 消息必带 metadata（PI entry 时间、chat/job/notification 可靠来源、run/job/notification 关联与 feedbackAvailable）和当前 feedback。role=user 还可有 attachments；每项为 id/name/kind/mimeType/size/sha256，kind=image 还可带 image:{mimeType,dataBase64} 并按本条 SDK user 的 image blocks 顺序关联，文本正文不自动展开。文件/模型原始错误在进入模型上下文与历史前脱敏，文件缺失使用受控提示，不返回服务端绝对路径。",
+    auth: true, query: req.conversationQuerySchema, response: resp.conversationResponse,
   },
   // ---- 消息反馈（独立业务层；不触发模型，不修改 PI 历史）----
   {
     operationId: "getMessageFeedback",
-    method: "get", path: "/api/spaces/:spaceId/messages/:messageId/feedback", tag: "消息反馈",
+    method: "get", path: "/api/agents/:agentId/messages/:messageId/feedback", tag: "消息反馈",
     summary: "读取消息当前反馈",
     hint:
-      "按 spaceId+sessionId+messageId 读取用户/助手消息的当前喜欢/不喜欢与全部评论。sessionId 必填；" +
-      "reset 后旧 sessionId 返回 409。空间不存在返回 404，非法参数返回 400。工具结果和未落盘/当前生成中的消息不可反馈，按目标不存在返回 404。本接口不触发模型、不追加聊天消息，也不改变对话 revision。",
+      "按 agentId+sessionId+messageId 读取用户/助手消息的当前喜欢/不喜欢与全部评论。sessionId 必填；" +
+      "reset 后旧 sessionId 返回 409。智能体不存在返回 404，非法参数返回 400。工具结果和未落盘/当前生成中的消息不可反馈，按目标不存在返回 404。本接口不触发模型、不追加聊天消息，也不改变对话 revision。",
     auth: true, query: message.messageTargetSchema, response: message.messageFeedbackResponse,
     errorResponses: {
-      400: { description: "非法 spaceId、messageId 或 sessionId", schema: resp.errorResponse },
-      404: { description: "空间或可反馈消息不存在", schema: resp.errorResponse },
-      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      400: { description: "非法 agentId、messageId 或 sessionId", schema: resp.errorResponse },
+      404: { description: "智能体或可反馈消息不存在", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该智能体当前会话，或智能体正在删除", schema: resp.errorResponse },
       503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
     },
   },
   {
     operationId: "listMessageFeedbackEvents",
-    method: "get", path: "/api/spaces/:spaceId/messages/:messageId/feedback/events", tag: "消息反馈",
+    method: "get", path: "/api/agents/:agentId/messages/:messageId/feedback/events", tag: "消息反馈",
     summary: "读取消息原始反馈事件",
     hint:
-      "返回该消息的完整操作历史：reaction 变更/撤销、评论新增、编辑（旧新文本）与删除（删除前文本），均带服务端时间与 ID。事件只追加到 Pi Muse 反馈存储，不进入 PI branch 或模型上下文；空间 reset/delete 级联删除。",
+      "返回该消息的完整操作历史：reaction 变更/撤销、评论新增、编辑（旧新文本）与删除（删除前文本），均带服务端时间与 ID。事件只追加到 Pi Muse 反馈存储，不进入 PI branch 或模型上下文；智能体 reset/delete 级联删除。",
     auth: true, query: message.messageTargetSchema, response: message.messageFeedbackEventsResponse,
     errorResponses: {
-      400: { description: "非法 spaceId、messageId 或 sessionId", schema: resp.errorResponse },
-      404: { description: "空间或可反馈消息不存在", schema: resp.errorResponse },
-      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      400: { description: "非法 agentId、messageId 或 sessionId", schema: resp.errorResponse },
+      404: { description: "智能体或可反馈消息不存在", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该智能体当前会话，或智能体正在删除", schema: resp.errorResponse },
       503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
     },
   },
   {
     operationId: "setMessageReaction",
-    method: "put", path: "/api/spaces/:spaceId/messages/:messageId/feedback/reaction", tag: "消息反馈",
+    method: "put", path: "/api/agents/:agentId/messages/:messageId/feedback/reaction", tag: "消息反馈",
     summary: "设置或撤销喜欢/不喜欢",
     hint:
-      "reaction 为 like/dislike/null；like 与 dislike 互斥，null 撤销当前反应。重复设置当前值不追加事件。成功返回完整当前反馈。反馈不触发模型、不追加聊天消息，也不改变 expectedRevision；同一空间内以前已落盘消息可在流式运行期间反馈。",
+      "reaction 为 like/dislike/null；like 与 dislike 互斥，null 撤销当前反应。重复设置当前值不追加事件。成功返回完整当前反馈。反馈不触发模型、不追加聊天消息，也不改变 expectedRevision；同一智能体内以前已落盘消息可在流式运行期间反馈。",
     auth: true, request: message.reactionRequestSchema, response: message.messageFeedbackResponse,
     errorResponses: {
       400: { description: "非法请求、reaction 或目标 ID", schema: resp.errorResponse },
-      404: { description: "空间、消息或评论不存在；工具/未落盘/当前生成中目标不可反馈", schema: resp.errorResponse },
-      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      404: { description: "智能体、消息或评论不存在；工具/未落盘/当前生成中目标不可反馈", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该智能体当前会话，或智能体正在删除", schema: resp.errorResponse },
       503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
     },
   },
   {
     operationId: "addMessageComment",
-    method: "post", path: "/api/spaces/:spaceId/messages/:messageId/feedback/comments", tag: "消息反馈",
+    method: "post", path: "/api/agents/:agentId/messages/:messageId/feedback/comments", tag: "消息反馈",
     summary: "新增消息评论",
     hint:
       "text 先 trim，必须非空且最多 4000 字符。支持多条评论；ID 与 createdAt/updatedAt 由服务端生成。成功返回完整当前反馈。",
     auth: true, request: message.createCommentRequestSchema, response: message.messageFeedbackResponse,
     errorResponses: {
       400: { description: "非法请求、sessionId、messageId 或空/超长评论", schema: resp.errorResponse },
-      404: { description: "空间或可反馈消息不存在", schema: resp.errorResponse },
-      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      404: { description: "智能体或可反馈消息不存在", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该智能体当前会话，或智能体正在删除", schema: resp.errorResponse },
       503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
     },
   },
   {
     operationId: "editMessageComment",
-    method: "patch", path: "/api/spaces/:spaceId/messages/:messageId/feedback/comments/:commentId", tag: "消息反馈",
+    method: "patch", path: "/api/agents/:agentId/messages/:messageId/feedback/comments/:commentId", tag: "消息反馈",
     summary: "编辑消息评论",
     hint:
       "text 先 trim，必须非空且最多 4000 字符。成功返回完整当前反馈；原始事件保留编辑前后文本。相同文本不追加事件；评论不存在返回 404。",
     auth: true, request: message.updateCommentRequestSchema, response: message.messageFeedbackResponse,
     errorResponses: {
       400: { description: "非法请求或空/超长评论", schema: resp.errorResponse },
-      404: { description: "空间、消息或评论不存在", schema: resp.errorResponse },
-      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      404: { description: "智能体、消息或评论不存在", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该智能体当前会话，或智能体正在删除", schema: resp.errorResponse },
       503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
     },
   },
   {
     operationId: "deleteMessageComment",
-    method: "delete", path: "/api/spaces/:spaceId/messages/:messageId/feedback/comments/:commentId", tag: "消息反馈",
+    method: "delete", path: "/api/agents/:agentId/messages/:messageId/feedback/comments/:commentId", tag: "消息反馈",
     summary: "删除消息评论",
     hint:
       "删除当前评论并保留删除前文本的原始事件；重复删除返回 404，不冒充成功。sessionId 为查询参数。成功返回完整当前反馈。",
     auth: true, query: message.messageTargetSchema, response: message.messageFeedbackResponse,
     errorResponses: {
       400: { description: "非法目标 ID 或 sessionId", schema: resp.errorResponse },
-      404: { description: "空间、消息或评论不存在", schema: resp.errorResponse },
-      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      404: { description: "智能体、消息或评论不存在", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该智能体当前会话，或智能体正在删除", schema: resp.errorResponse },
       503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
     },
   },
   {
-    operationId: "getSpaceSkills",
-    method: "get", path: "/api/spaces/:spaceId/skills", tag: "空间", summary: "读取空间技能开关",
-    hint: "返回全部技能的默认状态与当前空间的生效状态。",
+    operationId: "getAgentSkills",
+    method: "get", path: "/api/agents/:agentId/skills", tag: "智能体", summary: "读取智能体技能开关",
+    hint: "返回全部技能的默认状态与当前智能体的生效状态。",
     auth: true, response: resp.skillsResponse,
   },
   {
-    operationId: "updateSpaceSkills",
-    method: "put", path: "/api/spaces/:spaceId/skills", tag: "空间", summary: "保存空间技能开关",
-    hint: "整份替换覆盖表；未知技能名返回 400。显式保存可建立新空间；删除进行中返回 409 SPACE_DELETING，刷新列表后由用户重新选择，不自动重试旧 ID。",
+    operationId: "updateAgentSkills",
+    method: "put", path: "/api/agents/:agentId/skills", tag: "智能体", summary: "保存智能体技能开关",
+    hint: "整份替换覆盖表；未知技能名返回 400。显式保存可建立新智能体；删除进行中返回 409 AGENT_DELETING，刷新列表后由用户重新选择，不自动重试旧 ID。",
     auth: true, request: req.updateSkillsSchema, response: resp.skillsResponse,
   },
   {
-    operationId: "deleteSpace",
-    method: "delete", path: "/api/spaces/:spaceId", tag: "空间", summary: "删除空间（不可删除主空间）",
-    hint: "不可删除 local-main（409）；关闭旧空间并取消其当前轮，级联删除该空间名下的定时任务与监控，取消其排队/运行中后台任务。删除等待已接纳的来源绑定与规则/技能写入完成后清理，期间同 ID 的写操作/来源绑定返回 409 SPACE_DELETING，不自动重试。迟到历史 GET/Stop 不重建空间；已完成任务的迟到通知不改投主空间或新同名空间，结果仍可读任务详情。成功后客户端取消本地请求、屏蔽迟到结果并刷新 spaces/agent 与工作区通知流。删除非事务，失败不承诺回滚；404 表示不存在且无活跃绑定。删除成功后显式 run/规则/技能保存或来源绑定可建立全新同名空间，不恢复旧历史。",
-    auth: true, response: resp.deleteSpaceResponse,
+    operationId: "deleteAgent",
+    method: "delete", path: "/api/agents/:agentId", tag: "智能体", summary: "删除智能体（不可删除主智能体）",
+    hint: "不可删除 local-main（409）；关闭旧智能体并取消其当前轮，级联删除该智能体名下的定时任务与监控，取消其排队/运行中后台任务。删除等待已接纳的来源绑定与规则/技能写入完成后清理，期间同 ID 的写操作/来源绑定返回 409 AGENT_DELETING，不自动重试。迟到历史 GET/Stop 不重建智能体；已完成任务的迟到通知不改投主智能体或新同名智能体，结果仍可读任务详情。成功后客户端取消本地请求、屏蔽迟到结果并刷新 agents/agent 与工作区通知流。删除非事务，失败不承诺回滚；404 表示不存在且无活跃绑定。删除成功后显式 run/规则/技能保存或来源绑定可建立全新同名智能体，不恢复旧历史。",
+    auth: true, response: resp.deleteAgentResponse,
   },
   {
-    operationId: "getSpaceInstructions",
-    method: "get", path: "/api/spaces/:spaceId/instructions", tag: "空间", summary: "读取空间专属规则",
-    hint: "读取当前空间的 INSTRUCTIONS.md 内容；未设置时返回空串。",
+    operationId: "getAgentInstructions",
+    method: "get", path: "/api/agents/:agentId/instructions", tag: "智能体", summary: "读取智能体专属规则",
+    hint: "读取当前智能体的 INSTRUCTIONS.md 内容；未设置时返回空串。",
     auth: true, response: resp.instructionsResponse,
   },
   {
-    operationId: "updateSpaceInstructions",
-    method: "put", path: "/api/spaces/:spaceId/instructions", tag: "空间", summary: "保存空间专属规则",
-    hint: "下一轮对话开始时注入生效；传空串等于清空。可选传入 purpose 声明空间用途（自动在开头生成 `## 空间用途` 段落，供 Dream 后台整理判定本空间专属规则归属；Dream 整理轮禁止修改该段落）。显式保存可建立新空间；删除进行中返回 409 SPACE_DELETING，刷新列表后由用户重新选择，不自动重试旧 ID。",
+    operationId: "updateAgentInstructions",
+    method: "put", path: "/api/agents/:agentId/instructions", tag: "智能体", summary: "保存智能体专属规则",
+    hint: "下一轮对话开始时注入生效；传空串等于清空。可选传入 purpose 声明智能体用途（自动在开头生成 `## 智能体用途` 段落，供 Dream 后台整理判定本智能体专属规则归属；Dream 整理轮禁止修改该段落）。显式保存可建立新智能体；删除进行中返回 409 AGENT_DELETING，刷新列表后由用户重新选择，不自动重试旧 ID。",
     auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse,
   },
   {
     operationId: "getInformationSettings",
-    method: "get", path: "/api/spaces/:spaceId/information/settings", tag: "信息后台", summary: "读取空间信息后台设置",
-    hint: "只读查询已存在空间的通用信息后台设置；目标不存在返回 404，不创建或复活空间。默认 enabled=false、batchWindowSeconds=15。",
+    method: "get", path: "/api/agents/:agentId/information/settings", tag: "信息后台", summary: "读取智能体信息后台设置",
+    hint: "只读查询已存在智能体的通用信息后台设置；目标不存在返回 404，不创建或复活智能体。默认 enabled=false、batchWindowSeconds=15。",
     auth: true, response: information.informationSettingsResponse,
     errorResponses: {
-      400: { description: "非法 spaceId", schema: resp.errorResponse },
-      404: { description: "空间不存在", schema: resp.errorResponse },
+      400: { description: "非法 agentId", schema: resp.errorResponse },
+      404: { description: "智能体不存在", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
   {
     operationId: "updateInformationSettings",
-    method: "put", path: "/api/spaces/:spaceId/information/settings", tag: "信息后台", summary: "保存空间信息后台设置",
-    hint: "整份替换 enabled 与 batchWindowSeconds（0–3600；0 表示下一轮调度立即聚合）。规则继续复用普通空间 INSTRUCTIONS.md，没有独立业务 prompt。禁用时拒绝新接入/新 run 并取消该空间在途信息轮，未处理队列保留；最后保存生效。",
+    method: "put", path: "/api/agents/:agentId/information/settings", tag: "信息后台", summary: "保存智能体信息后台设置",
+    hint: "整份替换 enabled 与 batchWindowSeconds（0–3600；0 表示下一轮调度立即聚合）。规则继续复用普通智能体 INSTRUCTIONS.md，没有独立业务 prompt。禁用时拒绝新接入/新 run 并取消该智能体在途信息轮，未处理队列保留；最后保存生效。",
     auth: true, request: information.informationSettingsRequestSchema, response: information.informationSettingsResponse,
     errorResponses: {
       400: { description: "非法请求或窗口范围", schema: resp.errorResponse },
-      404: { description: "空间不存在", schema: resp.errorResponse },
-      409: { description: "空间正在删除或后台全局忙", schema: resp.errorResponse },
+      404: { description: "智能体不存在", schema: resp.errorResponse },
+      409: { description: "智能体正在删除或后台全局忙", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
   {
     operationId: "getInformationPreferences",
-    method: "get", path: "/api/spaces/:spaceId/information/preferences", tag: "信息后台", summary: "读取空间信息偏好与当前反馈例证",
-    hint: "返回空间局部 notes 以及当前会话内已发布信息通知对应的最新喜欢/不喜欢和评论投影。回撤、编辑或删除反馈后立即以当前投影为准，不长期固化旧结论；reset 后旧会话反馈不迁移。",
+    method: "get", path: "/api/agents/:agentId/information/preferences", tag: "信息后台", summary: "读取智能体信息偏好与当前反馈例证",
+    hint: "返回智能体局部 notes 以及当前会话内已发布信息通知对应的最新喜欢/不喜欢和评论投影。回撤、编辑或删除反馈后立即以当前投影为准，不长期固化旧结论；reset 后旧会话反馈不迁移。",
     auth: true, response: information.informationPreferencesResponse,
     errorResponses: {
-      400: { description: "非法 spaceId", schema: resp.errorResponse },
-      404: { description: "空间不存在", schema: resp.errorResponse },
+      400: { description: "非法 agentId", schema: resp.errorResponse },
+      404: { description: "智能体不存在", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
   {
     operationId: "updateInformationPreferences",
-    method: "put", path: "/api/spaces/:spaceId/information/preferences", tag: "信息后台", summary: "保存空间信息偏好备注",
-    hint: "保存当前空间局部 notes（最多 20000 字符；空串清空）。它不写全局记忆、不自动改写空间规则、不触发模型；最后保存生效。",
+    method: "put", path: "/api/agents/:agentId/information/preferences", tag: "信息后台", summary: "保存智能体信息偏好备注",
+    hint: "保存当前智能体局部 notes（最多 20000 字符；空串清空）。它不写全局记忆、不自动改写智能体规则、不触发模型；最后保存生效。",
     auth: true, request: information.informationPreferencesRequestSchema, response: information.informationPreferencesResponse,
     errorResponses: {
       400: { description: "非法请求或超长 notes", schema: resp.errorResponse },
-      404: { description: "空间不存在", schema: resp.errorResponse },
-      409: { description: "空间正在删除", schema: resp.errorResponse },
+      404: { description: "智能体不存在", schema: resp.errorResponse },
+      409: { description: "智能体正在删除", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
   {
     operationId: "createInformationItems",
-    method: "post", path: "/api/spaces/:spaceId/information/items", tag: "信息后台", summary: "批量接入原始信息",
-    hint: "最多 50 条，整批校验通过后原子提交；source 是 ASCII identifier，externalId/content 有界且 content 非空。同空间 source+externalId 同内容幂等回读，不同内容返回 409 且不覆盖原文。禁用返回 409。后台原始信息保存在 Pi Muse 独立 repository，不 append PI 聊天历史。",
+    method: "post", path: "/api/agents/:agentId/information/items", tag: "信息后台", summary: "批量接入原始信息",
+    hint: "最多 50 条，整批校验通过后原子提交；source 是 ASCII identifier，externalId/content 有界且 content 非空。同智能体 source+externalId 同内容幂等回读，不同内容返回 409 且不覆盖原文。禁用返回 409。后台原始信息保存在 Pi Muse 独立 repository，不 append PI 聊天历史。",
     auth: true, request: information.informationIngestRequestSchema, response: information.informationIngestResponse,
     errorResponses: {
       400: { description: "整批或任一条目非法；不会提交任何条目", schema: resp.errorResponse },
-      404: { description: "空间不存在", schema: resp.errorResponse },
-      409: { description: "信息后台禁用、同 key 不同内容冲突或空间正在删除", schema: resp.errorResponse },
+      404: { description: "智能体不存在", schema: resp.errorResponse },
+      409: { description: "信息后台禁用、同 key 不同内容冲突或智能体正在删除", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
   {
     operationId: "listInformationItems",
-    method: "get", path: "/api/spaces/:spaceId/information/items", tag: "信息后台", summary: "分页读取空间原始信息",
-    hint: "按接纳时间倒序读取，limit 默认 20、范围 1–100，可用 status 过滤；cursor 是不透明 base64url 且绑定过滤条件。查询不创建空间，不冻结快照。",
+    method: "get", path: "/api/agents/:agentId/information/items", tag: "信息后台", summary: "分页读取智能体原始信息",
+    hint: "按接纳时间倒序读取，limit 默认 20、范围 1–100，可用 status 过滤；cursor 是不透明 base64url 且绑定过滤条件。查询不创建智能体，不冻结快照。",
     auth: true, query: information.informationItemsQuerySchema, response: information.informationItemsResponse,
     errorResponses: {
       400: { description: "非法查询或游标", schema: resp.errorResponse },
-      404: { description: "空间不存在", schema: resp.errorResponse },
+      404: { description: "智能体不存在", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
   {
     operationId: "getInformationItem",
-    method: "get", path: "/api/spaces/:spaceId/information/items/:itemId", tag: "信息后台", summary: "读取单条信息与关联 run",
+    method: "get", path: "/api/agents/:agentId/information/items/:itemId", tag: "信息后台", summary: "读取单条信息与关联 run",
     hint: "返回原始条目及按创建时间倒序的关联执行记录；不存在返回 404。读取不影响状态或聊天 revision。",
     auth: true, response: information.informationItemDetailResponse,
     errorResponses: {
-      400: { description: "非法 spaceId 或 itemId", schema: resp.errorResponse },
-      404: { description: "空间或条目不存在", schema: resp.errorResponse },
+      400: { description: "非法 agentId 或 itemId", schema: resp.errorResponse },
+      404: { description: "智能体或条目不存在", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
   {
     operationId: "runInformationNow",
-    method: "post", path: "/api/spaces/:spaceId/information/runs", tag: "信息后台", summary: "显式立即处理一批待处理信息",
+    method: "post", path: "/api/agents/:agentId/information/runs", tag: "信息后台", summary: "显式立即处理一批待处理信息",
     hint: "忽略剩余窗口，选取最早 pending 的有限批次（最多 20 条/60000 字符）并同步等待本次真实模型轮与确定性发布收尾。全局已有后台信息轮返回 409 BUSY；禁用或无 pending 分别返回 409 DISABLED/NO_PENDING。模型失败或非法提交记录为 failed run，不自动重试；发布失败与模型失败分开记录，不冒充已送达。",
     auth: true, request: information.informationRunRequestSchema, response: information.informationRunDetailResponse,
     errorResponses: {
       400: { description: "非法请求", schema: resp.errorResponse },
-      404: { description: "空间不存在", schema: resp.errorResponse },
-      409: { description: "DISABLED、NO_PENDING、BUSY 或空间正在删除", schema: resp.errorResponse },
+      404: { description: "智能体不存在", schema: resp.errorResponse },
+      409: { description: "DISABLED、NO_PENDING、BUSY 或智能体正在删除", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
   {
     operationId: "listInformationRuns",
-    method: "get", path: "/api/spaces/:spaceId/information/runs", tag: "信息后台", summary: "分页读取信息处理 run",
+    method: "get", path: "/api/agents/:agentId/information/runs", tag: "信息后台", summary: "分页读取信息处理 run",
     hint: "按创建时间倒序读取执行记录，limit 默认 20、范围 1–100，可用 status 过滤；记录包含模型终态、逐 item 决策、通知发布状态及可验证 notificationId/sessionId/messageId 溯源。",
     auth: true, query: information.informationRunsQuerySchema, response: information.informationRunsResponse,
     errorResponses: {
       400: { description: "非法查询或游标", schema: resp.errorResponse },
-      404: { description: "空间不存在", schema: resp.errorResponse },
+      404: { description: "智能体不存在", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
   {
     operationId: "getInformationRun",
-    method: "get", path: "/api/spaces/:spaceId/information/runs/:runId", tag: "信息后台", summary: "读取单个信息处理 run 与原始条目",
+    method: "get", path: "/api/agents/:agentId/information/runs/:runId", tag: "信息后台", summary: "读取单个信息处理 run 与原始条目",
     hint: "返回 run 决策、发布状态、真实通知关联与本批原始 items；不存在返回 404。查询不改写状态，也不自动重跑模型。",
     auth: true, response: information.informationRunDetailResponse,
     errorResponses: {
-      400: { description: "非法 spaceId 或 runId", schema: resp.errorResponse },
-      404: { description: "空间或 run 不存在", schema: resp.errorResponse },
+      400: { description: "非法 agentId 或 runId", schema: resp.errorResponse },
+      404: { description: "智能体或 run 不存在", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
@@ -408,7 +398,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "setNewsReaction",
     method: "put", path: "/api/news/articles/:articleId/reaction", tag: "新闻", summary: "设置文章喜欢或不喜欢",
-    hint: "like/dislike 互斥；null 撤销。反馈按 articleId 空间局部持久化，不绑定聊天消息或 session，也不随主会话 reset 清空。",
+    hint: "like/dislike 互斥；null 撤销。反馈按 articleId 智能体局部持久化，不绑定聊天消息或 session，也不随主会话 reset 清空。",
     auth: true, request: news.newsReactionRequestSchema, response: news.newsFeedbackResponseSchema,
     errorResponses: {
       400: { description: "非法请求或 articleId", schema: resp.errorResponse },
@@ -462,7 +452,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getNewsPreferences",
     method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻偏好",
-    hint: "notes 是用户明确保存的偏好；learnedNotes 是模型从逐篇反馈推断的空间局部摘要。两者分离，推断不覆盖明确备注、空间规则或全局 USER。",
+    hint: "notes 是用户明确保存的偏好；learnedNotes 是模型从逐篇反馈推断的智能体局部摘要。两者分离，推断不覆盖明确备注、智能体规则或全局 USER。",
     auth: true, response: news.newsPreferencesResponseSchema,
     errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
   },
@@ -477,43 +467,43 @@ export const endpoints: EndpointSpec[] = [
     },
   },
   {
-    operationId: "getSpaceDream",
-    method: "get", path: "/api/spaces/:spaceId/dream", tag: "空间", summary: "读取空间 Dream 整理状态与配置",
-    hint: "纯只读查询：返回该空间的 Dream 开关、是否继承全局提示词、已整理游标、最近一次运行结果、待决建议列表、空间补充提示词（DREAM.md）及 `## 空间用途`。文件不存在时返回默认值（local-main 默认开启，其余空间默认关闭），不创建任何目录或文件。",
-    auth: true, response: resp.dreamSpaceResponse,
+    operationId: "getAgentDream",
+    method: "get", path: "/api/agents/:agentId/dream", tag: "智能体", summary: "读取智能体 Dream 整理状态与配置",
+    hint: "纯只读查询：返回该智能体的 Dream 开关、是否继承全局提示词、已整理游标、最近一次运行结果、待决建议列表、智能体补充提示词（DREAM.md）及 `## 智能体用途`。文件不存在时返回默认值（local-main 默认开启，其余智能体默认关闭），不创建任何目录或文件。",
+    auth: true, response: resp.dreamAgentResponse,
   },
   {
-    operationId: "updateSpaceDream",
-    method: "put", path: "/api/spaces/:spaceId/dream", tag: "空间", summary: "保存空间 Dream 开关与补充提示词",
-    hint: "按字段更新该空间的 Dream 开关（enabled）、是否继承全局提示词（inheritGlobalPrompt）或空间补充提示词（prompt，写入 sessions/<spaceId>/DREAM.md；空串清空）。显式保存可建立新空间；删除进行中返回 409 SPACE_DELETING。",
-    auth: true, request: req.updateSpaceDreamSchema, response: resp.dreamSpaceResponse,
+    operationId: "updateAgentDream",
+    method: "put", path: "/api/agents/:agentId/dream", tag: "智能体", summary: "保存智能体 Dream 开关与补充提示词",
+    hint: "按字段更新该智能体的 Dream 开关（enabled）、是否继承全局提示词（inheritGlobalPrompt）或智能体补充提示词（prompt，写入 sessions/<agentId>/DREAM.md；空串清空）。显式保存可建立新智能体；删除进行中返回 409 AGENT_DELETING。",
+    auth: true, request: req.updateAgentDreamSchema, response: resp.dreamAgentResponse,
   },
   {
-    operationId: "runSpaceDream",
-    method: "post", path: "/api/spaces/:spaceId/dream/run", tag: "空间", summary: "立即执行当前空间的 Dream 记忆整理",
-    hint: "不受 2 小时周期限制，立即对该空间自上次 cursor 以来的新消息（带约 4k token 重叠上下文）运行受限整理轮：全局稳定用户信息写入 USER.md、全局助手约定写入 SOUL.md、符合本空间 `## 空间用途` 的规则写入 INSTRUCTIONS.md、按需检索事实写入 memory.json；拿不准或非主空间提出的全局建议进入 pending。整轮成功后才推进 cursor；并发修改的目标跳过覆盖并记为 partial/failed。空间不存在返回 404，空间正在对话或已有 Dream 运行中返回 409。",
-    auth: true, response: resp.dreamSpaceResponse,
+    operationId: "runAgentDream",
+    method: "post", path: "/api/agents/:agentId/dream/run", tag: "智能体", summary: "立即执行当前智能体的 Dream 记忆整理",
+    hint: "不受 2 小时周期限制，立即对该智能体自上次 cursor 以来的新消息（带约 4k token 重叠上下文）运行受限整理轮：全局稳定用户信息写入 USER.md、全局助手约定写入 SOUL.md、符合本智能体 `## 智能体用途` 的规则写入 INSTRUCTIONS.md、按需检索事实写入 memory.json；拿不准或非主智能体提出的全局建议进入 pending。整轮成功后才推进 cursor；并发修改的目标跳过覆盖并记为 partial/failed。智能体不存在返回 404，智能体正在对话或已有 Dream 运行中返回 409。",
+    auth: true, response: resp.dreamAgentResponse,
   },
   {
-    operationId: "resolveSpaceDreamPending",
-    method: "post", path: "/api/spaces/:spaceId/dream/pending/:pendingId", tag: "空间", summary: "处理空间 Dream 待决建议（应用或忽略）",
-    hint: "action=apply 将该条待决建议写入 target（省略时采用 suggestedTarget）对应的存储（USER.md / SOUL.md / 本空间 INSTRUCTIONS.md / memory.json）并从 pending 移除；action=dismiss 直接移除不写入。空间或 pendingId 不存在返回 404；记忆达到 500 条上限或空间正在删除返回 409。",
-    auth: true, request: req.resolveDreamPendingSchema, response: resp.dreamSpaceResponse,
+    operationId: "resolveAgentDreamPending",
+    method: "post", path: "/api/agents/:agentId/dream/pending/:pendingId", tag: "智能体", summary: "处理智能体 Dream 待决建议（应用或忽略）",
+    hint: "action=apply 将该条待决建议写入 target（省略时采用 suggestedTarget）对应的存储（USER.md / SOUL.md / 本智能体 INSTRUCTIONS.md / memory.json）并从 pending 移除；action=dismiss 直接移除不写入。智能体或 pendingId 不存在返回 404；记忆达到 500 条上限或智能体正在删除返回 409。",
+    auth: true, request: req.resolveDreamPendingSchema, response: resp.dreamAgentResponse,
   },
   // ---- 增量聊天（AG-UI SSE 输出）----
   {
     operationId: "runConversation",
-    method: "post", path: "/api/conversation/run", tag: "空间", summary: "提交一条用户消息（SSE 流）",
-    hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。首次合法 ID 建立新空间；删除进行中返回 409 SPACE_DELETING，客户端不自动重试旧 ID。事件顺序：${SSE_EVENT_ORDER}。` +
+    method: "post", path: "/api/conversation/run", tag: "智能体", summary: "提交一条用户消息（SSE 流）",
+    hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。首次合法 ID 建立新智能体；删除进行中返回 409 AGENT_DELETING，客户端不自动重试旧 ID。事件顺序：${SSE_EVENT_ORDER}。` +
       "message.attachments 最多 4 项，随本条消息一次性提交：PNG/JPEG/GIF/WebP 单图最大 8MiB，全部原始字节合计最大 8MiB，严格 UTF-8 文本合计最大 100000 字节；请求体上限 12MiB，超限在 SSE/历史/模型开始前返回 413 REQUEST_TOO_LARGE。图片需要当前单业务模型支持视觉，服务端不自动换模型、不静默丢图；PDF/Office/压缩包及其他二进制拒绝，SVG/HTML 只按不可信文本处理。completed 重放或失败显式重试必须保持附件顺序与字节 SHA-256 身份一致。" +
       "主模型可在本轮调用 subagent 工具（官方 pi 1.3.0 示例适配），子会话返回结果后主模型继续；这不是独立后台任务队列，不提供创建子任务的 HTTP 接口。" +
       "工具参数为单个 {agent,task}、并行 {tasks:[{agent,task}]} 或链式 {chain:[{agent,task}]} 三选一；最多8项，最多4个子会话并发，链式用 {previous} 引用上一步结果，失败即停止。" +
       "subagent 的客户端卡片按 tools.presentation 的 hidden/summary 策略显示，参数正文不透出；父 SSE 不直接嵌套子会话聊天流或暴露原始工具详情。" +
-      "子会话上下文与私有目录独立，通过 shared/... 显式共享；写入仍逐次审批，审批 spaceId/runId 绑定父运行。Stop、父超时、删除空间和聊天流断开会同时取消并等待子会话清理；不会在服务重启后自动续跑。",
+      "子会话上下文与私有目录独立，通过 shared/... 显式共享；写入仍逐次审批，审批 agentId/runId 绑定父运行。Stop、父超时、删除智能体和聊天流断开会同时取消并等待子会话清理；不会在服务重启后自动续跑。",
     auth: true, request: req.runRequestSchema, response: z.object({}).describe("SSE 流"),
     errorResponses: {
-      400: { description: "非法消息、附件或空间 ID；未创建可见用户轮", schema: resp.errorResponse },
-      409: { description: "历史版本、运行或消息身份冲突，空间正删除或会话正忙；重新核对，不自动重发", schema: resp.errorResponse },
+      400: { description: "非法消息、附件或智能体 ID；未创建可见用户轮", schema: resp.errorResponse },
+      409: { description: "历史版本、运行或消息身份冲突，智能体正删除或会话正忙；重新核对，不自动重发", schema: resp.errorResponse },
       413: { description: "run JSON 请求体超过 12MiB；SSE、历史与模型均未开始", schema: resp.errorResponse },
       503: { description: "模型未配置或服务正关闭；本次消息未接纳", schema: resp.errorResponse },
     },
@@ -524,19 +514,19 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "stopConversation",
-    method: "post", path: "/api/conversation/stop", tag: "空间", summary: "停止指定运行",
-    hint: "spaceId/runId 必须同时匹配当前轮；迟到 Stop 返回 false，不影响下一轮。不存在或正在删除的空间返回 {stopped:false}，不建立空间或工作区。",
+    method: "post", path: "/api/conversation/stop", tag: "智能体", summary: "停止指定运行",
+    hint: "agentId/runId 必须同时匹配当前轮；迟到 Stop 返回 false，不影响下一轮。不存在或正在删除的智能体返回 {stopped:false}，不建立智能体或工作区。",
     auth: true, request: req.stopRequestSchema, response: z.object({ stopped: z.boolean() }),
   },
   // ---- 工作区文件（手动管理；模型写入仍走审批工具）----
   {
     operationId: "listWorkspaceFiles",
     method: "get", path: "/api/workspace/files", tag: "工作区文件", summary: "列出工作区文件目录",
-    hint: "必须显式选择 scope=space 或 shared；scope=space 时 spaceId 必填且只允许已有合法空间，本接口不隐式创建空间或目录，根目录缺失时返回空列表。path 相对所选根，默认 `.`。返回目录优先、名称升序；目录超过 1000 项返回 413，不截断。符号链接与特殊文件不返回，也不跟随 shared/ 前缀别名。",
+    hint: "必须显式选择 scope=agent 或 shared；scope=agent 时 agentId 必填且只允许已有合法智能体，本接口不隐式创建智能体或目录，根目录缺失时返回空列表。path 相对所选根，默认 `.`。返回目录优先、名称升序；目录超过 1000 项返回 413，不截断。符号链接与特殊文件不返回，也不跟随 shared/ 前缀别名。",
     auth: true, query: files.workspaceListQuerySchema, response: files.workspaceListResponse,
     errorResponses: {
       400: { description: "非法选择器/路径或目录不是普通目录", schema: resp.errorResponse },
-      404: { description: "空间或目录不存在", schema: resp.errorResponse },
+      404: { description: "智能体或目录不存在", schema: resp.errorResponse },
       413: { description: "目录超过 1000 项", schema: resp.errorResponse },
     },
   },
@@ -547,18 +537,18 @@ export const endpoints: EndpointSpec[] = [
     auth: true, query: files.workspaceContentQuerySchema, response: files.workspaceContentResponse,
     errorResponses: {
       400: { description: "非法路径、目标是目录/符号链接或非普通文件", schema: resp.errorResponse },
-      404: { description: "空间或文件不存在", schema: resp.errorResponse },
+      404: { description: "智能体或文件不存在", schema: resp.errorResponse },
       413: { description: "文件超过下载上限", schema: resp.errorResponse },
     },
   },
   {
     operationId: "createWorkspaceTextFile",
     method: "post", path: "/api/workspace/files/text", tag: "工作区文件", summary: "手动新建文本文件",
-    hint: "调用前客户端必须向用户展示完整新内容并获得明确确认，confirmed:true 只表达这个已完成的确认，不创建 preview token、版本协议或服务端审批记录。仅新建；目标存在返回 409。content 最大 100000 UTF-8 字节、必须无 NUL 且是有效 Unicode；路径每段仅允许 ASCII 字母/数字/./-/_。scope=space 必须是已有空间，不会隐式创建空间。成功返回实际写入后的完整文本详情。",
+    hint: "调用前客户端必须向用户展示完整新内容并获得明确确认，confirmed:true 只表达这个已完成的确认，不创建 preview token、版本协议或服务端审批记录。仅新建；目标存在返回 409。content 最大 100000 UTF-8 字节、必须无 NUL 且是有效 Unicode；路径每段仅允许 ASCII 字母/数字/./-/_。scope=agent 必须是已有智能体，不会隐式创建智能体。成功返回实际写入后的完整文本详情。",
     auth: true, request: files.workspaceCreateTextSchema, response: files.workspaceTextWriteResponse,
     errorResponses: {
       400: { description: "未显式确认、非法路径/文本或路径不安全", schema: resp.errorResponse },
-      404: { description: "空间不存在", schema: resp.errorResponse },
+      404: { description: "智能体不存在", schema: resp.errorResponse },
       409: { description: "目标文件已存在", schema: resp.errorResponse },
       413: { description: "文本超过 100000 字节", schema: resp.errorResponse },
     },
@@ -570,7 +560,7 @@ export const endpoints: EndpointSpec[] = [
     auth: true, request: files.workspaceUpdateTextSchema, response: files.workspaceTextWriteResponse,
     errorResponses: {
       400: { description: "未显式确认、非法路径/文本或路径不安全", schema: resp.errorResponse },
-      404: { description: "空间或文件不存在", schema: resp.errorResponse },
+      404: { description: "智能体或文件不存在", schema: resp.errorResponse },
       409: { description: "提交后无法读回结果", schema: resp.errorResponse },
       413: { description: "文本超过 100000 字节", schema: resp.errorResponse },
     },
@@ -578,11 +568,11 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "deleteWorkspaceFile",
     method: "delete", path: "/api/workspace/files", tag: "工作区文件", summary: "删除工作区普通文件",
-    hint: "仅删除现存普通文件；目录、符号链接与特殊文件拒绝，不提供目录删除、重命名、回收站或版本树。scope=space 必须是已有空间。成功返回 ok:true 与选择器/path。",
+    hint: "仅删除现存普通文件；目录、符号链接与特殊文件拒绝，不提供目录删除、重命名、回收站或版本树。scope=agent 必须是已有智能体。成功返回 ok:true 与选择器/path。",
     auth: true, query: files.workspaceDeleteQuerySchema, response: files.workspaceDeleteResponse,
     errorResponses: {
       400: { description: "非法路径、目标是目录/符号链接或非普通文件", schema: resp.errorResponse },
-      404: { description: "空间或文件不存在", schema: resp.errorResponse },
+      404: { description: "智能体或文件不存在", schema: resp.errorResponse },
     },
   },
   // ---- 人设 ----
@@ -601,12 +591,12 @@ export const endpoints: EndpointSpec[] = [
   // ---- 工作区快照 ----
   {
     operationId: "getAgentSnapshot",
-    method: "get", path: "/api/agent", tag: "快照", summary: "全量工作区快照",
+    method: "get", path: "/api/identity", tag: "快照", summary: "全量工作区快照",
     hint:
       "工作台首屏读取身份设置；定时任务已迁移至独立 /api/jobs 接口，网页监控已迁移至独立 /api/monitors 接口，长期记忆已迁移至独立 /api/memories 接口，长期目标已迁移至独立 /api/goals 接口，快照中不再包含 tasks、monitors、memories 与 goals 字段。不提供 POST /api/agent/tasks 创建入口；旧调用按未知 API 返回501。" +
       "subagent 是主模型的一次工具调用，不会产生任务记录，结果回到来源聊天；旧 tasks.json 不读取或执行。" +
       "审批横幅由 GET /api/events 的 ready.pendingApprovals 与 approval_pending 事件同步，不在此快照中；旧审批列表接口已下线。",
-    auth: true, response: resp.agentSnapshot,
+    auth: true, response: resp.identitySnapshot,
   },
   // ---- 执行活动（只读；登记与推进由对话工具完成）----
   {
@@ -618,12 +608,12 @@ export const endpoints: EndpointSpec[] = [
       "本接口只读：没有创建/更新/完成活动的 HTTP 写入口，活动的登记、进展、等待与完成只能由对话工具在真实执行中产生；" +
       "步骤是工具、模型、子代理、审批与文件提交等真实执行事件的安全投影，不含模型内部思维、凭据、原始工具参数或未脱敏日志。" +
       "排序为 createdAt 降序、同一时间按 id 降序；limit 默认 20、范围 1–100。" +
-      "cursor 是上一页返回的不透明 base64url，原样回传即可；它绑定生成时的 spaceId/status 过滤条件，改变过滤后必须从第一页重新开始。" +
+      "cursor 是上一页返回的不透明 base64url，原样回传即可；它绑定生成时的 agentId/status 过滤条件，改变过滤后必须从第一页重新开始。" +
       "严格校验：未声明参数、重复参数、非法 limit、非法游标（结构/时间/过滤不匹配）一律 400。" +
       "分页不冻结：每次请求读取当前投影，执行中的状态与步骤会更新，期间新增活动只可能出现在第一页，已读页不保证与首次读取一致。" +
       "completed 表示主模型已明确声明完成且结果已交付；单次工具结束、子代理返回或一轮回复结束都不会自动完成。" +
       "awaiting_continuation 表示本轮结束但工作未完成，需用户明确要求继续；继续同一工作时更新原活动（runIds 追加新 run），不新建活动。" +
-      "活动随来源空间删除而删除；本接口不新增 SSE 事件，状态变化由客户端重新读取本接口获取。",
+      "活动随来源智能体删除而删除；本接口不新增 SSE 事件，状态变化由客户端重新读取本接口获取。",
     auth: true, query: activity.activitiesQuerySchema, response: activity.activitiesResponse,
   },
   {
@@ -631,7 +621,7 @@ export const endpoints: EndpointSpec[] = [
     method: "get", path: "/api/activities/:id", tag: "活动", summary: "读取活动详情（概览＋逐步明细）",
     hint:
       "返回 activity 概览与 steps 逐步明细；steps 按真实执行顺序，失败、拒绝、取消、过期与中断如实保留，" +
-      "是安全投影而非原始工具载荷或模型思维。只读，不提供修改/完成入口；活动不存在或来源空间已删除返回 404。" +
+      "是安全投影而非原始工具载荷或模型思维。只读，不提供修改/完成入口；活动不存在或来源智能体已删除返回 404。" +
       "本接口不新增 SSE 事件，客户端在收到工作区通知或用户操作后重新读取。",
     auth: true, response: activity.activityDetailResponse,
   },
@@ -640,7 +630,7 @@ export const endpoints: EndpointSpec[] = [
     operationId: "listJobs",
     method: "get", path: "/api/jobs", tag: "任务", summary: "查询定时任务列表",
     hint:
-      "按条件查询定时任务列表。支持按 spaceId 过滤与排序，全量返回不分页。时区规则：每日任务（daily=true）设定时刻 at 为 HH:mm，按服务端本地时区（GET /api/health.timeZone）解释；下一次运行时刻 nextRunAt 统一以带 Z 的 ISO 8601 UTC 字符串返回，前端通过 new Date(nextRunAt) 即可自动转为本地时间展示。",
+      "按条件查询定时任务列表。支持按 agentId 过滤与排序，全量返回不分页。时区规则：每日任务（daily=true）设定时刻 at 为 HH:mm，按服务端本地时区（GET /api/health.timeZone）解释；下一次运行时刻 nextRunAt 统一以带 Z 的 ISO 8601 UTC 字符串返回，前端通过 new Date(nextRunAt) 即可自动转为本地时间展示。",
     auth: true, query: req.jobsQuerySchema, response: resp.jobsResponse,
   },
   {
@@ -661,7 +651,7 @@ export const endpoints: EndpointSpec[] = [
     operationId: "updateJob",
     method: "patch", path: "/api/jobs/:id", tag: "任务", summary: "修改定时任务",
     hint:
-      "修改定时任务的提示词（prompt）、执行周期与时刻（daily、at）或归属空间（originSpaceId）。时刻设定规则：daily=true 时 at 必须为严格两位 HH:mm（00:00 至 23:59，前导零不可省略），按服务端本地时区解释，前端无需换算；daily=false 时 at 必须为带时区偏移的完整 ISO 8601 时间戳。非法日程返回 400 INVALID_SCHEDULE_FORMAT，不自动进位、不写入；合法日程按服务端本地时区计算并保存。修改时刻且任务处于调度中时，将自动重算下次触发时刻 nextRunAt（ISO 8601 UTC）。任务不存在返回 404。originSpaceId 省略时保留原绑定（不改投主空间也不创建新空间）；显式改绑新 ID 时在接纳前先建立目标空间，并与目标空间的删除串行协调。目标空间正在删除中返回 409 SPACE_DELETING，客户端不自动重试旧 ID；改绑成功后随新空间删除级联清理，来源删除后绝不改投主空间，目录不复活。",
+      "修改定时任务的提示词（prompt）、执行周期与时刻（daily、at）或归属智能体（originAgentId）。时刻设定规则：daily=true 时 at 必须为严格两位 HH:mm（00:00 至 23:59，前导零不可省略），按服务端本地时区解释，前端无需换算；daily=false 时 at 必须为带时区偏移的完整 ISO 8601 时间戳。非法日程返回 400 INVALID_SCHEDULE_FORMAT，不自动进位、不写入；合法日程按服务端本地时区计算并保存。修改时刻且任务处于调度中时，将自动重算下次触发时刻 nextRunAt（ISO 8601 UTC）。任务不存在返回 404。originAgentId 省略时保留原绑定（不改投主智能体也不创建新智能体）；显式改绑新 ID 时在接纳前先建立目标智能体，并与目标智能体的删除串行协调。目标智能体正在删除中返回 409 AGENT_DELETING，客户端不自动重试旧 ID；改绑成功后随新智能体删除级联清理，来源删除后绝不改投主智能体，目录不复活。",
     auth: true, request: req.updateJobSchema, response: resp.jobItem,
   },
   {
@@ -704,20 +694,20 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "getGlobalDream",
-    method: "get", path: "/api/agent/dream", tag: "记忆", summary: "读取 Dream 后台记忆整理全局概览",
+    method: "get", path: "/api/dream", tag: "记忆", summary: "读取 Dream 后台记忆整理全局概览",
     hint: "返回全局 DREAM.md 提示词、内置默认提示词、固定 2 小时周期、当前是否有整理轮在运行，以及所有已知会话的 Dream 状态与待决建议汇总。",
     auth: true, response: resp.dreamOverviewResponse,
   },
   {
     operationId: "updateGlobalDream",
-    method: "put", path: "/api/agent/dream", tag: "记忆", summary: "保存全局 Dream 整理提示词",
+    method: "put", path: "/api/dream", tag: "记忆", summary: "保存全局 Dream 整理提示词",
     hint: "保存 profile/DREAM.md；传空串清空自定义覆盖并回退为内置默认提示词。服务端安全硬规则固定拼入，不受此文件覆盖。",
     auth: true, request: req.saveGlobalDreamSchema, response: resp.dreamOverviewResponse,
   },
   {
     operationId: "saveIdentity",
-    method: "post", path: "/api/agent/identity", tag: "人设", summary: "保存身份设置（名字/语气）",
-    hint: "保存助手的全局展示身份设置，包括名字（name，注入每轮对话 prompt）、语气风格（tone: warm/concise/thoughtful）、头像标识（avatar）及是否在聊天中显示状态更新（showChatUpdates）。保存后立即生效并同步更新 GET /api/agent 快照。",
+    method: "post", path: "/api/identity", tag: "人设", summary: "保存身份设置（名字/语气）",
+    hint: "保存助手的全局展示身份设置，包括名字（name，注入每轮对话 prompt）、语气风格（tone: warm/concise/thoughtful）、头像标识（avatar）及是否在聊天中显示状态更新（showChatUpdates）。保存后立即生效并同步更新 GET /api/identity 快照。",
     auth: true, request: req.identitySchema, response: resp.identityView,
   },
   // ---- 目标 ----
@@ -761,7 +751,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "listMonitors",
     method: "get", path: "/api/monitors", tag: "监控", summary: "查询网页监控列表",
-    hint: "按条件查询网页监控列表。支持按 spaceId 过滤，支持按 createdAt、lastCheckedAt、status 排序（默认按 createdAt 降序），全量返回，不分页。",
+    hint: "按条件查询网页监控列表。支持按 agentId 过滤，支持按 createdAt、lastCheckedAt、status 排序（默认按 createdAt 降序），全量返回，不分页。",
     auth: true, query: req.monitorsQuerySchema, response: resp.monitorsResponse,
   },
   {
@@ -773,7 +763,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "createMonitor",
     method: "post", path: "/api/monitors", tag: "监控", summary: "创建网页监控",
-    hint: "创建网页周期监控。change=页面变化通知（首检建基线不通知）；contains=关键词命中通知。📡 结果投递 originSpaceId 指定来源，仅省略时投递 local-main。显式新 ID 在接纳前建立；删除中返回 409 SPACE_DELETING，客户端刷新列表后由用户重新选择，不自动重试。删除来源空间会删除绑定监控，旧扫描不重建空间或改投主空间。",
+    hint: "创建网页周期监控。change=页面变化通知（首检建基线不通知）；contains=关键词命中通知。📡 结果投递 originAgentId 指定来源，仅省略时投递 local-main。显式新 ID 在接纳前建立；删除中返回 409 AGENT_DELETING，客户端刷新列表后由用户重新选择，不自动重试。删除来源智能体会删除绑定监控，旧扫描不重建智能体或改投主智能体。",
     auth: true, request: req.createMonitorSchema, response: resp.monitorItem,
   },
   {
@@ -785,7 +775,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateMonitor",
     method: "patch", path: "/api/monitors/:id", tag: "监控", summary: "修改网页监控",
-    hint: "修改网页监控的标题（title）、URL、触发条件（condition）、关键词（value）、检查间隔（intervalMinutes）或归属空间（originSpaceId）。若修改了 URL、触发条件或关键词，将自动重置内容指纹与命中基线。监控项不存在返回 404。",
+    hint: "修改网页监控的标题（title）、URL、触发条件（condition）、关键词（value）、检查间隔（intervalMinutes）或归属智能体（originAgentId）。若修改了 URL、触发条件或关键词，将自动重置内容指纹与命中基线。监控项不存在返回 404。",
     auth: true, request: req.updateMonitorSchema, response: resp.monitorItem,
   },
   {
@@ -802,10 +792,10 @@ export const endpoints: EndpointSpec[] = [
     hint:
       "只返回已处理/失效审批的摘要，不含 preview 正文；当前 pending 不在此列表，由 GET /api/events 的 ready.pendingApprovals 与 approval_pending 事件同步。" +
       "按最近处理时间（resolvedAt）降序、同一时间按 id 降序；limit 默认 20、范围 1–100。" +
-      "cursor 是上一页返回的不透明 base64url，原样回传即可；它绑定 status/spaceId/activityId 过滤，改变过滤后必须从第一页重新开始。结构非法、非规范编码或过滤不匹配返回 400。" +
+      "cursor 是上一页返回的不透明 base64url，原样回传即可；它绑定 status/agentId/activityId 过滤，改变过滤后必须从第一页重新开始。结构非法、非规范编码或过滤不匹配返回 400。" +
       "严格校验：未声明参数、重复参数、非法 limit、非法游标一律 400。" +
       "分页不冻结：每次请求读取当前审批记录；历史与预览在登记后不可变，已处理/失效审批长期保留，不按时间或数量静默裁剪。" +
-      "可按 status（approved/denied/expired/cancelled）、spaceId、activityId 过滤；pending 非法。execution=null 表示尚未观察到执行，不能当作成功。历史记录存在不代表授权仍有效；需要完整预览时读取 GET /api/approvals/:id。",
+      "可按 status（approved/denied/expired/cancelled）、agentId、activityId 过滤；pending 非法。execution=null 表示尚未观察到执行，不能当作成功。历史记录存在不代表授权仍有效；需要完整预览时读取 GET /api/approvals/:id。",
     auth: true, query: approval.approvalListQuery, response: approval.approvalPage,
     errorResponses: {
       400: { description: "查询参数或游标非法", schema: resp.errorResponse },
@@ -823,7 +813,7 @@ export const endpoints: EndpointSpec[] = [
     hint:
       "返回完整审批视图，包含 title、kind 与 preview 全文；预览在登记时固定，不读取当前文件替换，也不截断。" +
       "pending 与历史审批都可用同一路径读取；不存在返回 404。execution 字段始终存在，null 表示尚未观察到执行，不代表成功；已回报的执行结果独立于人的决定。" +
-      "scope=space 时 ownerSpaceId 指向文件归属的工作区空间（子代理发起仍归属 ownerSpaceId）；scope=shared/skill 时为 null，skill 的 path 形如 <技能名>/<文件>。" +
+      "scope=agent 时 ownerAgentId 指向文件归属的工作区智能体（子代理发起仍归属 ownerAgentId）；scope=shared/skill 时为 null，skill 的 path 形如 <技能名>/<文件>。" +
       "单项按 UTF-8 JSON 最大 1.5MB；所有 pending 累计最大 6MB 且最多 32 项；超限时服务端拒绝登记，不截断预览。",
     auth: true, response: approval.approvalView,
     errorResponses: {
@@ -857,15 +847,15 @@ export const endpoints: EndpointSpec[] = [
   // ---- 运行状态（只读单 run 查询）----
   {
     operationId: "getAgentStatus",
-    method: "get", path: "/api/agent/status", tag: "活动", summary: "查询单个运行的最新状态",
+    method: "get", path: "/api/runs/status", tag: "活动", summary: "查询单个运行的最新状态",
     hint:
-      "只读查询指定 (spaceId, runId) 的最新运行状态，包含运行结束后的最终终态；不调用模型、不建立空间、不创建目录、不写 Activity 历史。" +
+      "只读查询指定 (agentId, runId) 的最新运行状态，包含运行结束后的最终终态；不调用模型、不建立智能体、不创建目录、不写 Activity 历史。" +
       "普通 chat 可能没有登记 Activity，此时 status.activityId 为 null，不是错误。" +
       "活动列表与详情查询保持不变，仍使用 GET /api/activities 与 GET /api/activities/:id。" +
       "响应为 {instanceId, status}：instanceId 标识产生该状态的服务实例，运行 revision 只在该实例内存内有效；" +
       "该 revision 与 GET /api/events 的 ready.agentStatuses / agent_status_updated 共用同一运行状态版本，" +
       "客户端按 revision 合并同一运行的状态，instanceId 变化后清空运行版本缓存。" +
-      "spaceId 与 runId 都必填；缺失、重复或未声明参数返回 400，运行不存在或已被清理返回 404。",
+      "agentId 与 runId 都必填；缺失、重复或未声明参数返回 400，运行不存在或已被清理返回 404。",
     auth: true, query: status.agentStatusQuery, response: status.agentStatusResponse,
     errorResponses: {
       400: { description: "查询参数非法", schema: resp.errorResponse },

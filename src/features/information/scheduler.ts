@@ -6,7 +6,7 @@ export type InformationScheduler = {
 };
 
 /** 单进程全局扫描；同一时刻是否运行由 InformationService 自己收口。 */
-export const createInformationScheduler = (information: Pick<InformationService, "nextDueSpace" | "runDue">) => {
+export const createInformationScheduler = (information: Pick<InformationService, "nextDueAgent" | "runDue">) => {
   let timer: ReturnType<typeof setInterval> | undefined;
   let closing: Promise<void> | undefined;
   let closed = false;
@@ -14,8 +14,8 @@ export const createInformationScheduler = (information: Pick<InformationService,
   let scanning = false;
 
   const tick = async () => {
-    const spaceId = await information.nextDueSpace();
-    if (spaceId) await information.runDue(spaceId);
+    const agentId = await information.nextDueAgent();
+    if (agentId) await information.runDue(agentId);
   };
   return {
     start: () => {

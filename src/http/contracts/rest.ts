@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { isSpaceId } from "../../features/conversation/space-id.js";
+import { isAgentId } from "../../features/conversation/agent-id.js";
+
+export const conversationQuerySchema = z.strictObject({
+  agentId: z.string().refine(isAgentId).default("local-main").describe("智能体标识；缺省 local-main"),
+});
 
 /**
  * REST 请求校验契约（zod v4）：路由实际使用的请求 schema 集中地，同时作为
@@ -53,12 +57,12 @@ export const saveProfileSchema = z.object({
 // ---------------------------------------------------------------------------
 // 定时任务（Jobs）：查询、控制、更新与过滤
 // ---------------------------------------------------------------------------
-// 来源空间会被用于通知投递，必须复用空间域的目录安全校验；未指定来源时投递主空间。
-const originSpaceIdSchema = z.string().refine(isSpaceId, "Invalid originSpaceId")
-  .optional().describe("接收结果通知的来源空间：字母数字开头，可含 _ -，最长 64；创建时省略默认 local-main，PATCH 修改时省略保留原绑定。显式指定新 ID 在接纳前先建立空间；删除进行中返回 409 SPACE_DELETING，客户端刷新空间列表后由用户重新选择，不自动重试旧 ID。删除来源空间将级联清理名下任务；来源不存在或删除后绝不改投主空间，目录不复活。");
+// 来源智能体会被用于通知投递，必须复用智能体域的目录安全校验；未指定来源时投递主智能体。
+const originAgentIdSchema = z.string().refine(isAgentId, "Invalid originAgentId")
+  .optional().describe("接收结果通知的来源智能体：字母数字开头，可含 _ -，最长 64；创建时省略默认 local-main，PATCH 修改时省略保留原绑定。显式指定新 ID 在接纳前先建立智能体；删除进行中返回 409 AGENT_DELETING，客户端刷新智能体列表后由用户重新选择，不自动重试旧 ID。删除来源智能体将级联清理名下任务；来源不存在或删除后绝不改投主智能体，目录不复活。");
 
 export const jobsQuerySchema = z.strictObject({
-  spaceId: z.string().refine(isSpaceId, "Invalid spaceId").optional().describe("按归属空间过滤；省略表示不按空间过滤"),
+  agentId: z.string().refine(isAgentId, "Invalid agentId").optional().describe("按归属智能体过滤；省略表示不按智能体过滤"),
   sort: z.enum(["nextRunAt", "updatedAt", "createdAt"]).default("nextRunAt").describe("排序字段，默认 nextRunAt"),
   order: z.enum(["asc", "desc"]).optional().describe("排序方向：按 nextRunAt 默认 asc，按 updatedAt/createdAt 默认 desc"),
 });
@@ -73,7 +77,7 @@ export const updateJobSchema = z.strictObject({
   // at 刻意不做 min(1)：空字符串也交给领域排期校验，与其它非法值一样返回
   // 400 INVALID_SCHEDULE_FORMAT，而不是请求结构错误 INVALID_REQUEST。
   at: z.string().trim().max(64).optional().describe("设定时刻：daily=true 时为严格两位 'HH:mm'（00:00 至 23:59，前导零必填，如 '09:00'），按服务端本地时区解释，前端无需转换；daily=false 时为带时区偏移的 ISO 8601 时间戳（如 '2026-10-22T09:00:00+08:00'）。非法日程返回 400 INVALID_SCHEDULE_FORMAT，不自动进位、不写入"),
-  originSpaceId: originSpaceIdSchema,
+  originAgentId: originAgentIdSchema,
 });
 
 // ---------------------------------------------------------------------------
@@ -110,7 +114,7 @@ export const goalStatusSchema = z.object({
 // 监控：网页周期监控（change=指纹变化，contains=关键词命中）
 // ---------------------------------------------------------------------------
 export const monitorsQuerySchema = z.strictObject({
-  spaceId: z.string().refine(isSpaceId, "Invalid spaceId").optional().describe("按归属空间过滤；省略表示不按空间过滤"),
+  agentId: z.string().refine(isAgentId, "Invalid agentId").optional().describe("按归属智能体过滤；省略表示不按智能体过滤"),
   sort: z.enum(["createdAt", "lastCheckedAt", "status"]).optional().describe("排序字段，默认 createdAt"),
   order: z.enum(["asc", "desc"]).optional().describe("排序方向，默认 desc"),
 });
@@ -127,7 +131,7 @@ export const createMonitorSchema = z.strictObject({
   value: z.string().max(200).optional().describe("contains 条件的关键词"),
   title: z.string().trim().min(1).max(120).optional().describe("展示标题，默认用 URL"),
   intervalMinutes: z.number().int().min(5).max(1440).optional().describe("检查间隔（分钟），默认 30，最小 5"),
-  originSpaceId: originSpaceIdSchema,
+  originAgentId: originAgentIdSchema,
 });
 
 export const updateMonitorSchema = z.strictObject({
@@ -138,7 +142,7 @@ export const updateMonitorSchema = z.strictObject({
   ),
   value: z.string().max(200).optional().describe("contains 条件的关键词"),
   intervalMinutes: z.number().int().min(5).max(1440).optional().describe("检查间隔（分钟），最小 5"),
-  originSpaceId: originSpaceIdSchema,
+  originAgentId: originAgentIdSchema,
 });
 
 // ---------------------------------------------------------------------------
@@ -153,15 +157,15 @@ export const updateMonitorSchema = z.strictObject({
 export const sessionRequestSchema = z.object({
   accessKey: z.string().max(512).optional().describe("服务端配置了访问密钥时必填；回环默认部署可不填"),
 });
-const spaceIdSchema = z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
-export const createSpaceSchema = z.object({
+const agentIdSchema = z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
+export const createAgentSchema = z.object({
   // task- 目录属于内部任务，不进入成员目录，不能通过成员创建入口产生。
-  spaceId: z.string().refine((id) => isSpaceId(id) && !id.startsWith("task-"), "Invalid workspace spaceId"),
+  agentId: z.string().refine((id) => isAgentId(id) && !id.startsWith("task-"), "Invalid workspace agentId"),
 }).strict();
-export const resetSpaceSchema = z.object({
-  clearSchedules: z.boolean().optional().describe("是否同时清理该空间绑定的定时任务与监控；默认 false 保留并转绑新会话"),
+export const resetAgentSchema = z.object({
+  clearSchedules: z.boolean().optional().describe("是否同时清理该智能体绑定的定时任务与监控；默认 false 保留并转绑新会话"),
 });
-export type ResetSpaceRequestDto = z.infer<typeof resetSpaceSchema>;
+export type ResetAgentRequestDto = z.infer<typeof resetAgentSchema>;
 const attachmentIdSchema = z.string().min(1).max(100).regex(/^[A-Za-z0-9._-]+$/);
 const attachmentNameSchema = z.string().min(1).max(200).refine(
   (value) => !value.includes("/") && !value.includes("\\") && !/[\u0000-\u001f\u007f]/.test(value),
@@ -215,7 +219,7 @@ export const messageAttachmentSchema = z.strictObject({
   dataBase64: attachmentBase64Schema.describe("标准 Base64 字符集与 padding；服务端继续校验 canonical 编码、实际字节数、UTF-8 或图片魔数"),
 });
 export const runRequestSchema = z.strictObject({
-  spaceId: spaceIdSchema.default("local-main").describe("空间标识；缺省为 local-main"),
+  agentId: agentIdSchema.default("local-main").describe("智能体标识；缺省为 local-main"),
   runId: z.string().min(1).max(200).describe("本轮唯一 ID；同一成功请求可幂等重放"),
   expectedRevision: z.string().min(1).max(200).describe("GET /api/conversation 返回的版本；新空会话为 empty，冲突返回 409"),
   message: z.strictObject({
@@ -225,7 +229,7 @@ export const runRequestSchema = z.strictObject({
   }).describe("唯一的新用户消息；失败重试使用原消息 ID、内容与附件身份"),
 }).describe("增量聊天请求，响应为 AG-UI SSE；客户端不回传历史");
 export const stopRequestSchema = z.strictObject({
-  spaceId: spaceIdSchema.default("local-main").describe("空间标识；缺省为 local-main"),
+  agentId: agentIdSchema.default("local-main").describe("智能体标识；缺省为 local-main"),
   runId: z.string().min(1).max(200).describe("只停止该 run；迟到请求不会影响后续运行"),
 });
 
@@ -238,13 +242,13 @@ export const updateSkillsSchema = z.object({
 
 // 会话专属规则/指令：下一轮对话注入生效；空串等于清空。
 export const saveInstructionsSchema = z.object({
-  instructions: z.string().max(20000).describe("空间专属规则/提示词自由文本；空串等于清空"),
+  instructions: z.string().max(20000).describe("智能体专属规则/提示词自由文本；空串等于清空"),
   purpose: z
     .string()
     .max(1000)
     .optional()
     .describe(
-      "可选空间用途；传入时自动在 INSTRUCTIONS.md 开头生成 `## 空间用途` 段落，供 Dream 后台整理判定本空间专属规则归属",
+      "可选智能体用途；传入时自动在 INSTRUCTIONS.md 开头生成 `## 智能体用途` 段落，供 Dream 后台整理判定本智能体专属规则归属",
     ),
 });
 
@@ -254,7 +258,7 @@ export const saveInstructionsSchema = z.object({
 export const dreamTargetSchema = z
   .enum(["user", "soul", "instructions", "memory"])
   .describe(
-    "笔记归属目标：user=全局 USER.md，soul=全局 SOUL.md，instructions=本空间 INSTRUCTIONS.md，memory=按需检索的 memory.json",
+    "笔记归属目标：user=全局 USER.md，soul=全局 SOUL.md，instructions=本智能体 INSTRUCTIONS.md，memory=按需检索的 memory.json",
   );
 export const saveGlobalDreamSchema = z.object({
   globalPrompt: z
@@ -262,22 +266,22 @@ export const saveGlobalDreamSchema = z.object({
     .max(20000)
     .describe("全局 Dream 整理提示词（profile/DREAM.md）；传空串清空覆盖，回退为内置默认提示词"),
 });
-export const updateSpaceDreamSchema = z.object({
+export const updateAgentDreamSchema = z.object({
   enabled: z
     .boolean()
     .optional()
-    .describe("是否开启该空间的每 2 小时周期后台整理；local-main 默认开启，其余空间默认关闭"),
+    .describe("是否开启该智能体的每 2 小时周期后台整理；local-main 默认开启，其余智能体默认关闭"),
   inheritGlobalPrompt: z
     .boolean()
     .optional()
     .describe(
-      "true=全局提示词与空间补充叠加；false=仅使用本空间补充提示词（服务端固定安全规则始终生效）",
+      "true=全局提示词与智能体补充叠加；false=仅使用本智能体补充提示词（服务端固定安全规则始终生效）",
     ),
   prompt: z
     .string()
     .max(20000)
     .optional()
-    .describe("本空间的 Dream 补充提示词（sessions/<spaceId>/DREAM.md）；传空串清空"),
+    .describe("本智能体的 Dream 补充提示词（sessions/<agentId>/DREAM.md）；传空串清空"),
 });
 export const resolveDreamPendingSchema = z.object({
   action: z

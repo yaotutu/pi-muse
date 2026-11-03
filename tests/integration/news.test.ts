@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createConfig } from "../../src/config/load-config.js";
-import { threadInstructionsFile } from "../../src/adapters/storage/data-layout.js";
-import { readThreadInstructions } from "../../src/adapters/storage/thread-instructions.js";
-import { NEWS_INTERNAL_SPACE_ID } from "../../src/features/news/types.js";
+import { agentInstructionsFile } from "../../src/adapters/storage/data-layout.js";
+import { readAgentInstructions } from "../../src/adapters/storage/agent-instructions.js";
+import { NEWS_INTERNAL_AGENT_ID } from "../../src/features/news/types.js";
 import {
   newsArticleListResponseSchema,
   newsFeedbackResponseSchema,
@@ -33,13 +33,13 @@ const start = async (t: test.TestContext) => {
   };
 };
 
-test("news HTTP surface is authenticated, stable and keeps its internal space private", async (t) => {
+test("news HTTP surface is authenticated, stable and exposes News as a full agent", async (t) => {
   const { service, headers } = await start(t);
-  const spaces = await service.app.request("/api/spaces", { headers });
-  assert.equal(spaces.status, 200);
+  const agents = await service.app.request("/api/agents", { headers });
+  assert.equal(agents.status, 200);
   assert.deepEqual(
-    ((await spaces.json()) as { spaces: Array<{ id: string }> }).spaces.map((space) => space.id),
-    ["local-main"],
+    ((await agents.json()) as { agents: Array<{ id: string }> }).agents.map((agent) => agent.id),
+    ["local-main", "news-internal", "sms-internal"],
   );
 
   for (const path of ["/api/news/status", "/api/news/sources", "/api/news/preferences"]) {
@@ -59,7 +59,7 @@ test("news HTTP surface is authenticated, stable and keeps its internal space pr
   });
   const invalidSaved = await service.app.request("/api/news/articles?savedOnly=1", { headers });
   assert.equal(invalidSaved.status, 400);
-  const [article] = await service.information.ingestNews(NEWS_INTERNAL_SPACE_ID, [{
+  const [article] = await service.information.ingestNews(NEWS_INTERNAL_AGENT_ID, [{
     source: "newssource_http",
     externalId: "article-feedback-contract",
     title: "Feedback response contract",
@@ -120,34 +120,34 @@ test("news HTTP surface is authenticated, stable and keeps its internal space pr
   assert.equal(credentialSource.status, 400);
 
   for (const path of [
-    `/api/spaces/${NEWS_INTERNAL_SPACE_ID}/instructions`,
-    `/api/spaces/news%2Dinternal/instructions`,
-    `/api/spaces/${NEWS_INTERNAL_SPACE_ID}/skills`,
-    `/api/conversation?spaceId=${NEWS_INTERNAL_SPACE_ID}`,
-    `/api/workspace/files?scope=space&spaceId=${NEWS_INTERNAL_SPACE_ID}&path=.`,
+    `/api/agents/${NEWS_INTERNAL_AGENT_ID}/instructions`,
+    `/api/agents/news%2Dinternal/instructions`,
+    `/api/agents/${NEWS_INTERNAL_AGENT_ID}/skills`,
+    `/api/conversation?agentId=${NEWS_INTERNAL_AGENT_ID}`,
+    `/api/workspace/files?scope=agent&agentId=${NEWS_INTERNAL_AGENT_ID}&path=.`,
+    `/api/agents/${NEWS_INTERNAL_AGENT_ID}/dream`,
+    `/api/jobs?agentId=${NEWS_INTERNAL_AGENT_ID}`,
   ]) assert.equal((await service.app.request(path, { headers })).status, 200, path);
   for (const path of [
-    `/api/spaces/${NEWS_INTERNAL_SPACE_ID}/dream`,
-    `/api/spaces/${NEWS_INTERNAL_SPACE_ID}/information/settings`,
-    `/api/jobs?spaceId=${NEWS_INTERNAL_SPACE_ID}`,
+    `/api/agents/${NEWS_INTERNAL_AGENT_ID}/information/settings`,
   ]) assert.equal((await service.app.request(path, { headers })).status, 404, path);
-  const ordinaryPrefix = await service.app.request("/api/spaces/news-internal-extra/instructions", { headers });
+  const ordinaryPrefix = await service.app.request("/api/agents/news-internal-extra/instructions", { headers });
   assert.equal(ordinaryPrefix.status, 200, "only the exact reserved ID is hidden");
-  const dream = await service.app.request("/api/agent/dream", { headers });
+  const dream = await service.app.request("/api/dream", { headers });
   assert.equal(dream.status, 200);
-  assert.ok(!JSON.stringify(await dream.json()).includes(NEWS_INTERNAL_SPACE_ID));
+  assert.ok(JSON.stringify(await dream.json()).includes(NEWS_INTERNAL_AGENT_ID));
   const reset = await service.app.request(
-    `/api/spaces/${NEWS_INTERNAL_SPACE_ID}/reset`,
+    `/api/agents/${NEWS_INTERNAL_AGENT_ID}/reset`,
     { method: "POST", headers, body: "{}" },
   );
   assert.equal(reset.status, 200);
   const deleted = await service.app.request(
-    `/api/spaces/${NEWS_INTERNAL_SPACE_ID}`,
+    `/api/agents/${NEWS_INTERNAL_AGENT_ID}`,
     { method: "DELETE", headers },
   );
   assert.equal(deleted.status, 409);
   const stop = await service.app.request("/api/conversation/stop", {
-    method: "POST", headers, body: JSON.stringify({ spaceId: NEWS_INTERNAL_SPACE_ID, runId: "no-active-run" }),
+    method: "POST", headers, body: JSON.stringify({ agentId: NEWS_INTERNAL_AGENT_ID, runId: "no-active-run" }),
   });
   assert.equal(stop.status, 200);
   const monitor = await service.app.request("/api/monitors", {
@@ -156,18 +156,18 @@ test("news HTTP surface is authenticated, stable and keeps its internal space pr
     body: JSON.stringify({
       url: "https://example.com",
       condition: "change",
-      originSpaceId: NEWS_INTERNAL_SPACE_ID,
+      originAgentId: NEWS_INTERNAL_AGENT_ID,
     }),
   });
-  assert.equal(monitor.status, 404);
+  assert.equal(monitor.status, 200);
 });
 
 test("ordinary information HTTP contracts do not expose internal recommendation fields", async (t) => {
   const { service, headers } = await start(t);
-  const settings = await service.app.request("/api/spaces/local-main/information/settings", { headers });
+  const settings = await service.app.request("/api/agents/local-main/information/settings", { headers });
   assert.equal(settings.status, 200);
   assert.deepEqual(await settings.json(), { enabled: false, batchWindowSeconds: 15 });
-  const preferences = await service.app.request("/api/spaces/local-main/information/preferences", { headers });
+  const preferences = await service.app.request("/api/agents/local-main/information/preferences", { headers });
   assert.equal(preferences.status, 200);
   assert.deepEqual(await preferences.json(), { notes: "", feedbackExamples: [] });
 });
@@ -179,8 +179,8 @@ test("news default instructions require Chinese output without translating RSS",
     await service.close();
     await rm(dataDir, { recursive: true, force: true });
   });
-  const instructions = await readThreadInstructions(
-    threadInstructionsFile(service.layout, NEWS_INTERNAL_SPACE_ID),
+  const instructions = await readAgentInstructions(
+    agentInstructionsFile(service.layout, NEWS_INTERNAL_AGENT_ID),
   );
   assert.match(instructions, /recommendation reasons and learnedNotes in concise Simplified Chinese/);
   assert.match(instructions, /Keep RSS titles and article content in their original language; never translate them/);
@@ -188,9 +188,9 @@ test("news default instructions require Chinese output without translating RSS",
 
 test("news initialization preserves existing internal instructions", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-existing-instructions-"));
-  const instructionsFile = join(dataDir, "sessions", NEWS_INTERNAL_SPACE_ID, "INSTRUCTIONS.md");
+  const instructionsFile = join(dataDir, "sessions", NEWS_INTERNAL_AGENT_ID, "INSTRUCTIONS.md");
   const custom = "# User-managed news instructions\n\nKeep this exact text.";
-  await mkdir(join(dataDir, "sessions", NEWS_INTERNAL_SPACE_ID), { recursive: true });
+  await mkdir(join(dataDir, "sessions", NEWS_INTERNAL_AGENT_ID), { recursive: true });
   await writeFile(instructionsFile, custom);
   const service = await createService(configFor(dataDir));
   t.after(async () => {

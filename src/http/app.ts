@@ -1,6 +1,6 @@
-import { FeatureError } from "../features/feature-spaces/types.js";
+import { FeatureError } from "../features/agent-extensions/types.js";
 import { createFeatureRoutes } from "./routes/features.js";
-import { createSpaceCommunicationRoutes } from "./routes/space-communication.js";
+import { createAgentCommunicationRoutes } from "./routes/agent-communication.js";
 import { ConversationError } from "../features/conversation/errors.js";
 import { Hono } from "hono";
 import { createGroupChatRoutes } from "./routes/group-chat.js";
@@ -12,13 +12,13 @@ import { sessionRequestSchema } from "./contracts/rest.js";
 import { buildOpenApiDocument } from "./openapi.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { createMessageRoutes } from "./routes/messages.js";
-import { createMemberRoutes, createSpaceRoutes } from "./routes/spaces.js";
+import { createAgentRoutes } from "./routes/agents.js";
 import { createInformationRoutes } from "./routes/information.js";
 import { createNewsRoutes } from "./routes/news.js";
 import { createWorkspaceEventRoutes } from "./routes/events.js";
 import { createBrowserRoutes } from "./routes/browser.js";
 import { serviceVersion } from "../bootstrap/service-version.js";
-import { isFeatureSpace } from "../features/feature-spaces/types.js";
+import { isFeatureAgent } from "../features/agent-extensions/types.js";
 
 // 只挂载 HTTP/协议适配：使用已组装的服务，不创建 store，也不启动或关闭调度器。
 export async function createHttpApp(dependencies: HttpDependencies) {
@@ -65,7 +65,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   );
   app.onError((error, c) => {
     if (error instanceof FeatureError) return c.json({ error: error.message, code: error.code }, error.code === "INVALID_INPUT" ? 400 : error.code === "NOT_FOUND" ? 404 : 409);
-    if (error instanceof ConversationError && (error.code === "SPACE_DELETING" || error.code === "THREAD_DELETING"))
+    if (error instanceof ConversationError && (error.code === "AGENT_DELETING" || error.code === "THREAD_DELETING"))
       return c.json({ error: error.message, code: error.code }, 409);
     if (error instanceof ConversationError && error.code === "SHUTDOWN")
       return c.json({ error: error.message, code: error.code }, 503);
@@ -108,22 +108,20 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     const segments = url.pathname.split("/").map((segment) => {
       try { return decodeURIComponent(segment); } catch { return segment; }
     });
-    const featureSettings = segments[2] === "spaces" && isFeatureSpace(segments[3]) && ["information", "dream"].includes(segments[4]);
-    const featureSchedule = ["jobs", "monitors"].includes(segments[2]) && [url.searchParams.get("spaceId"), url.searchParams.get("originSpaceId")].some(isFeatureSpace);
-    if (featureSettings || featureSchedule) return c.json({ error: "Not found" }, 404);
+    const featureSettings = segments[2] === "agents" && isFeatureAgent(segments[3]) && segments[4] === "information";
+    if (featureSettings) return c.json({ error: "Use this agent's dedicated ingestion settings" }, 404);
     await next();
   });
   // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
   app.route("/", createWorkspaceEventRoutes(dependencies.workspaceEvents));
   app.route("/", createBrowserRoutes(dependencies.browser, dependencies.browserDesktop));
-  app.route("/api/spaces", createMessageRoutes(dependencies));
-  app.route("/api/spaces", createInformationRoutes(dependencies));
-  app.route("/api/spaces", createSpaceRoutes(dependencies));
-  app.route("/api/members", createMemberRoutes(dependencies));
+  app.route("/api/agents", createMessageRoutes(dependencies));
+  app.route("/api/agents", createInformationRoutes(dependencies));
+  app.route("/api/agents", createAgentRoutes(dependencies));
   app.route("/api/group", createGroupChatRoutes(dependencies));
   app.route("/api/news", createNewsRoutes(dependencies));
   app.route("/api/features", createFeatureRoutes(dependencies));
-  app.route("/api/space-communication", createSpaceCommunicationRoutes(dependencies));
+  app.route("/api/agent-communication", createAgentCommunicationRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);
   app.all("/api/*", (c) =>

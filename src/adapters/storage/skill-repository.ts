@@ -3,12 +3,12 @@ import { dirname, join } from "node:path";
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
 import type { DataLayout } from "./data-layout.js";
-import { threadSkillsFile } from "./data-layout.js";
+import { agentSkillsFile } from "./data-layout.js";
 import { getBuiltinSkillsDir } from "./builtin-skills.js";
 import { writeJsonDocument } from "./json-document.js";
 import { InvalidDocumentError } from "./document-schemas.js";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
-import { isSpaceId } from "../../features/conversation/space-id.js";
+import { isAgentId } from "../../features/conversation/agent-id.js";
 import type { SkillCatalog, SkillRepository } from "../../features/skills/port.js";
 
 const overridesSchema = z.strictObject({ overrides: z.record(z.string(), z.boolean()) });
@@ -89,9 +89,9 @@ const readOverrides = async (file: string): Promise<Record<string, boolean>> => 
 export const createSkillRepository = (layout: DataLayout): SkillRepository => {
   const builtinDir = getBuiltinSkillsDir();
   const serialized = createSerializedWriter();
-  const fileFor = (spaceId: string) => {
-    if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
-    return threadSkillsFile(layout, spaceId);
+  const fileFor = (agentId: string) => {
+    if (!isAgentId(agentId)) throw new Error("Invalid agentId");
+    return agentSkillsFile(layout, agentId);
   };
   return {
     listSkills: () => serialized(async () => {
@@ -101,17 +101,9 @@ export const createSkillRepository = (layout: DataLayout): SkillRepository => {
       for (const skill of user.skills) merged.set(skill.name, skill);
       return { skills: [...merged.values()], diagnostics: [...builtin.diagnostics, ...user.diagnostics] };
     }),
-    getSpaceOverrides: (spaceId) => serialized(() => readOverrides(fileFor(spaceId))),
-    setSpaceOverrides: (spaceId, overrides) => serialized(async () => {
-      const file = fileFor(spaceId);
-      await readOverrides(file);
-      const document = overridesSchema.parse({ overrides });
-      await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-      await writeJsonDocument(file, document);
-    }),
-    getThreadOverrides: (threadId: string) => serialized(() => readOverrides(fileFor(threadId))),
-    setThreadOverrides: (threadId: string, overrides: Record<string, boolean>) => serialized(async () => {
-      const file = fileFor(threadId);
+    getAgentOverrides: (agentId) => serialized(() => readOverrides(fileFor(agentId))),
+    setAgentOverrides: (agentId, overrides) => serialized(async () => {
+      const file = fileFor(agentId);
       await readOverrides(file);
       const document = overridesSchema.parse({ overrides });
       await mkdir(dirname(file), { recursive: true, mode: 0o700 });

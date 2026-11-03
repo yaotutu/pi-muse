@@ -6,8 +6,8 @@ import type { InformationService } from "../../../features/information/service.j
 export const INFORMATION_TOOL_NAME = "information";
 
 export const INFORMATION_TOOL_INSTRUCTIONS = [
-  "Use information to answer user questions about this space's ingested information, processing runs, preferences and notification links.",
-  "The tool is read-only, always available in ordinary chat, and scoped to the current space; it cannot ingest items, start runs, publish notifications, or access another space.",
+  "Use information to answer user questions about this agent's ingested information, processing runs, preferences and notification links.",
+  "The tool is read-only, always available in ordinary chat, and scoped to the current agent; it cannot ingest items, start runs, publish notifications, or access another agent.",
   "Use overview for status questions, items/runs for bounded listings, item/run for one ID, or preferences for notes and current feedback examples.",
 ].join(" ");
 
@@ -21,7 +21,7 @@ const rejected = (text: string) => ({
 
 export const createInformationTool = (
   information: Pick<InformationService, "query">,
-  spaceId: string,
+  agentId: string,
 ) =>
   defineTool({
     name: INFORMATION_TOOL_NAME,
@@ -52,7 +52,7 @@ export const createInformationTool = (
           return rejected("limit must be an integer from 1 to 100.");
         }
         const result = await information.query({
-          spaceId,
+          agentId,
           action: params.action,
           status: params.status,
           limit,

@@ -53,7 +53,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean; ex
   let baseUrl = "";
   let serviceVersion: unknown;
   let sessionToken: string | undefined;
-  const createdSpaceIds: string[] = [];
+  const createdAgentIds: string[] = [];
 
   const stopService = async () => {
     const current = service;
@@ -120,8 +120,8 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean; ex
     const client = createTestClient(() => baseUrl, token, 450_000);
     serviceVersion = (await client.json("/api/health")).serviceVersion;
 
-    const spaceId = "live-space-approval-timeout";
-    createdSpaceIds.push(spaceId);
+    const agentId = "live-agent-approval-timeout";
+    createdAgentIds.push(agentId);
 
     const outcome: ScenarioOutcome = {
       name: "approval-timeout-vs-run-timeout",
@@ -150,7 +150,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean; ex
     const baselineProxyTraces = proxy.traces.length;
     const startTime = Date.now();
     const deadline = startTime + 450_000;
-    const runResult = await beforeDeadline(client.startRun(prompt, spaceId), deadline);
+    const runResult = await beforeDeadline(client.startRun(prompt, agentId), deadline);
 
     // 1. 等待 pending 审批项出现，最多等待 90 秒
     let capturedActionId = "";
@@ -188,7 +188,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean; ex
     assert.equal(actionPendingDetail.status, "pending", "审批项初始状态必须为 pending");
     assert.equal(actionPendingDetail.kind, "file_write");
     assert.equal(actionPendingDetail.runId, runResult.runId);
-    assert.equal(actionPendingDetail.spaceId, spaceId);
+    assert.equal(actionPendingDetail.agentId, agentId);
     assert.equal(actionPendingDetail.preview.beforeExists, false);
     assert.equal(actionPendingDetail.preview.before, "");
     assert.equal(
@@ -382,32 +382,32 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean; ex
 
     const authToken = sessionToken;
     if (baseUrl && service && authToken) {
-      for (const spaceId of createdSpaceIds) {
+      for (const agentId of createdAgentIds) {
         try {
-          const res = await fetch(`${baseUrl}/api/spaces/${spaceId}`, {
+          const res = await fetch(`${baseUrl}/api/agents/${agentId}`, {
             method: "DELETE",
             headers: { Authorization: `Bearer ${authToken}` },
             signal: AbortSignal.timeout(5000),
           });
           if (res.ok || res.status === 404) {
-            // 确认空间已真正被删除
-            const verifyRes: Response = await fetch(`${baseUrl}/api/spaces`, {
+            // 确认智能体已真正被删除
+            const verifyRes: Response = await fetch(`${baseUrl}/api/agents`, {
               headers: { Authorization: `Bearer ${authToken}` },
               signal: AbortSignal.timeout(5000),
             });
-            assert.equal(verifyRes.status, 200, "Cleanup spaces verification must return HTTP 200");
-            const spacesList = (await verifyRes.json()) as { spaces: { id: string }[] };
-            if (spacesList.spaces.some((s) => s.id === spaceId)) {
+            assert.equal(verifyRes.status, 200, "Cleanup agents verification must return HTTP 200");
+            const agentsList = (await verifyRes.json()) as { agents: { id: string }[] };
+            if (agentsList.agents.some((s) => s.id === agentId)) {
               cleanupFailed = true;
-              process.stderr.write(`Cleanup verification failed: space ${spaceId} still exists\n`);
+              process.stderr.write(`Cleanup verification failed: agent ${agentId} still exists\n`);
             }
           } else {
             cleanupFailed = true;
-            process.stderr.write(`Cleanup space ${spaceId} failed with HTTP ${res.status}\n`);
+            process.stderr.write(`Cleanup agent ${agentId} failed with HTTP ${res.status}\n`);
           }
         } catch (error) {
           cleanupFailed = true;
-          process.stderr.write(`Cleanup space ${spaceId}: ${error instanceof Error ? error.message : String(error)}\n`);
+          process.stderr.write(`Cleanup agent ${agentId}: ${error instanceof Error ? error.message : String(error)}\n`);
         }
       }
     }

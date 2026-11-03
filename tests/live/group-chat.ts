@@ -56,8 +56,8 @@ const execute = async (options: LiveOptions) => {
   try {
     await mkdir(dataDir, { recursive: true });
     // 模拟首次执行在 pi 创建 JSONL 前失败的真实索引；下一条不能永远卡在旧讨论 NOT_FOUND。
-    await writeFile(join(dataDir, "group.json"), JSON.stringify([{ id: "failed-before-pi", rootId: "failed-before-pi", sourceSpaceId: null,
-      targetSpaceId: "news-internal", discussionId: randomUUID(), createdAt: new Date().toISOString(), finishedAt: null, status: "failed" }]));
+    await writeFile(join(dataDir, "group.json"), JSON.stringify([{ id: "failed-before-pi", rootId: "failed-before-pi", sourceAgentId: null,
+      targetAgentId: "news-internal", discussionId: randomUUID(), createdAt: new Date().toISOString(), finishedAt: null, status: "failed" }]));
     await start();
     fixture.listen(0, "127.0.0.1"); await once(fixture, "listening");
     const address = fixture.address(); assert.ok(address && typeof address !== "string");
@@ -66,18 +66,18 @@ const execute = async (options: LiveOptions) => {
     const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
     const client = createTestClient(() => baseUrl, token, 190000);
     const group = async () => groupSnapshotSchema.parse(await client.json("/api/group"));
-    const post = (id: string, content: string, targetSpaceId?: string, signal?: AbortSignal) => fetch(baseUrl + "/api/group/messages", {
-      method: "POST", headers, body: JSON.stringify({ id, content, ...(targetSpaceId ? { targetSpaceId } : {}) }), signal,
+    const post = (id: string, content: string, targetAgentId?: string, signal?: AbortSignal) => fetch(baseUrl + "/api/group/messages", {
+      method: "POST", headers, body: JSON.stringify({ id, content, ...(targetAgentId ? { targetAgentId } : {}) }), signal,
     });
     const send = async (id: string, content: string, target?: string) => {
       const response = await post(id, content, target); assert.equal(response.status, 200);
       const frames = (await response.text()).split(/\r?\n/).filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6)));
       assert.equal(frames.at(-1)?.type, "settled", JSON.stringify(frames.filter((frame) => frame.type === "error")));
       const turn = (await group()).turns.find((turn) => turn.id === id)!;
-      assert.equal(turn.status, "completed"); assert.equal(turn.targetSpaceId, target ?? "local-main");
+      assert.equal(turn.status, "completed"); assert.equal(turn.targetAgentId, target ?? "local-main");
       assert.ok(turn.messages.some((message) => message.role === "assistant")); return turn;
     };
-    const before = await Promise.all(["local-main", "sms-internal", "news-internal"].map((id) => client.json(`/api/conversation?spaceId=${id}`)));
+    const before = await Promise.all(["local-main", "sms-internal", "news-internal"].map((id) => client.json(`/api/conversation?agentId=${id}`)));
     scenario = "default-main-explicit-target-and-prompt-isolation";
     await send("main-first", "Remember MAIN_GROUP_CEDAR_381. Reply only MAIN_READY. Do not use tools.");
     await send("sms-first", "Remember SMS_GROUP_WAVE_927. Reply only SMS_READY. Do not use tools.", "sms-internal");
@@ -88,12 +88,12 @@ const execute = async (options: LiveOptions) => {
       assert.ok(traces.length); for (const trace of traces) { assert.ok(JSON.stringify(trace.users).includes(own!)); assert.ok(!JSON.stringify(trace.users).includes(other!)); }
     }
     pass();
-    scenario = "actual-nested-space-request-and-private-isolation";
-    await send("nested-request", "Use space action=request to ask sms-internal to reply only NESTED_GROUP_OK. Pass only that instruction, no other context. Then tell me the answer. Do not use other tools.");
-    const nested = (await group()).turns.find((turn) => turn.rootId === "nested-request" && turn.sourceSpaceId === "local-main");
-    assert.ok(nested); assert.equal(nested.targetSpaceId, "sms-internal"); assert.equal(nested.status, "completed");
-    assert.ok(proxy.traces.some((trace) => trace.calls.some((call) => call.name === "space")));
-    assert.deepEqual(await Promise.all(["local-main", "sms-internal", "news-internal"].map((id) => client.json(`/api/conversation?spaceId=${id}`))), before);
+    scenario = "actual-nested-agent-request-and-private-isolation";
+    await send("nested-request", "Use agent action=request to ask sms-internal to reply only NESTED_GROUP_OK. Pass only that instruction, no other context. Then tell me the answer. Do not use other tools.");
+    const nested = (await group()).turns.find((turn) => turn.rootId === "nested-request" && turn.sourceAgentId === "local-main");
+    assert.ok(nested); assert.equal(nested.targetAgentId, "sms-internal"); assert.equal(nested.status, "completed");
+    assert.ok(proxy.traces.some((trace) => trace.calls.some((call) => call.name === "agent")));
+    assert.deepEqual(await Promise.all(["local-main", "sms-internal", "news-internal"].map((id) => client.json(`/api/conversation?agentId=${id}`))), before);
     pass();
     scenario = "missing-first-discussion-recovery-without-replay";
     await send("news-recovered", "Reply only NEWS_RECOVERED. Do not use tools.", "news-internal"); pass();
@@ -102,13 +102,13 @@ const execute = async (options: LiveOptions) => {
     assert.match(await (await post("main-first", "Must not replay")).text(), /BUSY/);
     assert.match(await (await post("invalid-target", "Must not fallback", "missing-group-member")).text(), /NOT_FOUND/); pass();
     scenario = "reset-delete-clear-only-target-group-discussions";
-    const others = (await group()).turns.filter((turn) => turn.targetSpaceId !== "news-internal");
-    await client.json("/api/spaces/news-internal/reset", {});
+    const others = (await group()).turns.filter((turn) => turn.targetAgentId !== "news-internal");
+    await client.json("/api/agents/news-internal/reset", {});
     assert.deepEqual((await group()).turns, others);
     await assert.rejects(readdir(join(dataDir, "sessions", "news-internal", "discussions")), { code: "ENOENT" });
-    await client.json("/api/spaces/group-worker/instructions", { instructions: "Answer concise requests. Do not delegate." }, "PUT");
+    await client.json("/api/agents/group-worker/instructions", { instructions: "Answer concise requests. Do not delegate." }, "PUT");
     await send("worker-message", "Reply only GROUP_WORKER_OK. Do not use tools.", "group-worker");
-    await client.json("/api/spaces/group-worker", undefined, "DELETE");
+    await client.json("/api/agents/group-worker", undefined, "DELETE");
     assert.deepEqual((await group()).turns, others);
     await assert.rejects(readdir(join(dataDir, "sessions", "group-worker")), { code: "ENOENT" });
     pass();

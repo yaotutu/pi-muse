@@ -11,11 +11,11 @@ const deniedResult = (text: string): AgentToolResult<MonitorToolDetails> => ({
   isError: true,
 });
 
-/** 对话式监控工具：创建/列表/暂停/恢复/停止。普通聊天只限于当前空间；
- * 跨空间汇总和控制仍由 REST 管理入口显式完成。 */
+/** 对话式监控工具：创建/列表/暂停/恢复/停止。普通聊天只限于当前智能体；
+ * 跨智能体汇总和控制仍由 REST 管理入口显式完成。 */
 export const monitorTool = (
   monitors: Pick<MonitorService, "create" | "list" | "control">,
-  originSpaceId = "local-main",
+  originAgentId = "local-main",
 ) =>
   defineTool({
     name: "monitor",
@@ -55,7 +55,7 @@ export const monitorTool = (
           return deniedResult("url must be a public http(s) URL.");
         try {
           const monitor = await monitors.create({
-            originSpaceId,
+            originAgentId,
             title: params.title ?? params.url,
             url: params.url,
             condition: (params.condition ?? "change") as MonitorCondition,
@@ -81,7 +81,7 @@ export const monitorTool = (
       }
       if (params.action === "list") {
         const list = (await monitors.list()).filter(
-          (monitor) => (monitor.originSpaceId ?? "local-main") === originSpaceId,
+          (monitor) => (monitor.originAgentId ?? "local-main") === originAgentId,
         );
         const lines = list.map(
           (m) =>
@@ -96,7 +96,7 @@ export const monitorTool = (
         return deniedResult("control needs monitorId (see list).");
       const action = params.action as "pause" | "resume" | "stop";
       const scoped = (await monitors.list()).some(
-        (monitor) => monitor.id === params.monitorId && (monitor.originSpaceId ?? "local-main") === originSpaceId,
+        (monitor) => monitor.id === params.monitorId && (monitor.originAgentId ?? "local-main") === originAgentId,
       );
       if (!scoped) return deniedResult("Monitor not found");
       const result = await monitors.control(params.monitorId, action);

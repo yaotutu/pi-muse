@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
-import type { AgentSnapshotDto } from "../contracts/responses.js";
+import type { IdentitySnapshotDto } from "../contracts/responses.js";
 
 /**
  * GET /api/agent：工作台首屏身份快照。
@@ -14,9 +14,9 @@ export const createSnapshotRoute = (
 ) => {
   const { identity } = dependencies;
   const app = new Hono();
-  app.get("/api/agent", async (c) => {
+  app.get("/api/identity", async (c) => {
     const identityState = await identity.get();
-    const snapshot: AgentSnapshotDto = {
+    const snapshot: IdentitySnapshotDto = {
       identity: identityState,
     };
     return c.json(snapshot);

@@ -7,7 +7,7 @@ import test, { type TestContext } from "node:test";
 import { createFakeModel } from "../support/fake-model.js";
 import { createServiceProcess } from "../support/service-process.js";
 import { createTestClient, waitForTest } from "../support/http-client.js";
-import { agentSnapshot } from "../../src/http/contracts/responses.js";
+import { identitySnapshot } from "../../src/http/contracts/responses.js";
 import { approvalView } from "../../src/http/contracts/approvals.js";
 import { workspaceEvents } from "../../src/http/contracts/workspace-events.js";
 
@@ -32,7 +32,7 @@ const childRequest = (request: { messages: { role: string; content: unknown }[] 
 
 test("e2e: built entry authenticates, streams tools, persists state and restarts with the same token/history", { timeout: 90_000 }, async (t) => {
   const { service, client, token } = await fixture(t);
-  assert.equal((await fetch(service.baseUrl + "/api/agent", { signal: AbortSignal.timeout(5000) })).status, 401);
+  assert.equal((await fetch(service.baseUrl + "/api/identity", { signal: AbortSignal.timeout(5000) })).status, 401);
   const wrong = await fetch(service.baseUrl + "/api/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accessKey: "wrong" }), signal: AbortSignal.timeout(5000) });
   assert.equal(wrong.status, 401);
   const health = await client.json("/api/health");
@@ -46,15 +46,15 @@ test("e2e: built entry authenticates, streams tools, persists state and restarts
   terminalSuccess(timeEvents);
   assert.ok(timeEvents.some((event) => event.type === "TOOL_CALL_START" && event.toolCallName === "currentTime"));
   await client.run("记住E2E记忆", "e2e-main");
-  const snapshot = agentSnapshot.parse(await client.json("/api/agent"));
+  const snapshot = identitySnapshot.parse(await client.json("/api/identity"));
   const memoriesList = (await client.json("/api/memories")) as { memories: Array<{ id: string; text: string }> };
   assert.ok(memoriesList.memories.some((memory) => memory.text.includes("E2E记忆")));
   assert.equal(Object.hasOwn(snapshot, "worker"), false);
-  await client.json("/api/spaces/e2e-main/instructions", { instructions: "E2E-INSTRUCTIONS" }, "PUT");
+  await client.json("/api/agents/e2e-main/instructions", { instructions: "E2E-INSTRUCTIONS" }, "PUT");
   const before = await client.history("e2e-main");
   await service.restart();
   assert.deepEqual(await client.history("e2e-main"), before);
-  assert.equal((await client.request("/api/agent")).status, 200, "auth.key and token survive process restart");
+  assert.equal((await client.request("/api/identity")).status, 200, "auth.key and token survive process restart");
   assert.equal(await readFile(join(service.dataDir, "sessions/e2e-main/INSTRUCTIONS.md"), "utf8"), "E2E-INSTRUCTIONS\n");
   assert.equal(typeof token, "string");
   terminalSuccess(await client.run("hello after restart", "e2e-main"));
@@ -82,7 +82,7 @@ test("e2e: parent dispatches single, concurrent and chained subagents without a 
   }
   assert.ok((await readdir(join(service.dataDir, "sessions"))).every((name) => !name.startsWith("subagent-")));
   await assert.rejects(stat(join(service.dataDir, "tasks.json")), { code: "ENOENT" });
-  await client.json("/api/spaces/e2e-subagent/skills", { overrides: { task: false } }, "PUT");
+  await client.json("/api/agents/e2e-subagent/skills", { overrides: { task: false } }, "PUT");
   const disabledStart = model.requests.length;
   terminalSuccess(await client.run("plain check", "e2e-subagent"));
   assert.ok(!(model.requests[disabledStart].tools as { function: { name: string } }[]).some((tool) => tool.function.name === "subagent"));
@@ -94,18 +94,18 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     const running = await client.startRun("请子代理写入", "e2e-approval");
     // 主同步来源仍为 SSE ready 的完整集合，HTTP pending 只是补充只读入口。
     const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval");
-    assert.equal(action.spaceId, running.spaceId);
+    assert.equal(action.agentId, running.agentId);
     assert.equal(action.revision, 1);
     assert.match(action.preview.after, /DRAFT-CONTENT/);
     assert.equal(action.preview.path, "draft.md");
     assert.equal(action.preview.before, "");
     assert.equal(action.preview.beforeExists, false);
-    const childDir = (await readdir(join(service.dataDir, "workspace/threads"))).find((name) => name.startsWith("subagent-"));
+    const childDir = (await readdir(join(service.dataDir, "workspace/agents"))).find((name) => name.startsWith("subagent-"));
     assert.ok(childDir);
-    const target = join(service.dataDir, "workspace/threads", childDir, "draft.md");
+    const target = join(service.dataDir, "workspace/agents", childDir, "draft.md");
     await assert.rejects(stat(target), { code: "ENOENT" });
     if (decision === "cancel") {
-      assert.equal((await client.json("/api/conversation/stop", { spaceId: running.threadId, runId: running.runId })).stopped, true);
+      assert.equal((await client.json("/api/conversation/stop", { agentId: running.agentId, runId: running.runId })).stopped, true);
       const events = await running.done;
       assert.equal(events.at(-1)?.type, "RUN_ERROR");
     } else {
@@ -129,20 +129,20 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     assert.equal(Object.hasOwn(page.approvals[0], "preview"), false);
     assert.equal(page.hasMore, false);
     assert.equal(page.nextCursor, null);
-    terminalSuccess(await client.run("现在几点", running.threadId));
+    terminalSuccess(await client.run("现在几点", running.agentId));
   });
 }
 
-test("e2e: Stop interrupts the child model and real slow HTTP socket, then the same thread remains usable", { timeout: 90_000 }, async (t) => {
+test("e2e: Stop interrupts the child model and real slow HTTP socket, then the same agent remains usable", { timeout: 90_000 }, async (t) => {
   const { model, client } = await fixture(t);
   const started = model.requests.length;
   const child = await client.startRun("请子代理挂起", "e2e-stop");
   await waitForTest(() => model.requests.length >= started + 2, "child provider request");
   const closedBefore = model.slowClosed();
-  assert.equal((await client.json("/api/conversation/stop", { spaceId: child.threadId, runId: child.runId })).stopped, true);
+  assert.equal((await client.json("/api/conversation/stop", { agentId: child.agentId, runId: child.runId })).stopped, true);
   assert.equal((await child.done).at(-1)?.type, "RUN_ERROR");
   await waitForTest(() => model.slowClosed() > closedBefore, "child provider disconnect");
-  terminalSuccess(await client.run("现在几点", child.threadId));
+  terminalSuccess(await client.run("现在几点", child.agentId));
   let entered = false;
   let closed = false;
   const server = createServer((_request, response) => {
@@ -153,32 +153,32 @@ test("e2e: Stop interrupts the child model and real slow HTTP socket, then the s
   t.after(async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); });
   server.listen(0, "127.0.0.1"); await once(server, "listening");
   const address = server.address(); assert.ok(address && typeof address !== "string");
-  const web = await client.startRun(`E2E child-web http://127.0.0.1:${address.port}/slow`, child.threadId);
+  const web = await client.startRun(`E2E child-web http://127.0.0.1:${address.port}/slow`, child.agentId);
   await waitForTest(() => entered, "child real HTTP socket");
   const stopStart = Date.now();
-  assert.equal((await client.json("/api/conversation/stop", { spaceId: web.threadId, runId: web.runId })).stopped, true);
+  assert.equal((await client.json("/api/conversation/stop", { agentId: web.agentId, runId: web.runId })).stopped, true);
   assert.equal((await web.done).at(-1)?.type, "RUN_ERROR");
   await waitForTest(() => closed, "slow socket closed", 3000);
   assert.ok(Date.now() - stopStart < 3000, "must not wait for web transport timeout");
-  terminalSuccess(await client.run("现在几点", web.threadId));
+  terminalSuccess(await client.run("现在几点", web.agentId));
 });
 
-test("e2e: private workspaces stay isolated and deleted threads do not revive on reads or late Stop", { timeout: 90_000 }, async (t) => {
+test("e2e: private workspaces stay isolated and deleted agents do not revive on reads or late Stop", { timeout: 90_000 }, async (t) => {
   const { service, client } = await fixture(t);
-  await client.json("/api/spaces/e2e-owner/instructions", { instructions: "owner" }, "PUT");
-  await client.json("/api/spaces/e2e-other/instructions", { instructions: "other" }, "PUT");
-  await writeFile(join(service.dataDir, "workspace/threads/e2e-owner/private.md"), "OWNER-PRIVATE");
+  await client.json("/api/agents/e2e-owner/instructions", { instructions: "owner" }, "PUT");
+  await client.json("/api/agents/e2e-other/instructions", { instructions: "other" }, "PUT");
+  await writeFile(join(service.dataDir, "workspace/agents/e2e-owner/private.md"), "OWNER-PRIVATE");
   await writeFile(join(service.dataDir, "workspace/shared/shared.md"), "SHARED-OK");
   const missing = await client.run("读 private.md", "e2e-other");
   assert.ok(!JSON.stringify(missing).includes("OWNER-PRIVATE"));
   const shared = await client.run("读 shared/shared.md", "e2e-other");
   assert.match(shared.filter((event) => event.type === "TEXT_MESSAGE_CONTENT").map((event) => event.delta).join(""), /SHARED-OK/);
   terminalSuccess(await client.run("hello", "e2e-owner"));
-  const remove = await client.json("/api/spaces/e2e-owner", undefined, "DELETE");
+  const remove = await client.json("/api/agents/e2e-owner", undefined, "DELETE");
   assert.deepEqual(remove.removed, { jobs: 0, monitors: 0 });
   assert.deepEqual(await client.history("e2e-owner"), { sessionId: null, messages: [], revision: "empty" });
-  assert.deepEqual(await client.json("/api/conversation/stop", { spaceId: "e2e-owner", runId: "late" }), { stopped: false });
-  assert.ok(!(await client.json("/api/spaces")).spaces.some((space: { id: string }) => space.id === "e2e-owner"));
+  assert.deepEqual(await client.json("/api/conversation/stop", { agentId: "e2e-owner", runId: "late" }), { stopped: false });
+  assert.ok(!(await client.json("/api/agents")).agents.some((agent: { id: string }) => agent.id === "e2e-owner"));
   await assert.rejects(stat(join(service.dataDir, "sessions/e2e-owner")), { code: "ENOENT" });
 });
 
@@ -257,8 +257,8 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   assert.equal(pending.revision, 1);
   assert.equal(pending.status, "pending");
   assert.equal(pending.preview.path, "draft.md");
-  assert.equal(pending.preview.scope, "space");
-  assert.equal(pending.preview.ownerSpaceId, running.spaceId);
+  assert.equal(pending.preview.scope, "agent");
+  assert.equal(pending.preview.ownerAgentId, running.agentId);
   assert.match(pending.preview.after, /DRAFT-CONTENT/);
   assert.ok(waiting.pendingApprovalIds.includes(pending.id));
   // HTTP 完整视图与 SSE 推送是同一 id、同一 revision、同一不可变预览。
@@ -297,13 +297,13 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   assert.equal(Object.hasOwn(settled, "title"), false);
   terminalSuccess(await running.done);
   assert.equal(terminal.status, "succeeded");
-  // 本轮新增输出与落盘结果都可读；断线后运行终态仍能通过 GET /api/agent/status 取回。
-  const history = await client.history(running.threadId);
+  // 本轮新增输出与落盘结果都可读；断线后运行终态仍能通过 GET /api/runs/status 取回。
+  const history = await client.history(running.agentId);
   assert.match(JSON.stringify(history), /DRAFT-CONTENT|write reply:/);
-  assert.equal(await readFile(join(service.dataDir, "workspace/threads/e2e-sse-approval/draft.md"), "utf8"),
+  assert.equal(await readFile(join(service.dataDir, "workspace/agents/e2e-sse-approval/draft.md"), "utf8"),
     pending.preview.after);
   await second.close();
-  const final = await client.json(`/api/agent/status?spaceId=${encodeURIComponent(running.threadId)}&runId=${encodeURIComponent(running.runId)}`);
+  const final = await client.json(`/api/runs/status?agentId=${encodeURIComponent(running.agentId)}&runId=${encodeURIComponent(running.runId)}`);
   assert.equal(final.status.status, "succeeded");
   assert.equal(final.status.endedAt, terminal.endedAt);
   assert.deepEqual(final.status.pendingApprovalIds, []);

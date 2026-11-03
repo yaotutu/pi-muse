@@ -14,7 +14,7 @@ export const encodeApprovalCursor = (
     JSON.stringify({
       resolvedAt: cursor.resolvedAt,
       id: cursor.id,
-      ...(filter.spaceId !== undefined ? { spaceId: filter.spaceId } : {}),
+      ...(filter.agentId !== undefined ? { agentId: filter.agentId } : {}),
       ...(filter.activityId !== undefined ? { activityId: filter.activityId } : {}),
       ...(filter.status !== undefined ? { status: filter.status } : {}),
     }),
@@ -48,7 +48,7 @@ export const approvalCursorMatchesFilter = (
   filter: ApprovalFilter,
 ): boolean => {
   return (
-    cursor.spaceId === filter.spaceId &&
+    cursor.agentId === filter.agentId &&
     cursor.activityId === filter.activityId &&
     cursor.status === filter.status
   );

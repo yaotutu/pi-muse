@@ -11,14 +11,14 @@
 
 ## 当前复用清单
 
-空间通信同样复用 `openPi` 与持久化 `SessionManager`：每个讨论的 pi JSONL 放在目标空间 `sessions/<spaceId>/discussions/<discussionId>/`，不使用 subagent 临时上下文冒充持续讨论，不另写执行循环或第二份历史。上下文和工具装配归目标空间；返回原工具调用，不依赖来源主会话的通知写入锁。具体职责与取消见 [空间通信](architecture.md#空间通信与独立讨论)。
+智能体通信同样复用 `openPi` 与持久化 `SessionManager`：每个讨论的 pi JSONL 放在目标智能体 `sessions/<agentId>/discussions/<discussionId>/`，不使用 subagent 临时上下文冒充持续讨论，不另写执行循环或第二份历史。上下文和工具装配归目标智能体；返回原工具调用，不依赖来源主会话的通知写入锁。具体职责与取消见 [智能体通信](architecture.md#智能体通信与独立讨论)。
 
 | 能力 | 实际复用 | 本项目负责的边界 |
 | --- | --- | --- |
 | 模型配置与流解析 | `ModelRuntime`、SDK 模型调用与 pi-ai 流解析 | 单 endpoint/model，bootstrap 注册 provider 与内存 key，不把凭据写进历史 |
-| 执行循环 | `createAgentSession`、`session.prompt` | 对话接纳、run/thread 标识、互斥锁、超时和产品提示词；不手写第二套 loop |
+| 执行循环 | `createAgentSession`、`session.prompt` | 对话接纳、run/agent 标识、互斥锁、超时和产品提示词；不手写第二套 loop |
 | 取消与收尾 | `session.abort`、`waitForIdle`、`dispose` | Stop/断流传播至工具与子会话，等待执行收尾才释放锁，不提前报告成功 |
-| 会话历史 | `SessionManager`、JSONL、branch/custom entry/context edit | thread 与私有 cwd 映射、revision、展示投影及通知去重，不维护另一份聊天历史 |
+| 会话历史 | `SessionManager`、JSONL、branch/custom entry/context edit | agent 与私有 cwd 映射、revision、展示投影及通知去重，不维护另一份聊天历史 |
 | 上下文压缩 | SDK compaction 与 `SettingsManager` | 压缩参数按模型窗口收缩；展示读完整 branch，不拿压缩摘要替代长期记忆或完整 UI 历史 |
 | 只读文件工具 | `createReadToolDefinition`、`createGrepToolDefinition`、`createFindToolDefinition`、`createLsToolDefinition` | 入口 guard 和 operations 路径复核，私有/shared 边界、符号链接拒绝、技能精确读取例外 |
 | 写入工具接入 | SDK `defineTool` 与工具执行机制 | write/edit 是本项目实现，不直接开放 SDK 默认 write/edit；完整预览、版本绑定、逐次审批与提交检查由项目控制 |
@@ -32,7 +32,7 @@
 
 ## 主要源码落点
 
-- `src/bootstrap/create-service.ts`：唯一 `ModelRuntime`、provider 与内存凭据的初始化；不同 thread 共享 runtime，不共享执行锁和上下文。
+- `src/bootstrap/create-service.ts`：唯一 `ModelRuntime`、provider 与内存凭据的初始化；不同 agent 共享 runtime，不共享执行锁和上下文。
 - `src/adapters/pi/session-factory.ts`：每轮会话装配、模型选择、技能/工具裁剪、压缩设置、subagent child runner。
 - `src/adapters/pi/resource-loader.ts`：向 SDK 提供明确的 system prompt、已启用技能和扩展，不发现个人 CLI 的 context files、prompt templates 或 themes。
 - `src/adapters/pi/session-history.ts`、`history-projection.ts`：权威 JSONL 读取、custom entry/context edit、revision 与展示历史投影。

@@ -3,7 +3,7 @@ import type { MessageView, ToolCallView } from "./chat-state";
 import { StreamAggregator, projectHistory } from "./chat-state";
 import {
   loadHistory,
-  resetSpace,
+  resetAgent,
   runConversation,
   stopConversation,
   ApiError,
@@ -13,13 +13,13 @@ const randomRunId = () =>
   (globalThis.crypto?.randomUUID?.() ?? `run-${Date.now()}-${Math.random()}`);
 
 type ForegroundRun = {
-  spaceId: string;
+  agentId: string;
   runId: string;
   controller: AbortController;
 };
 
 type ChatSession = {
-  spaceId: string;
+  agentId: string;
   controller: AbortController;
   historyReady: boolean;
   revision: string;
@@ -28,7 +28,7 @@ type ChatSession = {
 
 type ConversationInvalidation = {
   instanceId: string;
-  spaceId: string;
+  agentId: string;
   sessionId: string;
 };
 
@@ -38,6 +38,8 @@ const toolLabel = (call: ToolCallView): string => {
       return "查询当前时间";
     case "activity":
       return "登记工作活动";
+    case "agent":
+      return "智能体通信";
     case "memory":
       return "记忆操作";
     case "memory_search":
@@ -135,19 +137,19 @@ const MessageBubble = ({ message }: { message: MessageView }) => {
 };
 
 export const ChatView = ({
-  spaceId,
+  agentId,
   sessionId: initialSessionId,
   conversationRefreshKey = "0:0",
   conversationUpdates = [],
   onReset,
 }: {
-  spaceId?: string;
+  agentId?: string;
   sessionId?: string;
   conversationRefreshKey?: string;
   conversationUpdates?: readonly ConversationInvalidation[];
   onReset?: () => void;
 }) => {
-  const currentSpaceId = spaceId || "local-main";
+  const currentAgentId = agentId || "local-main";
   const [views, setViews] = useState<MessageView[]>([]);
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState<ForegroundRun | null>(null);
@@ -178,7 +180,7 @@ export const ChatView = ({
     session.historyReady = false;
     setLoading(true);
     try {
-      const history = await loadHistory(currentSpaceId, controller.signal);
+      const history = await loadHistory(currentAgentId, controller.signal);
       if (!ownsHistoryRequest()) return;
       session.revision = history.revision;
       session.historyReady = true;
@@ -201,11 +203,11 @@ export const ChatView = ({
     }
   };
 
-  // 每次挂载/切换都创建独立归属对象，避免 A→B→A 时仅比较 spaceId 误认旧请求。
+  // 每次挂载/切换都创建独立归属对象，避免 A→B→A 时仅比较 agentId 误认旧请求。
   // layout cleanup 在新界面可交互前撤销归属；abort 只负责停 I/O，归属校验负责拦截已排队回调。
   useLayoutEffect(() => {
     const session: ChatSession = {
-      spaceId: currentSpaceId,
+      agentId: currentAgentId,
       controller: new AbortController(),
       historyReady: false,
       revision: "empty",
@@ -224,11 +226,11 @@ export const ChatView = ({
       session.controller.abort();
       session.run?.controller.abort();
     };
-  }, [currentSpaceId]);
+  }, [currentAgentId]);
 
   // conversation_updated 只含身份；这里保留草稿和组件归属，用权威 REST 历史替换视图。
   const relevantInvalidation = conversationUpdates.findLast(
-    (update) => update.spaceId === currentSpaceId,
+    (update) => update.agentId === currentAgentId,
   );
   useEffect(() => {
     if (conversationRefreshSeen.current === undefined) {
@@ -238,7 +240,7 @@ export const ChatView = ({
     if (conversationRefreshSeen.current === conversationRefreshKey) return;
     conversationRefreshSeen.current = conversationRefreshKey;
     const session = sessionRef.current;
-    if (!session || session.spaceId !== currentSpaceId) return;
+    if (!session || session.agentId !== currentAgentId) return;
     // 当前会话必须刷新；从未见过的 sessionId 可能来自远端 reset，也必须回读。
     // 已被当前视图替换掉的旧 sessionId 只作为迟到帧忽略。
     const staleSession = relevantInvalidation
@@ -251,7 +253,7 @@ export const ChatView = ({
       return;
     }
     void readAuthority(session);
-  }, [conversationRefreshKey, relevantInvalidation, activeSessionId, currentSpaceId]);
+  }, [conversationRefreshKey, relevantInvalidation, activeSessionId, currentAgentId]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
@@ -262,8 +264,8 @@ export const ChatView = ({
     const session = sessionRef.current;
     // ref 同步占有 run，防止 React 尚未提交 running 状态时连续 Enter 发出重复请求。
     // 首次历史未成功加载前不允许发送，否则空 历史版本会覆盖不了服务端已有历史。
-    if (!text || !session || session.spaceId !== currentSpaceId || !session.historyReady || session.run) return;
-    const run: ForegroundRun = { spaceId: session.spaceId, runId: randomRunId(), controller: new AbortController() };
+    if (!text || !session || session.agentId !== currentAgentId || !session.historyReady || session.run) return;
+    const run: ForegroundRun = { agentId: session.agentId, runId: randomRunId(), controller: new AbortController() };
     session.run = run;
     const ownsRun = () =>
       sessionRef.current === session && !session.controller.signal.aborted && session.run === run;
@@ -290,7 +292,7 @@ export const ChatView = ({
     try {
       await runConversation(
         {
-          spaceId: run.spaceId,
+          agentId: run.agentId,
           runId: run.runId,
           expectedRevision: session.revision,
           message: { id: optimistic.id, content: text },
@@ -302,7 +304,7 @@ export const ChatView = ({
           setViews([...aggregator.messages]);
           if (event.type === "RUN_ERROR") {
             setError(event.message);
-            if (["HISTORY_CONFLICT", "agent_thread_locked", "MODEL_NOT_CONFIGURED"].includes(event.code)) restoreDraft();
+            if (["HISTORY_CONFLICT", "agent_locked", "MODEL_NOT_CONFIGURED"].includes(event.code)) restoreDraft();
           }
         },
         run.controller.signal,
@@ -320,7 +322,7 @@ export const ChatView = ({
         // Stop 只取消本轮流，刷新使用会话级 signal；切换/卸载则两者都取消。
         // 直到刷新结束才释放 run，防止旧 finally 覆盖新一轮视图或 历史版本。
         try {
-          const { messages, revision } = await loadHistory(run.spaceId, session.controller.signal);
+          const { messages, revision } = await loadHistory(run.agentId, session.controller.signal);
           if (ownsRun()) {
             session.revision = revision;
             setViews(projectHistory(messages));
@@ -349,12 +351,12 @@ export const ChatView = ({
 
   const stop = async (run: ForegroundRun) => {
     const session = sessionRef.current;
-    if (!session || session.spaceId !== run.spaceId || session.run !== run) return;
+    if (!session || session.agentId !== run.agentId || session.run !== run) return;
     setStopping(true);
     try {
       // 等待服务端的 abort、结果落盘和通知队列释放；SSE 自然结束后才刷新并允许下一轮。
       // 离开页面仍直接取消本轮流；迟到的显式 Stop 因 runId 不匹配而不会影响新轮。
-      await stopConversation(run.spaceId, run.runId, session.controller.signal);
+      await stopConversation(run.agentId, run.runId, session.controller.signal);
     } catch (e) {
       if (sessionRef.current === session && session.run === run) {
         setError(e instanceof Error ? e.message : String(e));
@@ -367,11 +369,11 @@ export const ChatView = ({
     const session = sessionRef.current;
     setResetting(true);
     try {
-      const res = await resetSpace(currentSpaceId, clearSchedules);
+      const res = await resetAgent(currentAgentId, clearSchedules);
       seenSessionIds.current.add(res.sessionId);
       setActiveSessionId(res.sessionId);
       setViews([]);
-      if (session && session.spaceId === currentSpaceId) {
+      if (session && session.agentId === currentAgentId) {
         session.revision = "empty";
         session.historyReady = true;
         session.run = undefined;
@@ -387,10 +389,10 @@ export const ChatView = ({
 
   return (
     <div className="flex h-full flex-col">
-      {/* 空间与会话顶栏 */}
+      {/* 智能体与会话顶栏 */}
       <div className="flex items-center justify-between border-b border-stone-200 bg-stone-50 px-4 py-2 text-xs text-stone-600">
         <div className="flex items-center gap-2 truncate">
-          <span className="font-semibold text-stone-700">空间：{currentSpaceId}</span>
+          <span className="font-semibold text-stone-700">智能体：{currentAgentId}</span>
           {activeSessionId && (
             <span className="truncate text-stone-400 font-mono text-[11px]" title={`当前会话 ID: ${activeSessionId}`}>
               · 会话: {activeSessionId.slice(0, 8)}…
@@ -412,8 +414,8 @@ export const ChatView = ({
           <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
             <h2 className="text-base font-semibold text-stone-800">重置当前会话</h2>
             <p className="mt-2 text-xs leading-relaxed text-stone-500">
-              重置将清空当前空间的聊天历史及其消息反馈（喜欢、不喜欢、评论与操作记录），并生成全新的会话 ID。<br />
-              <strong>空间的私有工作区文件、INSTRUCTIONS.md 指令、技能开关与 Dream 配置均完整保留。</strong>
+              重置将清空当前智能体的聊天历史及其消息反馈（喜欢、不喜欢、评论与操作记录），并生成全新的会话 ID。<br />
+              <strong>智能体的私有工作区文件、INSTRUCTIONS.md 指令、技能开关与 Dream 配置均完整保留。</strong>
             </p>
 
             {running && (
@@ -431,7 +433,7 @@ export const ChatView = ({
                   className="mt-0.5"
                 />
                 <span>
-                  同时清理该空间名下的定时任务与网页监控<br />
+                  同时清理该智能体名下的定时任务与网页监控<br />
                   <span className="text-stone-400">（默认不勾选：定时任务与监控自动保留并转绑到新会话）</span>
                 </span>
               </label>

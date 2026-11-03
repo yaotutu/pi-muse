@@ -5,16 +5,17 @@ import { GoalsView } from "../goals/GoalsView";
 import { SettingsView } from "../settings/SettingsView";
 import {
   ApiError,
+  createAgent,
   decideApproval,
   subscribeAuth,
   isLoggedIn,
-  listSpaces,
+  listAgents,
   login,
   subscribeWorkspaceEvents,
   type ActivityUpdatedEventDto,
   type AgentStatusDto,
   type ApprovalViewDto,
-  type SpaceDto,
+  type AgentDto,
   type ConversationUpdatedEventDto,
   type WorkspaceEvent,
 } from "../lib/api";
@@ -37,12 +38,12 @@ const ActionApproval = ({
 
   const { preview } = action;
   const expired = Date.parse(action.expiresAt) <= Date.now();
-  // 技能库是实例共享内容；发起空间不是文件归属，未知作用域不能显示成技能库。
+  // 技能库是实例共享内容；发起智能体不是文件归属，未知作用域不能显示成技能库。
   const scopeText = preview.scope === "skill"
     ? "技能库"
     : preview.scope === "shared"
       ? "共享区 shared/..."
-      : `空间私有工作区 · 归属空间 ${preview.ownerSpaceId ?? "未知"}`;
+      : `智能体私有工作区 · 归属智能体 ${preview.ownerAgentId ?? "未知"}`;
   const beforeLabel = action.kind === "file_edit"
     ? "替换前内容"
     : preview.beforeExists ? "写入前内容" : "写入前内容（文件不存在）";
@@ -77,7 +78,7 @@ const ActionApproval = ({
       <div className="mt-1 space-y-0.5 break-all text-xs text-amber-800">
         <p>操作：{action.kind === "file_write" ? "写入文件" : "编辑文件"} · 审批 ID：{action.id} · 版本：r{action.revision}</p>
         <p>作用域：{scopeText}</p>
-        {action.spaceId && <p>发起空间：{action.spaceId}</p>}
+        {action.agentId && <p>发起智能体：{action.agentId}</p>}
         {action.runId && <p>运行：{action.runId}</p>}
         <p>过期时间：{action.expiresAt}</p>
       </div>
@@ -127,7 +128,7 @@ const ActionApproval = ({
  * 工作区实时状态：只保留服务端推送的当前集合，不另建活动/审批历史。
  *
  * 版本规则（与服务端契约一致）：
- * - 运行以 (spaceId, runId) 为身份，只应用更高 revision；终态帧移除并留下版本墓碑，
+ * - 运行以 (agentId, runId) 为身份，只应用更高 revision；终态帧移除并留下版本墓碑，
  *   迟到的旧 running 帧不能复活。instanceId 变化时清空运行与运行版本缓存。
  * - 审批以 id 为身份；revision 跨进程持久，ready 重建 pending 集合时不能让版本倒退，
  *   终态移除后保留 tombstone，迟到的 approval_pending 不能重新显示已处理审批。
@@ -166,7 +167,7 @@ const initialWorkspaceState: WorkspaceState = {
   conversationUpdates: [],
 };
 
-const runKey = (spaceId: string, runId: string) => JSON.stringify([spaceId, runId]);
+const runKey = (agentId: string, runId: string) => JSON.stringify([agentId, runId]);
 
 const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): WorkspaceState => {
   switch (action.type) {
@@ -179,7 +180,7 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
       const statusRevisions: Record<string, number> = {};
       const statuses: AgentStatusDto[] = [];
       for (const status of agentStatuses) {
-        const key = runKey(status.spaceId, status.runId);
+        const key = runKey(status.agentId, status.runId);
         const known = statusRevisions[key] ?? 0;
         if (status.revision < known) continue;
         statusRevisions[key] = status.revision;
@@ -228,12 +229,12 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
       // ready 是每条连接唯一实例边界，且保证先于增量帧；其他实例的迟到帧直接忽略。
       if (state.instanceId !== status.instanceId) return state;
       const statusRevisions = { ...state.statusRevisions };
-      const key = runKey(status.spaceId, status.runId);
+      const key = runKey(status.agentId, status.runId);
       const known = statusRevisions[key] ?? 0;
       if (status.revision <= known) return state;
       statusRevisions[key] = status.revision;
       const rest = state.statuses.filter(
-        (item) => runKey(item.spaceId, item.runId) !== key,
+        (item) => runKey(item.agentId, item.runId) !== key,
       );
       return {
         ...state,
@@ -279,7 +280,7 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
       const activities = terminal
         ? state.activities.filter((item) => item.id !== activity.id)
         : [...state.activities.filter((item) => item.id !== activity.id), activity];
-      // 终态活动转成一条通知：用户在别的空间时也能看到“调研 X 已完成/失败”。
+      // 终态活动转成一条通知：用户在别的智能体时也能看到“调研 X 已完成/失败”。
       const notices = terminal
         ? [...state.notices.filter((item) => item.id !== activity.id), activity].slice(-8)
         : state.notices;
@@ -318,9 +319,9 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
 
 export const App = () => {
   const authed = useSyncExternalStore(subscribeAuth, isLoggedIn);
-  const [spaces, setSpaces] = useState<SpaceDto[]>([]);
+  const [agents, setAgents] = useState<AgentDto[]>([]);
   const [active, setActive] = useState("local-main");
-  const [newSpace, setNewSpace] = useState("");
+  const [newAgent, setNewAgent] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [error, setError] = useState("");
   type View = "chat" | "jobs" | "goals" | "settings";
@@ -368,18 +369,18 @@ export const App = () => {
     };
   }, [authed]);
 
-  const refreshSpaces = () => {
+  const refreshAgents = () => {
     if (!authed) return;
-    void listSpaces()
+    void listAgents()
       .then((list) => {
-        setSpaces(list);
+        setAgents(list);
         if (list.length && !list.some((x) => x.id === active)) setActive(list[0]!.id);
       })
       .catch((e: Error) => setError(e.message));
   };
 
   useEffect(() => {
-    refreshSpaces();
+    refreshAgents();
   }, [authed]);
 
   const signIn = async () => {
@@ -425,9 +426,9 @@ export const App = () => {
 
   // 只展示一行当前运行状态；优先当前会话，其次任意进行中的运行，不构造活动列表。
   const currentStatus =
-    workspace.statuses.find((status) => status.spaceId === active) ?? workspace.statuses[0];
+    workspace.statuses.find((status) => status.agentId === active) ?? workspace.statuses[0];
   const activeConversationUpdate = workspace.conversationUpdates.findLast(
-    (update) => update.data.spaceId === active,
+    (update) => update.data.agentId === active,
   );
   const conversationRefreshKey =
     `${workspace.conversationSyncVersion}:${activeConversationUpdate?.sequence ?? 0}`;
@@ -468,45 +469,52 @@ export const App = () => {
           ))}
         </div>
         <div className={`flex-1 space-y-0.5 overflow-y-auto px-2 ${view === "chat" ? "" : "hidden"}`}>
-          {spaces.map((space) => (
+          {agents.map((agent) => (
             <button
-              key={space.id}
+              key={agent.id}
               onClick={() => {
-                setActive(space.id);
+                setActive(agent.id);
                 setView("chat");
                 setDrawer(false);
               }}
               className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm ${
-                space.id === active
+                agent.id === active
                   ? "bg-stone-800 text-white"
                   : "text-stone-600 hover:bg-stone-100"
               }`}
             >
-              {space.id}
+              {agent.id}
             </button>
           ))}
         </div>
         <div className={`border-t border-stone-200 p-2 ${view === "chat" ? "" : "hidden"}`}>
           <input
-            value={newSpace}
-            onChange={(e) => setNewSpace(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" || !newSpace.trim()) return;
-              const id = newSpace.trim();
+            value={newAgent}
+            onChange={(e) => setNewAgent(e.target.value)}
+            onKeyDown={async (e) => {
+              if (e.key !== "Enter" || !newAgent.trim()) return;
+              const id = newAgent.trim();
               if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id)) {
-                setError("空间名：字母或数字开头，可含 _ -");
+                setError("智能体名：字母或数字开头，可含 _ -");
                 return;
               }
-              if (!spaces.some((x) => x.id === id)) {
-                setSpaces([...spaces, { id, sessionId: "", updatedAt: new Date().toISOString() }]);
+              try {
+                if (!agents.some((x) => x.id === id)) {
+                  // 目录项由服务端创建并返回，不在客户端伪造会话和扩展信息。
+                  const agent = await createAgent(id);
+                  setAgents((current) => [...current.filter((item) => item.id !== agent.id), agent]);
+                }
+                setActive(id);
+                setNewAgent("");
+                setError("");
+              } catch (error) {
+                setError(error instanceof Error ? error.message : String(error));
               }
-              setActive(id);
-              setNewSpace("");
-              setError("");
             }}
-            placeholder="新空间名称…"
+            placeholder="新智能体名称…"
             className="w-full rounded-lg border border-stone-300 px-2.5 py-1.5 text-sm outline-none focus:border-stone-500"
           />
+          {error && <p role="alert" className="mt-2 text-xs text-red-600">{error}</p>}
         </div>
       </aside>
       <main className="flex min-w-0 flex-1 flex-col">
@@ -531,7 +539,7 @@ export const App = () => {
               {currentStatus.title} · {currentStatus.label}
             </span>
             <span className="ml-auto shrink-0 text-stone-400">
-              {currentStatus.source === "job" ? "定时任务" : currentStatus.spaceId}
+              {currentStatus.source === "job" ? "定时任务" : currentStatus.agentId}
             </span>
           </div>
         )}
@@ -548,7 +556,7 @@ export const App = () => {
                   {notice.result && (
                     <p className="mt-0.5 truncate text-stone-500">{notice.result}</p>
                   )}
-                  <span className="ml-1.5 text-stone-400">{notice.spaceId}</span>
+                  <span className="ml-1.5 text-stone-400">{notice.agentId}</span>
                 </div>
                 <button
                   onClick={() => dispatch({ type: "dismiss_notice", id: notice.id })}
@@ -576,16 +584,16 @@ export const App = () => {
         {view === "chat" && (
           <ChatView
             key={active}
-            spaceId={active}
-            sessionId={spaces.find((s) => s.id === active)?.sessionId}
+            agentId={active}
+            sessionId={agents.find((s) => s.id === active)?.sessionId}
             conversationRefreshKey={conversationRefreshKey}
             conversationUpdates={workspace.conversationUpdates.map((update) => update.data)}
-            onReset={refreshSpaces}
+            onReset={refreshAgents}
           />
         )}
         {view === "jobs" && <JobsView />}
         {view === "goals" && <GoalsView />}
-        {view === "settings" && <SettingsView spaceId={active} />}
+        {view === "settings" && <SettingsView agentId={active} />}
         </div>
       </main>
     </div>

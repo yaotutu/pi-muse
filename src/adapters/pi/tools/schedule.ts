@@ -16,10 +16,10 @@ const deniedResult = (text: string): AgentToolResult<ScheduleToolDetails> => ({
 
 // P4 对话式定时任务工具：模型把自然语言时间转成参数。一次性用 ISO 时间
 // （含时区），每日用严格 HH:mm（00:00 至 23:59）。普通聊天只可见和控制
-// 当前空间；跨空间汇总仍走 REST 管理入口。
+// 当前智能体；跨智能体汇总仍走 REST 管理入口。
 export const scheduleTool = (
   jobs: Pick<JobService, "add" | "list" | "cancel">,
-  spaceId = "local-main",
+  agentId = "local-main",
 ) =>
   defineTool({
     name: "schedule",
@@ -59,7 +59,7 @@ export const scheduleTool = (
         // 并通过 details.denied = true 标记为受控业务拒绝，穿过 projectExecutionEvent 错误脱敏
         try {
           assertValidSchedule(daily, params.at.trim());
-          const job = await jobs.add(params.prompt, daily, params.at, spaceId);
+          const job = await jobs.add(params.prompt, daily, params.at, agentId);
           return {
             content: [
               {
@@ -84,7 +84,7 @@ export const scheduleTool = (
         if (!params.jobId?.trim())
           return deniedResult("Cancel needs jobId (see list).");
         const scoped = (await jobs.list()).some(
-          (job) => job.id === params.jobId && (job.originSpaceId ?? "local-main") === spaceId,
+          (job) => job.id === params.jobId && (job.originAgentId ?? "local-main") === agentId,
         );
         if (!scoped) return deniedResult("No such job.");
         const ok = await jobs.cancel(params.jobId);
@@ -94,7 +94,7 @@ export const scheduleTool = (
         };
       }
       const list = (await jobs.list()).filter(
-        (job) => (job.originSpaceId ?? "local-main") === spaceId,
+        (job) => (job.originAgentId ?? "local-main") === agentId,
       );
       const lines = list.map(
         (x) =>

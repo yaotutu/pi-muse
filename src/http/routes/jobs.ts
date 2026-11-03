@@ -6,7 +6,6 @@ import {
   assertValidSchedule,
   InvalidScheduleError,
 } from "../../features/jobs/schedule-calculator.js";
-import { isFeatureSpace } from "../../features/feature-spaces/types.js";
 
 /** 定时任务（Jobs）独立查询、详情、修改、控制与删除接口。 */
 export const createJobsRoutes = (
@@ -19,10 +18,10 @@ export const createJobsRoutes = (
     const query = jobsQuerySchema.safeParse(c.req.query());
     if (!query.success) return c.json({ error: "Invalid query parameters", code: "INVALID_REQUEST" }, 400);
 
-    const targetSpace = query.data.spaceId;
+    const targetAgent = query.data.agentId;
     let all = await jobs.list();
-    if (targetSpace) {
-      all = all.filter((j) => (j.originSpaceId ?? "local-main") === targetSpace);
+    if (targetAgent) {
+      all = all.filter((j) => (j.originAgentId ?? "local-main") === targetAgent);
     }
 
     const sortField = query.data.sort ?? "nextRunAt";
@@ -58,10 +57,10 @@ export const createJobsRoutes = (
     if (!parsed.success) return c.json({ error: "Invalid job control request", code: "INVALID_REQUEST" }, 400);
     const existing = await jobs.get(c.req.param("id"));
     if (!existing) return c.json({ error: "Task not found" }, 404);
-    const targetSpace = existing.originSpaceId ?? "local-main";
-    const spaceConversation = await conversationHub.forSpace(targetSpace);
+    const targetAgent = existing.originAgentId ?? "local-main";
+    const agentConversation = await conversationHub.forAgent(targetAgent);
     const result = await jobs.control(c.req.param("id"), parsed.data.action, () =>
-      spaceConversation.isRunning() || scheduler.isBusy(),
+      agentConversation.isRunning() || scheduler.isBusy(),
     );
     if (!result.ok)
       return c.json({ error: result.message }, result.code === "not_found" ? 404 : 409);
@@ -75,13 +74,11 @@ export const createJobsRoutes = (
     const existing = await jobs.get(c.req.param("id"));
     if (!existing) return c.json({ error: "Job not found", code: "JOB_NOT_FOUND" }, 404);
 
-    const originSpaceId = parsed.data.originSpaceId;
-    if (isFeatureSpace(originSpaceId))
-      return c.json({ error: "Space not found", code: "SPACE_NOT_FOUND" }, 404);
+    const originAgentId = parsed.data.originAgentId;
     const nextDaily = parsed.data.daily !== undefined ? parsed.data.daily : existing.daily;
     const nextAt = parsed.data.at !== undefined ? parsed.data.at.trim() : existing.at;
 
-    // 预校验合并后的排期设定：在进入 withSpace 之前校验，防止非法时刻创建新空间
+    // 预校验合并后的排期设定：在进入 withAgent 之前校验，防止非法时刻创建新智能体
     try {
       assertValidSchedule(nextDaily, nextAt);
     } catch (err) {
@@ -97,7 +94,7 @@ export const createJobsRoutes = (
           prompt: parsed.data.prompt,
           daily: parsed.data.daily,
           at: parsed.data.at,
-          originSpaceId,
+          originAgentId,
         });
         if (!updated) return c.json({ error: "Job not found", code: "JOB_NOT_FOUND" }, 404);
         return c.json(presentJob(updated));
@@ -109,8 +106,8 @@ export const createJobsRoutes = (
       }
     };
 
-    return originSpaceId
-      ? conversationHub.withSpace(originSpaceId, update)
+    return originAgentId
+      ? conversationHub.withAgent(originAgentId, update)
       : update();
   });
 

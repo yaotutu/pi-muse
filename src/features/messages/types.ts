@@ -1,4 +1,4 @@
-import type { FeatureSource } from "../feature-spaces/types.js";
+import type { FeatureSource } from "../agent-extensions/types.js";
 export type MessageSource = "chat" | "job" | "notification";
 export type MessageReaction = "like" | "dislike";
 export type FeedbackTargetRole = "user" | "assistant";
@@ -74,13 +74,13 @@ export type MessageFeedbackDocument = {
 };
 
 export type MessageFeedbackRepository = {
-  read: (spaceId: string, sessionId: string) => Promise<MessageFeedbackDocument>;
+  read: (agentId: string, sessionId: string) => Promise<MessageFeedbackDocument>;
   update: <T>(
-    spaceId: string,
+    agentId: string,
     sessionId: string,
     change: (document: MessageFeedbackDocument) => { document?: MessageFeedbackDocument; result: T },
   ) => Promise<T>;
-  removeSpace: (spaceId: string) => Promise<void>;
+  removeAgent: (agentId: string) => Promise<void>;
   validateAll: () => Promise<void>;
 };
 

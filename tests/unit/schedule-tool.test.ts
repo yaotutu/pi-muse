@@ -5,7 +5,7 @@ import type { Job } from "../../src/features/jobs/types.js";
 
 const createJobs = (items: Job[]) => ({
   items,
-  add: async (prompt: string, daily: boolean, at: string, originSpaceId = "local-main") => {
+  add: async (prompt: string, daily: boolean, at: string, originAgentId = "local-main") => {
     const job: Job = {
       id: "job-full-id",
       prompt,
@@ -14,7 +14,7 @@ const createJobs = (items: Job[]) => ({
       enabled: true,
       createdAt: new Date().toISOString(),
       nextRunAt: new Date(Date.now() + 60_000).toISOString(),
-      originSpaceId,
+      originAgentId,
     };
     items.push(job);
     return job;
@@ -43,10 +43,10 @@ test("schedule create returns a full usable ID and defaults to local-main", asyn
   );
 
   assert.match(text(result), /Scheduled \(id job-full-id\)/);
-  assert.equal(jobs.items[0]?.originSpaceId, "local-main");
+  assert.equal(jobs.items[0]?.originAgentId, "local-main");
 });
 
-test("schedule list and cancel are bounded to the current space", async () => {
+test("schedule list and cancel are bounded to the current agent", async () => {
   const own: Job = {
     id: "own-job-id",
     prompt: "own prompt",
@@ -55,7 +55,7 @@ test("schedule list and cancel are bounded to the current space", async () => {
     enabled: true,
     createdAt: new Date().toISOString(),
     nextRunAt: new Date(Date.now() + 60_000).toISOString(),
-    originSpaceId: "space-a",
+    originAgentId: "agent-a",
   };
   const other: Job = {
     id: "other-job-id",
@@ -65,10 +65,10 @@ test("schedule list and cancel are bounded to the current space", async () => {
     enabled: true,
     createdAt: new Date().toISOString(),
     nextRunAt: new Date(Date.now() + 60_000).toISOString(),
-    originSpaceId: "space-b",
+    originAgentId: "agent-b",
   };
   const jobs = createJobs([own, other]);
-  const tool = scheduleTool(jobs, "space-a");
+  const tool = scheduleTool(jobs, "agent-a");
 
   const list = await tool.execute("call-list", { action: "list", prompt: "-", at: "-" } as never, undefined, undefined, {} as never);
   assert.match(text(list), /own-job-id daily 09:00.*own prompt/);

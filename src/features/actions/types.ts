@@ -22,7 +22,7 @@ export type ApprovalCursor = { resolvedAt: string; id: string };
 export type ApprovalHistoryQuery = {
   limit: number;
   cursor?: ApprovalCursor;
-  spaceId?: string;
+  agentId?: string;
   activityId?: string;
   status?: SettledActionStatus;
 };
@@ -53,13 +53,13 @@ export class ApprovalCapacityError extends Error {
 /** 调用方显式传入执行上下文；审批域不依赖会话/工具适配器。 */
 export type ActionSubmitOptions = {
   timeoutMs?: number;
-  /** 未提供时持久化为 null，不推断当前空间/运行。 */
-  spaceId?: string | null;
+  /** 未提供时持久化为 null，不推断当前智能体/运行。 */
+  agentId?: string | null;
   runId?: string | null;
   /** 以下字段只用于审计/展示关联；未提供时持久化为 null，不推断当前上下文。 */
   toolCallId?: string | null;
   subagentId?: string | null;
-  workspaceSpaceId?: string | null;
+  workspaceAgentId?: string | null;
   activityId?: string | null;
 };
 
@@ -81,11 +81,11 @@ export type PendingAction = {
   /** 仅人工 approve/deny 写入；expired/cancelled 保持 null，不能伪装成人的决定。 */
   decidedAt: string | null;
   /** 仅作审批归属展示/审计，不代替 HTTP 鉴权；未提供上下文时为 null。 */
-  spaceId?: string | null;
+  agentId?: string | null;
   runId: string | null;
   toolCallId: string | null;
   subagentId: string | null;
-  workspaceSpaceId?: string | null;
+  workspaceAgentId?: string | null;
   activityId: string | null;
   /** 执行事实独立于人的决定；未观察到执行时省略，不从 approved 推断成功。 */
   execution?: ApprovalExecution;

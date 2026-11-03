@@ -10,7 +10,7 @@ import { ActivityError, type ActivityEntry } from "../../src/features/activities
 test("activity-session: start creates running overview and execution step; duplicate start is idempotent", () => {
   const manager = SessionManager.inMemory("/tmp");
   const history = createActivityHistory(manager);
-  const session = createActivitySession("thread-1", history);
+  const session = createActivitySession("agent-1", history);
 
   const run1 = session.beginRun("run-1");
   const activity = run1.start({
@@ -19,7 +19,7 @@ test("activity-session: start creates running overview and execution step; dupli
     deliverable: "Deliverable document",
   });
 
-  assert.equal(activity.spaceId, "thread-1");
+  assert.equal(activity.agentId, "agent-1");
   assert.equal(activity.title, "Test work");
   assert.equal(activity.status, "running");
   assert.equal(activity.currentRunId, "run-1");
@@ -45,7 +45,7 @@ test("activity-session: start creates running overview and execution step; dupli
 test("activity-session: update and wait update overview progress and status", () => {
   const manager = SessionManager.inMemory("/tmp");
   const history = createActivityHistory(manager);
-  const session = createActivitySession("thread-1", history);
+  const session = createActivitySession("agent-1", history);
 
   const run1 = session.beginRun("run-1");
   run1.start({ title: "Work", goal: "Goal", deliverable: "Deliv" });
@@ -73,7 +73,7 @@ test("activity-session: update and wait update overview progress and status", ()
 test("activity-session: complete guard requires unfinished steps to complete first", () => {
   const manager = SessionManager.inMemory("/tmp");
   const history = createActivityHistory(manager);
-  const session = createActivitySession("thread-1", history);
+  const session = createActivitySession("agent-1", history);
 
   const run1 = session.beginRun("run-1");
   run1.start({ title: "Work", goal: "Goal", deliverable: "Deliv" });
@@ -116,7 +116,7 @@ test("activity-session: complete guard requires unfinished steps to complete fir
 test("activity-session: finish without complete results in awaiting_continuation", () => {
   const manager = SessionManager.inMemory("/tmp");
   const history = createActivityHistory(manager);
-  const session = createActivitySession("thread-1", history);
+  const session = createActivitySession("agent-1", history);
 
   const run1 = session.beginRun("run-1");
   run1.start({ title: "Work", goal: "Goal", deliverable: "Deliv" });
@@ -135,7 +135,7 @@ test("activity-session: finish without complete results in awaiting_continuation
 test("activity-session: stop marks activity and running steps as stopped/cancelled", () => {
   const manager = SessionManager.inMemory("/tmp");
   const history = createActivityHistory(manager);
-  const session = createActivitySession("thread-1", history);
+  const session = createActivitySession("agent-1", history);
 
   const run1 = session.beginRun("run-1");
   run1.start({ title: "Work", goal: "Goal", deliverable: "Deliv" });
@@ -154,7 +154,7 @@ test("activity-session: stop marks activity and running steps as stopped/cancell
 test("activity-session: resume continues the same activity and appends execution step", () => {
   const manager = SessionManager.inMemory("/tmp");
   const history = createActivityHistory(manager);
-  const session = createActivitySession("thread-1", history);
+  const session = createActivitySession("agent-1", history);
 
   const run1 = session.beginRun("run-1");
   const initial = run1.start({ title: "Work", goal: "Goal", deliverable: "Deliv" });
@@ -184,10 +184,10 @@ test("activity-session: resume continues the same activity and appends execution
   assert.equal(executionSteps[1]?.status, "succeeded");
 });
 
-test("activity-session: resume rejects completed activity or cross-thread activity", () => {
+test("activity-session: resume rejects completed activity or cross-agent activity", () => {
   const manager1 = SessionManager.inMemory("/tmp");
   const history1 = createActivityHistory(manager1);
-  const session1 = createActivitySession("thread-1", history1);
+  const session1 = createActivitySession("agent-1", history1);
 
   const run1 = session1.beginRun("run-1");
   const act = run1.start({ title: "Work", goal: "Goal", deliverable: "Deliv" });
@@ -204,7 +204,7 @@ test("activity-session: resume rejects completed activity or cross-thread activi
   // 跨会话拒绝
   const manager2 = SessionManager.inMemory("/tmp");
   const history2 = createActivityHistory(manager2);
-  const session2 = createActivitySession("thread-2", history2);
+  const session2 = createActivitySession("agent-2", history2);
   const runOther = session2.beginRun("run-other");
   assert.throws(() => {
     runOther.resume(act.id);
@@ -218,7 +218,7 @@ test("activity-session: interrupted state when process crashes and run is no lon
       kind: "overview",
       activity: {
         id: "a1a1a1a1-1111-4111-8111-111111111111",
-        spaceId: "thread-1",
+        agentId: "agent-1",
         title: "Interrupted work",
         goal: "Goal",
         deliverable: "Deliverable",
@@ -255,7 +255,7 @@ test("activity-session: interrupted state when process crashes and run is no lon
   assert.equal(projected[0]?.activity.currentRunId, null);
   assert.equal(projected[0]?.steps[0]?.status, "interrupted");
   assert.equal(projected[0]?.steps[0]?.finishedAt, null);
-  const session = createActivitySession("thread-1", { read: () => structuredClone(entries), append: (entry) => { entries.push(entry); } });
+  const session = createActivitySession("agent-1", { read: () => structuredClone(entries), append: (entry) => { entries.push(entry); } });
   const next = session.beginRun("run-resumed");
   next.resume(projected[0]!.activity.id);
   next.complete("Delivered after explicit continuation");

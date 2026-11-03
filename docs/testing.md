@@ -53,18 +53,18 @@ pnpm test:live --config <path> --allow-live [--keep-artifacts]  # 显式真实�
 node --import tsx tests/live/skill-authoring.ts --config <path> --allow-live --keep-artifacts
 node --import tsx tests/live/information.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/news.ts --config <path> --allow-live [--keep-artifacts] [--allow-private-targets]
-node --import tsx tests/live/space-communication.ts --config <path> --allow-live [--keep-artifacts]
+node --import tsx tests/live/agent-communication.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/group-chat.ts --config <path> --allow-live [--keep-artifacts]
-node --import tsx tests/live/space-tool-scope.ts --config <path> --allow-live
-node --import tsx tests/live/space-prompt-scope.ts --config <path> --allow-live --scenario prompt
-node --import tsx tests/live/space-prompt-scope.ts --config <path> --allow-live --scenario dream
+node --import tsx tests/live/agent-tool-scope.ts --config <path> --allow-live
+node --import tsx tests/live/agent-prompt-scope.ts --config <path> --allow-live --scenario prompt
+node --import tsx tests/live/agent-prompt-scope.ts --config <path> --allow-live --scenario dream
 node --import tsx tests/live/message-feedback.ts --allow-live --base-url <url> --token-file <path> --context-file <path> --phase record|verify
 pnpm check                     # typecheck + test + test:e2e + Web build + diff 检查
 ```
 
 `skill-authoring.ts` 单独启动隔离实例，验证技能及参考文件创建、默认关闭、启用后下一轮普通读取、修改、拒绝与 Stop。运行时必须逐次查看完整预览，并在终端输入审批决定；不写入所给配置对应的真实实例数据。
 
-空间边界专项同样使用隔离后端与真实模型透明代理：`space-tool-scope.ts` 验证聊天工具的任务/监控列表与控制限于当前空间，全局 REST 管理仍可聚合；`space-prompt-scope.ts` 的 `prompt` 场景核对实际工具、能力说明、身份保留、目标按需读取和子会话裁剪，`dream` 场景核对局部规则、全局记忆、待决新增及其他空间原始内容不变。不支持保留临时实例，不自动重试模型；失败须保留原因，不能只以模型自然语言自述验收。
+智能体边界专项同样使用隔离后端与真实模型透明代理：`agent-tool-scope.ts` 验证聊天工具的任务/监控列表与控制限于当前智能体，全局 REST 管理仍可聚合；`agent-prompt-scope.ts` 的 `prompt` 场景核对实际工具、能力说明、身份保留、目标按需读取和子会话裁剪，`dream` 场景核对局部规则、全局记忆、待决新增及其他智能体原始内容不变。不支持保留临时实例，不自动重试模型；失败须保留原因，不能只以模型自然语言自述验收。
 
 代码改动完成后运行 `pnpm check`，任一步失败都必须报告，不以跑过旧版本替代本次验证。仅文档改动可检查差异、引用和规则一致性，不必重复全量测试。真实模型和页面验收不包含在 `pnpm check` 中，按变更范围与授权另行执行。
 
@@ -94,25 +94,25 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 ### `tests/live/message-feedback.ts`
 
 - 专项连接已运行的真实后端与外部模型；`--base-url`、`--token-file`、`--context-file` 与 `--allow-live` 必须显式给出，token 只进请求头且不输出。
-- `--phase record` 创建独立空间并写入不含凭据的重启 context；主 Agent 重启后端后用同参数执行 `--phase verify` 验证持久化、后续真实模型、reset/delete 生命周期。失败不自动重试写入。
+- `--phase record` 创建独立智能体并写入不含凭据的重启 context；主 Agent 重启后端后用同参数执行 `--phase verify` 验证持久化、后续真实模型、reset/delete 生命周期。失败不自动重试写入。
 
 ### `tests/live/information.ts`
 
 - 专项启动隔离后端并经 `createLiveModel` 透明代理真实调用外部模型，不读取或修改正式 DATA_DIR。入口必须显式给出 `--config` 与 `--allow-live`，可追加 `--keep-artifacts` 保留脱敏证据。
-- 覆盖混合批与全静默结构化提交、silent 不写聊天、通知发布与 notification/session/message 溯源、偏好 notes 与当前反馈例证进入下一轮、普通聊天只读 `information` 工具、幂等/冲突/跨空间隔离、自动调度、disable/reset/delete 取消排队通知以及重启持久化。
+- 覆盖混合批与全静默结构化提交、silent 不写聊天、通知发布与 notification/session/message 溯源、偏好 notes 与当前反馈例证进入下一轮、普通聊天只读 `information` 工具、幂等/冲突/跨智能体隔离、自动调度、disable/reset/delete 取消排队通知以及重启持久化。
 - 以后端 repository、PI 历史 revision/message、真实代理 tool call/result 与 HTTP 状态为证据；后台请求必须只声明 `submit_information_result`。同一 SDK 轮内允许无效提交后由模型自行纠正，但最终必须恰好一个有效提交；测试策略只约束合成数据，不用关键词代码替代模型决策，失败不自动重试模型。
 
 ### `tests/live/news.ts`
 
 - 启动隔离后端并经真实透明代理调用外部模型，不读取正式实例或凭据；显式抓取真实公网 RSS2，不使用合成 feed 冒充真实验收。
-- 覆盖源添加、重复 refresh 不重复接纳、cold start、结构化推荐与 reason、全部/推荐/收藏筛选、逐篇喜欢/不喜欢/评论/收藏、反馈进入下一轮模型输入与 learnedNotes、删除源保留文章和反馈、内部空间不出现在公开列表且主聊天 revision 不变、重启后源/文章/反馈/偏好恢复。
+- 覆盖源添加、重复 refresh 不重复接纳、cold start、结构化推荐与 reason、全部/推荐/收藏筛选、逐篇喜欢/不喜欢/评论/收藏、反馈进入下一轮模型输入与 learnedNotes、删除源保留文章和反馈、内部智能体不出现在公开列表且主聊天 revision 不变、重启后源/文章/反馈/偏好恢复。
 - 以真实 RSS HTTP、后端 repository/API 状态、真实代理 tool call/result 与重启回读为证据；失败不自动重试模型。纯解析、存储和路由边界可用合成 XML/本地 HTTP 另做聚焦回归，但不能替代本项真实公网与模型验收。
 - `--allow-private-targets` 是 news live 脚本专属选项，默认 `false`，重复传入会拒绝。仅当本机 DNS 对公网域名返回 198.18 Fake-IP、需要在 loopback 隔离实例中抓取真实 RSS 时显式启用；共享 live options、生产配置和默认 SSRF 防护均不改变。输出必须如实说明该网络例外。
 
-### `tests/live/space-communication.ts`
+### `tests/live/agent-communication.ts`
 
-- 显式授权后仅读取配置的 model，启动隔离真实 HTTP 后端与真实模型透明代理；不读取真实短信，不修改正式空间或功能设置。
-- 覆盖普通/功能空间双向请求、目标信息工具、主聊天上下文不混入、连续追问与重启恢复、通知改绑不改变回复去向、主模型真实 space 工具、来源审批与目标技能开关分离，以及同讨论 busy、HTTP 断开/父 Stop/reset/delete/关闭取消和不复活。
+- 显式授权后仅读取配置的 model，启动隔离真实 HTTP 后端与真实模型透明代理；不读取真实短信，不修改正式智能体或功能设置。
+- 覆盖普通/功能智能体双向请求、目标信息工具、主聊天上下文不混入、连续追问与重启恢复、通知改绑不改变回复去向、主模型真实 agent 工具、来源审批与目标技能开关分离，以及同讨论 busy、HTTP 断开/父 Stop/reset/delete/关闭取消和不复活。
 - 慢 HTTP fixture 是实际可取消网络请求，模型仍为外部真实模型。隔离实例仅为该 fixture 显式开启 web 私网访问；生产默认不变。每项逐条记录，不自动重试；使用 `--keep-artifacts` 保留脱敏 summary 与合成 pi 历史。
 
 ### `pnpm check`
@@ -123,7 +123,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 
 运行 `node --import tsx tests/live/cors.ts --config .pi-muse/config.json --allow-live`，可追加 `--keep-artifacts` 保存脱敏汇总。该专项与上面的隔离实例 runner 不同：直接连接本机配置端口的已运行后端，读取 `server.port/accessKey` 与 `model.id`，不使用模型 key，不启动或修改服务。
 
-执行前确认目标是使用真实外部模型、数据隔离的开发实例。脚本先完成一轮真实模型对话，再通过 REST 创建专用测试记忆，验证 PATCH 预检、修改落盘及未鉴权 401，最后通过 API 清理本轮记忆和空间；失败非零退出，不重试模型，不使用 fake provider。它验证 HTTP/CORS 协议，不冒充浏览器页面或原生 UI 验收。
+执行前确认目标是使用真实外部模型、数据隔离的开发实例。脚本先完成一轮真实模型对话，再通过 REST 创建专用测试记忆，验证 PATCH 预检、修改落盘及未鉴权 401，最后通过 API 清理本轮记忆和智能体；失败非零退出，不重试模型，不使用 fake provider。它验证 HTTP/CORS 协议，不冒充浏览器页面或原生 UI 验收。
 
 ## 稳定 E2E 覆盖范围
 
@@ -133,9 +133,9 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 - **聊天鉴权与重启**（`tests/e2e/server.test.ts`）：错误 accessKey 为 401，health/OpenAPI 的版本身份一致，文档提供 Scalar；token、历史与消息关联重启不变。
 - **工具流**：currentTime / memory / instructions 实际调用与历史/状态检查。
 - **子代理 single / parallel / chain**：child 请求实际重叠，chain 第二步含上一步结果；子工具不含 bash/subagent/schedule/monitor/instructions/delegate_task；无 tasks.json、无子会话持久历史，关闭技能后不再触发。
-- **approve / deny / cancel**：子代理文件审批绑定父 thread/run，approve 后字节一致，deny/cancel 不落盘；cancel 的父 SSE 为 RUN_ERROR，后续同 thread 可 RUN_FINISHED。
+- **approve / deny / cancel**：子代理文件审批绑定父 agent/run，approve 后字节一致，deny/cancel 不落盘；cancel 的父 SSE 为 RUN_ERROR，后续同 agent 可 RUN_FINISHED。
 - **慢 Web 与子模型 Stop**：父 Stop 后 RUN_ERROR，provider 及真实 HTTP socket 关闭，不等待 transport 超时；稳定 E2E fixture 持续挂起，live 使用 55 秒慢 fixture，后续轮可用。
-- **隔离与删除不复活**：shared 跨 thread 显式可读，私有标记不泄露；删除后 GET 空历史、迟到 Stop false、目录不存在。
+- **隔离与删除不复活**：shared 跨 agent 显式可读，私有标记不泄露；删除后 GET 空历史、迟到 Stop false、目录不存在。
 - **工作区 SSE 与退出**：`/api/events` 首帧 ready；通知成功 append 后仅发布 `conversation_updated` 身份帧，取消/失败/幂等 noop 不发布；持有 SSE 时 SIGTERM 自然 code 0。
 - **Activity 专项**（`tests/e2e/activity.test.ts`）：普通对话不登记、鉴权/只读查询无文件或 revision 副作用、显式登记与幂等重放、完成声明/最终交付保护、等待用户、Stop/断流/超时/优雅关闭/故意崩溃后的诚实状态及原活动继续；父/子审批、实际提交、拒绝/过期/冲突不写，子代理层级、安全隐藏、过滤/同时间游标/留存、删除不复活与损坏记录失败关闭。此层只模拟模型决策，不能称作自主分类真实验收。
 - **旧队列不恢复**：`/api/agent/tasks` 不出现在文档且 POST 501，快照无 worker，不因测试或重启创建旧任务数据。

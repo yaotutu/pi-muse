@@ -28,6 +28,7 @@ import type { NewsService } from "../features/news/service.js";
 type Auth = Awaited<ReturnType<typeof createAuth>>;
 
 export type ServiceContainer = {
+  agents: import("../features/agents/service.js").AgentService;
   lifecycle?: { isClosing: () => boolean; enter: () => () => void };
   config: Config;
   layout: DataLayout;
@@ -52,8 +53,8 @@ export type ServiceContainer = {
   information: InformationService;
   informationScheduler: InformationScheduler;
   news: NewsService;
-  features: import("../features/feature-spaces/service.js").FeatureService;
-  communication: import("../features/space-communication/service.js").SpaceCommunication;
+  features: import("../features/agent-extensions/service.js").FeatureService;
+  communication: import("../features/agent-communication/service.js").AgentCommunication;
   group: import("../features/group-chat/service.js").GroupChat;
   browser?: BrowserService;
   browserDesktop: BrowserDesktop;
@@ -62,5 +63,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "information" | "news" | "features" | "communication" | "group" | "browser" | "browserDesktop" | "messageFeedbackRepository"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "information" | "news" | "features" | "communication" | "group" | "agents" | "browser" | "browserDesktop" | "messageFeedbackRepository"
 >;

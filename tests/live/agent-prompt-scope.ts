@@ -9,8 +9,8 @@ import type { SseEvent } from "../../src/http/contracts/sse-events.js";
 type Scenario = "prompt" | "dream";
 type Options = { configPath: string; scenario: Scenario };
 
-const identitySentinel = "LIVE_SPACE_PROMPT_IDENTITY_SENTINEL_9d31";
-const goalSentinel = "LIVE_SPACE_PROMPT_GOAL_SENTINEL_61af";
+const identitySentinel = "LIVE_AGENT_PROMPT_IDENTITY_SENTINEL_9d31";
+const goalSentinel = "LIVE_AGENT_PROMPT_GOAL_SENTINEL_61af";
 const localDreamSentinel = "LIVE_DREAM_LOCAL_FILTER_SENTINEL_74c2";
 const globalDreamSentinel = "LIVE_DREAM_GLOBAL_FACT_SENTINEL_28b7";
 const pendingDreamSentinel = "LIVE_DREAM_UNCLEAR_FACT_SENTINEL_45e8";
@@ -59,14 +59,14 @@ const execute = async ({ configPath, scenario }: Options) => {
   let executionError: unknown;
 
   try {
-    root = await mkdtemp(join(tmpdir(), "pi-muse-space-prompt-scope-"));
+    root = await mkdtemp(join(tmpdir(), "pi-muse-agent-prompt-scope-"));
     const dataDir = join(root, "data");
     await mkdir(join(dataDir, "profile"), { recursive: true, mode: 0o700 });
     if (scenario === "prompt")
       await writeFile(join(dataDir, "profile", "USER.md"), identitySentinel, { mode: 0o600 });
     proxy = await createLiveModel({ baseUrl: model.baseUrl, apiKey: model.apiKey });
     const config = createConfig({
-      server: { host: "127.0.0.1", accessKey: "live-space-prompt-scope-access" },
+      server: { host: "127.0.0.1", accessKey: "live-agent-prompt-scope-access" },
       model: {
         baseUrl: proxy.baseUrl,
         id: model.modelId,
@@ -96,7 +96,7 @@ const execute = async ({ configPath, scenario }: Options) => {
     const login = await fetch(baseUrl + "/api/session", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ accessKey: "live-space-prompt-scope-access" }),
+      body: JSON.stringify({ accessKey: "live-agent-prompt-scope-access" }),
       signal: AbortSignal.timeout(5000),
     });
     assert.equal(login.status, 200);
@@ -105,12 +105,12 @@ const execute = async ({ configPath, scenario }: Options) => {
     const version = (await client.json("/api/health")).serviceVersion;
 
     if (scenario === "prompt") {
-      const openSpace = "live-prompt-open";
-      const closedSpace = "live-prompt-closed";
-      await client.json(`/api/spaces/${openSpace}/instructions`, {
-        instructions: "Prompt scope open space.",
+      const openAgent = "live-prompt-open";
+      const closedAgent = "live-prompt-closed";
+      await client.json(`/api/agents/${openAgent}/instructions`, {
+        instructions: "Prompt scope open agent.",
       }, "PUT");
-      await client.json(`/api/spaces/${closedSpace}/skills`, {
+      await client.json(`/api/agents/${closedAgent}/skills`, {
         overrides: {
           cron: false,
           monitor: false,
@@ -128,12 +128,12 @@ const execute = async ({ configPath, scenario }: Options) => {
       }, "POST") as { id: string };
       await client.json("/api/memories", {
         text: "Synthetic global memory for prompt scope verification.",
-        source: "live-space-prompt-scope",
+        source: "live-agent-prompt-scope",
       }, "POST");
 
       const subagentRun = await client.startRun(
-        `请只调用一次subagent工具，严格使用参数：{"mode":"single","tasks":[{"agent":"worker","task":"不要调用任何工具，只回复LIVE_SPACE_PROMPT_CHILD_OK，不要解释。"}]}。等待真实结果后只回复LIVE_SPACE_PROMPT_PARENT_OK。不要重试。`,
-        openSpace,
+        `请只调用一次subagent工具，严格使用参数：{"mode":"single","tasks":[{"agent":"worker","task":"不要调用任何工具，只回复LIVE_AGENT_PROMPT_CHILD_OK，不要解释。"}]}。等待真实结果后只回复LIVE_AGENT_PROMPT_PARENT_OK。不要重试。`,
+        openAgent,
       );
       terminalEvent(await subagentRun.done);
       assert.ok(proxy.traces.length >= 2, "parent and child should each make a real model request");
@@ -158,10 +158,10 @@ const execute = async ({ configPath, scenario }: Options) => {
         assert.equal(child.toolNames.includes(marker), false, `child must not expose ${marker}`);
       }
       assert.equal(parent.calls.some((call) => call.name === "subagent"), true);
-      assert.match(proxy.traces.flatMap((trace) => trace.toolResults).join("\n"), /LIVE_SPACE_PROMPT_CHILD_OK/);
+      assert.match(proxy.traces.flatMap((trace) => trace.toolResults).join("\n"), /LIVE_AGENT_PROMPT_CHILD_OK/);
 
       const beforeClosed = proxy.traces.length;
-      const closedRun = await client.startRun("请不调用任何工具，只回复LIVE_SPACE_PROMPT_CLOSED_OK。", closedSpace);
+      const closedRun = await client.startRun("请不调用任何工具，只回复LIVE_AGENT_PROMPT_CLOSED_OK。", closedAgent);
       terminalEvent(await closedRun.done);
       const closedTraces = proxy.traces.slice(beforeClosed);
       assert.equal(closedTraces.length, 1, "ordinary chat should make one model request");
@@ -170,11 +170,11 @@ const execute = async ({ configPath, scenario }: Options) => {
       assert.equal(closed.systemMarkers.activeGoalSentinel, false);
       for (const marker of [
         "longTermMemory", "write", "skills", "schedule", "monitor", "goal", "web",
-      ] as const) assert.equal(closed.systemMarkers[marker], false, `closed space must not describe ${marker}`);
+      ] as const) assert.equal(closed.systemMarkers[marker], false, `closed agent must not describe ${marker}`);
       for (const tool of ["schedule", "monitor", "goal", "memory", "memory_search", "skills", "search_web", "web_fetch", "write", "edit"])
-        assert.equal(closed.toolNames.includes(tool), false, `closed space must not expose ${tool}`);
+        assert.equal(closed.toolNames.includes(tool), false, `closed agent must not expose ${tool}`);
 
-      await client.json(`/api/spaces/${closedSpace}/skills`, {
+      await client.json(`/api/agents/${closedAgent}/skills`, {
         overrides: {
           cron: true,
           monitor: true,
@@ -186,18 +186,18 @@ const execute = async ({ configPath, scenario }: Options) => {
         },
       }, "PUT");
       const beforeReopen = proxy.traces.length;
-      const reopenedRun = await client.startRun("请不调用任何工具，只回复LIVE_SPACE_PROMPT_REOPEN_OK。", closedSpace);
+      const reopenedRun = await client.startRun("请不调用任何工具，只回复LIVE_AGENT_PROMPT_REOPEN_OK。", closedAgent);
       terminalEvent(await reopenedRun.done);
       const reopened = proxy.traces.slice(beforeReopen).at(-1)!;
       for (const tool of ["schedule", "monitor", "goal", "memory", "memory_search", "skills", "search_web", "web_fetch", "write", "edit"])
-        assert.equal(reopened.toolNames.includes(tool), true, `reopened space must expose ${tool}`);
+        assert.equal(reopened.toolNames.includes(tool), true, `reopened agent must expose ${tool}`);
       for (const marker of ["longTermMemory", "write", "skills", "schedule", "monitor", "goal", "web"] as const)
-        assert.equal(reopened.systemMarkers[marker], true, `reopened space must describe ${marker}`);
+        assert.equal(reopened.systemMarkers[marker], true, `reopened agent must describe ${marker}`);
 
       const beforeGoalQuery = proxy.traces.length;
       const goalRun = await client.startRun(
         `请只调用一次goal工具，严格使用参数：{"action":"list","title":"-"}。然后只在工具结果包含${goalSentinel}时回复LIVE_GOAL_QUERY_OK，否则回复LIVE_GOAL_QUERY_MISSING。不要重试。`,
-        openSpace,
+        openAgent,
       );
       terminalEvent(await goalRun.done);
       const goalTraces = proxy.traces.slice(beforeGoalQuery);
@@ -209,12 +209,12 @@ const execute = async ({ configPath, scenario }: Options) => {
       assert.ok(goalRequest, "goal list was not actually called");
       assert.match(goalTraces.flatMap((trace) => trace.toolResults).join("\n"), new RegExp(goalSentinel));
       for (const trace of goalTraces) {
-        assert.equal(trace.systemMarkers.schedule, true, "open space must remain enabled");
-        assert.equal(trace.systemMarkers.goal, true, "open space must remain enabled");
+        assert.equal(trace.systemMarkers.schedule, true, "open agent must remain enabled");
+        assert.equal(trace.systemMarkers.goal, true, "open agent must remain enabled");
       }
       assert.ok(proxy.traces.every((trace) => !trace.systemMarkers.activeGoalSentinel));
 
-      process.stdout.write(`[PASS] space-prompt-scope:${JSON.stringify({
+      process.stdout.write(`[PASS] agent-prompt-scope:${JSON.stringify({
         serviceVersion: version,
         goalId: goal.id,
         modelRequests: proxy.traces.length,
@@ -222,27 +222,27 @@ const execute = async ({ configPath, scenario }: Options) => {
         childBusinessGuidance: false,
       })}\n`);
     } else {
-      const dreamSpace = "live-dream-scope";
-      const otherSpace = "live-dream-other";
-      const otherInstructions = "Other space rules remain unchanged.";
-      const otherInstructionsFile = join(dataDir, "sessions", otherSpace, "INSTRUCTIONS.md");
-      await client.json(`/api/spaces/${dreamSpace}/instructions`, {
+      const dreamAgent = "live-dream-scope";
+      const otherAgent = "live-dream-other";
+      const otherInstructions = "Other agent rules remain unchanged.";
+      const otherInstructionsFile = join(dataDir, "sessions", otherAgent, "INSTRUCTIONS.md");
+      await client.json(`/api/agents/${dreamAgent}/instructions`, {
         instructions: "Dream scope base rule.",
         purpose: "Dream scope verification",
       }, "PUT");
-      await client.json(`/api/spaces/${otherSpace}/instructions`, {
+      await client.json(`/api/agents/${otherAgent}/instructions`, {
         instructions: otherInstructions,
       }, "PUT");
       const otherInstructionsBaseline = await readFile(otherInstructionsFile, "utf8");
 
       const chat = await client.startRun(
-        `请不调用任何工具，只回复LIVE_DREAM_SOURCE_OK。本条消息包含三条待整理事实，三个标记字符串必须原样出现在对应建议正文中：1. 本空间只整理新能源政策与电池行业信息，忽略娱乐新闻，结果用中文要点；规则正文包含${localDreamSentinel}。2. 书房打印机型号是${globalDreamSentinel}，这是跨空间按需查询的设备事实，请保存在长期记忆，不放进每轮必读的用户资料。3. 我还没有确定${pendingDreamSentinel}是否在所有空间长期适用。`,
-        dreamSpace,
+        `请不调用任何工具，只回复LIVE_DREAM_SOURCE_OK。本条消息包含三条待整理事实，三个标记字符串必须原样出现在对应建议正文中：1. 本智能体只整理新能源政策与电池行业信息，忽略娱乐新闻，结果用中文要点；规则正文包含${localDreamSentinel}。2. 书房打印机型号是${globalDreamSentinel}，这是跨智能体按需查询的设备事实，请保存在长期记忆，不放进每轮必读的用户资料。3. 我还没有确定${pendingDreamSentinel}是否在所有智能体长期适用。`,
+        dreamAgent,
       );
       terminalEvent(await chat.done);
 
       const beforeDream = proxy.traces.length;
-      const dreamState = await client.json(`/api/spaces/${dreamSpace}/dream/run`, {}, "POST") as {
+      const dreamState = await client.json(`/api/agents/${dreamAgent}/dream/run`, {}, "POST") as {
         lastRun: { status: string; changed: string[] };
         pending: { id: string; suggestedTarget: string; text: string }[];
       };
@@ -257,7 +257,7 @@ const execute = async ({ configPath, scenario }: Options) => {
       assert.match(dreamState.pending[0]!.text, new RegExp(pendingDreamSentinel));
 
       const profile = (await client.json("/api/profile")) as { soul: string; user: string };
-      const instructions = await readFile(join(dataDir, "sessions", dreamSpace, "INSTRUCTIONS.md"), "utf8");
+      const instructions = await readFile(join(dataDir, "sessions", dreamAgent, "INSTRUCTIONS.md"), "utf8");
       const memories = (await client.json("/api/memories")) as { memories: { text: string }[] };
       assert.equal(profile.user, "");
       assert.equal(profile.soul, "");
@@ -268,10 +268,10 @@ const execute = async ({ configPath, scenario }: Options) => {
       assert.doesNotMatch(memories.memories[0]!.text, new RegExp(localDreamSentinel));
       const persistedOtherInstructions = await readFile(otherInstructionsFile, "utf8");
       assert.equal(persistedOtherInstructions, otherInstructionsBaseline);
-      await assert.rejects(stat(join(dataDir, "information", `${dreamSpace}.json`)), { code: "ENOENT" });
+      await assert.rejects(stat(join(dataDir, "information", `${dreamAgent}.json`)), { code: "ENOENT" });
 
       const resolved = await client.json(
-        `/api/spaces/${dreamSpace}/dream/pending/${dreamState.pending[0]!.id}`,
+        `/api/agents/${dreamAgent}/dream/pending/${dreamState.pending[0]!.id}`,
         { action: "apply", target: "memory" },
         "POST",
       ) as { pending: unknown[] };
@@ -280,12 +280,12 @@ const execute = async ({ configPath, scenario }: Options) => {
       assert.equal(afterMemories.memories.length, 2);
       assert.match(afterMemories.memories.map((item) => item.text).join("\n"), new RegExp(pendingDreamSentinel));
 
-      process.stdout.write(`[PASS] space-dream-scope:${JSON.stringify({
+      process.stdout.write(`[PASS] agent-dream-scope:${JSON.stringify({
         serviceVersion: version,
         dreamModelRequests: dreamTraces.length,
         changed: dreamState.lastRun.changed,
         pendingResolvedAsAdd: true,
-        otherSpaceUnchanged: true,
+        otherAgentUnchanged: true,
       })}\n`);
     }
   } catch (error) {
@@ -323,6 +323,6 @@ try {
   const options = parseOptions(process.argv.slice(2));
   await execute(options);
 } catch (error) {
-  process.stderr.write(`[FAIL] space-prompt-scope: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(`[FAIL] agent-prompt-scope: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
 }

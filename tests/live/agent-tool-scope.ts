@@ -34,7 +34,7 @@ const execute = async (options: { configPath: string }) => {
   };
 
   try {
-    root = await mkdtemp(join(tmpdir(), "pi-muse-space-tool-scope-"));
+    root = await mkdtemp(join(tmpdir(), "pi-muse-agent-tool-scope-"));
     const dataDir = join(root, "data");
     const accessKey = randomUUID();
     await mkdir(dataDir, { mode: 0o700 });
@@ -74,30 +74,30 @@ const execute = async (options: { configPath: string }) => {
     const token = ((await login.json()) as { token: string }).token;
     const client = createTestClient(() => baseUrl, token, 240_000);
 
-    const spaceA = "live-space-tool-a";
-    const spaceB = "live-space-tool-b";
-    for (const spaceId of [spaceA, spaceB]) {
-      await client.json(`/api/spaces/${spaceId}/instructions`, {
-        instructions: "Space tool scope live test.",
+    const agentA = "live-agent-tool-a";
+    const agentB = "live-agent-tool-b";
+    for (const agentId of [agentA, agentB]) {
+      await client.json(`/api/agents/${agentId}/instructions`, {
+        instructions: "Agent tool scope live test.",
       }, "PUT");
     }
 
     // B 的敏感标题与任务内容只在服务端状态和 REST 聚合中存在，不进入任何模型提示。
     const bJobPrompt = "LIVE_SCOPE_B_JOB_SECRET_CONTENT";
     const bMonitorTitle = "LIVE_SCOPE_B_MONITOR_SECRET_TITLE";
-    const bJob = await service.jobs.add(bJobPrompt, true, "12:34", spaceB);
+    const bJob = await service.jobs.add(bJobPrompt, true, "12:34", agentB);
     const bMonitor = await service.monitors.create({
-      originSpaceId: spaceB,
+      originAgentId: agentB,
       title: bMonitorTitle,
-      url: "https://example.com/live-space-tool-b",
+      url: "https://example.com/live-agent-tool-b",
       condition: "contains",
-      value: "live-space-tool-b",
+      value: "live-agent-tool-b",
       intervalMinutes: 5,
     });
 
     const runOneTool = async (label: string, prompt: string, expected: { name: string; action: string }) => {
       const baseline = proxy!.traces.length;
-      const run = await client.startRun(prompt, spaceA);
+      const run = await client.startRun(prompt, agentA);
       const events = await run.done;
       assert.equal(events.at(-1)?.type, "RUN_FINISHED", `${label} run must finish`);
 
@@ -114,7 +114,7 @@ const execute = async (options: { configPath: string }) => {
       };
     };
 
-    // 创建仍闭包到当前 A 空间，并返回可直接控制的完整 ID。
+    // 创建仍闭包到当前 A 智能体，并返回可直接控制的完整 ID。
     const aJobPrompt = "LIVE_SCOPE_A_JOB_CONTENT";
     const createdJob = await runOneTool(
       "schedule-create-a",
@@ -122,19 +122,19 @@ const execute = async (options: { configPath: string }) => {
       { name: "schedule", action: "create" },
     );
     assert.equal(createdJob.args.prompt, aJobPrompt);
-    const aJob = (await service.jobs.list()).find((job) => job.originSpaceId === spaceA && job.prompt === aJobPrompt);
+    const aJob = (await service.jobs.list()).find((job) => job.originAgentId === agentA && job.prompt === aJobPrompt);
     assert.ok(aJob);
     assert.match(createdJob.rawToolResults, new RegExp(`Scheduled \\(id ${aJob.id}\\)`));
 
     const aMonitorTitle = "LIVE_SCOPE_A_MONITOR_TITLE";
     const createdMonitor = await runOneTool(
       "monitor-create-a",
-      `系统测试。请只调用一次 monitor 工具：action="create"，url="https://example.com/live-space-tool-a"，condition="contains"，value="live-space-tool-a"，title="${aMonitorTitle}"，intervalMinutes=5。不要调用其它工具，不要重试。`,
+      `系统测试。请只调用一次 monitor 工具：action="create"，url="https://example.com/live-agent-tool-a"，condition="contains"，value="live-agent-tool-a"，title="${aMonitorTitle}"，intervalMinutes=5。不要调用其它工具，不要重试。`,
       { name: "monitor", action: "create" },
     );
-    assert.equal(createdMonitor.args.url, "https://example.com/live-space-tool-a");
+    assert.equal(createdMonitor.args.url, "https://example.com/live-agent-tool-a");
     const aMonitor = (await service.monitors.list()).find(
-      (monitor) => monitor.originSpaceId === spaceA && monitor.title === aMonitorTitle,
+      (monitor) => monitor.originAgentId === agentA && monitor.title === aMonitorTitle,
     );
     assert.ok(aMonitor);
     assert.match(createdMonitor.rawToolResults, new RegExp(`Monitor created \\(id ${aMonitor.id}\\)`));
@@ -158,7 +158,7 @@ const execute = async (options: { configPath: string }) => {
     assert.ok(!monitorList.rawToolResults.includes(bMonitor.id));
     assert.ok(!monitorList.rawToolResults.includes(bMonitorTitle));
 
-    // 持有完整外空间 ID 也不能通过列表隐藏以外的第二套入口控制。
+    // 持有完整外智能体 ID 也不能通过列表隐藏以外的第二套入口控制。
     const beforeCrossCancel = await service.jobs.get(bJob.id);
     const crossCancel = await runOneTool(
       "schedule-cancel-b",
@@ -200,7 +200,7 @@ const execute = async (options: { configPath: string }) => {
     assert.ok(ownPause.rawToolResults.includes("Monitor paused."));
     assert.equal((await service.monitors.get(aMonitor.id))?.status, "paused");
 
-    const scheduleMissing = await scheduleTool(service.jobs, spaceA).execute(
+    const scheduleMissing = await scheduleTool(service.jobs, agentA).execute(
       "direct-missing-job",
       { action: "cancel", prompt: "cancel", at: "cancel", jobId: "missing-job-id" },
       undefined,
@@ -210,7 +210,7 @@ const execute = async (options: { configPath: string }) => {
     const scheduleMissingText = scheduleMissing.content[0]?.type === "text" ? scheduleMissing.content[0].text : "";
     assert.equal(scheduleMissingText, "No such job.");
 
-    const monitorMissing = await monitorTool(service.monitors, spaceA).execute(
+    const monitorMissing = await monitorTool(service.monitors, agentA).execute(
       "direct-missing-monitor",
       { action: "pause", monitorId: "missing-monitor-id" },
       undefined,
@@ -221,13 +221,13 @@ const execute = async (options: { configPath: string }) => {
     assert.equal(monitorMissingText, "Monitor not found");
 
     const globalJobs = jobsResponse.parse(await client.json("/api/jobs")).jobs;
-    assert.ok(globalJobs.some((job) => job.id === aJob.id && job.originSpaceId === spaceA));
-    assert.ok(globalJobs.some((job) => job.id === bJob.id && job.originSpaceId === spaceB));
+    assert.ok(globalJobs.some((job) => job.id === aJob.id && job.originAgentId === agentA));
+    assert.ok(globalJobs.some((job) => job.id === bJob.id && job.originAgentId === agentB));
     const globalMonitors = monitorsResponse.parse(await client.json("/api/monitors")).monitors;
-    assert.ok(globalMonitors.some((monitor) => monitor.id === aMonitor.id && monitor.originSpaceId === spaceA));
-    assert.ok(globalMonitors.some((monitor) => monitor.id === bMonitor.id && monitor.originSpaceId === spaceB));
+    assert.ok(globalMonitors.some((monitor) => monitor.id === aMonitor.id && monitor.originAgentId === agentA));
+    assert.ok(globalMonitors.some((monitor) => monitor.id === bMonitor.id && monitor.originAgentId === agentB));
 
-    process.stdout.write(`[PASS] space-tool-scope: modelRequests=${proxy.traces.length}, spaces=2, jobs=2, monitors=2\n`);
+    process.stdout.write(`[PASS] agent-tool-scope: modelRequests=${proxy.traces.length}, agents=2, jobs=2, monitors=2\n`);
   } catch (error) {
     failure = error;
     throw error;
@@ -270,7 +270,7 @@ if (outcome.kind === "help") {
   try {
     await execute(outcome.options);
   } catch (error) {
-    console.error(`[FAIL] space-tool-scope: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`[FAIL] agent-tool-scope: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   }
 }

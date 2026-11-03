@@ -6,7 +6,7 @@ import { z } from "zod";
  * 边界：
  * - 这是服务端对真实执行事件的展示投影，不拥有执行锁，不写 Activity 历史，也不允许
  *   客户端写入；运行状态只用于展示当前/最终执行进度。
- * - 同一 (spaceId, runId) 的每次变化推进 revision；客户端只能按 revision 合并，
+ * - 同一 (agentId, runId) 的每次变化推进 revision；客户端只能按 revision 合并，
  *   不能按到达时间或 serverTime 排序。
  * - 普通 chat 可能没有登记 Activity，此时 activityId 为 null；这不是错误。
  * - 工具名属于敏感展示信息，受控/隐藏工具必须输出 null，由 label 承担展示文案。
@@ -59,12 +59,12 @@ type _SubagentPhasesCovered = AssertNever<
 
 const isoTime = z.iso.datetime().describe("ISO 8601 UTC 时间（服务端写入，固定 Z 后缀）");
 
-const spaceIdSchema = z
+const agentIdSchema = z
   .string()
   .min(1)
   .max(64)
   .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/)
-  .describe("空间标识：字母或数字开头，可含 _ -，最长 64；与聊天接口的 spaceId 同一字符集");
+  .describe("智能体标识：字母或数字开头，可含 _ -，最长 64；与聊天接口的 agentId 同一字符集");
 
 const runIdSchema = z.string().min(1).max(200).describe("运行标识；同一会话内唯一，最长 200");
 
@@ -127,7 +127,7 @@ export const agentStatus = z
       .min(1)
       .nullable()
       .describe("关联的 Activity ID；普通 chat 未登记活动时为 null，不要求每轮都有活动"),
-    spaceId: spaceIdSchema.describe("所属空间"),
+    agentId: agentIdSchema.describe("所属智能体"),
     runId: runIdSchema,
     revision: z
       .number()
@@ -184,7 +184,7 @@ export const agentStatus = z
   })
   .describe(
     "单个运行的展示状态快照。由真实执行事件投影得到，不代表 Activity 的完成状态，" +
-      "也不作为执行锁或历史存储。同一 (spaceId, runId) 按 revision 合并。",
+      "也不作为执行锁或历史存储。同一 (agentId, runId) 按 revision 合并。",
   );
 
 // ---------------------------------------------------------------------------
@@ -192,10 +192,10 @@ export const agentStatus = z
 // ---------------------------------------------------------------------------
 export const agentStatusQuery = z
   .strictObject({
-    spaceId: spaceIdSchema.describe("要查询的运行所属空间"),
+    agentId: agentIdSchema.describe("要查询的运行所属智能体"),
     runId: runIdSchema.describe("要查询的运行 ID；必填"),
   })
-  .describe("GET /api/agent/status 查询参数；两个字段都必填，不接受未声明参数。");
+  .describe("GET /api/runs/status 查询参数；两个字段都必填，不接受未声明参数。");
 
 /**
  * 运行状态查询响应：HTTP 对象不带审批的 instanceId，但运行状态必须带上产生它的
@@ -212,7 +212,7 @@ export const agentStatusResponse = z
     status: agentStatus,
   })
   .describe(
-    "GET /api/agent/status 的响应：指定运行的当前状态，或运行结束后持久化的最终状态。" +
+    "GET /api/runs/status 的响应：指定运行的当前状态，或运行结束后持久化的最终状态。" +
       "运行不存在或已被清理时返回 404。Activity 查询仍使用 /api/activities，语义不变。",
   );
 

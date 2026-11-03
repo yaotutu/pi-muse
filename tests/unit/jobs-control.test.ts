@@ -5,7 +5,7 @@ import { createJobService } from "../../src/features/jobs/job-service.js";
 import type { Job } from "../../src/features/jobs/types.js";
 import type { JobRepository } from "../../src/features/jobs/ports.js";
 
-test("POST /api/jobs/:id/control checks target space running state, not hardcoded local-main", async () => {
+test("POST /api/jobs/:id/control checks target agent running state, not hardcoded local-main", async () => {
   let items: Job[] = [];
   const repository: JobRepository = {
     read: async () => structuredClone(items),
@@ -17,10 +17,10 @@ test("POST /api/jobs/:id/control checks target space running state, not hardcode
   };
   const jobs = createJobService(repository);
 
-  // 创建一个归属于 space-a 的 paused 任务
-  const jobInSpaceA = await jobs.add("task in space a", true, "12:00", "space-a");
-  await jobs.control(jobInSpaceA.id, "pause");
-  assert.equal((await jobs.get(jobInSpaceA.id))?.controlState, "paused");
+  // 创建一个归属于 agent-a 的 paused 任务
+  const jobInAgentA = await jobs.add("task in agent a", true, "12:00", "agent-a");
+  await jobs.control(jobInAgentA.id, "pause");
+  assert.equal((await jobs.get(jobInAgentA.id))?.controlState, "paused");
 
   // 创建一个缺省归属 (local-main) 的 paused 任务
   const jobInMain = await jobs.add("task in main", true, "13:00", "local-main");
@@ -28,15 +28,15 @@ test("POST /api/jobs/:id/control checks target space running state, not hardcode
   assert.equal((await jobs.get(jobInMain.id))?.controlState, "paused");
 
   let localMainRunning = false;
-  let spaceARunning = false;
+  let agentARunning = false;
   let schedulerBusy = false;
 
   const conversationHub = {
-    forSpace: async (spaceId: string) => ({
-      isRunning: () => (spaceId === "space-a" ? spaceARunning : localMainRunning),
-      sessionId: () => `session-${spaceId}`,
+    forAgent: async (agentId: string) => ({
+      isRunning: () => (agentId === "agent-a" ? agentARunning : localMainRunning),
+      sessionId: () => `session-${agentId}`,
     }),
-    withSpace: async (_spaceId: string, fn: () => Promise<unknown>) => fn(),
+    withAgent: async (_agentId: string, fn: () => Promise<unknown>) => fn(),
   };
   const scheduler = {
     isBusy: () => schedulerBusy,
@@ -48,13 +48,13 @@ test("POST /api/jobs/:id/control checks target space running state, not hardcode
     scheduler: scheduler as never,
   });
 
-  // 1. local-main 正在运行聊天，但目标任务在 space-a（space-a 空闲）
+  // 1. local-main 正在运行聊天，但目标任务在 agent-a（agent-a 空闲）
   localMainRunning = true;
-  spaceARunning = false;
+  agentARunning = false;
   schedulerBusy = false;
 
-  // 控制 space-a 任务 resume：应当成功（200），不被主空间运行阻塞
-  const res1 = await app.request(`/api/jobs/${jobInSpaceA.id}/control`, {
+  // 控制 agent-a 任务 resume：应当成功（200），不被主智能体运行阻塞
+  const res1 = await app.request(`/api/jobs/${jobInAgentA.id}/control`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "resume" }),
@@ -64,15 +64,15 @@ test("POST /api/jobs/:id/control checks target space running state, not hardcode
   assert.equal(body1.enabled, true);
   assert.equal(body1.controlState, undefined);
 
-  // 重新暂停 space-a 任务准备下一阶段测试
-  await jobs.control(jobInSpaceA.id, "pause");
+  // 重新暂停 agent-a 任务准备下一阶段测试
+  await jobs.control(jobInAgentA.id, "pause");
 
-  // 2. space-a 本身正在运行聊天，即使 local-main 空闲，也必须返回 409 冲突
+  // 2. agent-a 本身正在运行聊天，即使 local-main 空闲，也必须返回 409 冲突
   localMainRunning = false;
-  spaceARunning = true;
+  agentARunning = true;
   schedulerBusy = false;
 
-  const res2 = await app.request(`/api/jobs/${jobInSpaceA.id}/control`, {
+  const res2 = await app.request(`/api/jobs/${jobInAgentA.id}/control`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "resume" }),
@@ -81,12 +81,12 @@ test("POST /api/jobs/:id/control checks target space running state, not hardcode
   const body2 = await res2.json() as { error: string };
   assert.match(body2.error, /Wait for the current response/);
 
-  // 3. scheduler.isBusy() 为 true 时，两个空间都应被阻塞
+  // 3. scheduler.isBusy() 为 true 时，两个智能体都应被阻塞
   localMainRunning = false;
-  spaceARunning = false;
+  agentARunning = false;
   schedulerBusy = true;
 
-  const res3 = await app.request(`/api/jobs/${jobInSpaceA.id}/control`, {
+  const res3 = await app.request(`/api/jobs/${jobInAgentA.id}/control`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "resume" }),

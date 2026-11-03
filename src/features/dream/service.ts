@@ -32,10 +32,10 @@ export type DreamNotesPort = {
   readSoul: () => Promise<string>;
   writeSoul: (content: string) => Promise<void>;
   writeSoulIfUnchanged: (content: string, expected: string) => Promise<boolean>;
-  readInstructions: (spaceId: string) => Promise<string>;
-  writeInstructions: (spaceId: string, content: string) => Promise<void>;
+  readInstructions: (agentId: string) => Promise<string>;
+  writeInstructions: (agentId: string, content: string) => Promise<void>;
   writeInstructionsIfUnchanged: (
-    spaceId: string,
+    agentId: string,
     content: string,
     expected: string,
   ) => Promise<boolean>;
@@ -44,19 +44,16 @@ export type DreamNotesPort = {
 export type DreamPromptsPort = {
   readGlobalPrompt: () => Promise<string>;
   writeGlobalPrompt: (content: string) => Promise<void>;
-  readSpacePrompt: (spaceId: string) => Promise<string>;
-  writeSpacePrompt: (spaceId: string, content: string) => Promise<void>;
+  readAgentPrompt: (agentId: string) => Promise<string>;
+  writeAgentPrompt: (agentId: string, content: string) => Promise<void>;
 };
 
 export type DreamConversationsPort = {
-  listSpaceIds?: () => Promise<string[]>;
-  listThreadIds?: () => Promise<string[]>;
-  spaceExists?: (spaceId: string) => Promise<boolean>;
-  threadExists?: (spaceId: string) => Promise<boolean>;
-  isSpaceBusy?: (spaceId: string) => Promise<boolean>;
-  isThreadBusy?: (spaceId: string) => Promise<boolean>;
+  listAgentIds: () => Promise<string[]>;
+  agentExists: (agentId: string) => Promise<boolean>;
+  isAgentBusy: (agentId: string) => Promise<boolean>;
   readTranscript: (
-    spaceId: string,
+    agentId: string,
   ) => Promise<{ messages: DreamMessage[]; summary?: string }>;
 };
 
@@ -76,8 +73,8 @@ export type DreamDependencies = {
   }) => Promise<DreamProposeResult>;
 };
 
-export type DreamSpaceView = DreamState & {
-  spaceId: string;
+export type DreamAgentView = DreamState & {
+  agentId: string;
   prompt: string;
   purpose: string;
 };
@@ -87,80 +84,69 @@ export type DreamOverview = {
   defaultPrompt: string;
   intervalHours: number;
   running: boolean;
-  spaces: DreamSpaceView[];
-  threads: DreamSpaceView[];
+  agents: DreamAgentView[];
 };
 
 export type DreamRunResult =
-  | { ok: true; state: DreamSpaceView }
+  | { ok: true; state: DreamAgentView }
   | { ok: false; code: "not_found" | "conflict"; message: string };
 
 export type DreamResolveResult =
-  | { ok: true; state: DreamSpaceView }
+  | { ok: true; state: DreamAgentView }
   | { ok: false; code: "not_found" | "conflict"; message: string };
 
-/** 固定 2 小时周期（毫秒），写成常量，不支持逐空间自定义间隔。 */
+/** 固定 2 小时周期（毫秒），写成常量，不支持逐智能体自定义间隔。 */
 export const DREAM_INTERVAL_HOURS = 2;
 export const DREAM_INTERVAL_MS = DREAM_INTERVAL_HOURS * 60 * 60 * 1_000;
 const PENDING_LIMIT = 50;
 
 /**
  * Dream 后台记忆整理业务服务：
- * - 进程内串行执行，避免多空间同时跑整理轮互相覆盖全局 USER/SOUL/memory；
+ * - 进程内串行执行，避免多智能体同时跑整理轮互相覆盖全局 USER/SOUL/memory；
  * - 游标只在整轮成功后推进，失败不动；
  * - 写入前比对读取时的文本版本，不覆盖用户在整理期间的新改动；
- * - 空间在整理期间被删除时停止提交，绝不因写 dream.json 或 INSTRUCTIONS.md 重建空间。
+ * - 智能体在整理期间被删除时停止提交，绝不因写 dream.json 或 INSTRUCTIONS.md 重建智能体。
  */
 export const createDreamService = (deps: DreamDependencies) => {
   const { repository, notes, memory, conversations, propose } = deps;
-  let activeRun: { spaceId: string; abort: () => void; done: Promise<void> } | undefined;
+  let activeRun: { agentId: string; abort: () => void; done: Promise<void> } | undefined;
   let closed = false;
-  const checkSpaceExists = (id: string): Promise<boolean> => {
-    const fn = conversations.spaceExists ?? conversations.threadExists;
-    return fn ? fn(id) : Promise.resolve(true);
-  };
-  const checkSpaceBusy = (id: string): Promise<boolean> => {
-    const fn = conversations.isSpaceBusy ?? conversations.isThreadBusy;
-    return fn ? fn(id) : Promise.resolve(false);
-  };
-  const listSpaceIds = (): Promise<string[]> => {
-    const fn = conversations.listSpaceIds ?? conversations.listThreadIds;
-    return fn ? fn() : Promise.resolve([]);
-  };
+  const checkAgentExists = conversations.agentExists;
+  const checkAgentBusy = conversations.isAgentBusy;
+  const listAgentIds = conversations.listAgentIds;
 
-  const describeSpace = async (spaceId: string): Promise<DreamSpaceView> => {
+  const describeAgent = async (agentId: string): Promise<DreamAgentView> => {
     const [state, prompt, instructions] = await Promise.all([
-      repository.read(spaceId),
-      repository.readSpacePrompt(spaceId),
-      notes.readInstructions(spaceId),
+      repository.read(agentId),
+      repository.readAgentPrompt(agentId),
+      notes.readInstructions(agentId),
     ]);
     return {
       ...state,
-      spaceId,
+      agentId,
       prompt,
       purpose: readPurpose(instructions),
     };
   };
 
   const describeAll = async (): Promise<DreamOverview> => {
-    const [globalPrompt, spaceIds] = await Promise.all([
+    const [globalPrompt, agentIds] = await Promise.all([
       repository.readGlobalPrompt(),
-      listSpaceIds(),
+      listAgentIds(),
     ]);
-    const spaces = await Promise.all(spaceIds.map((id) => describeSpace(id)));
+    const agents = await Promise.all(agentIds.map((id) => describeAgent(id)));
     return {
       globalPrompt,
       defaultPrompt: DEFAULT_DREAM_PROMPT,
       intervalHours: DREAM_INTERVAL_HOURS,
       running: Boolean(activeRun),
-      spaces,
-      threads: spaces,
+      agents,
     };
   };
 
-  /** 执行单个空间的一轮整理；manual=false（定时扫描）在无新消息时静默跳过，不落盘。 */
-  const executeSpace = async (
-    spaceId: string,
+  /** 执行单个智能体的一轮整理；manual=false（定时扫描）在无新消息时静默跳过，不落盘。 */
+  const executeAgent = async (
+    agentId: string,
     manual: boolean,
     outerSignal?: AbortSignal,
   ): Promise<DreamRunResult> => {
@@ -170,10 +156,10 @@ export const createDreamService = (deps: DreamDependencies) => {
     if (activeRun) {
       return { ok: false, code: "conflict", message: "A Dream consolidation is already running" };
     }
-    if (!(await checkSpaceExists(spaceId))) {
-      return { ok: false, code: "not_found", message: "Space not found" };
+    if (!(await checkAgentExists(agentId))) {
+      return { ok: false, code: "not_found", message: "Agent not found" };
     }
-    if (await checkSpaceBusy(spaceId)) {
+    if (await checkAgentBusy(agentId)) {
       return {
         ok: false,
         code: "conflict",
@@ -186,7 +172,7 @@ export const createDreamService = (deps: DreamDependencies) => {
     outerSignal?.addEventListener("abort", forwardAbort, { once: true });
     let finishRun!: () => void;
     activeRun = {
-      spaceId,
+      agentId,
       abort: () => controller.abort(),
       done: new Promise<void>((resolve) => {
         finishRun = resolve;
@@ -194,14 +180,14 @@ export const createDreamService = (deps: DreamDependencies) => {
     };
 
     try {
-      const initial = await repository.read(spaceId);
-      const transcript = await conversations.readTranscript(spaceId);
+      const initial = await repository.read(agentId);
+      const transcript = await conversations.readTranscript(agentId);
       const window = sliceWindow(transcript.messages, initial.cursor, transcript.summary);
       const startedAt = new Date().toISOString();
 
       if (!window.fresh.length) {
-        if (manual && (await checkSpaceExists(spaceId))) {
-          await repository.update(spaceId, (state) => ({
+        if (manual && (await checkAgentExists(agentId))) {
+          await repository.update(agentId, (state) => ({
             state: {
               ...state,
               lastRun: { at: startedAt, status: "completed", changed: [], processed: 0 },
@@ -209,11 +195,11 @@ export const createDreamService = (deps: DreamDependencies) => {
             result: undefined,
           }), { allowCreate: false });
         }
-        return { ok: true, state: await describeSpace(spaceId) };
+        return { ok: true, state: await describeAgent(agentId) };
       }
 
       // 崩溃保护：调用模型前先落盘 running，若进程中途崩溃，下次启动会诚实改为 failed。
-      await repository.update(spaceId, (state) => ({
+      await repository.update(agentId, (state) => ({
         state: {
           ...state,
           lastRun: {
@@ -241,26 +227,26 @@ export const createDreamService = (deps: DreamDependencies) => {
           fail("Consolidation cancelled");
           break;
         }
-        if (!(await checkSpaceExists(spaceId))) {
-          return { ok: false, code: "not_found", message: "Space not found" };
+        if (!(await checkAgentExists(agentId))) {
+          return { ok: false, code: "not_found", message: "Agent not found" };
         }
-        if (await checkSpaceBusy(spaceId)) {
+        if (await checkAgentBusy(agentId)) {
           fail("Conversation became busy during consolidation");
           break;
         }
 
         const [state, globalPrompt, sessionPrompt, user, soul, instructions, memories] =
           await Promise.all([
-            repository.read(spaceId),
+            repository.read(agentId),
             repository.readGlobalPrompt(),
-            repository.readSpacePrompt(spaceId),
+            repository.readAgentPrompt(agentId),
             notes.readUser(),
             notes.readSoul(),
-            notes.readInstructions(spaceId),
+            notes.readInstructions(agentId),
             memory.list(),
           ]);
         const purpose = readPurpose(instructions);
-        const isMain = spaceId === "local-main";
+        const isMain = agentId === "local-main";
         const systemPrompt =
           composePrompt({
             global: globalPrompt,
@@ -289,8 +275,8 @@ export const createDreamService = (deps: DreamDependencies) => {
           fail("Consolidation cancelled");
           break;
         }
-        if (!(await checkSpaceExists(spaceId))) {
-          return { ok: false, code: "not_found", message: "Space not found" };
+        if (!(await checkAgentExists(agentId))) {
+          return { ok: false, code: "not_found", message: "Agent not found" };
         }
 
         const plan = planProposal(proposed.changes, {
@@ -335,9 +321,9 @@ export const createDreamService = (deps: DreamDependencies) => {
             nextInstructions.length > INSTRUCTIONS_LIMIT
           ) {
             fail("Instructions change rejected by safety check");
-          } else if (await checkSpaceExists(spaceId)) {
+          } else if (await checkAgentExists(agentId)) {
             const ok = await notes.writeInstructionsIfUnchanged(
-              spaceId,
+              agentId,
               nextInstructions,
               instructions,
             );
@@ -357,7 +343,7 @@ export const createDreamService = (deps: DreamDependencies) => {
               const normalized = item.text.replace(/\s+/g, " ").trim();
               if (existingMemoryTexts.has(normalized)) continue;
               existingMemoryTexts.add(normalized);
-              await memory.add(item.text, `dream:${spaceId}`);
+              await memory.add(item.text, `dream:${agentId}`);
               changed.add("memory");
             } else if (item.op === "edit") {
               if (await memory.edit(item.id, item.text)) changed.add("memory");
@@ -379,8 +365,8 @@ export const createDreamService = (deps: DreamDependencies) => {
         }
       }
 
-      if (!(await checkSpaceExists(spaceId))) {
-        return { ok: false, code: "not_found", message: "Space not found" };
+      if (!(await checkAgentExists(agentId))) {
+        return { ok: false, code: "not_found", message: "Agent not found" };
       }
 
       const status: DreamRunStatus = !hadFailure
@@ -389,7 +375,7 @@ export const createDreamService = (deps: DreamDependencies) => {
           ? "partial"
           : "failed";
 
-      await repository.update(spaceId, (state) => {
+      await repository.update(agentId, (state) => {
         const seen = new Set(
           state.pending.map((item) => `${item.suggestedTarget}:${item.text}`),
         );
@@ -419,7 +405,7 @@ export const createDreamService = (deps: DreamDependencies) => {
         };
       }, { allowCreate: false });
 
-      return { ok: true, state: await describeSpace(spaceId) };
+      return { ok: true, state: await describeAgent(agentId) };
     } finally {
       outerSignal?.removeEventListener("abort", forwardAbort);
       activeRun = undefined;
@@ -431,21 +417,20 @@ export const createDreamService = (deps: DreamDependencies) => {
     reconcileOnStart: () => repository.reconcileOnStart(),
     isBusy: () => Boolean(activeRun),
     describeAll,
-    describeSpace,
-    describeThread: describeSpace,
+    describeAgent,
     saveGlobalPrompt: async (prompt: string) => {
       await repository.writeGlobalPrompt(prompt);
       return describeAll();
     },
-    updateSpaceSettings: async (
-      spaceId: string,
+    updateAgentSettings: async (
+      agentId: string,
       patch: { enabled?: boolean; inheritGlobalPrompt?: boolean; prompt?: string },
-    ): Promise<DreamSpaceView> => {
+    ): Promise<DreamAgentView> => {
       if (patch.prompt !== undefined) {
-        await repository.writeSpacePrompt(spaceId, patch.prompt);
+        await repository.writeAgentPrompt(agentId, patch.prompt);
       }
       if (patch.enabled !== undefined || patch.inheritGlobalPrompt !== undefined) {
-        await repository.update(spaceId, (state) => ({
+        await repository.update(agentId, (state) => ({
           state: {
             ...state,
             ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
@@ -456,36 +441,30 @@ export const createDreamService = (deps: DreamDependencies) => {
           result: undefined,
         }));
       }
-      return describeSpace(spaceId);
+      return describeAgent(agentId);
     },
-    updateThreadSettings(
-      spaceId: string,
-      patch: { enabled?: boolean; inheritGlobalPrompt?: boolean; prompt?: string },
-    ) {
-      return this.updateSpaceSettings(spaceId, patch);
-    },
-    runNow: (spaceId: string, signal?: AbortSignal) => executeSpace(spaceId, true, signal),
-    /** 周期调度入口：逐个扫描已启用且有新消息的空间，忙空间直接跳过。 */
+    runNow: (agentId: string, signal?: AbortSignal) => executeAgent(agentId, true, signal),
+    /** 周期调度入口：逐个扫描已启用且有新消息的智能体，忙智能体直接跳过。 */
     runScheduledTick: async (signal?: AbortSignal) => {
       if (closed || activeRun || signal?.aborted) return;
-      const spaceIds = await listSpaceIds();
-      for (const spaceId of spaceIds) {
+      const agentIds = await listAgentIds();
+      for (const agentId of agentIds) {
         if (closed || signal?.aborted) return;
-        const state = await repository.read(spaceId);
+        const state = await repository.read(agentId);
         if (!state.enabled) continue;
-        if (await checkSpaceBusy(spaceId)) continue;
-        await executeSpace(spaceId, false, signal);
+        if (await checkAgentBusy(agentId)) continue;
+        await executeAgent(agentId, false, signal);
       }
     },
     resolvePending: async (
-      spaceId: string,
+      agentId: string,
       pendingId: string,
       decision: { action: "apply"; target?: DreamTarget } | { action: "dismiss" },
     ): Promise<DreamResolveResult> => {
-      if (!(await checkSpaceExists(spaceId))) {
-        return { ok: false, code: "not_found", message: "Space not found" };
+      if (!(await checkAgentExists(agentId))) {
+        return { ok: false, code: "not_found", message: "Agent not found" };
       }
-      const state = await repository.read(spaceId);
+      const state = await repository.read(agentId);
       const found = state.pending.find((item) => item.id === pendingId);
       if (!found) {
         return { ok: false, code: "not_found", message: "Pending item not found" };
@@ -500,14 +479,14 @@ export const createDreamService = (deps: DreamDependencies) => {
             const current = await notes.readSoul();
             await notes.writeSoul(appendNote(current, found.text));
           } else if (target === "instructions") {
-            const current = await notes.readInstructions(spaceId);
+            const current = await notes.readInstructions(agentId);
             const next = appendInstructions(current, found.text);
             if (next.length > 20_000) {
               return { ok: false, code: "conflict", message: "Instructions exceed maximum length" };
             }
-            await notes.writeInstructions(spaceId, next);
+            await notes.writeInstructions(agentId, next);
           } else {
-            await memory.add(found.text, `dream:${spaceId}`);
+            await memory.add(found.text, `dream:${agentId}`);
           }
         } catch (error) {
           if (error instanceof MemoryLimitError) {
@@ -516,26 +495,26 @@ export const createDreamService = (deps: DreamDependencies) => {
           throw error;
         }
       }
-      await repository.update(spaceId, (current) => ({
+      await repository.update(agentId, (current) => ({
         state: {
           ...current,
           pending: current.pending.filter((item) => item.id !== pendingId),
         },
         result: undefined,
       }), { allowCreate: false });
-      return { ok: true, state: await describeSpace(spaceId) };
+      return { ok: true, state: await describeAgent(agentId) };
     },
     /**
-     * 重置空间会话时同步清理该空间的 Dream 游标、最近运行与待定建议，
-     * 保留 enabled 与 inheritGlobalPrompt 配置；若当前正在整理该空间则先取消并等待收尾。
+     * 重置智能体会话时同步清理该智能体的 Dream 游标、最近运行与待定建议，
+     * 保留 enabled 与 inheritGlobalPrompt 配置；若当前正在整理该智能体则先取消并等待收尾。
      */
-    resetSpace: async (spaceId: string): Promise<void> => {
-      if (activeRun?.spaceId === spaceId) {
+    resetAgent: async (agentId: string): Promise<void> => {
+      if (activeRun?.agentId === agentId) {
         activeRun.abort();
         await activeRun.done;
       }
       await repository.update(
-        spaceId,
+        agentId,
         (state) => ({
           state: {
             enabled: state.enabled,

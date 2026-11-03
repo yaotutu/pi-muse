@@ -68,7 +68,7 @@ const withEvent = (
  * 反馈事件独立持久化，不进入模型上下文，也不改变 PI 会话 revision。
  */
 export const createMessageFeedbackSession = (input: {
-  spaceId: string;
+  agentId: string;
   sessionId: () => string;
   facts: () => readonly MessageExecutionFact[];
   repository: MessageFeedbackRepository;
@@ -103,7 +103,7 @@ export const createMessageFeedbackSession = (input: {
     },
   ) => {
     const fact = target(messageId, sessionId);
-    return input.repository.update(input.spaceId, currentSessionId(), (document) => {
+    return input.repository.update(input.agentId, currentSessionId(), (document) => {
       const changed = create(document, fact.role);
       return { ...(changed.document ? { document: changed.document } : {}), result: changed.feedback };
     });
@@ -113,11 +113,11 @@ export const createMessageFeedbackSession = (input: {
     setActiveRun: (runId: string | null) => { activeRunId = runId; },
     async get(messageId: string, sessionId: string): Promise<MessageFeedback> {
       target(messageId, sessionId);
-      return projectFeedback(await input.repository.read(input.spaceId, currentSessionId()), messageId);
+      return projectFeedback(await input.repository.read(input.agentId, currentSessionId()), messageId);
     },
     async events(messageId: string, sessionId: string) {
       target(messageId, sessionId);
-      return (await input.repository.read(input.spaceId, currentSessionId()))
+      return (await input.repository.read(input.agentId, currentSessionId()))
         .events.filter((event) => event.messageId === messageId);
     },
     setReaction(sessionId: string, messageId: string, reaction: "like" | "dislike" | null) {
@@ -169,7 +169,7 @@ export const createMessageFeedbackSession = (input: {
     },
     async project<T extends ProjectedMessage>(messages: readonly T[]): Promise<T[]> {
       const executionFacts = new Map(input.facts().map((fact) => [`${fact.role}:${fact.id}`, fact]));
-      const document = await input.repository.read(input.spaceId, currentSessionId());
+      const document = await input.repository.read(input.agentId, currentSessionId());
       return messages.map((message) => {
         const fact = executionFacts.get(`${message.role}:${message.id}`);
         if (!fact || message.role === "tool") return message;
