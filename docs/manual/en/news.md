@@ -1,6 +1,6 @@
 # News Reading
 
-News has its own private chat and reading view. Tap its top avatar for private chat; long-press it for Agent Settings, then 「阅读新闻」 for the article timeline. The reader has no chat box or bottom tab. Back first returns to News Agent Settings, then the original chat or Agent Management. Inspecting settings and reading News do not switch the active chat. The server reuses existing information processing and model capabilities rather than a separate recommendation engine.
+News is a full Agent with its own private chat and reading page. Tapping its top avatar opens the reading main view by default. Long-press the avatar for Agent Settings, then choose Reading or Chat under 「主视图」 (Main view). This preference is saved locally per server and Agent; instructions, memory, and conversations are unchanged. The reader has no composer or bottom tabs and shares the top avatar strip with chats. A clear, quick horizontal swipe in the list or article switches to the adjacent Agent without wrapping at either end; comment inputs and horizontally scrolling content are excluded. Switching avatars or visiting settings retains the open article and reading position. Android Back first closes the article or sources, then returns from the reading root to All. The server reuses existing information processing and model capabilities rather than a separate recommendation engine.
 
 ## Reading and Filtering {#reading}
 
@@ -36,7 +36,7 @@ The server collects every 30 minutes by default; background collection only fetc
 - Explicit preferences are saved by the user. Learned notes are a summary updated by the server from feedback. They are stored separately, and learned notes never overwrite explicit preferences, agent rules, or the global user profile.
 - For newly initialized News Agents, the default rules require recommendation reasons and learned notes in concise Simplified Chinese. RSS titles and content remain in their original language and are not translated.
 
-Open the News Agent Settings → 「新闻设置」 and save explicit notes under 「新闻偏好」. Use 「RSS 来源管理」 to manage subscriptions. When opened from settings, Back returns through news settings and the Agent Settings, then to the original chat or Agent Management, rather than detouring through the news reader.
+Open the News Agent Settings → 「新闻设置」 and save explicit notes under 「新闻偏好」. Use 「RSS 来源管理」 to manage subscriptions. When opened from settings, Back returns through news settings and Agent Settings, then to the originating chat, news reader, notification discussion, or Agent Management, never a different origin.
 
 Unsaved preference drafts remain only in memory for the current connection. Visiting RSS, another member, or chat and returning, or returning from the background, preserves input. Reopening or foregrounding checks server state but only updates unchanged notes. Failed reads retain the draft and previously loaded preferences. 「刷新核对」 also preserves unsaved input. If a save outcome is unknown, reopening does not unlock saving: explicitly check state before saving again; nothing is automatically resent. Only 「保存偏好」 submits explicit notes; saving an empty field clears them. Switching connections or restarting the app does not restore unsaved drafts.
 

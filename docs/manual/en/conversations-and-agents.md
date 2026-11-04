@@ -6,7 +6,7 @@ This page covers the default All view, Agent private chats and settings, message
 
 - The server is connected as described in [Quick Start](getting-started.md#connect-mobile-client); check the connection under 「设置」 → 「服务器连接」.
 - An external model is configured. If the model is not configured, chat messages are rejected.
-- Cold launch opens 「全部」 (All), without bottom tabs or a conversation list. Tap a top avatar to switch chats; tapping the selected avatar does nothing. Long-press All for 「全局设置」 (Global Settings), or an Agent avatar for its Agent Settings. There is no chat top-right button. Add and delete live in Global Settings → 「智能体管理」 (Agent Management).
+- Cold launch opens 「全部」 (All), without bottom tabs or a conversation list. Tap a top avatar to switch All or Agent main views (usually private chat; News defaults to reading); tapping the selected avatar does nothing. Long-press All for 「全局设置」 (Global Settings), or an Agent avatar for its Agent Settings. There is no chat top-right button. Add and delete live in Global Settings → 「智能体管理」 (Agent Management).
 
 ## Agents, Sessions, and Extensions {#agent-model}
 
@@ -23,12 +23,14 @@ The Agent version has no old Space/Thread interfaces or automatic data migration
 「全部」 (All) is a combined view, not a broadcast to every Agent or another Agent: it displays discussion messages and verified feature notifications with their actual sender avatars on one timeline. Each member has its own discussion context in All, separate from private chat. No model receives the complete combined timeline.
 
 1. With no member selected and no leading `@`, only Muse (main, `local-main`) receives and answers. Other members neither receive nor automatically answer.
-2. Use `@` to the left of the input to select a member, or start with `@display-name ` / `@Agent-ID `. Only that member receives this message. After a confirmed send and read-back, the target clears, so the next message defaults to main. Unknown members produce an error, never fallback to main. One target per message is supported.
+2. Use `@` to the left of the input to select a member, or start with `@display-name ` / `@Agent-ID `. Only that member receives this message. The composer and target clear when the client takes ownership of the submission, so the next message defaults to main. You can prepare the next draft during a reply; completion does not erase it. Unknown members produce an error, never fallback to main. One target per message is supported.
 3. Members may explicitly ask another member for help through the real `agent` tool. The timeline shows the source, target, and responder. Only the request and explicitly supplied context reach the target; other messages are not broadcast.
-4. Tap a top Agent avatar for private chat. A sender avatar in a message opens that Agent’s settings directly. Back returns to the originating chat without changing its active Agent.
+4. Tap a top Agent avatar for its main view; News defaults to reading and can be changed to Chat in its settings. A sender avatar in a message opens that Agent’s settings directly. Back returns to the originating chat without changing its active Agent.
 5. The send arrow becomes Stop while running. Use 「同步核对」 after an unknown network result; messages are never automatically resent. Disconnecting the stream, leaving the connection, or restarting the service cancels the associated run without rolling back completed operations. File changes still require the complete diff and approval; use the pending-approval entry when shown.
 
 All supports text and tool results, but not attachments, message feedback, or multiple groups. Use private chat for attachments and feedback. SMS reminders and News “bring to conversation” still persist in the actual receiving Agent’s private chat; All only projects verified notifications, never ordinary private messages. Rebinding does not move old notifications. Resetting or deleting the receiving session removes its cleared notifications. Ordinary input still goes to main or the explicitly mentioned Agent and never implicitly follows up on a notification.
+
+After sending, the original text is retained as a pending submission while you can edit the next draft. Confirmed acceptance releases only the old submission, never a newer draft. If authoritative readback confirms it was not accepted and is not running, the original is restored only into an empty composer. When a newer draft exists, explicitly restore or discard the old message; nothing is automatically resent.
 
 ### Continue Processing a Notification {#continue-notification}
 
@@ -46,7 +48,7 @@ The All header does not cover messages. Member avatars sit to the left of replie
 
 These steps apply to private chats; see [All View](#group-chat) for the combined timeline.
 
-1. Tap a top Agent avatar to enter private chat. A quick horizontal swipe in the message reading area switches adjacent chats without wrapping at either end. The input and settings pages do not switch chats on swipe.
+1. Tap a top Agent avatar to enter private chat; if News currently uses Reading, first choose Chat under 「主视图」 in its settings. A quick horizontal swipe in the message reading area switches adjacent chats without wrapping at either end. The input and settings pages do not switch chats on swipe.
 2. Enter text in the 「消息」 input field. To send an image or text file with this message, use the 「+」 button described in [the attachment guide](files-and-approvals.md#send-attachments).
 3. Tap the send arrow to the right of the input field. The visible success signal is your message entering the chat list and the right-hand button becoming a stop square. Detailed execution status is available in the session panel.
 4. The reply streams into the page. When the model calls tools, progress appears in message tool cards or the session panel's 「动态」 view.
@@ -83,7 +85,7 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 ## Manage Members and Agents {#manage-agents}
 
 1. Tap a top avatar to switch chats. Long-press All for global settings, or an Agent avatar for its settings. Tapping the selected avatar does nothing. Android Back returns private chat to All; keyboards and overlays close first.
-2. Agent Settings contain files, dedicated rules, skills, session management, activity, and approvals. News also offers 「阅读新闻」; News and SMS each have feature settings. Inspecting another Agent does not change the original chat, its draft, or ongoing generation. Back returns to that All/private chat, or to Agent Management when entered there. The News reader returns to News Agent Settings first.
+2. Agent Settings contain files, dedicated rules, skills, session management, activity, and approvals. News also offers 「主视图」 (Main view); News and SMS each have feature settings. Inspecting another Agent does not change the original chat, its draft, or ongoing generation. Back returns to the original All view, private chat, news reader, or notification discussion. Successfully changing the main view from the active News main page returns to the selected view; settings opened from a notification discussion still return to that discussion. Settings opened from Agent Management return there.
 3. Long-press All → 「智能体管理」 → 「添加智能体」. The server confirms creation before opening the new Agent’s settings, without switching the original chat. It persists without a first message and is immediately available for mentions and notification binding. Creation disables duplicate taps and Back. Failures stay in management; an uncertain result is checked by the original ID instead of automatically creating a second Agent.
 4. Built-in names are Muse, News, and SMS. Other members use connection-local labels such as 「成员 1」. Persistent renaming and custom avatars are not available.
 
