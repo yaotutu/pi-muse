@@ -4,9 +4,9 @@ This page covers the default group chat, private chats, member profiles, message
 
 ## Prerequisites {#prerequisites}
 
-- The server is connected as described in [Quick Start](getting-started.md#connect-mobile-client), and the connection status is 「已连接」.
+- The server is connected as described in [Quick Start](getting-started.md#connect-mobile-client); check the connection under 「设置」 → 「服务器连接」.
 - An external model is configured. If the model is not configured, chat messages are rejected.
-- Cold launch opens 「群聊」 (group chat), without bottom navigation. The top-left arrow opens 「会话」 (conversations). The group top-right opens 「群组信息」 and members; a private chat top-right opens its current Agent Settings. Global settings stay at the top of the conversation list. News reading still opens from the News profile.
+- Cold launch opens 「群聊」 (group chat), without bottom navigation or a separate conversation list. The top avatar strip switches between the group and Agent private chats. The group top-right opens 「群组信息」 (Group Information); a private chat opens its current Agent Settings. Global settings are at the top-right of Group Information, which also provides Add Agent.
 
 ## Agents, Sessions, and Extensions {#agent-model}
 
@@ -36,7 +36,7 @@ The group header does not cover messages. Member avatars sit to the left of repl
 
 These steps apply to private chats; see [Default Group](#group-chat) for the group.
 
-1. Tap a member row in 「会话」 for private chat, or open its avatar profile and tap 「发消息」.
+1. Tap an Agent in the top avatar strip to enter private chat. Tap the selected avatar again or long-press any avatar to open its profile, then use 「发消息」.
 2. Enter text in the 「消息」 input field. To send an image or text file with this message, use the 「+」 button described in [the attachment guide](files-and-approvals.md#send-attachments).
 3. Tap the send arrow to the right of the input field. The visible success signal is your message entering the chat list and the right-hand button becoming a stop square. Detailed execution status is available in the session panel.
 4. The reply streams into the page. When the model calls tools, progress appears in message tool cards or the session panel's 「动态」 view.
@@ -44,7 +44,7 @@ These steps apply to private chats; see [Default Group](#group-chat) for the gro
 
 After a successful stop, the stream shows stopped or finished. Switching agents or main pages within the same foreground connection does not actively stop generation in the original agent; return to see its progress. This does not promise background execution. Explicit stopping, a disconnected chat stream, leaving the current connection, or restarting the server still cancels the associated run and invalidates pending file approvals. Tool operations that already completed are not rolled back.
 
-The avatar, back arrow, and activity button float over chat content rather than occupying a separate fixed header. The main agent has no visible agent name; other agents show their names only while the keyboard is closed. The floating chat header does not show routine status text such as ready or working, and opening the keyboard also hides the name. Detailed status remains in the session panel; error messages and the panel’s pending-approval entry remain available. Sending a message returns the view to the latest message. Scrolling upward lets you read older content; tap「回到最新」to resume following.
+The top avatar strip occupies normal layout space and never overlaps messages. Group comes first, followed by Muse, News, SMS, and other Agents; activity timestamps do not reorder it. A quick horizontal swipe over messages selects the adjacent chat without wrapping. Vertical reading, the composer, child pages, and horizontal code/table scrolling do not switch chats. The keyboard hides avatar labels to save reading space. Detailed status stays in Activity and Approvals. Switching preserves each connection-local draft and in-progress reply. Sending follows the latest message; after scrolling up, tap 「回到最新」 to resume following.
 
 After a message has definitely failed, tap「恢复到输入框」to recover it. If a new draft already exists, you may cancel, copy that draft somewhere safe and clear the input before recovering the old message, or tap「放弃未发送消息」and confirm. Discarding removes only that unsent message, preserves the current draft, and cannot be undone. Messages with an unconfirmed save result cannot be discarded or automatically resent.
 
@@ -64,9 +64,9 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 
 ## Manage Members and Agents {#manage-agents}
 
-1. Use the single 「会话」 list: the group row and bottom-right 「回到群聊」 open the default group. Member rows open private chats; avatars open profiles. The top-left arrow returns to this list, not a sidebar.
-2. Profiles contain 「发消息」, files, dedicated rules, skills, session management, activity, and approvals. News and SMS have their own feature settings. Global settings are behind the gear at the top right of the conversation list. Profiles return to the group, Group Information, private chat, or list they came from; Agent Settings opened from a chat return to that chat; the News reader returns to the News profile. Foreground resume preserves the current page rather than jumping to Muse.
-3. Search locally by display name or Agent ID. The plus button creates an ordinary member on the server before opening its profile. Even without a first message, it survives client or service restarts and is immediately available for group mentions and notification binding. The button is disabled during creation. Failure keeps you on the list with an error; an uncertain response is checked by the original ID rather than automatically creating another member.
+1. Switch chats with the top avatar strip. Tap the selected avatar again or long-press an avatar to open its profile. Android Back returns a private chat to the group, which is the root page; keyboards and overlays close first.
+2. Profiles contain 「发消息」, files, dedicated rules, skills, session management, activity, and approvals. News and SMS also have their own feature settings. Global settings open from the top-right of Group Information. Profiles return to their source group, Group Information, or private chat; the News reader returns to the News profile. Foreground resume preserves the current page.
+3. Tap 「添加智能体」 in Group Information to create the Agent on the server before opening its profile. It persists without a first message and is immediately available for mentions or notification binding. Creation disables repeat taps; errors stay in Group Information. An uncertain response is checked by the original ID rather than automatically creating another Agent.
 4. Built-in names are Muse, News, and SMS. Other members use connection-local labels such as 「成员 1」. Persistent renaming and custom avatars are not available.
 
 Each member is an existing Agent with independent private-chat history, workspace files, rules, and skill switches. Stable Agent IDs do not change when sessions reset. Assistant/user profiles, long-term memory, and skill assets remain instance-global. A member is not a separate account or an automatically distinct persona.
@@ -74,8 +74,6 @@ Each member is an existing Agent with independent private-chat history, workspac
 Opening 「动态与审批」 from a member profile or Agent Settings overlays that page and initially shows 「动态」 (Activity). Closing the panel with its close button or Android Back leaves you on the original profile or Agent Settings, without entering private chat or changing that page's return destination. When the keyboard is open, Android Back dismisses it first.
 
 News and SMS support private chats. Opening a profile or chatting does not enable background processing, request SMS permissions, or change the notification recipient. Background notifications still default to main and can be rebound to any existing Agent. Private chats and cross-agent discussions do not merge histories.
-
-The group row in the conversation list shows the latest message or feature notification with its sender, summary, and local time, updated through the same notification stream. Failed synchronization retains the old summary and shows a warning. Ordinary member rows still have no last-message previews, unread counts, or recency sorting. Explicit `@` selects a group target. A notification can open its receiving private chat, but direct targeted continuation inside the group is not available.
 
 ## Agent Rules and Skills {#agent-rules-and-skills}
 
@@ -109,7 +107,7 @@ Group chat provides explicit `@` and an input-target indicator. Ordinary private
 
 1. Open the SMS profile → 「短信设置」 and enable 「启用短信处理」 (off initially). Save filtering guidance, such as notifying about important bills while keeping marketing silent.
 2. In an Android native build, grant SMS permission. Automatic reception requires permission, a living app process, and the enabled feature. Leaving settings or switching chat agents does not stop listening. Reception after the OS terminates the app is not guaranteed. Expo Go does not include this local native module; manual text ingestion can test processing instead.
-3. New items enter the SMS feature queue for real-model batch decisions. Silent items create no chat messages. Important results enter the bound agent with 「来自短信」 (From SMS). This is not an OS push notification. The default group, its conversation-list summary, and the receiving private chat reload authoritative state through the same notification connection, including after reconnecting.
+3. New items enter the SMS feature queue for real-model batch decisions. Silent items create no chat messages. Important results enter the bound agent with 「来自短信」 (From SMS). This is not an OS push notification. The default group and the receiving private chat reload authoritative state through the same notification connection, including after reconnecting.
 4. While SMS settings is open and the app is in the foreground, it reads settings, preferences, and the latest 10 items every five seconds. Silent background decisions also update the pending, processing, processed, or failed status. Periodic reads stop when the page closes or the app backgrounds; reopening or foregrounding checks state again. Both automatic reads and 「刷新核对」 preserve unsaved filtering guidance. Failed reads retain previous records rather than showing an empty list. Unknown write or analysis outcomes still require explicit 「刷新核对」; nothing is automatically resent or rerun.
 5. In the receiving chat, explicitly ask for feedback such as “Dislike this SMS and notify me less about this kind.” The restricted `feature` tool follows the server-verified message source, reads originals, and saves reactions or comments to SMS. It does not write global memory or ordinary-agent rules, and one dislike is not a permanent ban.
 
