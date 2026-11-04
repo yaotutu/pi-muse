@@ -34,7 +34,7 @@ export type AgentRequestExecution = Required<Omit<AgentRequest, "context">> & {
   sourceDiscussionId?: string;
   signal: AbortSignal;
   approvalOwner: { agentId: string; runId: string };
-  group?: boolean;
+  userView?: "group" | "notification";
   onEvent?: (event: ExecutionEvent) => void;
 };
 export type AgentDiscussionHistory = { agentId: string; discussionId: string; messages: ConversationHistory };
@@ -48,7 +48,7 @@ export type AgentCaller = {
   discussionId?: string;
   approvalOwner?: { agentId: string; runId: string };
   requestId?: string;
-  group?: boolean;
+  userView?: "group" | "notification";
 };
 
 const validDiscussionId = (value: string) => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value);
@@ -99,7 +99,7 @@ export const createAgentCommunication = (deps: { hub: ConversationHub; runner: A
     active.set(key, { sourceAgentId: input.sourceAgentId, targetAgentId: input.targetAgentId, controller, done });
     try {
       // 回复作为本次调用结果返回，绝不等待来源会话的通知队列，也不重新解析默认通知绑定。
-      const execution = { ...input, requestId, discussionId, sourceSessionId, sourceDiscussionId, signal: controller.signal, group: caller?.group,
+      const execution = { ...input, requestId, discussionId, sourceSessionId, sourceDiscussionId, signal: controller.signal, userView: caller?.userView,
         onEvent: (event: ExecutionEvent) => deps.onEvent?.(requestId, event),
         approvalOwner: caller?.approvalOwner ?? { agentId: input.sourceAgentId, runId: requestId } };
       await deps.onStart?.(execution);

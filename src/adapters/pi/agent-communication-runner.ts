@@ -48,7 +48,8 @@ export const createAgentCommunicationRunner = (getDeps: () => Omit<PiDeps, "sess
       });
       manager.appendCustomEntry(TURN_ENTRY_TYPE, { userId: request.requestId, assistantId: `reply-${request.requestId}`, runId: request.requestId, text: request.message });
       const prompt = [
-        request.group ? "The user is speaking to you in the shared group chat. Only messages explicitly addressed to you enter your context. Reply as yourself, using your own agent; never claim to see other members' messages or private chats."
+        request.userView === "notification" ? "The user is following up on a verified notification from your agent in its own dedicated discussion. Reply as yourself. This is not a shared group chat or the receiving agent's ordinary chat; do not claim to see other discussions or private messages."
+          : request.userView === "group" ? "The user is speaking to you in the shared group chat. Only messages explicitly addressed to you enter your context. Reply as yourself, using your own agent; never claim to see other members' messages or private chats."
           : `Project agent request from ${request.sourceAgentId} to ${request.targetAgentId}.`,
         "Process this request in this discussion. Return your result or a clarification question to the caller; do not notify or call the source agent merely to return a reply.",
         request.message,

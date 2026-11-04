@@ -81,6 +81,9 @@ async function execute(options: LiveOptions) {
     const trace = (marker: string) => { const values = proxy.traces.filter((item) => item.users.some((text) => text.includes(marker))); assert.ok(values.length); return JSON.stringify(values.map((item) => item.users)); };
     assert.ok(trace("A_CONTINUED").includes("TRAVEL_CEDAR_381"));
     assert.ok(trace("A_CONTINUED").includes("FOLLOWUP_A_713"));
+    assert.ok(trace("A_CONTINUED").includes("its own dedicated discussion"));
+    assert.ok(!trace("A_CONTINUED").includes("The user is speaking to you in the shared group chat"));
+    assert.ok(trace("MAIN_READY").includes("The user is speaking to you in the shared group chat"));
     assert.ok(proxy.traces.some((item) => item.calls.some((call) => call.name === "information")));
     assert.ok(proxy.traces.some((item) => JSON.stringify(item.toolResults).includes("RAW_TRAVEL_DETAIL_891")));
     for (const other of ["BILL_WAVE_927", "MAIN_CONTEXT_462"]) assert.ok(!trace("A_CONTINUED").includes(other));

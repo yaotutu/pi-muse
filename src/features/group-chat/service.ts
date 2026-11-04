@@ -30,11 +30,11 @@ export const createGroupChat = (deps: {
   };
   const start = async (request: AgentRequestExecution) => {
     const parent = request.sourceDiscussionId ? [...turns.values()].findLast((turn) => turn.targetAgentId === request.sourceAgentId && turn.discussionId === request.sourceDiscussionId) : undefined;
-    if (!request.group && !parent) return;
+    if (!request.userView && !parent) return;
     const notification = parent?.notification ?? (active?.id === request.requestId ? active.notification : undefined);
     const turn: GroupTurn = {
       id: request.requestId, rootId: parent ? parent.rootId : request.requestId,
-      sourceAgentId: request.group ? null : request.sourceAgentId, targetAgentId: request.targetAgentId,
+      sourceAgentId: request.userView ? null : request.sourceAgentId, targetAgentId: request.targetAgentId,
       discussionId: request.discussionId, createdAt: new Date().toISOString(), finishedAt: null, status: "running",
       ...(notification ? { notification } : {}),
     };
@@ -97,7 +97,7 @@ export const createGroupChat = (deps: {
       await deps.communication.request({ sourceAgentId: targetAgentId, targetAgentId, message: input.content,
         ...(!discussionId && source ? { context: source.context } : {}),
         ...(discussionId ? { discussionId } : {}) }, controller.signal,
-      { sessionId: "group-main", requestId: input.id, group: true });
+      { sessionId: "group-main", requestId: input.id, userView: input.notification ? "notification" : "group" });
     } finally {
       active = undefined;
       signal.removeEventListener("abort", abort);
