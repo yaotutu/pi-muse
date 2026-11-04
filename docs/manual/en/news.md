@@ -1,6 +1,6 @@
 # News Reading
 
-The News member has its own private chat and reading view. Tap the top News avatar to open private chat, then tap the selected avatar again to open its profile, then 「阅读新闻」 for recommended and all-article timelines. The private-chat gear opens the current Agent Settings; the All view top-right opens Members and Settings. The reader has no chat box or bottom tab. Back returns to the News profile, then to All, Members and Settings, or private chat that opened that profile. The server reuses the existing information processing and model runtime internally; it does not add a separate recommendation engine.
+News has its own private chat and reading view. Tap its top avatar for private chat; long-press it for Agent Settings, then 「阅读新闻」 for the article timeline. The reader has no chat box or bottom tab. Back first returns to News Agent Settings, then the original chat or Agent Management. Inspecting settings and reading News do not switch the active chat. The server reuses existing information processing and model capabilities rather than a separate recommendation engine.
 
 ## Reading and Filtering {#reading}
 
@@ -14,7 +14,7 @@ The News member has its own private chat and reading view. Tap the top News avat
 
 Tap 「带到会话讨论」 (Discuss in chat) in article details. The server reads the original and writes it to the news feature's bound agent, then the client opens that chat. It does not invoke the model or ask a question on your behalf. The message shows 「来自新闻」 (From news); continue asking questions or explicitly request reactions/comments saved back to news. Reading does not push every article into chat.
 
-The default interaction agent is main. Check or change it in the News profile → 「新闻设置」. RSS and news preferences also belong to news, not the currently selected chat. If submission times out or disconnects, inspect the receiving chat, return to the article, then tap 「已核对，恢复操作」 (Checked, resume) and confirm. Operations unlock only after the chat can be read successfully; the previous discussion is never resent. Resetting an agent retains the binding, and future discussions use its new session.
+The default interaction agent is main. Check or change it in the News Agent Settings → 「新闻设置」. RSS and news preferences also belong to news, not the currently selected chat. If submission times out or disconnects, inspect the receiving chat, return to the article, then tap 「已核对，恢复操作」 (Checked, resume) and confirm. Operations unlock only after the chat can be read successfully; the previous discussion is never resent. Resetting an agent retains the binding, and future discussions use its new session.
 
 ## Managing RSS Sources {#sources}
 
@@ -36,7 +36,7 @@ The server collects every 30 minutes by default; background collection only fetc
 - Explicit preferences are saved by the user. Learned notes are a summary updated by the server from feedback. They are stored separately, and learned notes never overwrite explicit preferences, agent rules, or the global user profile.
 - For newly initialized News Agents, the default rules require recommendation reasons and learned notes in concise Simplified Chinese. RSS titles and content remain in their original language and are not translated.
 
-Open the News profile → 「新闻设置」 and save explicit notes under 「新闻偏好」. Use 「RSS 来源管理」 to manage subscriptions. When opened from settings, Back returns through news settings and the member profile, then to the list or private chat, rather than detouring through the news reader.
+Open the News Agent Settings → 「新闻设置」 and save explicit notes under 「新闻偏好」. Use 「RSS 来源管理」 to manage subscriptions. When opened from settings, Back returns through news settings and the Agent Settings, then to the original chat or Agent Management, rather than detouring through the news reader.
 
 Unsaved preference drafts remain only in memory for the current connection. Visiting RSS, another member, or chat and returning, or returning from the background, preserves input. Reopening or foregrounding checks server state but only updates unchanged notes. Failed reads retain the draft and previously loaded preferences. 「刷新核对」 also preserves unsaved input. If a save outcome is unknown, reopening does not unlock saving: explicitly check state before saving again; nothing is automatically resent. Only 「保存偏好」 submits explicit notes; saving an empty field clears them. Switching connections or restarting the app does not restore unsaved drafts.
 

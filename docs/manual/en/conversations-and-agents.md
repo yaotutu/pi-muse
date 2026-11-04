@@ -1,12 +1,12 @@
 # Conversations and agents
 
-This page covers the default All view, private chats, member profiles, message feedback, stopping runs, resetting a session, and deleting an agent in the mobile client. Entry points and limits were checked against current mobile and server source; source does not automatically equal a released APK. Follow the UI in your installed release.
+This page covers the default All view, Agent private chats and settings, message feedback, stopping runs, session reset, and Agent deletion. Instructions match current source, not necessarily a released APK; check your installed release.
 
 ## Prerequisites {#prerequisites}
 
 - The server is connected as described in [Quick Start](getting-started.md#connect-mobile-client); check the connection under 「设置」 → 「服务器连接」.
 - An external model is configured. If the model is not configured, chat messages are rejected.
-- Cold launch opens 「全部」 (All view), without bottom navigation or a separate conversation list. The top avatar strip switches between All and Agent private chats. The All view top-right opens 「成员与设置」 (Members and Settings); a private chat opens its current Agent Settings. Global settings are at the top-right of Members and Settings, which also provides Add Agent.
+- Cold launch opens 「全部」 (All), without bottom tabs or a conversation list. Tap a top avatar to switch chats; tapping the selected avatar does nothing. Long-press All for 「全局设置」 (Global Settings), or an Agent avatar for its Agent Settings. There is no chat top-right button. Add and delete live in Global Settings → 「智能体管理」 (Agent Management).
 
 ## Agents, Sessions, and Extensions {#agent-model}
 
@@ -25,7 +25,7 @@ The Agent version has no old Space/Thread interfaces or automatic data migration
 1. With no member selected and no leading `@`, only Muse (main, `local-main`) receives and answers. Other members neither receive nor automatically answer.
 2. Use `@` to the left of the input to select a member, or start with `@display-name ` / `@Agent-ID `. Only that member receives this message. After a confirmed send and read-back, the target clears, so the next message defaults to main. Unknown members produce an error, never fallback to main. One target per message is supported.
 3. Members may explicitly ask another member for help through the real `agent` tool. The timeline shows the source, target, and responder. Only the request and explicitly supplied context reach the target; other messages are not broadcast.
-4. Tap a message avatar or a member in Members and Settings to open its profile, then 「发消息」 for private chat. That private chat top-right opens its Agent Settings. Members and Settings returns to All; profiles return to their actual entry page.
+4. Tap a top Agent avatar for private chat. A sender avatar in a message opens that Agent’s settings directly. Back returns to the originating chat without changing its active Agent.
 5. The send arrow becomes Stop while running. Use 「同步核对」 after an unknown network result; messages are never automatically resent. Disconnecting the stream, leaving the connection, or restarting the service cancels the associated run without rolling back completed operations. File changes still require the complete diff and approval; use the pending-approval entry when shown.
 
 The All view supports text and tool-result display, not attachments, message feedback, notification-card continuation, or multiple groups. Use private chat for attachments and feedback. SMS background notifications and News Discuss in Chat remain stored only in the actual receiving private chat. The All view shows a read-only projection of notifications with server-verified feature markers, never ordinary private messages. Each notification identifies its source and offers a receiving-member/private-chat action. It opens the actual recipient of that notification, not the current binding. Rebinding does not move old notifications; resetting or deleting the recipient removes cleared notifications from All. Viewing does not call a model or change the All input target. Ordinary replies in All still go to main or the explicit `@` target, without automatically referring to the notification.
@@ -36,7 +36,7 @@ The All header does not cover messages. Member avatars sit to the left of replie
 
 These steps apply to private chats; see [All View](#group-chat) for the combined timeline.
 
-1. Tap an Agent in the top avatar strip to enter private chat. Tap the selected avatar again or long-press any avatar to open its profile, then use 「发消息」.
+1. Tap a top Agent avatar to enter private chat. A quick horizontal swipe in the message reading area switches adjacent chats without wrapping at either end. The input and settings pages do not switch chats on swipe.
 2. Enter text in the 「消息」 input field. To send an image or text file with this message, use the 「+」 button described in [the attachment guide](files-and-approvals.md#send-attachments).
 3. Tap the send arrow to the right of the input field. The visible success signal is your message entering the chat list and the right-hand button becoming a stop square. Detailed execution status is available in the session panel.
 4. The reply streams into the page. When the model calls tools, progress appears in message tool cards or the session panel's 「动态」 view.
@@ -64,20 +64,20 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 
 ## Manage Members and Agents {#manage-agents}
 
-1. Switch chats with the top avatar strip. Tap the selected avatar again or long-press an avatar to open its profile. Android Back returns a private chat to All, which is the root page; keyboards and overlays close first.
-2. Profiles contain 「发消息」, files, dedicated rules, skills, session management, activity, and approvals. News and SMS also have their own feature settings. Global settings open from the top-right of Members and Settings. Profiles return to their source All view, Members and Settings, or private chat; the News reader returns to the News profile. Foreground resume preserves the current page.
-3. Tap 「添加智能体」 in Members and Settings to create the Agent on the server before opening its profile. It persists without a first message and is immediately available for mentions or notification binding. Creation disables repeat taps; errors stay in Members and Settings. An uncertain response is checked by the original ID rather than automatically creating another Agent.
+1. Tap a top avatar to switch chats. Long-press All for global settings, or an Agent avatar for its settings. Tapping the selected avatar does nothing. Android Back returns private chat to All; keyboards and overlays close first.
+2. Agent Settings contain files, dedicated rules, skills, session management, activity, and approvals. News also offers 「阅读新闻」; News and SMS each have feature settings. Inspecting another Agent does not change the original chat, its draft, or ongoing generation. Back returns to that All/private chat, or to Agent Management when entered there. The News reader returns to News Agent Settings first.
+3. Long-press All → 「智能体管理」 → 「添加智能体」. The server confirms creation before opening the new Agent’s settings, without switching the original chat. It persists without a first message and is immediately available for mentions and notification binding. Creation disables duplicate taps and Back. Failures stay in management; an uncertain result is checked by the original ID instead of automatically creating a second Agent.
 4. Built-in names are Muse, News, and SMS. Other members use connection-local labels such as 「成员 1」. Persistent renaming and custom avatars are not available.
 
 Each member is an existing Agent with independent private-chat history, workspace files, rules, and skill switches. Stable Agent IDs do not change when sessions reset. Assistant/user profiles, long-term memory, and skill assets remain instance-global. A member is not a separate account or an automatically distinct persona.
 
-Opening 「动态与审批」 from a member profile or Agent Settings overlays that page and initially shows 「动态」 (Activity). Closing the panel with its close button or Android Back leaves you on the original profile or Agent Settings, without entering private chat or changing that page's return destination. When the keyboard is open, Android Back dismisses it first.
+Opening 「动态与审批」 from Agent Settings overlays that page and initially shows Activity. Closing it or pressing Android Back leaves the settings page and its return destination unchanged. An open keyboard closes first.
 
-News and SMS support private chats. Opening a profile or chatting does not enable background processing, request SMS permissions, or change the notification recipient. Background notifications still default to main and can be rebound to any existing Agent. Private chats and cross-agent discussions do not merge histories.
+News and SMS support private chat. Opening settings or chatting does not enable background processing, request SMS permission, or change notification binding. Background notifications default to main and can be rebound to any existing Agent. Private and cross-Agent discussion histories remain separate.
 
 ## Agent Rules and Skills {#agent-rules-and-skills}
 
-1. Open member profile and confirm the current agent name on the full-screen home.
+1. Long-press the top Agent avatar to open its settings and confirm the Agent name.
 2. Open 「专属规则」 or 「技能」 as a separate child page. Rules can be read first, then edited as source with 「编辑规则」.
 3. Enter how the assistant should work in this agent under 「智能体规则」, then tap 「保存规则」. After a successful save, the loaded value updates. Rules take effect from the next turn and do not rewrite generated history.
 4. Change switches under 「智能体技能」 and tap 「保存技能」. Skill files are shared as one instance-level set; switches affect only the current agent and change the actual tools plus their matching prompt guidance from the next turn.
@@ -86,9 +86,9 @@ Agent rules are limited to 20,000 characters. On Back, keep drafts for this conn
 
 ## Features and Interaction Agents {#query-information-background}
 
-Open News or SMS settings from its member profile. Each has its own Agent for originals, processing records, preferences, and private-chat history. Background notifications still default to main (`local-main`); selecting a private chat does not change the binding.
+Open feature settings from the News or SMS Agent Settings. Each has its own Agent for originals, processing records, preferences, and private-chat history. Background notifications default to main (`local-main`); selecting a chat does not change binding.
 
-1. Open the News or SMS member profile, then its feature settings.
+1. Long-press the News or SMS avatar for Agent Settings, then open its feature settings.
 2. Check 「交互承接智能体」 (Interaction agent). Use 「更换承接智能体」 to choose any Agent already established on the server. Unsaved local empty agents are not candidates.
 3. A change affects only newly accepted background runs and newly started discussions. In-flight accepted runs keep their previous target. No feature data, preferences, or chat history moves; old messages retain their feature source. If saving has an unknown outcome, use 「刷新核对」 before another change; nothing is automatically resent.
 4. See [News reading](news.md) for reading, RSS, and preferences. Manage SMS in its feature details, not in per-agent settings.
@@ -105,7 +105,7 @@ All provides explicit `@` and an input-target indicator. Ordinary private-chat i
 
 ### SMS Processing {#sms-processing}
 
-1. Open the SMS profile → 「短信设置」 and enable 「启用短信处理」 (off initially). Save filtering guidance, such as notifying about important bills while keeping marketing silent.
+1. Long-press the SMS avatar, then open 「短信设置」 and enable 「启用短信处理」 (off initially). Save filtering guidance, such as notifying about important bills while keeping marketing silent.
 2. In an Android native build, grant SMS permission. Automatic reception requires permission, a living app process, and the enabled feature. Leaving settings or switching chat agents does not stop listening. Reception after the OS terminates the app is not guaranteed. Expo Go does not include this local native module; manual text ingestion can test processing instead.
 3. New items enter the SMS feature queue for real-model batch decisions. Silent items create no chat messages. Important results enter the bound agent with 「来自短信」 (From SMS). This is not an OS push notification. The All view and the receiving private chat reload authoritative state through the same notification connection, including after reconnecting.
 4. While SMS settings is open and the app is in the foreground, it reads settings, preferences, and the latest 10 items every five seconds. Silent background decisions also update the pending, processing, processed, or failed status. Periodic reads stop when the page closes or the app backgrounds; reopening or foregrounding checks state again. Both automatic reads and 「刷新核对」 preserve unsaved filtering guidance. Failed reads retain previous records rather than showing an empty list. Unknown write or analysis outcomes still require explicit 「刷新核对」; nothing is automatically resent or rerun.
@@ -119,7 +119,7 @@ Existing generic per-agent information data and APIs remain in place. They are n
 
 ### Reset the Current Session {#reset-current-session}
 
-1. Go to member profile → 「会话管理」 → 「重置当前会话」.
+1. Go to Agent Settings → 「会话管理」 → 「重置当前会话」.
 2. Check the target agent shown in the dialog.
 3. By default, reset stops the current run, clears that agent's private-chat history, its discussions and display records in All, message feedback, unfinished approvals, Dream consolidation cursor, latest consolidation result, and pending suggestions, then opens a fresh conversation. Agent rules, skill switches, Dream configuration, private workspace files, information settings, raw items, processing records, and preference notes are retained.
 4. To also delete scheduled tasks and webpage monitors bound to the agent, select 「同时清理此智能体下的定时任务与网页监控」. It is unselected by default; jobs and monitors are rebound to the new session.
@@ -127,15 +127,15 @@ Existing generic per-agent information data and APIs remain in place. They are n
 
 Cleared chat history and message feedback cannot be recovered. Reset cancels information notifications that have not yet been written to history; historical publication links remain traceable, but feedback from the old session is not migrated as new preference examples. If the network result is unknown, the client keeps the unconfirmed state and pauses sending. Tap 「核对重置结果」 first; do not automatically retry the reset.
 
-### Delete a Agent {#delete-agent}
+### Delete an Agent {#delete-agent}
 
-1. Open the ordinary member profile you want to delete.
-2. Open member profile → 「会话管理」.
-3. Scroll to 「删除当前智能体」 and tap it to open the confirmation card.
-4. Check the deletion scope, then tap 「确认删除」.
+1. Long-press All, then open Global Settings → 「智能体管理」.
+2. Tap the delete button in the ordinary Agent’s row.
+3. Check its name, Agent ID, and irreversible deletion scope in the confirmation dialog.
+4. Tap 「确认删除」 or cancel without submitting. Deleting the active private-chat Agent falls back to All; deleting another Agent leaves the original chat unchanged.
 
 ::: danger Irreversible deletion
-Deleting an agent permanently removes its private-chat history, its discussions and display records in All, message feedback, private workspace files, agent rules, skill configuration, Dream configuration and consolidation state, information processing data, and bound scheduled tasks and webpage monitors. The action cannot be undone and does not migrate data to the main agent. Muse, News, and SMS built-in members cannot be deleted. An agent bound to a feature must be explicitly rebound in 「设置」 before deletion; it never automatically falls back to main. Use 「重置当前会话」 when you only want to clear the conversation.
+Deleting an agent permanently removes its private-chat history, its discussions and display records in All, message feedback, private workspace files, agent rules, skill configuration, Dream configuration and consolidation state, information processing data, and bound scheduled tasks and webpage monitors. The action cannot be undone and does not migrate data to the main agent. Muse, News, and SMS built-in members cannot be deleted. An agent bound to a feature must be explicitly rebound in the corresponding feature Agent’s settings before deletion; it never automatically falls back to main. Use 「重置当前会话」 when you only want to clear the conversation.
 :::
 
 If a delete request result is unknown, refresh the agent list and verify before resending. After deletion, creating an agent with the same ID later does not restore the old history.

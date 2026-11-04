@@ -6,14 +6,14 @@ This page distinguishes three easily confused concepts: attachments sent with a 
 
 - The phone is connected to the real server as described in [Quick Start](getting-started.md#connect-mobile-client).
 - Attachment selection depends on the Android system file picker. Current mobile source does not support selecting attachments in the Web preview.
-- Open files from the member profile → 「文件」. Approvals remain under 「审批」 in the session panel opened by the top-right activity button.
+- Open files from Agent Settings → 「文件」. Approvals are under Agent Settings → 「动态与审批」 → 「审批」, or the pending-approval entry when shown in All.
 
 ## What Belongs Where {#what-belongs-where}
 
 | Concept | Entry point | Ownership and use | Key boundary |
 | --- | --- | --- | --- |
 | Message attachment | 「+」 to the left of the chat input | Enters this agent's chat history with the user message and is supplied to the model as untrusted data | Not a workspace file and has no readable or writable relative path; it does not automatically become a persistent file |
-| Workspace file | member profile → 「文件」 | Private server files of the current agent; no shared-area or other-agent selector | Manual text saves require a complete before/after preview; model access is constrained by workspace boundaries |
+| Workspace file | Agent Settings → 「文件」 | Private server files of the current agent; no shared-area or other-agent selector | Manual text saves require a complete before/after preview; model access is constrained by workspace boundaries |
 | Model file approval | Session panel 「审批」 | Temporary authorization for a model-initiated `write` create/overwrite or `edit` exact edit | Each operation is approved separately; approval covers one bound version and does not guarantee execution success |
 
 Ordinary file tools can access only the current agent's private workspace and the explicitly designated `shared/...` area. They have no parent-directory privilege and cannot use absolute paths, escape directories, or bypass boundaries with symlinks. The server does not provide `bash` to the model.
@@ -39,7 +39,7 @@ Limits:
 
 ## Manage Workspace Files {#manage-workspace-files}
 
-1. Confirm the name on the member profile, then open 「文件」. This is a full-screen page, separate from the avatar panel.
+1. Confirm the name on Agent Settings, then open 「文件」. This is a full-screen page, separate from the avatar panel.
 2. Tap a directory to enter it. 「上级」 or system Back moves up one level; 「根目录」 returns to this agent's root. Returning from a file preserves its directory and list scroll position.
 3. Tap a text file to open its source editor directly. The title shows the file name; the subtitle shows the agent and parent directory. Markdown and other UTF-8 text display their complete original content, without Markdown rendering, HTML execution, or remote image loading. PNG, JPEG, GIF, and WebP can be previewed safely; other binary files can be downloaded. The top-right information icon reveals the full path, size, modification time, type, and download/delete actions.
 4. Tap 「新建文本」 to create a file; edit existing text directly in the file without entering a separate mode. 「预览保存」 (preview save) and 「放弃修改」 (discard changes) appear only after a change; returning from an unchanged file does not prompt to keep a draft. Markdown saves remain original text, not a rich-text conversion.
@@ -63,7 +63,7 @@ If the selected directory already contains a file with the same name, the app on
 3. Tap 「确认保存」. On success, the file detail returns the content actually written by the server. Creating an existing file fails without overwriting it; editing a missing file also fails and does not create it.
 4. To delete a file, first save or discard pending changes, then open the file page's top-right information icon, tap 「删除文件…」, then tap 「确认删除文件」 in the confirmation card. Only regular files can be deleted; directories cannot.
 
-Manual saves do not create model approval records. Their safety confirmation is the complete before/after preview in the member profile → 「文件」 page. If a save or delete result is unknown, the page shows 「上次文件操作结果未明」 and provides 「回读核对」. Read the file back completely, compare it, and only then explicitly unlock. Submitting again after unlocking starts a new request.
+Manual saves do not create model approval records. Their safety confirmation is the complete before/after preview in the Agent Settings → 「文件」 page. If a save or delete result is unknown, the page shows 「上次文件操作结果未明」 and provides 「回读核对」. Read the file back completely, compare it, and only then explicitly unlock. Submitting again after unlocking starts a new request.
 
 Ordinary manual saves take effect as the last successful save; there is no automatic merging or version-conflict protection. Refresh and verify the complete current content before editing. Do not apply the model approval's file-version binding to manual saves.
 
@@ -89,7 +89,7 @@ The default waiting period is 5 minutes, fixed when the approval is registered; 
 
 For a shared approval target, the mobile private-file browser does not show it: ask the model to read the exact `shared/...` path without writing, or use the protected server API to verify it.
 
-If the execution receipt is `unknown`, or you are unsure after stopping or disconnecting whether a file was written, read the target file completely (private files are in member profile → 「文件」) and compare it with the approval preview. Do not immediately approve a new write or resend the request. Approval history keeps terminal records and execution receipts, but a historical preview does not mean its authorization remains valid.
+If the execution receipt is `unknown`, or you are unsure after stopping or disconnecting whether a file was written, read the target file completely (private files are in Agent Settings → 「文件」) and compare it with the approval preview. Do not immediately approve a new write or resend the request. Approval history keeps terminal records and execution receipts, but a historical preview does not mean its authorization remains valid.
 
 ## Limits and Troubleshooting {#limits-and-troubleshooting}
 
