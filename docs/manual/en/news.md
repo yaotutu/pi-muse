@@ -1,6 +1,6 @@
 # News Reading
 
-The News member has its own private chat and reading view. Tap the top News avatar to open private chat, then tap the selected avatar again to open its profile, then 「阅读新闻」 for recommended and all-article timelines. The private-chat gear opens the current Agent Settings; the group top-right opens Group Information. The reader has no chat box or bottom tab. Back returns to the News profile, then to the group, Group Information, or private chat that opened that profile. The server reuses the existing information processing and model runtime internally; it does not add a separate recommendation engine.
+The News member has its own private chat and reading view. Tap the top News avatar to open private chat, then tap the selected avatar again to open its profile, then 「阅读新闻」 for recommended and all-article timelines. The private-chat gear opens the current Agent Settings; the All view top-right opens Members and Settings. The reader has no chat box or bottom tab. Back returns to the News profile, then to All, Members and Settings, or private chat that opened that profile. The server reuses the existing information processing and model runtime internally; it does not add a separate recommendation engine.
 
 ## Reading and Filtering {#reading}
 
