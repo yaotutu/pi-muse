@@ -65,6 +65,7 @@ The top avatar strip occupies normal layout space and never overlaps messages. A
 - Disconnected or unsynchronized state uses a gray dash, never idle. Reduced motion keeps the working indicator static. Historical problems do not return after server restart; a new attempt from the same source or five minutes clears the hint, while actual records remain in their detail views.
 - Long-press an Agent avatar and toggle 「置顶智能体」 (Pin Agent) in its settings. Pins persist on this device for the current server, remain after client restart, and do not mix between servers. A failed save displays an error instead of claiming the pin succeeded.
 - The settings identity area shows a current-state explanation. Use Activity and Approvals, News/SMS settings, or global Dream settings for work, approval, and problem details. Badges are not separate tap targets and open no extra panels.
+- The Activity and Approvals header shows the same Agent-wide state, not just whether its ordinary private chat is running. A notification discussion awaiting file approval also appears as waiting here.
 
 After a message has definitely failed, tap「恢复到输入框」to recover it. If a new draft already exists, you may cancel, copy that draft somewhere safe and clear the input before recovering the old message, or tap「放弃未发送消息」and confirm. Discarding removes only that unsent message, preserves the current draft, and cannot be undone. Messages with an unconfirmed save result cannot be discarded or automatically resent.
 
