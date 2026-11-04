@@ -13,6 +13,7 @@ import { isFeatureAgent } from "../agent-extensions/types.js";
 import { AgentError, describeAgent, type AgentStorage } from "./types.js";
 
 type Dependencies = {
+  forgetPresence?: (agentId: string) => void;
   conversationHub: ConversationHub;
   storage: AgentStorage;
   jobs: JobService;
@@ -91,6 +92,7 @@ export const createAgentService = (deps: Dependencies) => {
 
         // 9. 用全新的 sessionId 重新打开并初始化该智能体
         const nextConversation = await reopen();
+        deps.forgetPresence?.(agentId);
 
         return {
           ok: true,
@@ -145,6 +147,7 @@ export const createAgentService = (deps: Dependencies) => {
         await deps.communication.removeDiscussions(agentId);
         await deps.group.removeAgent(agentId);
         await storage.remove(agentId);
+        deps.forgetPresence?.(agentId);
         return { ok: true as const, removed: { jobs: removedJobs, monitors: removedMonitors } };
       });
     } finally {

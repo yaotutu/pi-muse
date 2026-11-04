@@ -194,7 +194,7 @@ test("approvals: decision same returns 200, preserves decidedAt, no duplicate ac
   const { service, headers } = await openService(t);
   const events: unknown[] = [];
   const unsubscribe = service.workspaceEvents.subscribe({
-    notify: (event) => events.push(event), close: () => {},
+    notify: (event) => { if (event.event === "approval_pending" || event.event === "approval_updated") events.push(event); }, close: () => {},
   });
   t.after(unsubscribe);
 

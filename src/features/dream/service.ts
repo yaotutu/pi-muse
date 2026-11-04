@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ObserveWork } from "../workspace/agent-presence.js";
 import { MemoryLimitError, type MemoryService } from "../memory/memory-service.js";
 import {
   buildDreamInput,
@@ -62,6 +63,8 @@ export type DreamProposeResult =
   | { ok: false; error: string };
 
 export type DreamDependencies = {
+  observeWork?: ObserveWork;
+  waitingChanged?: (agentId: string, waiting: boolean) => void;
   repository: DreamRepository & DreamPromptsPort & { reconcileOnStart: () => Promise<void> };
   notes: DreamNotesPort;
   memory: Pick<MemoryService, "list" | "add" | "edit" | "forget">;
@@ -121,6 +124,7 @@ export const createDreamService = (deps: DreamDependencies) => {
       repository.readAgentPrompt(agentId),
       notes.readInstructions(agentId),
     ]);
+    deps.waitingChanged?.(agentId, state.pending.length > 0);
     return {
       ...state,
       agentId,
@@ -178,6 +182,7 @@ export const createDreamService = (deps: DreamDependencies) => {
         finishRun = resolve;
       }),
     };
+    let finishWork: ReturnType<ObserveWork> | undefined;
 
     try {
       const initial = await repository.read(agentId);
@@ -199,6 +204,7 @@ export const createDreamService = (deps: DreamDependencies) => {
       }
 
       // 崩溃保护：调用模型前先落盘 running，若进程中途崩溃，下次启动会诚实改为 failed。
+      finishWork = deps.observeWork?.(agentId, "dream", "正在整理记忆");
       await repository.update(agentId, (state) => ({
         state: {
           ...state,
@@ -405,8 +411,10 @@ export const createDreamService = (deps: DreamDependencies) => {
         };
       }, { allowCreate: false });
 
+      finishWork?.(controller.signal.aborted || closed ? "cancelled" : hadFailure ? "failed" : "succeeded", changed.size > 0 || addedPending.length > 0);
       return { ok: true, state: await describeAgent(agentId) };
     } finally {
+      finishWork?.(controller.signal.aborted || closed ? "cancelled" : "failed", false);
       outerSignal?.removeEventListener("abort", forwardAbort);
       activeRun = undefined;
       finishRun();

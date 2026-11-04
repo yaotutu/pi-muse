@@ -193,6 +193,7 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
   assert.equal(typeof ready.instanceId, "string");
   assert.ok(Number.isFinite(Date.parse(ready.serverTime)));
   assert.deepEqual(ready.agentStatuses, []);
+  assert.deepEqual(ready.agentPresences, []);
   assert.deepEqual(ready.pendingApprovals, []);
   // 真实 run 期间必须收到 agent_status_updated（含终态），事件本身按各自 schema 校验。
   const running = await client.startRun("现在几点", "e2e-events");
@@ -201,7 +202,8 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
     for (;;) {
       const frame = await stream.next();
       assert.ok(frame, "event stream ended before the run terminal status");
-      assert.ok(["agent_status_updated", "approval_pending", "approval_updated"].includes(frame.event), `unexpected event ${frame.event}`);
+      assert.ok(["agent_status_updated", "agent_presence_updated", "approval_pending", "approval_updated"].includes(frame.event), `unexpected event ${frame.event}`);
+      if (frame.event === "agent_presence_updated") workspaceEvents.agent_presence_updated.parse(frame.data);
       if (frame.event === "agent_status_updated") {
         const status = workspaceEvents.agent_status_updated.parse(frame.data);
         if (status.runId === running.runId && status.status !== "running") return status;
@@ -214,7 +216,11 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
   // 记忆写入不再发失效通知；下一条业务帧应属于新 run 而不是 memory/workspace_updated。
   await client.json("/api/memories", { text: "SSE-E2E" });
   const nextRun = await client.startRun("现在几点", "e2e-events");
-  const next = await stream.next();
+  let next = await stream.next();
+  while (next?.event === "agent_presence_updated") {
+    workspaceEvents.agent_presence_updated.parse(next.data);
+    next = await stream.next();
+  }
   assert.equal(next?.event, "agent_status_updated");
   assert.equal(workspaceEvents.agent_status_updated.parse(next!.data).runId, nextRun.runId);
   // 排空本轮其余状态帧直到终态，避免把遗留增量误当作断流后的 EOF。
@@ -228,9 +234,14 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
   terminalSuccess(await nextRun.done);
   const spec = await client.json("/openapi.json");
   assert.deepEqual(Object.keys(spec.paths["/api/events"].get.responses["200"]["x-sse-events"]).sort(),
-    ["activity_updated", "agent_status_updated", "approval_pending", "approval_updated", "conversation_updated", "ready"]);
+    ["activity_updated", "agent_presence_updated", "agent_status_updated", "approval_pending", "approval_updated", "conversation_updated", "ready"]);
   // 结束服务应关闭长连接，客户端读到 EOF。
   await service.stop();
+  // 运行终态后还可能有最新的空闲头像帧；必须校验后排空，而非把它误认成额外业务操作。
+  for (let remaining = await stream.next(); remaining; remaining = await stream.next()) {
+    assert.equal(remaining.event, "agent_presence_updated");
+    assert.equal(workspaceEvents.agent_presence_updated.parse(remaining.data).state, "idle");
+  }
   assert.equal(await stream.next(), null);
 });
 

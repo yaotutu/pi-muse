@@ -225,6 +225,7 @@ test("docs: activity GET endpoints are authenticated read-only JSON operations w
   const workspaceEvents = paths["/api/events"]?.get?.responses["200"]?.["x-sse-events"];
   assert.deepEqual(Object.keys(workspaceEvents ?? {}).sort(), [
     "activity_updated",
+    "agent_presence_updated",
     "agent_status_updated",
     "approval_pending",
     "approval_updated",
@@ -677,6 +678,7 @@ test("docs: notification stream documents the client sync protocol and keeps eve
   assert.ok(operation.security?.length);
   assert.deepEqual(Object.keys(operation.responses["200"]["x-sse-events"]).sort(), [
     "activity_updated",
+    "agent_presence_updated",
     "agent_status_updated",
     "approval_pending",
     "approval_updated",
@@ -689,7 +691,7 @@ test("docs: notification stream documents the client sync protocol and keeps eve
     assert.ok(!Object.hasOwn(chat.responses["200"]["x-sse-events"], name), `聊天 SSE 不应混入通知事件 ${name}`);
 });
 
-test("docs: /api/events SSE schema is text/event-stream with six bounded client events", () => {
+test("docs: /api/events SSE schema carries bounded runtime, presence and invalidation events", () => {
   const doc = buildOpenApiDocument();
   const op = (doc.paths as Record<string, Record<string, Record<string, unknown>>>)["/api/events"]?.get;
   assert.ok(op);
@@ -702,6 +704,7 @@ test("docs: /api/events SSE schema is text/event-stream with six bounded client 
   assert.ok(table, "必须声明 x-sse-events 事件契约");
   assert.deepEqual(Object.keys(table).sort(), [
     "activity_updated",
+    "agent_presence_updated",
     "agent_status_updated",
     "approval_pending",
     "approval_updated",
@@ -715,8 +718,8 @@ test("docs: /api/events SSE schema is text/event-stream with six bounded client 
   }
   // ready 是完整替换集合；增量事件顶层都带 instanceId。
   const ready = table.ready.schema;
-  assert.deepEqual(Object.keys(ready.properties as object).sort(), ["activities", "agentStatuses", "instanceId", "pendingApprovals", "serverTime"]);
-  for (const name of ["activity_updated", "agent_status_updated", "approval_pending", "approval_updated", "conversation_updated"])
+  assert.deepEqual(Object.keys(ready.properties as object).sort(), ["activities", "agentPresences", "agentStatuses", "instanceId", "pendingApprovals", "serverTime"]);
+  for (const name of ["activity_updated", "agent_presence_updated", "agent_status_updated", "approval_pending", "approval_updated", "conversation_updated"])
     assert.ok(Object.hasOwn(table[name].schema.properties as object, "instanceId"), `${name} 顶层必须带 instanceId`);
   const conversationProps = table.conversation_updated.schema.properties as Record<string, unknown>;
   assert.deepEqual(Object.keys(conversationProps).sort(), ["agentId", "instanceId", "sessionId"]);

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { projectFeedback } from "../messages/service.js";
 import type { MessageFeedbackRepository } from "../messages/types.js";
 import { InformationError } from "./errors.js";
+import type { ObserveWork } from "../workspace/agent-presence.js";
 import { parseInformationResult } from "./result.js";
 import type {
   InformationFeedbackExample,
@@ -44,6 +45,7 @@ type Cursor = { id: string; at: string; status?: string };
 type NewsCursor = { publishedAt: string; id: string; view: "recommended" | "all"; savedOnly: boolean };
 
 export type InformationServiceDependencies = {
+  observeWork?: ObserveWork;
   repository: InformationRepository;
   agentExists: (agentId: string) => Promise<boolean>;
   retainAgent: (agentId: string) => Promise<{
@@ -712,6 +714,11 @@ export const createInformationService = (deps: InformationServiceDependencies) =
 
   const process = async (slot: ActiveSlot, claimed: InformationRun) => {
     const { controller } = slot;
+    const finish = deps.observeWork?.(claimed.agentId, "information", "正在整理信息");
+    let succeeded = false;
+    let meaningful = false;
+    let cancelled = false;
+    let deliveryFailed = false;
     let retained: Awaited<ReturnType<typeof deps.retainAgent>> | undefined;
     let targetAgentId = claimed.agentId;
     try {
@@ -725,6 +732,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         retained = await deps.retainAgent(targetAgentId);
         controller.signal.throwIfAborted();
         if (!retained) {
+          cancelled = true;
           await failRun(claimed.agentId, claimed.id, "Target agent disappeared", true);
           return;
         }
@@ -754,6 +762,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         controller.signal.throwIfAborted();
         const result = await deps.runModel(input, controller.signal);
         if (!result.ok) {
+          cancelled = result.error === "CANCELLED";
           await failRun(claimed.agentId, claimed.id, result.error, result.error === "CANCELLED");
           return;
         }
@@ -804,13 +813,16 @@ export const createInformationService = (deps: InformationServiceDependencies) =
             result: undefined,
           };
         });
-        if (deliveryCancelled) return;
+        if (deliveryCancelled) { cancelled = true; return; }
         const completed = await deps.repository.read(claimed.agentId);
+        succeeded = true;
+        meaningful = mode === "recommendations";
         const run = completed.runs.find((candidate) => candidate.id === claimed.id);
         for (const publication of run?.publications ?? []) {
           if (mode !== "notifications" || !retained || !targetSessionId) continue;
           const settingsNow = await deps.repository.read(claimed.agentId);
           if (!settingsNow.settings.enabled) {
+            cancelled = true;
             await markPublication(claimed.agentId, claimed.id, publication.notificationId, {
               status: "failed", error: "Information processing disabled before notification delivery",
             });
@@ -823,6 +835,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
             continue;
           }
           if (retained.conversation.sessionId() !== targetSessionId) {
+            deliveryFailed = true;
             await markPublication(claimed.agentId, claimed.id, publication.notificationId, {
               status: "failed", error: "Target session changed before notification delivery",
             });
@@ -839,7 +852,9 @@ export const createInformationService = (deps: InformationServiceDependencies) =
             await markPublication(claimed.agentId, claimed.id, publication.notificationId, {
               status: "published", receipt,
             });
+            meaningful = true;
           } catch {
+            deliveryFailed = !controller.signal.aborted;
             await markPublication(claimed.agentId, claimed.id, publication.notificationId, {
               status: "failed", error: controller.signal.aborted
                 ? "Cancelled before notification delivery"
@@ -857,6 +872,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       // 取消是已接纳 run 的正常终态：runNow 继续读回 cancelled 记录，不能把 AbortError 冒成 HTTP 500。
       if (!cancelled && (!(error instanceof InformationError) || error.code !== "SHUTDOWN")) throw error;
     } finally {
+      finish?.(controller.signal.aborted || cancelled ? "cancelled" : succeeded && !deliveryFailed ? "succeeded" : "failed", meaningful);
       retained?.release();
       slot.release();
     }

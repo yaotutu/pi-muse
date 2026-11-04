@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_STATUS_TOOLS, MAX_STATUS_SUBAGENTS } from "../../features/workspace/agent-status.js";
 
 /**
  * 运行状态（Agent Status）HTTP/SSE 契约：单个 run 的展示投影与查询参数。
@@ -12,12 +13,6 @@ import { z } from "zod";
  * - 工具名属于敏感展示信息，受控/隐藏工具必须输出 null，由 label 承担展示文案。
  */
 
-/** 同时跟踪的运行上限；超出时新运行被拒绝，不静默丢弃已有运行。 */
-export const MAX_CURRENT_RUNS = 32;
-/** 单个运行保留的进行中工具上限。 */
-export const MAX_STATUS_TOOLS = 64;
-/** 单个运行保留的子代理上限。 */
-export const MAX_STATUS_SUBAGENTS = 64;
 /** 运行标题最大字符数。 */
 export const MAX_STATUS_TITLE_LENGTH = 500;
 /** 运行/子代理展示文案最大字符数。 */

@@ -210,7 +210,8 @@ test("model conversation run pushes agent_status_updated events and disconnectin
   }).then(drain);
 
   // 接收运行状态推送
-  const statusFrame = await events.nextFrame();
+  let statusFrame = await events.nextFrame();
+  while (statusFrame.event !== "agent_status_updated") statusFrame = await events.nextFrame();
   assert.equal(statusFrame.event, "agent_status_updated");
   assert.equal(statusFrame.data.agentId, "local-main");
   assert.ok(statusFrame.data.revision >= 1);

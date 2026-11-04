@@ -80,13 +80,32 @@ const open = async (events: WorkspaceEvents) => {
   return sseReader(response.body!.getReader());
 };
 
+test("presence: recovered approvals keep recency and waiting belongs to the executing workspace", () => {
+  const oldTime = "2026-01-01T00:00:00.000Z";
+  let saves = 0;
+  const events = createWorkspaceEvents({ initial: { "sms-internal": oldTime }, save: () => { saves++; } });
+  try {
+    const approval = newPending({ agentId: "local-main", workspaceAgentId: "sms-internal" });
+    events.seedApprovals([approval]);
+    assert.deepEqual(events.presence.current(), [{ agentId: "sms-internal", state: "waiting", label: "等待你审批文件修改", lastActiveAt: oldTime }]);
+    events.approvalChanged(approval);
+    assert.equal(saves, 0, "恢复和重复审批阶段不能改变活动顺序");
+    events.approvalChanged(resolvePending(approval, "denied"));
+    assert.equal(events.presence.current()[0].state, "idle");
+    assert.equal(events.presence.current()[0].lastActiveAt, oldTime);
+    events.approvalChanged(newPending({ id: "approval-new", workspaceAgentId: "sms-internal" }));
+    assert.equal(saves, 1, "真正新增待办才更新活动时间");
+    assert.equal(events.presence.current().some((item) => item.agentId === "local-main"), false);
+  } finally { events.close(); }
+});
+
 test("unit: no legacy invalidate; throwing subscriber is dropped; copies are isolated", () => {
   const events = createWorkspaceEvents();
   assert.equal("invalidate" in events, false);
   const seen: WorkspaceUpdate[] = [];
   let badCalls = 0;
   events.subscribe({ notify: () => { badCalls++; throw new Error("boom"); }, close: () => {} });
-  events.subscribe({ notify: (event) => seen.push(event), close: () => {} });
+  events.subscribe({ notify: (event) => { if (event.event === "agent_status_updated") seen.push(event); }, close: () => {} });
   const run = events.beginRun({ agentId: "local-main", runId: "run-copy", source: "chat" });
   assert.equal(badCalls, 1); // 坏订阅者只被调用一次，随后被移除
 
@@ -188,7 +207,7 @@ test("routes: status exposes tool name/hidden, subagent lifecycle, increasing re
 
   const revisions: number[] = [];
   const nextStatus = async () => {
-    const [frame] = await sse.take(1);
+    const frame = (await sse.until("agent_status_updated"))!;
     assert.equal(frame.event, "agent_status_updated");
     assert.deepEqual([frame.data.instanceId, frame.data.agentId, frame.data.runId], [events.instanceId, "local-main", "run-status"]);
     revisions.push(frame.data.revision);
@@ -267,9 +286,12 @@ test("routes: approval registered during subscribe appears in ready and its fram
   const response = await createWorkspaceEventRoutes(wrapped).request("/api/events");
   assert.equal(response.status, 200);
   const sse = sseReader(response.body!.getReader());
-  const [ready, added] = await sse.take(2);
+  const [ready] = await sse.take(1);
   assert.equal(ready.event, "ready");
   assert.deepEqual(ready.data.pendingApprovals.map((item: any) => item.id), ["approval-race"]);
+  assert.equal(ready.data.agentPresences[0].state, "waiting");
+  const added = await sse.until("approval_pending");
+  assert.ok(added);
   assert.deepEqual([added.event, added.data.id, added.data.revision], ["approval_pending", "approval-race", 1]);
   await sse.close();
 });
@@ -349,7 +371,9 @@ test("routes: slow reader merges run frames but preserves approval order", async
   run.observe({ kind: "tool", phase: "start", toolCallId: "tc-late", name: "write", subagentId: null });
   events.approvalChanged(newPending({ id: "approval-b", runId: null }));
 
-  const frames = await sse.take(4);
+  const received = await sse.take(5);
+  assert.equal(received.filter((frame) => frame.event === "agent_presence_updated").length, 1);
+  const frames = received.filter((frame) => frame.event !== "agent_presence_updated");
   assert.deepEqual(frames.map((frame) => frame.event), ["ready", "agent_status_updated", "approval_pending", "approval_pending"]);
   assert.equal(frames[1].data.revision, run.snapshot().revision); // 合并到最新 revision
   assert.deepEqual(frames[1].data.tools.map((tool: any) => tool.toolCallId), ["tc-late"]);

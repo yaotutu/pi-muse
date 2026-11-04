@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { MAX_TRACKED_ACTIVITIES } from "../../features/workspace/workspace-events.js";
+import { MAX_CURRENT_RUNS, MAX_TRACKED_ACTIVITIES } from "../../features/workspace/agent-status.js";
 import { activityOverview } from "./activities.js";
-import { MAX_CURRENT_RUNS, agentStatus } from "./agent-status.js";
+import { agentStatus } from "./agent-status.js";
 import {
   MAX_PENDING_APPROVALS,
   approvalResolution,
@@ -9,11 +9,12 @@ import {
 } from "./approvals.js";
 
 /**
- * 工作区实时状态推送流契约（zod v4）：GET /api/events 上发出的六类事件。
+ * 工作区实时状态推送流契约（zod v4）：GET /api/events 的状态与历史失效事件。
  *
  * 与旧版“空对象失效通知”不同，本流直接承载可展示的最新状态：
  * - ready：连接建立时的完整当前集合（进行中的运行 + 待审批项 + 进行中的活动）；
  * - agent_status_updated：单个运行的最新状态快照；
+ * - agent_presence_updated：按智能体汇总的头像状态与最近有效活动；
  * - approval_pending：新增待审批项的完整不可变内容；
  * - approval_updated：审批进入终态与执行回执变化时的轻量投影。
  * - activity_updated：活动状态变化时的概览快照（仅状态变化时推送，progress 过程更新不推）。
@@ -40,6 +41,12 @@ const instanceIdSchema = z
   );
 
 const isoTime = z.iso.datetime().describe("ISO 8601 UTC 时间（服务端写入，固定 Z 后缀）");
+const agentPresence = z.strictObject({
+  agentId: z.string().min(1),
+  state: z.enum(["idle", "working", "waiting", "error"]),
+  label: z.string(),
+  lastActiveAt: isoTime.nullable().describe("最近有效活动时间，仅用于头像排序，不用于事件版本判定；进度与 token 不更新"),
+});
 
 /**
  * 事件表按名称索引；WORKSPACE_SSE_DESCRIPTION 直接遍历本表生成事件说明表格，
@@ -52,6 +59,7 @@ export const workspaceEvents = {
       serverTime: isoTime.describe(
         "服务端生成该快照的时间。仅用于展示和诊断，不作为事件排序或版本比较依据。",
       ),
+      agentPresences: z.array(agentPresence).describe("智能体头像状态完整替换集合，含后台信息处理、RSS、记忆整理与独立讨论；不含全部聚合状态。未出现的智能体为空闲。"),
       agentStatuses: z
         .array(agentStatus)
         .max(MAX_CURRENT_RUNS)
@@ -79,6 +87,7 @@ export const workspaceEvents = {
       "每条连接恰好一次的首帧，先于后续增量事件。data 为完整当前集合；客户端应整体替换" +
         "进行中运行、待审批集合与进行中活动集合，而不是与旧缓存做并集。单帧不超过 12MiB。",
     ),
+  agent_presence_updated: agentPresence.extend({ instanceId: instanceIdSchema }).describe("单个智能体的最新头像状态，按同一连接接收顺序覆盖。等待用户优先于错误、工作中；错误五分钟后清除或同来源新工作替换，重启不恢复错误。仅真实开始/完成及新结果更新 lastActiveAt。"),
   agent_status_updated: agentStatus
     .extend({
       instanceId: instanceIdSchema,
@@ -128,6 +137,7 @@ export const workspaceEvents = {
 
 export const WORKSPACE_SSE_DESCRIPTION = [
   "这是单用户工作区的实时状态推送流：连接建立时直接给出当前进行中的运行和待审批项的完整内容，之后推送最新变化。它与 POST /api/conversation/run 的 AG-UI 聊天文字流完全独立；不是聊天增量，不负责锁屏系统推送，也不接收任何操作命令。除 conversation_updated 是明确要求客户端重读权威历史的失效信号外，其他事件可直接更新界面，不需要为每条事件再拉一次快照。",
+  "### 智能体头像状态与排序\n\nready.agentPresences 是头像状态的完整替换集合；agent_presence_updated 直接更新对应智能体，不另建连接或逐头像轮询。状态包含普通运行、独立讨论、RSS、后台信息与 Dream 整理，优先级为等待用户、问题、工作中。空闲不显示标记，不生成「全部」聚合状态，也没有数量。连接断开时状态未知，不能展示成空闲。lastActiveAt 只表达最近有效活动：用户发来请求或新的回复、阅读结果、成功投递的通知与可处理建议；背景启动、心跳和流式 token 不更新。服务端独立保存有效活动时间，不保存历史错误；问题在同来源新工作或五分钟后清除。客户端按置顶分组、各组有效活动倒序排列；置顶是设备按服务器保存的显示偏好。",
   "### 连接与鉴权\n\n" +
     "使用支持流式读取和自定义请求头的 fetch 连接 GET /api/events，携带 `Authorization: Bearer <token>`；token 由 POST /api/session 获取。浏览器原生 EventSource 不能设置此请求头，不要改为通过 URL 传递 token。" +
     "成功响应为 HTTP 200、Content-Type: text/event-stream、Cache-Control: no-cache, no-transform。" +
@@ -143,7 +153,7 @@ export const WORKSPACE_SSE_DESCRIPTION = [
   "### 首帧 ready 与完整集合\n\n" +
     "服务端先注册订阅，再在同一同步步骤内取得当前运行、待审批集合与进行中活动集合、生成 ready 并放入发送缓冲；从订阅到快照之间没有 await，因此不会出现“先读快照、后订阅”的漏通知窗口。订阅后、ready 发出前到达的增量先进入同一有界队列缓冲，ready 作为首帧先发送，随后再按 revision 合并发送增量，保证不漏掉快照窗口内的变化，也不会让旧帧覆盖新状态。ready 是每条连接恰好一次的首帧，先于后续增量事件。" +
     "ready.agentStatuses、ready.pendingApprovals 与 ready.activities 是各自集合的完整替换值：以 ready 整体覆盖本地进行中运行、待审批集合与进行中活动集合，移除不在其中的旧项，不能只做并集或保留断线前缓存。ready 不含已结束运行的历史；某个运行结束后如需最终状态，使用 GET /api/runs/status 查询。ready.activities 只含未进入终态的活动；活动的完整历史与逐步明细使用 GET /api/activities 与 GET /api/activities/:id 查询。ready 也不重放通知历史；重连成功后客户端应重读当前打开会话的权威历史，以恢复断线期间落盘的通知。" +
-    "ready.serverTime 是服务端快照时间，仅用于展示/诊断。所有时间字段都不能用于排序或判定新旧。",
+    "ready.serverTime 是服务端快照时间，仅用于展示/诊断。时间字段不用于事件版本判定；仅 agentPresences.lastActiveAt 用于头像最近活跃排序。",
   "### 版本合并与 instanceId\n\n" +
     "运行以 (agentId, runId) 为身份、以 revision 为版本；审批以 id 为身份、以 revision 为版本。客户端只应用 revision 更高的帧，相同或更低 revision 直接忽略，因此乱序、重复或合并后的帧不会让界面倒退。revision 从 1 开始，状态变化时递增；审批进入终态或收到执行回执时 +1，重复决定不推进版本。" +
     "instanceId 标识产生事件的进程实例。instanceId 变化表示服务重启或切换实例：必须清空内存中的运行状态与运行 revision 缓存，并以新的 ready 重建；审批记录及其 revision 跨进程持久，不能因 instanceId 变化而重置或丢弃。运行 revision 只在该实例内存内有效；审批 revision 则跨进程持续有效。" +

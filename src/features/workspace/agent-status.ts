@@ -1,5 +1,11 @@
 import type { ActivityOverview } from "../activities/types.js";
 
+/** 运行与通知契约共用限制；此模块只含定义，浏览器不应为读取限制加载服务端投影和计时器。 */
+export const MAX_CURRENT_RUNS = 32;
+export const MAX_TRACKED_ACTIVITIES = 64;
+export const MAX_STATUS_TOOLS = 64;
+export const MAX_STATUS_SUBAGENTS = 64;
+
 export const agentPhases = ["preparing", "waiting_model", "responding", "executing_tool", "waiting_subagents", "waiting_approval", "finalizing"] as const;
 export type AgentPhase = typeof agentPhases[number];
 export type RunOutcome = "succeeded" | "failed" | "cancelled";

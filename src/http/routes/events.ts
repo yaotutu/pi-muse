@@ -50,6 +50,7 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
         const notify = (event: WorkspaceUpdate) => {
           if (ended) return;
           const data = event.event === "agent_status_updated" ? event.status
+            : event.event === "agent_presence_updated" ? event.presence
             : event.event === "activity_updated" ? event.activity
             : event.event === "conversation_updated" ? event.conversation
             : event.event === "approval_pending" ? presentApproval(event.approval) : presentApprovalResolution(event.approval);
@@ -57,6 +58,7 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
           if (bytes.byteLength > MAX_EVENT_BYTES) { disconnect(); return; }
           // 同一活动的连续状态帧可合并为最新一条；活动状态单调推进，旧帧无保留价值。
           const key = event.event === "agent_status_updated" ? `run:${event.status.agentId}:${event.status.runId}`
+            : event.event === "agent_presence_updated" ? `presence:${event.presence.agentId}`
             : event.event === "activity_updated" ? `activity:${event.activity.id}` : "";
           const existing = key ? queue.find((item) => item.key === key) : undefined;
           if (existing) { queuedBytes -= existing.bytes.byteLength; existing.bytes = bytes; }
@@ -72,6 +74,7 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
         const ready = frame("ready", {
           instanceId: events.instanceId, serverTime: new Date().toISOString(),
           agentStatuses: events.current(), pendingApprovals: events.pending().map(presentApproval),
+          agentPresences: events.presence.current(),
           activities: events.activities().map((act) => ({ ...act, instanceId: events.instanceId })),
         });
         if (ready.byteLength > MAX_READY_BYTES) { disconnect(); return; }

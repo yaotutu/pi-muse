@@ -57,6 +57,7 @@ import { createPiExecution } from "../adapters/pi/execution.js";
 import type { ServiceContainer } from "./types.js";
 import { createToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 import { createWorkspaceEvents } from "../features/workspace/workspace-events.js";
+import { loadAgentRecency } from "../adapters/storage/agent-recency.js";
 import { createWorkspaceFileService } from "../features/workspace/files-service.js";
 import { createWorkspaceCommitQueue } from "../adapters/workspace/file-commit-queue.js";
 import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
@@ -83,7 +84,8 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   await mkdir(layout.root, { recursive: true, mode: 0o700 });
 
   const auth = await createAuth(config, layout);
-  const workspaceEvents = createWorkspaceEvents();
+  const recency = await loadAgentRecency(join(layout.root, "agent-recency.json"));
+  const workspaceEvents = createWorkspaceEvents(recency);
   const workspaceCommits = createWorkspaceCommitQueue();
   const memoryRepository = createMemoryRepository(layout.memoryFile);
   const memory = createMemoryService(memoryRepository);
@@ -260,6 +262,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     },
   );
   information = createInformationService({
+    observeWork: workspaceEvents.presence.observe,
     repository: informationRepository,
     agentExists: async (agentId) => isFeatureAgent(agentId) || agentId === "local-main" || (await conversationHub.agents()).some((agent) => agent.id === agentId),
     retainAgent: (agentId) => conversationHub.retainAgent(agentId),
@@ -278,12 +281,19 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   }));
   communication = createAgentCommunication({
     hub: conversationHub, timeoutMs: config.runTimeoutMs, runner: communicationRunner,
-    onStart: (request) => group.start(request), onFinish: (receipt) => group.finish(receipt),
+    onStart: async (request) => {
+      workspaceEvents.presence.start(request.targetAgentId, `discussion:${request.requestId}`, "正在回复消息", true);
+      await group.start(request);
+    }, onFinish: async (receipt) => {
+      workspaceEvents.presence.set(receipt.targetAgentId, `discussion:${receipt.requestId}`, receipt.status === "failed" ? { state: "error", label: "回复失败，请查看消息" } : null, receipt.status === "completed");
+      await group.finish(receipt);
+    },
     onEvent: (id, event) => group.event(id, event),
   });
   group = createGroupChat({ repository: createGroupRepository(join(layout.root, "group.json")), communication, history: communicationRunner.history, notifications: features.notifications });
   const informationScheduler = createInformationScheduler(information);
   const news = createNewsService({
+    observeWork: workspaceEvents.presence.observe,
     repository: newsRepository,
     information,
     ensureInternalAgent: async () => {
@@ -361,6 +371,8 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   };
   const activities = createActivityService(conversationHub);
   const dream = createDreamService({
+    observeWork: workspaceEvents.presence.observe,
+    waitingChanged: (agentId, waiting) => workspaceEvents.presence.set(agentId, "dream-pending", waiting ? { state: "waiting", label: "记忆整理有待确认建议，请查看 Dream" } : null),
     repository: dreamRepository,
     notes: {
       readUser: () => readProfileFile(layout.userFile),
@@ -397,7 +409,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     enabled: config.browser.enabled,
     desktopPort: config.browser.desktopPort,
   });
-  const agents = createAgentService({ conversationHub, storage: createAgentStorage(layout), jobs, monitors, actions, dream, information, communication, group, features, messageFeedbackRepository });
+  const agents = createAgentService({ conversationHub, storage: createAgentStorage(layout), jobs, monitors, actions, dream, information, communication, group, features, messageFeedbackRepository, forgetPresence: workspaceEvents.presence.forget });
   const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, communication, group, agents, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
@@ -416,12 +428,14 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       } finally {
         browserDesktop.close();
       }
+      await recency.flush();
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
     })();
     return closing;
   };
   try {
+    await dream.describeAll();
     const app = await createHttpApp(dependencies);
     scheduler.start();
     monitorScheduler.start();

@@ -4,6 +4,7 @@ import type { InformationArticleFeedback } from "../information/types.js";
 import { NewsError } from "./errors.js";
 import type { NewsRepository, NewsSource, ParsedFeed } from "./types.js";
 import { NEWS_INTERNAL_AGENT_ID } from "./types.js";
+import type { ObserveWork } from "../workspace/agent-presence.js";
 
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 const SOURCE_ERROR = "RSS source fetch or parse failed";
@@ -21,6 +22,7 @@ const assertPublicFeedUrl = (raw: string) => {
 };
 
 export type NewsServiceDependencies = {
+  observeWork?: ObserveWork;
   repository: NewsRepository;
   information: InformationService;
   ensureInternalAgent: () => Promise<void>;
@@ -115,6 +117,7 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
     requireOpen();
     if (refreshing) throw new NewsError("REFRESHING", "RSS refresh is already running");
     refreshing = true;
+    const finish = deps.observeWork?.(NEWS_INTERNAL_AGENT_ID, "rss", "正在收集新闻");
     const controller = new AbortController();
     refreshController = controller;
     const work = (async () => {
@@ -168,11 +171,15 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
       if (options.retryFailed) {
         await deps.information.retryFailedNews(NEWS_INTERNAL_AGENT_ID);
       }
+      finish?.(failed ? "failed" : "succeeded", added > 0);
       return { added };
     })();
     activeRefresh = work;
     try {
       return await work;
+    } catch (error) {
+      finish?.(controller.signal.aborted ? "cancelled" : "failed", false);
+      throw error;
     } finally {
       refreshing = false;
       activeRefresh = undefined;
