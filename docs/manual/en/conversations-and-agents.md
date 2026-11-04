@@ -28,7 +28,17 @@ The Agent version has no old Space/Thread interfaces or automatic data migration
 4. Tap a top Agent avatar for private chat. A sender avatar in a message opens that Agent’s settings directly. Back returns to the originating chat without changing its active Agent.
 5. The send arrow becomes Stop while running. Use 「同步核对」 after an unknown network result; messages are never automatically resent. Disconnecting the stream, leaving the connection, or restarting the service cancels the associated run without rolling back completed operations. File changes still require the complete diff and approval; use the pending-approval entry when shown.
 
-The All view supports text and tool-result display, not attachments, message feedback, notification-card continuation, or multiple groups. Use private chat for attachments and feedback. SMS background notifications and News Discuss in Chat remain stored only in the actual receiving private chat. The All view shows a read-only projection of notifications with server-verified feature markers, never ordinary private messages. Each notification identifies its source and offers a receiving-member/private-chat action. It opens the actual recipient of that notification, not the current binding. Rebinding does not move old notifications; resetting or deleting the recipient removes cleared notifications from All. Viewing does not call a model or change the All input target. Ordinary replies in All still go to main or the explicit `@` target, without automatically referring to the notification.
+All supports text and tool results, but not attachments, message feedback, or multiple groups. Use private chat for attachments and feedback. SMS reminders and News “bring to conversation” still persist in the actual receiving Agent’s private chat; All only projects verified notifications, never ordinary private messages. Rebinding does not move old notifications. Resetting or deleting the receiving session removes its cleared notifications. Ordinary input still goes to main or the explicitly mentioned Agent and never implicitly follows up on a notification.
+
+### Continue Processing a Notification {#continue-notification}
+
+1. In All or the actual receiving private chat, tap 「继续处理」 below a notification. Its separate discussion shows the source and a quoted summary, with a composer such as 「回复短信…」 or 「回复新闻…」. Opening it does not call a model.
+2. Send an explicit request. The server verifies the original notification and routes it to its real source Agent. SMS replies as SMS even when Muse received the notification. Rebinding does not change the source of old notifications. Mentions inside this discussion are plain text and do not change the recipient.
+3. Follow-ups continue the same discussion. Other notifications, ordinary group chat, and private histories are not automatically included. The source may explicitly request another Agent’s help.
+4. Return to the originating chat and tap 「查看讨论与处理结果」 to read replies. Ordinary chat and each notification discussion keep separate drafts for this connection. Switching pages does not stop generation. Saved discussions can be reopened after client restart, but unsent drafts are not persisted.
+5. Stop, approval, and uncertain-result rules match All: file changes still require a complete diff and human approval, and requests are never automatically retried. A cleared notification blocks new sends with an expired-source message. A missing existing discussion never silently starts fresh or falls back to Muse.
+
+Comments and like/dislike remain feedback, not execution commands. Use 「继续处理」 to explicitly request an action.
 
 The All header does not cover messages. Member avatars sit to the left of replies, with names, text, and tool results aligned in one column. A directed `@member` appears inline at the start of its message, without a background highlight: medium-weight white text in blue bubbles, or the theme accent color in member bubbles, with long text wrapping naturally. Code blocks, tables, and other block content retain their layout. Tool results for one reply initially share one low-emphasis “工具记录” (tool records) row, showing the count and actual result status. Failure and missing-result counts remain visible. Tap the row to expand each summary and source, then tap again to collapse. Stopped or failed labels stay below the affected reply, rather than collecting at the end of history.
 
@@ -109,7 +119,7 @@ The target uses its own rules, skills, workspace, and existing information, with
 
 Request replies return to their caller; only unsolicited background notifications use the configured interaction agent. Stopping the current run cancels its associated requests. Failures are not automatically retried, and completed side effects are not rolled back. Resetting the target clears its discussions. Resetting the source does not delete another agent's discussions or deliver old replies into the new session.
 
-All provides explicit `@` and an input-target indicator. Ordinary private-chat input still goes to the current member first. Notification-card continuation and a dedicated discussion screen are not available; feedback comments are not task execution.
+All provides explicit `@` and an input-target indicator. Ordinary private-chat input still goes to the current member first. For explicit notification follow-ups, see [Continue Processing a Notification](#continue-notification). Comments remain feedback, not task execution.
 
 ### SMS Processing {#sms-processing}
 

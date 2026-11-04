@@ -1,10 +1,11 @@
 import type { ConversationHistory, ExecutionEvent } from "../conversation/types.js";
-import type { FeatureNotification } from "../agent-extensions/types.js";
+import type { FeatureNotification, NotificationReference } from "../agent-extensions/types.js";
 import { AgentCommunicationError, type AgentCommunication, type AgentRequestExecution, type AgentRequestReceipt } from "../agent-communication/service.js";
 
 export type GroupTurn = {
   id: string; rootId: string; sourceAgentId: string | null; targetAgentId: string;
   discussionId: string; createdAt: string; finishedAt: string | null; status: "running" | "completed" | "failed" | "cancelled";
+  notification?: NotificationReference;
 };
 export type GroupRepository = {
   read: () => Promise<GroupTurn[]>;
@@ -18,21 +19,24 @@ export const createGroupChat = (deps: {
   repository: GroupRepository; communication: AgentCommunication;
   history: (agentId: string, discussionId: string) => Promise<{ messages: ConversationHistory }>;
   notifications: () => Promise<FeatureNotification[]>;
+  resolveNotification: (reference: NotificationReference) => Promise<{ targetAgentId: string; context: string }>;
 }) => {
   const turns = new Map<string, GroupTurn>();
-  let active: { id: string; controller: AbortController; emit: (event: GroupEvent) => void } | undefined;
+  let active: { id: string; controller: AbortController; emit: (event: GroupEvent) => void; notification?: NotificationReference } | undefined;
   const initialize = async () => {
     const saved = await deps.repository.read();
     for (const turn of saved) turns.set(turn.id, { ...turn, status: turn.status === "running" ? "cancelled" : turn.status });
     if (saved.some((turn) => turn.status === "running")) await deps.repository.update(() => [...turns.values()]);
   };
   const start = async (request: AgentRequestExecution) => {
-    const parent = request.sourceDiscussionId && [...turns.values()].findLast((turn) => turn.targetAgentId === request.sourceAgentId && turn.discussionId === request.sourceDiscussionId);
+    const parent = request.sourceDiscussionId ? [...turns.values()].findLast((turn) => turn.targetAgentId === request.sourceAgentId && turn.discussionId === request.sourceDiscussionId) : undefined;
     if (!request.group && !parent) return;
+    const notification = parent?.notification ?? (active?.id === request.requestId ? active.notification : undefined);
     const turn: GroupTurn = {
       id: request.requestId, rootId: parent ? parent.rootId : request.requestId,
       sourceAgentId: request.group ? null : request.sourceAgentId, targetAgentId: request.targetAgentId,
       discussionId: request.discussionId, createdAt: new Date().toISOString(), finishedAt: null, status: "running",
+      ...(notification ? { notification } : {}),
     };
     await deps.repository.update((items) => [...items, turn]);
     turns.set(turn.id, turn);
@@ -65,27 +69,33 @@ export const createGroupChat = (deps: {
         return { ...turn, messages: first < 0 ? [] : history.slice(first, next < 0 ? undefined : next) };
       })) };
   };
-  const send = async (input: { id: string; content: string; targetAgentId?: string }, signal: AbortSignal, emit: (event: GroupEvent) => void) => {
+  const send = async (input: { id: string; content: string; targetAgentId?: string; notification?: NotificationReference }, signal: AbortSignal, emit: (event: GroupEvent) => void) => {
     if (active || turns.has(input.id)) throw new AgentCommunicationError("BUSY", "Group is busy or message was already accepted; read group history before sending again");
-    const targetAgentId = input.targetAgentId ?? "local-main";
+    if (input.notification && input.targetAgentId) throw new AgentCommunicationError("INVALID_INPUT", "Notification follow-up cannot specify a target agent");
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
-    active = { id: input.id, controller, emit };
+    active = { id: input.id, controller, emit, notification: input.notification };
     try {
-      const previous = [...turns.values()].findLast((turn) => turn.sourceAgentId === null && turn.targetAgentId === targetAgentId);
+      // 每次追问先验证来源仍存在；客户端只传引用，不提供来源正文或执行目标。
+      const source = input.notification ? await deps.resolveNotification(input.notification) : undefined;
+      const targetAgentId = source?.targetAgentId ?? input.targetAgentId ?? "local-main";
+      const sameNotification = (a: NotificationReference | undefined, b: NotificationReference | undefined) =>
+        a && b ? a.targetAgentId === b.targetAgentId && a.sessionId === b.sessionId && a.messageId === b.messageId : a === b;
+      const previous = [...turns.values()].findLast((turn) => turn.sourceAgentId === null && turn.targetAgentId === targetAgentId && sameNotification(turn.notification, input.notification));
       let discussionId = previous?.discussionId;
       if (discussionId) {
         try { await deps.history(targetAgentId, discussionId); }
         catch (error) {
-          // 首轮可能在 pi 创建 JSONL 前失败；下次新建讨论，不重发旧消息，也不吞掉损坏错误。
-          if (!(error instanceof AgentCommunicationError) || error.code !== "NOT_FOUND") throw error;
+          // 普通聊天首轮可能在创建 JSONL 前失败，可新建讨论；通知续聊缺失则明确报错，不丢失原事项背景。
+          if (!(error instanceof AgentCommunicationError) || error.code !== "NOT_FOUND" || input.notification) throw error;
           discussionId = undefined;
         }
       }
-      // 每个成员在群里拥有自己的持久讨论；只接收发给自己的消息，与私聊独立。
+      // 普通聊天按成员续接，通知按来源引用分开；都不拼接双方私聊或其他事项。
       await deps.communication.request({ sourceAgentId: targetAgentId, targetAgentId, message: input.content,
+        ...(!discussionId && source ? { context: source.context } : {}),
         ...(discussionId ? { discussionId } : {}) }, controller.signal,
       { sessionId: "group-main", requestId: input.id, group: true });
     } finally {

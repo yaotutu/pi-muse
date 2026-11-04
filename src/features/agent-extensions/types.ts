@@ -9,6 +9,8 @@ export const featureForAgent = (agentId: string): FeatureId | undefined => FEATU
 /** 来源由服务端写入 PI 通知，不从正文或客户端参数推断跨智能体权限。 */
 export type FeatureSource = { featureId: FeatureId; itemIds: string[] };
 export type FeatureLink = FeatureSource & { agentId: string; sessionId: string; messageId: string };
+/** 引用历史承接位置，不代表继续处理时的执行目标。 */
+export type NotificationReference = { targetAgentId: string; sessionId: string; messageId: string };
 /** 只读展示投影；正文仍只保存在实际承接会话的 PI 历史。 */
 export type FeatureNotification = {
   id: string; featureId: FeatureId; targetAgentId: string; sessionId: string;

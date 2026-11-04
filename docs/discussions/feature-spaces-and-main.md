@@ -1,5 +1,7 @@
 # 功能模块、独立 Space 与交互承接空间的关系
 
+> 本文保留当时的 Space 术语和旧导航方案，属于历史决策资料。当前统一 Agent、通知来源续聊和界面入口以[架构规范](../architecture.md#智能体通信与独立讨论)及[用户手册](../manual/conversations-and-agents.md#continue-notification)为准；不得按旧导航继续实施。
+
 确认日期：2026-11-02。
 
 **状态：功能存储与通知绑定底座已验收；成员式导航与独立私聊首批已验收；member-chat 默认群聊与显式 @ 已分段验收，范围和限制见同一记录。** 本文保存产品关系和边界，具体实现以架构与契约为准；范围、证据和限制见[REQ-014 验收记录](../archive/req-014-feature-spaces.md)与[成员式导航首批验收](../archive/req-016-member-navigation.md)。本任务不授权迁移真实数据。当前实现见[架构规范](../architecture.md)，需求索引见[需求池](../backlog.md)。

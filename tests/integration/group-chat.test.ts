@@ -14,6 +14,11 @@ test("group contract defaults to main, permits only a single explicit target, an
   assert.ok(groupSendSchema.safeParse({ id: "group-two", content: "hello", targetAgentId: "sms-internal" }).success);
   for (const extra of [{ messages: [] }, { targets: ["local-main", "sms-internal"] }, { targetAgentId: "../escape" }, { content: " " }])
     assert.equal(groupSendSchema.safeParse({ id: "group-three", content: "hello", ...extra }).success, false);
+  const reference = { targetAgentId: "local-main", sessionId: "session", messageId: "notice" };
+  assert.ok(groupSendSchema.safeParse({ id: "followup", content: "continue", notification: reference }).success);
+  for (const notification of [{ ...reference, featureId: "sms" }, { ...reference, content: "forged" }, { ...reference, sessionId: "" }])
+    assert.equal(groupSendSchema.safeParse({ id: "followup", content: "continue", notification }).success, false);
+  assert.equal(groupSendSchema.safeParse({ id: "followup", content: "continue", notification: reference, targetAgentId: "local-main" }).success, false);
   const doc = JSON.stringify(buildOpenApiDocument());
   for (const value of ["/api/group", "只交给 local-main", "不广播", "群时间线注入模型", "无心跳", "结果未明", "不自动重发", "私聊上下文独立", "notifications", "实际落盘的承接智能体", "读取中再次失效须补读"])
     assert.ok(doc.includes(value), value);
@@ -43,13 +48,23 @@ test("group projects only verified feature notifications without copying private
     assert.equal(projected.notifications.find((item) => item.id === news.notificationId)?.targetAgentId, "notice-recipient");
     assert.deepEqual(await main.snapshot(), before, "Group GET must not change private history/revision/feedback");
     await assert.rejects(readFile(join(root, "group.json")), { code: "ENOENT" });
+    const reference = { targetAgentId: "local-main", sessionId: sms.sessionId, messageId: sms.messageId };
+    const resolved = await service.features.resolveNotification(reference);
+    assert.equal(resolved.targetAgentId, "sms-internal");
+    assert.deepEqual(JSON.parse(resolved.context).itemIds, ["sms-item"]);
+    assert.equal(JSON.parse(resolved.context).untrusted, true);
+    await assert.rejects(service.features.resolveNotification({ ...reference, sessionId: "wrong-session" }), { code: "NOT_FOUND" });
+    const ordinary = before.messages.find((message) => message.content.includes("forged text"))!;
+    await assert.rejects(service.features.resolveNotification({ ...reference, messageId: ordinary.id }), { code: "NOT_FOUND" });
     await service.features.bind("sms", "notice-recipient");
+    assert.equal((await service.features.resolveNotification(reference)).targetAgentId, "sms-internal");
     assert.equal((await group()).notifications.find((item) => item.id === sms.notificationId)?.targetAgentId, "local-main");
     await service.close();
     service = await createService(config);
     assert.deepEqual((await group()).notifications, projected.notifications);
     const reset = async (id: string) => service.app.request(`/api/agents/${id}/reset`, { method: "POST", headers: { authorization: `Bearer ${service.auth.login("group-test")}`, "content-type": "application/json" }, body: "{}" });
     assert.equal((await reset("local-main")).status, 200);
+    await assert.rejects(service.features.resolveNotification(reference), { code: "NOT_FOUND" });
     assert.deepEqual((await group()).notifications.map((item) => item.id), [news.notificationId]);
     await service.features.bind("sms", "local-main");
     await service.features.bind("news", "local-main");

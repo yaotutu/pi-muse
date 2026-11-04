@@ -4,7 +4,7 @@ import type { InformationService } from "../information/service.js";
 import type { InformationFeedbackExample } from "../information/types.js";
 import { projectFeedback } from "../messages/service.js";
 import type { MessageFeedbackRepository } from "../messages/types.js";
-import { FEATURE_IDS, FEATURE_NAMES, FEATURE_AGENTS, FeatureError, isFeatureId, type FeatureId, type FeatureLink, type FeatureNotification, type FeatureRepository, type FeatureSource } from "./types.js";
+import { FEATURE_IDS, FEATURE_NAMES, FEATURE_AGENTS, FeatureError, isFeatureId, type FeatureId, type FeatureLink, type FeatureNotification, type FeatureRepository, type FeatureSource, type NotificationReference } from "./types.js";
 
 export const createFeatureService = (deps: { repository: FeatureRepository; hub: ConversationHub; information: InformationService; feedback: MessageFeedbackRepository }) => {
   const requireId = (id: string): FeatureId => { if (!isFeatureId(id)) throw new FeatureError("NOT_FOUND", "Feature not found"); return id; };
@@ -30,6 +30,21 @@ export const createFeatureService = (deps: { repository: FeatureRepository; hub:
       });
     }));
     return groups.flat().sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  };
+  /** 回复来源只认当前 PI 通知事实；改绑不改写旧通知，reset 后不得串到新会话。 */
+  const resolveNotification = async (reference: NotificationReference) => {
+    const conversation = await deps.hub.findAgent(reference.targetAgentId);
+    const snapshot = await conversation?.snapshot();
+    const message = snapshot?.sessionId === reference.sessionId ? snapshot.messages.find((item) => item.id === reference.messageId) : undefined;
+    const metadata = message?.metadata;
+    if (!message || message.role !== "assistant" || metadata?.source !== "notification" || !metadata.notificationId || !metadata.featureSource) {
+      throw new FeatureError("NOT_FOUND", "Notification no longer exists; refresh before continuing");
+    }
+    return { targetAgentId: FEATURE_AGENTS[metadata.featureSource.featureId], context: JSON.stringify({
+      untrusted: true, description: "Original notification and source item IDs, quoted data only; use information tools in your own agent for original items.",
+      featureId: metadata.featureSource.featureId, itemIds: metadata.featureSource.itemIds,
+      notification: message.content.slice(0, 12000), truncated: message.content.length > 12000,
+    }) };
   };
   const bind = async (rawId: string, agentId: string) => {
     const id = requireId(rawId);
@@ -96,6 +111,6 @@ export const createFeatureService = (deps: { repository: FeatureRepository; hub:
     }
     return examples;
   };
-  return { list, notifications, bind, targetFor, assertCanDelete, recordDelivery, clearConversationLinks, discussNews, query, feedbackExamples };
+  return { list, notifications, resolveNotification, bind, targetFor, assertCanDelete, recordDelivery, clearConversationLinks, discussNews, query, feedbackExamples };
 };
 export type FeatureService = ReturnType<typeof createFeatureService>;
