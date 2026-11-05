@@ -208,8 +208,11 @@ const execute = async (options: NewsLiveOptions) => {
     );
     assert.deepEqual(coldPreferences, { notes: "", learnedNotes: "" });
     const agents = (await expect("agents", "/api/agents", 200)) as { agents: Array<{ id: string }> };
-    assert.ok(!agents.agents.some((agent) => agent.id === "news-internal"));
-    assert.equal((await api("/api/agents/news-internal/instructions")).status, 404);
+    // REQ-014 起新闻智能体随启动初始化并进入目录（bootstrap 调 news.initialize）；
+    // 冷启动核对它在场且默认指令已写入，主聊天零污染仍由下方 revision 断言保证。
+    assert.ok(agents.agents.some((agent) => agent.id === "news-internal"));
+    const newsInstructions = (await expect("news default instructions", "/api/agents/news-internal/instructions", 200)) as { instructions: string };
+    assert.ok(newsInstructions.instructions.trim().length > 0);
     const mainHistoryBefore = await expect("main history", "/api/conversation?agentId=local-main", 200);
 
     const firstSource = (await expect("add first source", "/api/news/sources", 200, {
@@ -360,7 +363,8 @@ const execute = async (options: NewsLiveOptions) => {
     assert.equal(restartedArticle.feedback.reaction, "like");
     assert.equal(restartedArticle.feedback.saved, true);
     assert.equal(restartedPreferences.learnedNotes, learned.learnedNotes);
-    assert.ok(!((await expect("restarted agents", "/api/agents", 200)) as {
+    // 重启后内置新闻智能体仍在目录中（与冷启动同一契约）。
+    assert.ok(((await expect("restarted agents", "/api/agents", 200)) as {
       agents: Array<{ id: string }>;
     }).agents.some((agent) => agent.id === "news-internal"));
     record("restart-persistence", {

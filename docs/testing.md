@@ -105,7 +105,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 ### `tests/live/news.ts`
 
 - 启动隔离后端并经真实透明代理调用外部模型，不读取正式实例或凭据；显式抓取真实公网 RSS2，不使用合成 feed 冒充真实验收。
-- 覆盖源添加、重复 refresh 不重复接纳、cold start、结构化推荐与 reason、全部/推荐/收藏筛选、逐篇喜欢/不喜欢/评论/收藏、反馈进入下一轮模型输入与 learnedNotes、删除源保留文章和反馈、内部智能体不出现在公开列表且主聊天 revision 不变、重启后源/文章/反馈/偏好恢复。
+- 覆盖源添加、重复 refresh 不重复接纳、cold start、结构化推荐与 reason、全部/推荐/收藏筛选、逐篇喜欢/不喜欢/评论/收藏、反馈进入下一轮模型输入与 learnedNotes、删除源保留文章和反馈、内置新闻智能体随启动进入目录且重启仍在（主聊天 revision 不变）、重启后源/文章/反馈/偏好恢复。
 - 以真实 RSS HTTP、后端 repository/API 状态、真实代理 tool call/result 与重启回读为证据；失败不自动重试模型。纯解析、存储和路由边界可用合成 XML/本地 HTTP 另做聚焦回归，但不能替代本项真实公网与模型验收。
 - `--allow-private-targets` 是 news live 脚本专属选项，默认 `false`，重复传入会拒绝。仅当本机 DNS 对公网域名返回 198.18 Fake-IP、需要在 loopback 隔离实例中抓取真实 RSS 时显式启用；共享 live options、生产配置和默认 SSRF 防护均不改变。输出必须如实说明该网络例外。
 
