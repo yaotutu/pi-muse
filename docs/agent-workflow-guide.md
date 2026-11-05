@@ -15,7 +15,7 @@
 | 执行者 | 模型 | 适用与边界 |
 | --- | --- | --- |
 | 原生 sub agent（Agent 工具） | Claude 系（sonnet/opus/haiku/fable，不能指定第三方模型） | 服务端任务的默认执行者；也用于只读调查/探索、worktree 内实现、回归运行、独立复查与文档草稿。fork 可继承主会话上下文 |
-| `codex exec`（GPT） | 由 codex 自身配置决定 | 客户端 UI/视觉任务优先派发：需要看截图、比对布局的活。用法要点：任务书经 stdin 传入、`-C` 指定工作根、`-s workspace-write`、视觉任务用 `-i` 附图、可用 `--json` 取结构化输出；不使用 bypass 审批/沙箱的参数 |
+| `codex exec`（外部执行者） | 由 codex 自身配置决定；本机实测为 `antigravity/gemini-3.8-flash`（magpie provider），不是 GPT，以每次运行头部输出的 `model:` 行为准 | 客户端 UI/视觉任务优先派发：需要看截图、比对布局的活（2026-11-05 实测通过，含读图、源码映射与新旧界面核对）。用法要点：任务书经 stdin 传入、`-C` 指定工作根、`-s workspace-write`、视觉任务用 `-i` 附图、可用 `--json` 取结构化输出；不使用 bypass 审批/沙箱的参数 |
 | GLM / DeepSeek | 暂未接入（无 CLI、无 key） | 用户偏好用于服务端纯文字任务；配好 provider/key 后服务端切换为优先。接入前不得声称已由它们执行 |
 | Gemini | 暂未接入（本机仅有 Antigravity IDE 配置，无 gemini CLI） | 用户偏好用于客户端视觉任务；配置后纳入客户端轮换 |
 
