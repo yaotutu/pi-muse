@@ -9,6 +9,15 @@ This page explains the mobile client's assistant and user profiles, common appea
 
 Profile, long-term memory, and Dream management pages share a fixed header: the title and 「返回设置」 (Back to Settings) stay visible while the form scrolls. The top-left arrow and Android Back return to the settings home, then to the originating chat. Android Back dismisses an open keyboard first. Leaving a page does not save or discard its drafts, nor does it unlock a write with an unknown result.
 
+## Default Group Collaboration {#group-collaboration}
+
+1. Long-press All → 「默认组协作」. Currently this manages one default group, not multiple-group creation or switching.
+2. Edit the name, purpose, and collaboration guidance. Select existing Agents to add or remove them. The default responder must remain a member; choose another default before removing it. Removal does not delete history, private chat, instructions, or files.
+3. Tap Save. The server rejects configuration changes while sending or routing; check again and save later. The last successful save wins without automatic merging. Initially membership comes from the current directory; after the first membership save, newly created Agents must be added manually.
+4. Edit public capabilities in each Agent's own 「公开能力」 page. Group guidance applies only to routing and replies in this group, not permanent member instructions, and cannot bypass file approvals or tool boundaries.
+
+Group and capability drafts survive navigation within this connection, without autosave or device persistence. Failed reads preserve existing values and drafts. An unknown save result requires explicit 「刷新核对」 (Refresh and Check); nothing is automatically resent. Reopening or automatic reads do not unlock an uncertain save. Changing servers or restarting the client discards unsaved drafts and unconfirmed routing suggestions.
+
 ## Assistant and User Profile {#assistant-and-user-profile}
 
 1. Go to Global Settings by long-pressing the All avatar → 「助手与个人资料」 → 「助手与用户资料」. After a successful read, the page shows 「助手设置」 and 「人设与资料」.

@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 
 export type CallTrace = {
-  index: number; startedAt: number; endedAt?: number; child: boolean;
+  index: number; startedAt: number; endedAt?: number; upstreamStatus?: number; child: boolean;
   users: string[]; toolNames: string[]; toolResults: string[];
   calls: { name: string; arguments: string }[]; output: string; disconnected: boolean;
   systemMarkers: {
@@ -99,6 +99,8 @@ export const createLiveModel = async (model: { baseUrl: string; apiKey?: string 
           method: "POST", headers: { "Content-Type": "application/json", ...(model.apiKey ? { Authorization: `Bearer ${model.apiKey}` } : {}) },
           body, signal: abort.signal,
         });
+        // 验收仅记录状态码，不保存上游错误正文，避免错误响应带出凭据或供应商内部信息。
+        trace.upstreamStatus = upstream.status;
         if (!upstream.ok || !upstream.body) {
           await upstream.body?.cancel(); response.writeHead(502).end('{"error":"Live model request failed"}'); return;
         }

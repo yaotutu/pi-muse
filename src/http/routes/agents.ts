@@ -19,6 +19,8 @@ import {
 } from "../contracts/rest.js";
 import { UnknownSkillError } from "../../features/skills/service.js";
 import { AgentError } from "../../features/agents/types.js";
+import { AgentCommunicationError } from "../../features/agent-communication/service.js";
+import { capabilitySchema } from "../contracts/group-chat.js";
 
 /**
  * 智能体管理路由：多智能体列表、重置会话、生命周期（含级联删除）、技能覆盖、专属指令与 Dream 配置。
@@ -29,9 +31,19 @@ export const createAgentRoutes = (dependencies: HttpDependencies) => {
 
   app.onError((error, c) => {
     if (error instanceof AgentError) return c.json({ error: error.message, code: error.code }, error.status);
+    if (error instanceof AgentCommunicationError) return c.json({ error: error.message, code: error.code }, error.code === "NOT_FOUND" ? 404 : error.code === "BUSY" ? 409 : 400);
     throw error;
   });
   app.get("/", async (c) => c.json({ agents: await dependencies.agents.list() }));
+  app.get("/:agentId/capability", async (c) => c.json(await dependencies.groupRouting.capability(c.req.param("agentId"))));
+  app.put("/:agentId/capability", async (c) => {
+    const parsed = capabilitySchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid capability", code: "INVALID_INPUT" }, 400);
+    const result = await dependencies.conversationHub.withExistingAgent(c.req.param("agentId"), () =>
+      dependencies.groupRouting.saveCapability(c.req.param("agentId"), parsed.data.capability));
+    if (!result) throw new AgentCommunicationError("NOT_FOUND", "Agent not found");
+    return c.json(result);
+  });
   app.post("/", async (c) => {
     const parsed = createAgentSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid agentId", code: "INVALID_AGENT_ID" }, 400);

@@ -396,6 +396,16 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
+    // 离线回归只验证路由契约；真实模型验收另行执行，不以此替代。
+    if (declaresTool("submit_group_route") && !pendingToolResult) {
+      const input = JSON.parse(last);
+      const content = String(input.content);
+      const targets = content.includes("ROUTE_CONFIRM") ? input.members.map((item: { id: string }) => item.id)
+        : [content.includes("ROUTE_SMS") ? "sms-internal" : input.settings.defaultAgentId];
+      event({ role: "assistant" });
+      event(toolCall("submit_group_route", { mode: content.includes("ROUTE_CONFIRM") ? "confirm" : "direct", targetAgentIds: targets, reason: "请选择处理成员" }));
+      event({}, "tool_calls"); res.end("data: [DONE]\n\n"); return;
+    }
     // 信息后台受限轮：真实执行 submit 工具，分类只用于自动化脚本，不伪造副作用。
     if (declaresTool("submit_information_result") && !pendingToolResult) {
       const items = informationItems(last);

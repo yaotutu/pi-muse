@@ -1,4 +1,7 @@
 import { createGroupChat, type GroupChat } from "../features/group-chat/service.js";
+import { createGroupRouting } from "../features/group-chat/routing.js";
+import { createGroupRoutingRepository } from "../adapters/storage/group-routing-repository.js";
+import { createGroupRoutingRunner } from "../adapters/pi/group-routing-runner.js";
 import { createAgentService } from "../features/agents/service.js";
 import { createAgentStorage } from "../adapters/storage/agent-storage.js";
 import { createGroupRepository } from "../adapters/storage/group-repository.js";
@@ -275,12 +278,15 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     enabledSkillTexts: createInformationSkillTextReader(skills),
   });
   features = createFeatureService({ repository: featureRepository, hub: conversationHub, information, feedback: messageFeedbackRepository });
+  const groupRouting = createGroupRouting({ repository: createGroupRoutingRepository(join(layout.root, "group-routing.json")),
+    agents: async () => (await conversationHub.agents()).map((agent) => ({ id: agent.id, ...(featureForAgent(agent.id) ? { name: featureForAgent(agent.id) === "sms" ? "短信" : "新闻" } : {}) })),
+    decide: createGroupRoutingRunner({ config, layout, modelRuntime }) });
   const communicationRunner = createAgentCommunicationRunner(() => ({
     config, layout, modelRuntime, memory, jobs, goals, actions, monitors, web, weather, browser, skills,
     actionTimeoutMs: config.writable.actionTimeoutMs, presentation, workspaceCommits, information, features, communication,
   }));
   communication = createAgentCommunication({
-    hub: conversationHub, timeoutMs: config.runTimeoutMs, runner: communicationRunner,
+    hub: conversationHub, timeoutMs: config.runTimeoutMs, runner: communicationRunner, capabilities: groupRouting.members,
     onStart: async (request) => {
       workspaceEvents.presence.start(request.targetAgentId, `discussion:${request.requestId}`, "正在回复消息", true);
       await group.start(request);
@@ -290,7 +296,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     },
     onEvent: (id, event) => group.event(id, event),
   });
-  group = createGroupChat({ repository: createGroupRepository(join(layout.root, "group.json")), communication, history: communicationRunner.history, notifications: features.notifications, resolveNotification: features.resolveNotification });
+  group = createGroupChat({ repository: createGroupRepository(join(layout.root, "group.json")), routing: groupRouting, communication, history: communicationRunner.history, notifications: features.notifications, resolveNotification: features.resolveNotification });
   const informationScheduler = createInformationScheduler(information);
   const news = createNewsService({
     observeWork: workspaceEvents.presence.observe,
@@ -320,7 +326,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
 
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
   try {
-    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate(), featureRepository.read(), group.initialize()]);
+    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate(), featureRepository.read(), group.initialize(), groupRouting.validate()]);
     await actions.cancelPending();
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
@@ -409,8 +415,8 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     enabled: config.browser.enabled,
     desktopPort: config.browser.desktopPort,
   });
-  const agents = createAgentService({ conversationHub, storage: createAgentStorage(layout), jobs, monitors, actions, dream, information, communication, group, features, messageFeedbackRepository, forgetPresence: workspaceEvents.presence.forget });
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, communication, group, agents, browser, browserDesktop, messageFeedbackRepository };
+  const agents = createAgentService({ conversationHub, storage: createAgentStorage(layout), jobs, monitors, actions, dream, information, communication, group, groupRouting, features, messageFeedbackRepository, forgetPresence: workspaceEvents.presence.forget });
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, communication, group, groupRouting, agents, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
@@ -418,7 +424,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     clearInterval(approvalTimer);
     // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
     workspaceEvents.close();
-    const stopped = [scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), communication.close(), conversationHub.closeAll()];
+    const stopped = [scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), group.close(), communication.close(), conversationHub.closeAll()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);

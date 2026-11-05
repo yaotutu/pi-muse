@@ -56,6 +56,7 @@ export type ServiceContainer = {
   features: import("../features/agent-extensions/service.js").FeatureService;
   communication: import("../features/agent-communication/service.js").AgentCommunication;
   group: import("../features/group-chat/service.js").GroupChat;
+  groupRouting: import("../features/group-chat/routing.js").GroupRouting;
   browser?: BrowserService;
   browserDesktop: BrowserDesktop;
   messageFeedbackRepository: MessageFeedbackRepository;
@@ -63,5 +64,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "information" | "news" | "features" | "communication" | "group" | "agents" | "browser" | "browserDesktop" | "messageFeedbackRepository"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "information" | "news" | "features" | "communication" | "group" | "groupRouting" | "agents" | "browser" | "browserDesktop" | "messageFeedbackRepository"
 >;

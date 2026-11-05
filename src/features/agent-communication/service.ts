@@ -35,6 +35,7 @@ export type AgentRequestExecution = Required<Omit<AgentRequest, "context">> & {
   signal: AbortSignal;
   approvalOwner: { agentId: string; runId: string };
   userView?: "group" | "notification";
+  groupInstructions?: string;
   onEvent?: (event: ExecutionEvent) => void;
 };
 export type AgentDiscussionHistory = { agentId: string; discussionId: string; messages: ConversationHistory };
@@ -44,6 +45,7 @@ export type AgentCommunicationRunner = {
   removeDiscussions: (agentId: string) => Promise<void>;
 };
 export type AgentCaller = {
+  groupInstructions?: string;
   sessionId: string;
   discussionId?: string;
   approvalOwner?: { agentId: string; runId: string };
@@ -56,6 +58,7 @@ const invalid = () => new AgentCommunicationError("INVALID_INPUT", "Invalid agen
 
 /** 智能体默认互信；此处只协调执行、回复关联和生命周期，不维护调用白名单或绑定权限。 */
 export const createAgentCommunication = (deps: { hub: ConversationHub; runner: AgentCommunicationRunner; timeoutMs: number;
+  capabilities: () => Promise<{ id: string; capability: string }[]>;
   onStart?: (request: AgentRequestExecution) => Promise<void>;
   onFinish?: (receipt: AgentRequestReceipt) => Promise<void>;
   onEvent?: (requestId: string, event: ExecutionEvent) => void;
@@ -72,7 +75,10 @@ export const createAgentCommunication = (deps: { hub: ConversationHub; runner: A
     if (!agent) throw new AgentCommunicationError("NOT_FOUND", "Agent not found");
     return agent;
   };
-  const listAgents = async () => ({ agents: (await deps.hub.agents()).map(describeAgent) });
+  const listAgents = async () => {
+    const [agents, descriptions] = await Promise.all([deps.hub.agents(), deps.capabilities()]);
+    return { agents: agents.map((agent) => ({ ...describeAgent(agent), capability: descriptions.find((entry) => entry.id === agent.id)?.capability ?? "" })) };
+  };
 
   const request = async (input: AgentRequest, signal?: AbortSignal, caller?: AgentCaller): Promise<AgentRequestReceipt> => {
     if (!isAgentId(input.sourceAgentId) || !isAgentId(input.targetAgentId) ||
@@ -100,6 +106,7 @@ export const createAgentCommunication = (deps: { hub: ConversationHub; runner: A
     try {
       // 回复作为本次调用结果返回，绝不等待来源会话的通知队列，也不重新解析默认通知绑定。
       const execution = { ...input, requestId, discussionId, sourceSessionId, sourceDiscussionId, signal: controller.signal, userView: caller?.userView,
+        groupInstructions: caller?.groupInstructions,
         onEvent: (event: ExecutionEvent) => deps.onEvent?.(requestId, event),
         approvalOwner: caller?.approvalOwner ?? { agentId: input.sourceAgentId, runId: requestId } };
       await deps.onStart?.(execution);

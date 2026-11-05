@@ -7,6 +7,7 @@ import type { DreamService } from "../dream/service.js";
 import type { InformationService } from "../information/service.js";
 import type { AgentCommunication } from "../agent-communication/service.js";
 import type { GroupChat } from "../group-chat/service.js";
+import type { GroupRouting } from "../group-chat/routing.js";
 import type { FeatureService } from "../agent-extensions/service.js";
 import type { MessageFeedbackRepository } from "../messages/types.js";
 import { isFeatureAgent } from "../agent-extensions/types.js";
@@ -23,6 +24,7 @@ type Dependencies = {
   information: InformationService;
   communication: AgentCommunication;
   group: GroupChat;
+  groupRouting: GroupRouting;
   features: FeatureService;
   messageFeedbackRepository: MessageFeedbackRepository;
 };
@@ -38,6 +40,7 @@ export const createAgentService = (deps: Dependencies) => {
   };
   const reset = async (agentId: string, clearSchedules = false) => {
     if (!isAgentId(agentId)) throw new AgentError(400, "INVALID_AGENT_ID", "Invalid agentId");
+    deps.group.cancelPlanning();
     // 暂停屏障覆盖完整锁窗口，避免两次 cancel 之间又启动新后台轮。
     const pause = information.pauseAgent(agentId);
     const communicationPause = deps.communication.pauseAgent(agentId);
@@ -123,6 +126,8 @@ export const createAgentService = (deps: Dependencies) => {
     }
 
     await deps.features.assertCanDelete(agentId);
+    await deps.groupRouting.assertCanDelete(agentId);
+    deps.group.cancelPlanning();
 
     // 删除全程暂停信息后台，且不在 hub 锁内等待 retain。
     const pause = information.pauseAgent(agentId);
@@ -131,6 +136,7 @@ export const createAgentService = (deps: Dependencies) => {
     try {
       return await conversationHub.deleteAgent(agentId, async () => {
         await deps.features.assertCanDelete(agentId);
+        await deps.groupRouting.assertCanDelete(agentId);
         const dirExists = await storage.exists(agentId);
         const hasJobs = (await jobs.list()).some((j) => j.originAgentId === agentId);
         const hasMonitors = (await monitors.list()).some((m) => m.originAgentId === agentId);
@@ -146,6 +152,7 @@ export const createAgentService = (deps: Dependencies) => {
         await information.removeAgent(agentId);
         await deps.communication.removeDiscussions(agentId);
         await deps.group.removeAgent(agentId);
+        await deps.groupRouting.removeAgent(agentId);
         await storage.remove(agentId);
         deps.forgetPresence?.(agentId);
         return { ok: true as const, removed: { jobs: removedJobs, monitors: removedMonitors } };

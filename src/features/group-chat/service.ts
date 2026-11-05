@@ -1,6 +1,7 @@
 import type { ConversationHistory, ExecutionEvent } from "../conversation/types.js";
 import type { FeatureNotification, NotificationReference } from "../agent-extensions/types.js";
 import { AgentCommunicationError, type AgentCommunication, type AgentRequestExecution, type AgentRequestReceipt } from "../agent-communication/service.js";
+import type { GroupRouting } from "./routing.js";
 
 export type GroupTurn = {
   id: string; rootId: string; sourceAgentId: string | null; targetAgentId: string;
@@ -11,18 +12,20 @@ export type GroupRepository = {
   read: () => Promise<GroupTurn[]>;
   update: (change: (turns: GroupTurn[]) => GroupTurn[]) => Promise<void>;
 };
-export type GroupSnapshot = { id: "main"; defaultAgentId: "local-main"; turns: (GroupTurn & { messages: ConversationHistory })[]; notifications: FeatureNotification[]; running: string | null };
-export type GroupEvent = { type: "turn"; turn: GroupTurn } | { type: "delta"; id: string; text: string } | { type: "settled" };
+export type GroupSnapshot = { id: "main"; defaultAgentId: string; memberIds: string[]; turns: (GroupTurn & { messages: ConversationHistory })[]; notifications: FeatureNotification[]; running: string | null };
+export type GroupEvent = { type: "turn"; turn: GroupTurn } | { type: "delta"; id: string; text: string } | { type: "settled" }
+  | { type: "suggestion"; id: string; content: string; targetAgentIds: string[]; reason: string };
 
 /** 群组只保存投递索引，正文仍在目标智能体的 pi 讨论中；群展示从不作为模型 prompt。 */
 export const createGroupChat = (deps: {
-  repository: GroupRepository; communication: AgentCommunication;
+  repository: GroupRepository; communication: AgentCommunication; routing: GroupRouting;
   history: (agentId: string, discussionId: string) => Promise<{ messages: ConversationHistory }>;
   notifications: () => Promise<FeatureNotification[]>;
   resolveNotification: (reference: NotificationReference) => Promise<{ targetAgentId: string; context: string }>;
 }) => {
   const turns = new Map<string, GroupTurn>();
-  let active: { id: string; controller: AbortController; emit: (event: GroupEvent) => void; notification?: NotificationReference } | undefined;
+  let active: { id: string; controller: AbortController; emit: (event: GroupEvent) => void; notification?: NotificationReference; done: Promise<void> } | undefined;
+  let closing = false;
   const initialize = async () => {
     const saved = await deps.repository.read();
     for (const turn of saved) turns.set(turn.id, { ...turn, status: turn.status === "running" ? "cancelled" : turn.status });
@@ -56,7 +59,8 @@ export const createGroupChat = (deps: {
   const snapshot = async (): Promise<GroupSnapshot> => {
     // 群讨论与已验证功能通知分别投影；绝不拼接普通私聊，也不将展示投影用作模型上下文。
     const histories = new Map<string, Promise<ConversationHistory>>();
-    return { id: "main", defaultAgentId: "local-main", running: active?.id ?? null, notifications: await deps.notifications(),
+    const settings = await deps.routing.settings();
+    return { id: "main", defaultAgentId: settings.defaultAgentId, memberIds: settings.memberIds, running: active?.id ?? null, notifications: await deps.notifications(),
       turns: await Promise.all([...turns.values()].map(async (turn) => {
         const key = `${turn.targetAgentId}/${turn.discussionId}`;
         if (!histories.has(key)) histories.set(key, deps.history(turn.targetAgentId, turn.discussionId).then((result) => result.messages).catch((error) => {
@@ -70,37 +74,50 @@ export const createGroupChat = (deps: {
       })) };
   };
   const send = async (input: { id: string; content: string; targetAgentId?: string; notification?: NotificationReference }, signal: AbortSignal, emit: (event: GroupEvent) => void) => {
+    if (closing) throw new AgentCommunicationError("SHUTDOWN", "Group is closing");
     if (active || turns.has(input.id)) throw new AgentCommunicationError("BUSY", "Group is busy or message was already accepted; read group history before sending again");
     if (input.notification && input.targetAgentId) throw new AgentCommunicationError("INVALID_INPUT", "Notification follow-up cannot specify a target agent");
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
-    active = { id: input.id, controller, emit, notification: input.notification };
+    let finish!: () => void;
+    active = { id: input.id, controller, emit, notification: input.notification, done: new Promise<void>((resolve) => { finish = resolve; }) };
     try {
       // 每次追问先验证来源仍存在；客户端只传引用，不提供来源正文或执行目标。
       const source = input.notification ? await deps.resolveNotification(input.notification) : undefined;
-      const targetAgentId = source?.targetAgentId ?? input.targetAgentId ?? "local-main";
-      const sameNotification = (a: NotificationReference | undefined, b: NotificationReference | undefined) =>
-        a && b ? a.targetAgentId === b.targetAgentId && a.sessionId === b.sessionId && a.messageId === b.messageId : a === b;
-      const previous = [...turns.values()].findLast((turn) => turn.sourceAgentId === null && turn.targetAgentId === targetAgentId && sameNotification(turn.notification, input.notification));
-      let discussionId = previous?.discussionId;
-      if (discussionId) {
-        try { await deps.history(targetAgentId, discussionId); }
-        catch (error) {
-          // 普通聊天首轮可能在创建 JSONL 前失败，可新建讨论；通知续聊缺失则明确报错，不丢失原事项背景。
-          if (!(error instanceof AgentCommunicationError) || error.code !== "NOT_FOUND" || input.notification) throw error;
-          discussionId = undefined;
+      const settings = await deps.routing.settings();
+      // 显式目标和已验证通知跳过模型路由；模糊意图只发建议，不创建目标讨论或执行副作用。
+      const decision = !source && !input.targetAgentId ? await deps.routing.route(input.content, controller.signal) : undefined;
+      controller.signal.throwIfAborted();
+      if (decision?.mode === "confirm") {
+        emit({ type: "suggestion", id: input.id, content: input.content, targetAgentIds: decision.targetAgentIds, reason: decision.reason });
+      } else {
+        const targetAgentId = source?.targetAgentId ?? input.targetAgentId ?? decision!.targetAgentIds[0]!;
+        if (!source && !settings.memberIds.includes(targetAgentId)) throw new AgentCommunicationError("NOT_FOUND", "Agent is not a group member");
+        const sameNotification = (a: NotificationReference | undefined, b: NotificationReference | undefined) =>
+          a && b ? a.targetAgentId === b.targetAgentId && a.sessionId === b.sessionId && a.messageId === b.messageId : a === b;
+        const previous = [...turns.values()].findLast((turn) => turn.sourceAgentId === null && turn.targetAgentId === targetAgentId && sameNotification(turn.notification, input.notification));
+        let discussionId = previous?.discussionId;
+        if (discussionId) {
+          try { await deps.history(targetAgentId, discussionId); }
+          catch (error) {
+            // 普通聊天首轮可能在创建 JSONL 前失败，可新建讨论；通知续聊缺失则明确报错，不丢失原事项背景。
+            if (!(error instanceof AgentCommunicationError) || error.code !== "NOT_FOUND" || input.notification) throw error;
+            discussionId = undefined;
+          }
         }
+        // 普通聊天按成员续接，通知按来源引用分开；都不拼接双方私聊或其他事项。
+        await deps.communication.request({ sourceAgentId: targetAgentId, targetAgentId, message: input.content,
+          ...(!discussionId && source ? { context: source.context } : {}),
+          ...(discussionId ? { discussionId } : {}) }, controller.signal,
+        { sessionId: "group-main", requestId: input.id, userView: input.notification ? "notification" : "group",
+          ...(!input.notification ? { groupInstructions: settings.instructions } : {}) });
       }
-      // 普通聊天按成员续接，通知按来源引用分开；都不拼接双方私聊或其他事项。
-      await deps.communication.request({ sourceAgentId: targetAgentId, targetAgentId, message: input.content,
-        ...(!discussionId && source ? { context: source.context } : {}),
-        ...(discussionId ? { discussionId } : {}) }, controller.signal,
-      { sessionId: "group-main", requestId: input.id, userView: input.notification ? "notification" : "group" });
     } finally {
       active = undefined;
       signal.removeEventListener("abort", abort);
+      finish();
     }
     emit({ type: "settled" });
   };
@@ -109,6 +126,9 @@ export const createGroupChat = (deps: {
     for (const [id, turn] of turns) if (turn.targetAgentId === agentId) turns.delete(id);
   };
   return { initialize, start, finish, event, snapshot, send, removeAgent,
+    busy: () => !!active,
+    close: async () => { closing = true; const current = active; current?.controller.abort(); await current?.done; },
+    cancelPlanning: () => { if (active && !turns.has(active.id)) active.controller.abort(); },
     stop: (id: string) => { if (active?.id !== id) return false; active.controller.abort(); return true; } };
 };
 export type GroupChat = ReturnType<typeof createGroupChat>;

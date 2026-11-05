@@ -84,7 +84,7 @@ const execute = async (options: LiveOptions) => {
     await send("main-followup", "Reply only MAIN_FOLLOWUP. Do not use tools.");
     await send("sms-followup", "Reply only SMS_FOLLOWUP. Do not use tools.", "sms-internal");
     for (const [followup, own, other] of [["MAIN_FOLLOWUP", "MAIN_GROUP_CEDAR_381", "SMS_GROUP_WAVE_927"], ["SMS_FOLLOWUP", "SMS_GROUP_WAVE_927", "MAIN_GROUP_CEDAR_381"]]) {
-      const traces = proxy.traces.filter((trace) => trace.users.some((text) => text.includes(followup!)));
+      const traces = proxy.traces.filter((trace) => !trace.toolNames.includes("submit_group_route") && trace.users.some((text) => text.includes(followup!)));
       assert.ok(traces.length); for (const trace of traces) { assert.ok(JSON.stringify(trace.users).includes(own!)); assert.ok(!JSON.stringify(trace.users).includes(other!)); }
     }
     pass();
