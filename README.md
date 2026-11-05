@@ -199,6 +199,7 @@ Pi Muse uses HTTP for requests and management, plus one-way SSE streams for serv
 
 The user manual is available in English and Simplified Chinese. Internal engineering documents are primarily written in Chinese.
 
+- [Claude Code Guide](CLAUDE.md)
 - [User Manual](docs/manual/en/index.md)
 - [Getting Started](docs/manual/en/getting-started.md)
 - [Configuration](docs/manual/en/configuration.md)

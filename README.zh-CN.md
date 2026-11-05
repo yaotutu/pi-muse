@@ -199,6 +199,7 @@ Pi Muse 使用 HTTP 发起请求和管理状态，并使用单向 SSE 流从服�
 
 用户手册同时提供简体中文和英文；内部工程文档以中文为主。
 
+- [Claude Code 开发入口](CLAUDE.md)
 - [用户手册](docs/manual/index.md)
 - [快速上手](docs/manual/getting-started.md)
 - [配置说明](docs/manual/configuration.md)
