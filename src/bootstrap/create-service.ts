@@ -275,6 +275,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     featureFeedback: (agentId) => { const id = featureForAgent(agentId); return id ? features.feedbackExamples(id) : Promise.resolve([]); },
     runModel: createInformationRunner({ config, layout, modelRuntime }),
     readInstructions: (agentId) => readAgentInstructions(agentInstructionsFile(layout, agentId)),
+    writeInstructions: (agentId, instructions) => writeAgentInstructions(agentInstructionsFile(layout, agentId), instructions).then(() => {}),
     enabledSkillTexts: createInformationSkillTextReader(skills),
   });
   features = createFeatureService({ repository: featureRepository, hub: conversationHub, information, feedback: messageFeedbackRepository });
@@ -340,6 +341,20 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     mainConversation = await conversationHub.forAgent("local-main");
     await news.initialize();
     await conversationHub.forAgent(FEATURE_AGENTS.sms);
+    const smsInstructionsFile = agentInstructionsFile(layout, FEATURE_AGENTS.sms);
+    if (!(await readAgentInstructions(smsInstructionsFile)).trim()) {
+      await writeAgentInstructions(
+        smsInstructionsFile,
+        [
+          "# 短信过滤与通知规则",
+          "你是短信处理智能体。你负责分析和整理用户的短信，并根据规则决定是否需要提醒用户。",
+          "默认规则：",
+          "- 整理快递取件码、验证码、重要账单等对用户有明确即时行动价值的信息，判定为 notify。",
+          "- 营销推广、垃圾广告、日常问候等无紧迫行动价值的信息，判定为 silent。",
+          "用户指令与偏好拥有最高优先级。如果用户说明了特定偏好（例如不关心取件码或只关心账单），必须严格遵循。",
+        ].join("\n\n"),
+      );
+    }
     // 独立短信智能体首次默认关闭；不接管或迁移已有普通智能体的信息记录。
     if (!(await informationRepository.listAgentIds()).includes(FEATURE_AGENTS.sms)) {
       await information.configureAgent(FEATURE_AGENTS.sms, { enabled: false, batchWindowSeconds: 15, mode: "notifications" });

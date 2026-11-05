@@ -458,3 +458,67 @@ test("feedback storage failures are exposed instead of being treated as no prefe
   });
   await assert.rejects(service.getPreferences("agent"), /corrupt feedback/);
 });
+
+test("first run executes initial_summary then transitions to incremental", async () => {
+  let state: InformationState = {
+    ...defaultInformationState(),
+    settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
+  };
+  const repository: InformationRepository = {
+    read: async () => structuredClone(state),
+    update: async (_agent, change) => {
+      const changed = await change(structuredClone(state));
+      if (changed.state) state = changed.state;
+      return changed.result;
+    },
+    listAgentIds: async () => ["agent"],
+    removeAgent: async () => { state = defaultInformationState(); },
+    reconcileOnStart: async () => undefined,
+    validateAll: async () => undefined,
+  };
+  const capturedKinds: string[] = [];
+  let instructions = "关注快递取件码";
+  const service = createInformationService({
+    repository,
+    agentExists: async () => true,
+    retainAgent: async () => ({
+      conversation: { sessionId: () => "session-1", notify: async (_text, id) => ({ sessionId: "session-1", messageId: id }) },
+      release: () => undefined,
+    }),
+    feedback: { read: async () => ({ schemaVersion: 1 as const, events: [] }) } as never,
+    runModel: async (input) => {
+      capturedKinds.push(input.analysisKind);
+      return {
+        ok: true,
+        result: {
+          decisions: input.items.map((item) => ({ itemId: item.id, decision: "notify" as const, reason: "ok" })),
+          notifications: [{ itemIds: input.items.map((item) => item.id), text: "汇总通知" }],
+        },
+      };
+    },
+    readInstructions: async () => instructions,
+    writeInstructions: async (_agent, text) => { instructions = text; },
+    enabledSkillTexts: async () => [],
+  });
+
+  await service.ingest("agent", [
+    { source: "sms", externalId: "m1", content: "【顺丰】取件码 1234" },
+    { source: "sms", externalId: "m2", content: "【菜鸟】取件码 5678" },
+  ]);
+  await service.runNow("agent");
+  assert.equal(capturedKinds[0], "initial_summary");
+  assert.equal(state.initialAnalysisCompleted, true);
+
+  // Subsequent run receives incremental mode
+  await service.ingest("agent", [{ source: "sms", externalId: "m3", content: "【中通】取件码 9999" }]);
+  await service.runNow("agent");
+  assert.equal(capturedKinds[1], "incremental");
+
+  // Preferences read/write synchronized with agent instructions
+  const prefs = await service.getPreferences("agent");
+  assert.equal(prefs.notes, "关注快递取件码");
+  await service.savePreferences("agent", { notes: "不再提醒取件码" });
+  assert.equal(instructions, "不再提醒取件码");
+  const updatedPrefs = await service.getPreferences("agent");
+  assert.equal(updatedPrefs.notes, "不再提醒取件码");
+});

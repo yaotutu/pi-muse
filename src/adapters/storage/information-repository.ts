@@ -61,6 +61,7 @@ const runSchema = z.strictObject({
   createdAt: isoTime,
   startedAt: isoTime,
   finishedAt: isoTime.optional(),
+  kind: z.enum(["initial_summary", "incremental"]).optional(),
   model: z.strictObject({
     status: z.enum(["succeeded", "failed"]),
     error: z.string().min(1).max(300).optional(),
@@ -92,6 +93,7 @@ const stateSchema = z.strictObject({
       updatedAt: isoTime,
     })),
   })).default([]),
+  initialAnalysisCompleted: z.boolean().default(false).optional(),
 });
 
 const parseState = (value: unknown, logicalFile: string): InformationState => {

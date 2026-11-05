@@ -100,6 +100,15 @@ test("SMS facade stores independent information and does not change ordinary-age
   assert.equal((await call("/api/features/sms/runs?limit=1&limit=2")).status, 400);
   assert.equal((await service.information.listItems("local-main", { limit: 10 })).items[0]?.id, original[0]!.id);
   assert.deepEqual((await (await call("/api/agents")).json() as { agents: { id: string }[] }).agents.map((s) => s.id), ["local-main", "news-internal", "sms-internal"]);
+
+  // 短信偏好读写直接对接 sms-internal 指令
+  const initialPrefs = await (await call("/api/features/sms/preferences")).json() as { notes: string };
+  assert.match(initialPrefs.notes, /短信过滤与通知规则/);
+  const putPrefs = await call("/api/features/sms/preferences", "PUT", { notes: "只关注重要银行账单，忽略快递" });
+  assert.equal(putPrefs.status, 200);
+  assert.equal((await (await call("/api/features/sms/preferences")).json() as { notes: string }).notes, "只关注重要银行账单，忽略快递");
+  const agentInstructions = await (await call(`/api/agents/${FEATURE_AGENTS.sms}/instructions`)).json() as { instructions: string };
+  assert.equal(agentInstructions.instructions, "只关注重要银行账单，忽略快递");
 });
 
 test("feature source remains verified when ordinary information is disabled, never promoted from text", () => {

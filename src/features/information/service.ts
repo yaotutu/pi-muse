@@ -65,6 +65,7 @@ export type InformationServiceDependencies = {
   featureFeedback?: (agentId: string) => Promise<InformationFeedbackExample[]>;
   runModel: (input: InformationModelInput, signal: AbortSignal) => Promise<InformationModelResult>;
   readInstructions: (agentId: string) => Promise<string>;
+  writeInstructions?: (agentId: string, instructions: string) => Promise<void>;
   enabledSkillTexts: (agentId: string) => Promise<string[]>;
 };
 
@@ -280,15 +281,17 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   const getPreferences = async (agentId: string) => {
     await requireAgent(agentId);
     const state = await deps.repository.read(agentId);
+    const agentRules = (await deps.readInstructions(agentId)).trim();
+    const notes = agentRules || state.preferences.notes;
     if (featureForAgent(agentId)) {
-      return { notes: state.preferences.notes, feedbackExamples: await deps.featureFeedback?.(agentId) ?? [] };
+      return { notes, feedbackExamples: await deps.featureFeedback?.(agentId) ?? [] };
     }
     if (state.settings.mode === "recommendations") return { notes: state.preferences.notes, feedbackExamples: [] };
     const retained = await deps.retainAgent(agentId);
     if (!retained) return { notes: state.preferences.notes, feedbackExamples: [] };
     try {
       return {
-        notes: state.preferences.notes,
+        notes,
         feedbackExamples: await feedbackExamples(agentId, state, retained.conversation.sessionId()),
       };
     } finally {
@@ -303,6 +306,9 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   const savePreferences = async (agentId: string, preferences: Pick<InformationPreferences, "notes">) => {
     requireOpen();
     await requireAgent(agentId);
+    if (deps.writeInstructions) {
+      await deps.writeInstructions(agentId, preferences.notes);
+    }
     return deps.repository.update(agentId, (state) => ({
       state: { ...state, preferences: { notes: preferences.notes, learnedNotes: state.preferences.learnedNotes } },
       result: { notes: preferences.notes },
@@ -646,6 +652,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         chars += item.content.length;
       }
       const nowText = now();
+      const isInitial = !state.initialAnalysisCompleted;
       const run: InformationRun = {
         id: `inforun_${randomUUID()}`,
         agentId,
@@ -653,6 +660,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         status: "running",
         createdAt: nowText,
         startedAt: nowText,
+        kind: isInitial ? "initial_summary" : "incremental",
         publications: [],
       };
       const selectedIds = new Set(run.itemIds);
@@ -743,13 +751,16 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         const items = claimed.itemIds
           .map((id) => state.items.find((item) => item.id === id))
           .filter((item): item is InformationItem => Boolean(item));
+        const agentInstructions = await deps.readInstructions(claimed.agentId);
+        const analysisKind = claimed.kind ?? (!initialState.initialAnalysisCompleted ? "initial_summary" : "incremental");
         const input: InformationModelInput = {
           agentId: claimed.agentId,
           runId: claimed.id,
           mode,
-          instructions: await deps.readInstructions(claimed.agentId),
+          analysisKind,
+          instructions: agentInstructions,
           enabledSkillTexts: await deps.enabledSkillTexts(claimed.agentId),
-          preferences: state.preferences,
+          preferences: { ...state.preferences, notes: agentInstructions.trim() || state.preferences.notes },
           items: items.map(({ id, source, externalId, title, content, receivedAt, metadata }) => ({
             id, source, externalId, ...(title ? { title } : {}), content, receivedAt,
             ...(metadata ? { sourceTitle: metadata.sourceTitle, url: metadata.url } : {}),
@@ -790,9 +801,13 @@ export const createInformationService = (deps: InformationServiceDependencies) =
             status: deliveryCancelled ? "failed" as const : "pending" as const,
             ...(deliveryCancelled ? { error: deliveryError } : {}),
           })) : [];
+          const claimedIds = new Set(claimed.itemIds);
+          const remainingPending = current.items.filter((item) => item.status === "pending" && !claimedIds.has(item.id));
+          const initialCompleted = current.initialAnalysisCompleted || (analysisKind === "initial_summary" && remainingPending.length === 0);
           return {
             state: {
               ...current,
+              initialAnalysisCompleted: initialCompleted,
               preferences: mode === "recommendations" && parsed.learnedNotes !== undefined
                 ? { ...current.preferences, learnedNotes: parsed.learnedNotes }
                 : current.preferences,

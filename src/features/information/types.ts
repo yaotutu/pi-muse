@@ -79,6 +79,8 @@ export type InformationPublication = {
 
 export type InformationRunStatus = "running" | "completed" | "failed" | "cancelled";
 
+export type InformationAnalysisKind = "initial_summary" | "incremental";
+
 export type InformationRun = {
   id: string;
   agentId: string;
@@ -87,6 +89,7 @@ export type InformationRun = {
   createdAt: string;
   startedAt: string;
   finishedAt?: string;
+  kind?: InformationAnalysisKind;
   model?: {
     status: "succeeded" | "failed";
     error?: string;
@@ -102,6 +105,7 @@ export type InformationState = {
   items: InformationItem[];
   runs: InformationRun[];
   articleFeedback: InformationArticleFeedback[];
+  initialAnalysisCompleted?: boolean;
 };
 
 export const defaultInformationState = (): InformationState => ({
@@ -111,6 +115,7 @@ export const defaultInformationState = (): InformationState => ({
   items: [],
   runs: [],
   articleFeedback: [],
+  initialAnalysisCompleted: false,
 });
 
 export type InformationRepository = {
@@ -132,6 +137,7 @@ export type InformationModelInput = {
   agentId: string;
   runId: string;
   mode: "notifications" | "recommendations";
+  analysisKind: InformationAnalysisKind;
   instructions: string;
   enabledSkillTexts: string[];
   preferences: InformationPreferences;
