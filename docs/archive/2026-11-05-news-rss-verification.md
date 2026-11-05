@@ -4,7 +4,7 @@
 
 ## 结论
 
-1. **「RSS 添加失败」在当前源码 + 当前网络环境下未复现为产品缺陷；历史失败主因确认为 Fake-IP DNS 与 SSRF 默认防护的组合**。本机 DNS 对公网域名返回 `198.18.0.0/15` 网段地址（实测 sspai.com→198.18.7.239 等），`shared/public-host.ts` 阻断表命中后在发请求前即拒绝（"Blocked private address"）；添加路径把它与超时/DNS/HTTP 错误统一包装为 400 `RSS source fetch or parse failed`（`features/news/service.ts:74-80`），用户看不到真实原因。隔离验收实例经 `--allow-private-targets` 放行后全链路通过；生产/共享实例未开该选项时，此环境下的添加必然失败且文案无诊断信息。
+1. **「RSS 添加失败」在当前源码 + 当前网络环境下未复现为产品缺陷；历史失败主因降级为有证据支持的候选因素：Fake-IP DNS 与 SSRF 默认防护的组合，历史根因未证实**。已有证据限于：本机 DNS 对公网域名返回 `198.18.0.0/15` 网段地址（实测 sspai.com→198.18.7.239 等）；`shared/public-host.ts` 阻断表命中后在发请求前即拒绝（"Blocked private address"）；隔离验收实例显式 `--allow-private-targets` 放行后全链路通过，方向上与该候选一致。但本轮未在默认防护下复现历史失败，也没有历史请求日志或共享实例配置验证，故不宣称历史根因已确认，默认（未放行）环境也未验证通过。添加路径将 DNS/SSRF 拒绝与超时/DNS/HTTP 错误统一包装为 400 `RSS source fetch or parse failed`（`features/news/service.ts:74-80`），用户看不到真实原因。
 2. **真实全链路验收 5/5 通过**（修正过时断言后）：源添加、3 篇真实文章抓取、真实模型推荐 2 篇、反馈进入下一轮且 learnedNotes 增长、删源保留文章、主聊天隔离、重启持久化。真实外部模型请求 4 次、结构化提交 2 次；证据 `/var/folders/.../pi-muse-news-live-HRrOJc/summary.json`（服务身份 commit `7a8d8a4`、mode source）。
 3. **发现并修正 live 脚本自身过时断言**：`tests/live/news.ts` 冷启动与重启两处仍预期 `news-internal` 不在 `/api/agents` 且 instructions 404，属 REQ-014 前旧设计；当前 `create-service.ts:342 → news.initialize() → ensureInternalAgent()` 启动即建内置智能体并写默认指令（客户端也按正式成员展示）。行为无回归，测试已改为断言在场 + 默认指令非空，`docs/testing.md` 同步。首次运行被该断言挡在第一步，且验收曾以管道 `tail` 承接导致退出码失真——教训已记：live runner 不接管道，以 node 原始退出码为准。
 4. **采集与文章流程核实为按设计工作**：添加只验证源不接纳文章；手动 refresh 串行逐源抓取（单源失败记 `lastError` 继续其他源）、全程锁（重复调用 409）、同步返回不等待模型（InformationScheduler 500ms 扫描独立运行，新闻 batchWindow=0）；failed 条目仅在全部源处理完后重置；30 分钟定时轮不重排 failed。文章按 `(source, externalId)` 去重。
