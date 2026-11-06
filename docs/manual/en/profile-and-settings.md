@@ -7,11 +7,11 @@ This page explains the mobile client's assistant and user profiles, common appea
 - Complete the first connection as described in [Quick Start](getting-started.md#connect-mobile-client). Themes and app updates still work without a server connection, but profiles, memories, and Dream are unavailable.
 - Assistant and user profiles are stored on the server and shared by all agents. Theme preference is stored only on this device.
 
-Profile, long-term memory, and Dream management pages share a fixed header: the title and 「返回设置」 (Back to Settings) stay visible while the form scrolls. The top-left arrow and Android Back return to the settings home, then to the originating chat. Android Back dismisses an open keyboard first. Leaving a page does not save or discard its drafts, nor does it unlock a write with an unknown result.
+Profile, long-term memory, and Dream management pages share a fixed header: the title and 「返回设置」 (Back to Settings) stay visible while the form scrolls. Secondary pages have no bottom bar. The top-left arrow and Android Back return to the settings home; tap the bottom 「消息」 (Messages) tab to return to group chat. Android Back dismisses an open keyboard first. Leaving a page does not save or discard its drafts, nor does it unlock a write with an unknown result.
 
 ## Default Group Collaboration {#group-collaboration}
 
-1. Go to Global Settings by tapping the top title bar in All → 「默认组协作」. Currently this manages one default group, not multiple-group creation or switching.
+1. Tap the bottom 「设置」 (Settings) tab → 「默认组协作」. Currently this manages one default group, not multiple-group creation or switching.
 2. Edit the name, purpose, and collaboration guidance. Select existing Agents to add or remove them. The default responder must remain a member; choose another default before removing it. Removal does not delete history, private chat, instructions, or files.
 3. Tap Save. The server rejects configuration changes while sending or routing; check again and save later. The last successful save wins without automatic merging. Initially membership comes from the current directory; after the first membership save, newly created Agents must be added manually.
 4. Edit public capabilities in each Agent's own 「公开能力」 page. Group guidance applies only to routing and replies in this group, not permanent member instructions, and cannot bypass file approvals or tool boundaries.
@@ -20,7 +20,7 @@ Group and capability drafts survive navigation within this connection, without a
 
 ## Assistant and User Profile {#assistant-and-user-profile}
 
-1. Go to Global Settings by tapping the top title bar in All → 「助手与个人资料」 → 「助手与用户资料」. After a successful read, the page shows 「助手设置」 and 「人设与资料」.
+1. Tap the bottom 「设置」 (Settings) tab → 「助手与个人资料」 → 「助手与用户资料」. After a successful read, the page shows 「助手设置」 and 「人设与资料」.
 2. Profile drafts belong only to the current workspace connection. Closing the panel or moving the app to the background does not actively clear them, but exiting the app, changing servers, or another workspace rebuild discards them.
 
 ### Save Assistant Settings {#save-assistant-settings}
@@ -29,7 +29,7 @@ Group and capability drafts survive navigation within this connection, without a
 2. Choose one of the 「温暖」 (warm), 「简洁」 (concise), or 「周到」 (thoughtful) tones. If the server returns a legacy tone unknown to this client, the page shows that value and asks you to choose a supported one.
 3. Tap 「保存助手设置」. Success shows 「身份已保存」, and the change marker disappears.
 
-The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The assistant name is not used as the main-agent title. The main-agent header shows no name; other agents show a readable number such as「成员 1」for the current connection only while the keyboard is closed.
+The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The assistant name does not change Agent identity or navigation. Open specific Agent configuration through 「设置」 → 「智能体管理」 → the corresponding Agent’s settings; titles and avatars are not configuration shortcuts.
 
 ### Save SOUL and USER {#save-soul-and-user}
 
@@ -44,7 +44,7 @@ Each profile section follows its own last successful save. The client does not a
 
 ## Appearance {#appearance}
 
-1. Go to Global Settings by tapping the top title bar in All → 「外观」.
+1. Tap the bottom 「设置」 (Settings) tab → 「外观」.
 2. Choose one of 「经典蓝白」 (Classic Blue), 「晨光白」 (Morning White), or 「深夜黑」 (Midnight Black). The interface switches immediately and tries to save the preference on this device.
 3. If saving fails, the new theme remains visible but the page reports that the local preference was not saved. Choose a theme again to retry.
 
@@ -54,7 +54,7 @@ Theme preference is stored separately from the server connection, AccessKey, Tok
 
 For the first address, access key, and connection steps, see [Quick Start](getting-started.md#connect-mobile-client). To maintain the connection later:
 
-1. Go to Global Settings by tapping the top title bar in All → 「连接与设备」 → 「服务器连接」.
+1. Tap the bottom 「设置」 (Settings) tab → 「连接与设备」 → 「服务器连接」.
 2. Edit 「服务器地址」 or 「访问密钥」, then tap 「保存」(Save). The app verifies the current input before saving; a separate test is not required.
 3. Optionally tap 「测试连接」. Success shows 「连接正常」 and 「保存后生效」. Testing does not save configuration; editing either address or key immediately invalidates the test result.
 4. To reauthenticate at the same address, enter the new access key and save. The app verifies that new key instead of reusing the old login. Leaving the key blank verifies and reuses the current login.
@@ -72,7 +72,7 @@ The real browser is configured and managed on the server. The mobile client has 
 
 ## Android App Updates {#android-updates}
 
-1. Go to Global Settings by tapping the top title bar in All → 「连接与设备」 → 「应用更新」. The app checks automatically when it starts in the foreground and once per hour while foregrounded. You can also tap 「立即检查更新」 or 「再次检查」.
+1. Tap the bottom 「设置」 (Settings) tab → 「连接与设备」 → 「应用更新」. The app checks automatically when it starts in the foreground and once per hour while foregrounded. You can also tap 「立即检查更新」 or 「再次检查」.
 2. Checking reads only the official GitHub repository's stable Release and accepts only a unique `app-release.apk`. Prereleases, drafts, and other assets are not used as update packages.
 3. When a higher version is found, the app shows the current version, target version, and size, then starts downloading. You can cancel or retry the download and continue using the app; downloading may consume mobile data.
 4. After the download finishes, the client opens the Android system installer. The first attempt may require allowing Pi Muse to install unknown apps, and the final installation must still be confirmed in the system UI. Opening the installer does not mean the upgrade completed.

@@ -50,7 +50,7 @@ Many personal-agent projects live inside an existing chat platform or a basic we
 - **Streaming conversation and structured rendering.** Chat runs over AG-UI SSE and renders Markdown, copyable code blocks, nested lists, and inline tool-status cards in the client.
 - **Persistent message feedback.** Like, dislike, or comment on saved user and assistant messages. Pi Muse keeps reaction changes and original comment edits/deletions separately from PI's execution history, without triggering a model run or automatically changing your preferences.
 - **Isolated agents.** Create contexts such as Work, Life, or Study. Each agent has its own conversation tree, agent instructions, and tool switches.
-- **Avatar navigation and independent chats.** Current mobile source opens the combined All timeline by default. Tap avatars to switch private chats; long-press for Agent or global settings. The combined display does not share model contexts. See [Conversations and agents](docs/manual/en/conversations-and-agents.md).
+- **Messages, News, and Settings.** Current mobile source has only 「消息 / 新闻 / 设置」 (Messages / News / Settings) as primary tabs and opens the Messages group by default. Its 「成员」 (Members) panel separates 「在群里 @」 (mention in group) from 「单独聊」 (private chat); message avatars also open private chats. Configure Agents through 「设置」 → 「智能体管理」 (Agent Management). Group display does not share model contexts. Source does not imply a released APK; see [Conversations and agents](docs/manual/en/conversations-and-agents.md).
 
 ---
 

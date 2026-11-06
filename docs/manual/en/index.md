@@ -9,7 +9,7 @@ This manual introduces installation, connection, daily use, and security boundar
 - [News reading](news.md): manage RSS sources, browse recommended and all timelines, and use per-article feedback.
 - [Attachments, files, and approvals](files-and-approvals.md): distinguish message attachments, workspace files, and model file-write approvals.
 - [Tasks and webpage monitors](tasks-and-monitors.md): manage scheduled jobs and webpage monitors through chat tools, and review activity records.
-- [Goals and milestones](goals.md): create goals, update status and milestones, and distinguish goals from scheduled execution.
+- [Goals and milestones](goals.md): the concept of long-term goals, model-context injection, and chat-based management, distinguished from scheduled execution.
 - [Memory and Dream](memory-and-dream.md): manage long-term memory, configure consolidation, and review pending suggestions.
 - [Profile and settings](profile-and-settings.md): edit assistant and user profiles, choose a theme, and manage connections, browser access, and app updates.
 - [Core Capabilities](usage.md): overview of tasks, goals, memory, browser, and data boundaries.

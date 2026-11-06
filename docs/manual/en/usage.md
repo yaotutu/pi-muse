@@ -4,7 +4,7 @@ This page keeps only capability entry points. Detailed procedures live in their 
 
 ## Conversations and Agents {#conversations-and-agents}
 
-The mobile client supports streaming chat, execution status, the bottom fixed navigation bar, the session panel, stopping runs, resetting sessions, and deleting agents. Each agent has an independent conversation, private workspace, agent rules, and skill switches. See [Conversations and agents](conversations-and-agents.md).
+The mobile client has only three primary tabs: 「消息 / 新闻 / 设置」 (Messages / News / Settings), opening the Messages group by default. Enter private chat through the group’s 「成员」 (Members) → 「单独聊」 (private chat), and configuration through 「设置」 → 「智能体管理」 (Agent Management). It supports streaming chat, execution status, the session panel, stopping runs, resetting sessions, and deleting agents. Each agent has an independent conversation, private workspace, agent rules, and skill switches. See [Conversations and agents](conversations-and-agents.md).
 
 ## Attachments, Files, and Approvals {#files-and-approvals}
 
@@ -14,7 +14,7 @@ Message attachments enter model context with chat history; workspace files are p
 
 - [News reading](news.md): RSS source management, recommended and all timelines, per-article feedback, and saves.
 - [Tasks and webpage monitors](tasks-and-monitors.md): manage scheduled execution and webpage change checks through chat tools, and review current-agent activity records.
-- [Goals and milestones](goals.md): status and progress tracking for long-term goals, not scheduled task execution.
+- [Goals and milestones](goals.md): the concept of long-term goals, context injection, and chat-based management, not scheduled task execution.
 - [Memory and Dream](memory-and-dream.md): long-term memory search and management, plus separately configured consolidation.
 
 ## Profile and Settings {#profile-and-settings}

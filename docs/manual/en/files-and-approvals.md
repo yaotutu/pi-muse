@@ -39,7 +39,7 @@ Limits:
 
 ## Manage Workspace Files {#manage-workspace-files}
 
-1. Confirm the name on Agent Settings, then open 「文件」. This is a full-screen page, separate from the avatar panel.
+1. Open 「设置」 (Settings) → 「智能体管理」 (Agent Management) → the corresponding Agent’s settings. Confirm its name, then open 「文件」 (Files). This is a full-screen secondary page without a bottom bar.
 2. Tap a directory to enter it. 「上级」 or system Back moves up one level; 「根目录」 returns to this agent's root. Returning from a file preserves its directory and list scroll position.
 3. Tap a text file to open its source editor directly. The title shows the file name; the subtitle shows the agent and parent directory. Markdown and other UTF-8 text display their complete original content, without Markdown rendering, HTML execution, or remote image loading. PNG, JPEG, GIF, and WebP can be previewed safely; other binary files can be downloaded. The top-right information icon reveals the full path, size, modification time, type, and download/delete actions.
 4. Tap 「新建文本」 to create a file; edit existing text directly in the file without entering a separate mode. 「预览保存」 (preview save) and 「放弃修改」 (discard changes) appear only after a change; returning from an unchanged file does not prompt to keep a draft. Markdown saves remain original text, not a rich-text conversion.
