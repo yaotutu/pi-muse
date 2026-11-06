@@ -4,7 +4,7 @@ This page keeps only capability entry points. Detailed procedures live in their 
 
 ## Conversations and Agents {#conversations-and-agents}
 
-The mobile client supports streaming chat, execution status, the avatar navigation strip, the session panel, stopping runs, resetting sessions, and deleting agents. Each agent has an independent conversation, private workspace, agent rules, and skill switches. See [Conversations and agents](conversations-and-agents.md).
+The mobile client supports streaming chat, execution status, the bottom fixed navigation bar, the session panel, stopping runs, resetting sessions, and deleting agents. Each agent has an independent conversation, private workspace, agent rules, and skill switches. See [Conversations and agents](conversations-and-agents.md).
 
 ## Attachments, Files, and Approvals {#files-and-approvals}
 
