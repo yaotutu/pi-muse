@@ -37,7 +37,7 @@ test("concurrent launch tickets stay independent; consumption is one-time", asyn
     response.end("<html>vnc</html>");
   });
   t.after(() => closeServer(upstream.server));
-  const desktop = createBrowserDesktop({ enabled: true, desktopPort: upstream.port });
+  const desktop = createBrowserDesktop({ enabled: true, desktopHost: '127.0.0.1', desktopPort: upstream.port });
   t.after(() => desktop.close());
 
   const ticketA = await desktop.createTicket();
@@ -79,7 +79,7 @@ test("proxied gzip asset is decompressed without leaking content-encoding", asyn
     response.end(payload);
   });
   t.after(() => closeServer(upstream.server));
-  const desktop = createBrowserDesktop({ enabled: true, desktopPort: upstream.port });
+  const desktop = createBrowserDesktop({ enabled: true, desktopHost: '127.0.0.1', desktopPort: upstream.port });
   t.after(() => desktop.close());
   const { cookie } = await mintCookie(desktop);
 
@@ -111,7 +111,7 @@ test("upstream redirect and error pages are replaced with controlled responses",
     response.end("internal stack trace must not leak");
   });
   t.after(() => closeServer(upstream.server));
-  const desktop = createBrowserDesktop({ enabled: true, desktopPort: upstream.port });
+  const desktop = createBrowserDesktop({ enabled: true, desktopHost: '127.0.0.1', desktopPort: upstream.port });
   t.after(() => desktop.close());
   const { cookie } = await mintCookie(desktop);
 
@@ -137,7 +137,7 @@ test("encoded traversal never reaches upstream even with a valid session", async
     response.end("<html>vnc</html>");
   });
   t.after(() => closeServer(upstream.server));
-  const desktop = createBrowserDesktop({ enabled: true, desktopPort: upstream.port });
+  const desktop = createBrowserDesktop({ enabled: true, desktopHost: '127.0.0.1', desktopPort: upstream.port });
   t.after(() => desktop.close());
   const { cookie } = await mintCookie(desktop);
   seen.length = 0;
@@ -159,7 +159,7 @@ test("desktop cookie never authorizes /api endpoints", async (t) => {
     response.end("<html>vnc</html>");
   });
   t.after(() => closeServer(upstream.server));
-  const desktop = createBrowserDesktop({ enabled: true, desktopPort: upstream.port });
+  const desktop = createBrowserDesktop({ enabled: true, desktopHost: '127.0.0.1', desktopPort: upstream.port });
   t.after(() => desktop.close());
   const { cookie } = await mintCookie(desktop);
   // cookie 的作用域是 Path=/browser/desktop/，即便客户端错误地把它发到 /api，
@@ -173,7 +173,7 @@ test("desktop cookie never authorizes /api endpoints", async (t) => {
   const service = await createService(createConfig({
     server: { host: "127.0.0.1", accessKey: "desktop-cookie-test" },
     runtime: { dataDir },
-    tools: { browser: { enabled: false, desktopPort: upstream.port } },
+    tools: { browser: { enabled: false, desktopHost: '127.0.0.1', desktopPort: upstream.port } },
   }));
   t.after(async () => {
     await service.close();

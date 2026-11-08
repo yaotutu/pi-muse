@@ -407,7 +407,7 @@ test("browser file endpoints are documented and only upload POST gets the 12 MiB
 });
 
 test("browser upload contract and route error projection stay bounded", async (t) => {
-  const desktop = createBrowserDesktop({ enabled: false, desktopPort: 9 });
+  const desktop = createBrowserDesktop({ enabled: false, desktopHost: '127.0.0.1', desktopPort: 9 });
   t.after(() => desktop.close());
   assert.equal(browserUploadRequest.safeParse({
     files: [{ name: "empty.bin", mimeType: "", contentBase64: "" }],
@@ -468,7 +468,7 @@ test("browser upload returns 413 when decoded bytes exceed 8 MiB without a schem
   assert.ok(body.length > 11_184_812);
   assert.ok(Buffer.byteLength(body) < 12 * 1024 * 1024);
 
-  const desktop = createBrowserDesktop({ enabled: false, desktopPort: 9 });
+  const desktop = createBrowserDesktop({ enabled: false, desktopHost: '127.0.0.1', desktopPort: 9 });
   t.after(() => desktop.close());
   const response = await createBrowserRoutes(service, desktop).request(`/api/browser/uploads/${pending.id}`, {
     method: "POST",

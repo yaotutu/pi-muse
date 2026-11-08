@@ -63,8 +63,9 @@ const browserSchema = z.object({
   executablePath: z.string().optional(),
   allowPrivateTargets: z.boolean().default(false),
   timeoutMs: positiveInt(120_000, 30_000),
-  // 容器内 websockify/noVNC 桌面端口：只固定绑定 127.0.0.1，不提供 host/URL 配置。
-  // 对外桌面访问统一走同源 /browser/desktop/ 网关（cookie 鉴权代理），不再直接公开该端口。
+  // 桌面流 upstream：容器内部署保持默认回环 6080；宿主机进程部署时指向容器映射的本机端口
+  // （如 host 127.0.0.1 + port 16080）。对外访问仍统一走同源 /browser/desktop/ 网关，不公开该端口。
+  desktopHost: z.string().min(1).default("127.0.0.1"),
   desktopPort: positiveInt(65535, 6080),
 }).strict();
 const presentationSchema = z.object({

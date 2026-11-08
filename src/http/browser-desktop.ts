@@ -55,10 +55,10 @@ const errorResponse = (status: number, message: string) =>
   });
 
 /** 探测 noVNC 是否可达：只说明 upstream 静态页可服务，不代表 Chrome 健康。 */
-const probeVnc = (port: number): Promise<boolean> =>
+const probeVnc = (host: string, port: number): Promise<boolean> =>
   new Promise((resolve) => {
     const request = httpRequest(
-      { host: "127.0.0.1", port, path: "/vnc.html", method: "GET", timeout: PROBE_TIMEOUT_MS },
+      { host, port, path: "/vnc.html", method: "GET", timeout: PROBE_TIMEOUT_MS },
       (response) => {
         response.resume();
         resolve(response.statusCode === 200);
@@ -123,6 +123,8 @@ const rejectUpgrade = (socket: Duplex) => {
 
 export const createBrowserDesktop = (input: {
   enabled: boolean;
+  /** 桌面流 upstream 主机：默认回环；宿主机部署可指向本机容器映射端口（如 127.0.0.1:16080）。 */
+  desktopHost: string;
   desktopPort: number;
 }): BrowserDesktop => {
   const tickets = new Map<string, number>();
@@ -142,7 +144,7 @@ export const createBrowserDesktop = (input: {
   const probeDesktop = (): Promise<boolean> => {
     if (!input.enabled || closed) return Promise.resolve(false);
     // 并发探测共享同一次结果，避免突发请求对 upstream 打爆短连接。
-    probing ??= probeVnc(input.desktopPort).finally(() => {
+    probing ??= probeVnc(input.desktopHost, input.desktopPort).finally(() => {
       probing = undefined;
     });
     return probing;
@@ -227,10 +229,10 @@ export const createBrowserDesktop = (input: {
       if (!isSafeDesktopPath(url.pathname)) return errorResponse(404, "Not found");
       const sessionId = readCookie(request.headers.get("cookie"), DESKTOP_COOKIE);
       if (!validSession(sessionId)) return errorResponse(401, "Desktop session required");
-      // 固定 upstream：只连容器内回环 websockify；请求头不带 Cookie/Authorization。
+      // 固定 upstream：只连配置的桌面流地址（默认回环）；请求头不带 Cookie/Authorization。
       const upstreamPath = url.pathname.slice(DESKTOP_PREFIX.length - 1);
       const upstream = await fetch(
-        `http://127.0.0.1:${input.desktopPort}${upstreamPath}${url.search}`,
+        `http://${input.desktopHost}:${input.desktopPort}${upstreamPath}${url.search}`,
         {
           method: request.method,
           redirect: "manual",
@@ -278,8 +280,8 @@ export const createBrowserDesktop = (input: {
       }
 
       sockets.handleUpgrade(request, socket, head, (client) => {
-        // 固定 upstream：只连容器内回环 websockify，不转发 cookie/auth。
-        const upstream = new WebSocket(`ws://127.0.0.1:${input.desktopPort}/websockify`, ["binary"]);
+        // 固定 upstream：只连配置的桌面流地址，不转发 cookie/auth。
+        const upstream = new WebSocket(`ws://${input.desktopHost}:${input.desktopPort}/websockify`, ["binary"]);
         upstreams.add(upstream);
         upstream.binaryType = "nodebuffer";
         let upstreamReady = false;

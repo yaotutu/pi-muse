@@ -5,7 +5,7 @@ import { createBrowserDesktop, DESKTOP_VIEWER_PATH } from "../../src/http/browse
 // 桌面网关的边界回归：不启动 upstream；有效 ticket 与代理资源由集成测试覆盖。
 
 test("disabled desktop reports null paths and never probes upstream", async () => {
-  const desktop = createBrowserDesktop({ enabled: false, desktopPort: 9 });
+  const desktop = createBrowserDesktop({ enabled: false, desktopHost: '127.0.0.1', desktopPort: 9 });
   const status = await desktop.status();
   assert.deepEqual(status, {
     enabled: false,
@@ -19,7 +19,7 @@ test("disabled desktop reports null paths and never probes upstream", async () =
 
 test("unreachable upstream keeps desktopAvailable false and refuses to mint tickets", async () => {
   // 端口 9 是 discard 服务，本机不会监听；探测必须在 2 秒内受控失败。
-  const desktop = createBrowserDesktop({ enabled: true, desktopPort: 9 });
+  const desktop = createBrowserDesktop({ enabled: true, desktopHost: '127.0.0.1', desktopPort: 9 });
   const status = await desktop.status();
   assert.equal(status.enabled, true);
   assert.equal(status.viewerPath, "/browser");
@@ -30,7 +30,7 @@ test("unreachable upstream keeps desktopAvailable false and refuses to mint tick
 });
 
 test("launch rejects missing and unknown tickets with 401", () => {
-  const desktop = createBrowserDesktop({ enabled: true, desktopPort: 9 });
+  const desktop = createBrowserDesktop({ enabled: true, desktopHost: '127.0.0.1', desktopPort: 9 });
   const missing = desktop.launch(new URL("http://localhost/browser/desktop/launch"));
   assert.equal(missing.status, 401);
   const unknown = desktop.launch(new URL("http://localhost/browser/desktop/launch?ticket=nope"));
@@ -39,7 +39,7 @@ test("launch rejects missing and unknown tickets with 401", () => {
 });
 
 test("proxy rejects traversal and encoded escapes before any upstream call", async () => {
-  const desktop = createBrowserDesktop({ enabled: true, desktopPort: 9 });
+  const desktop = createBrowserDesktop({ enabled: true, desktopHost: '127.0.0.1', desktopPort: 9 });
   const cookie = "pi_muse_desktop=fake-session";
   const rejected = [
     "/browser/desktop/../private",
@@ -64,7 +64,7 @@ test("proxy rejects traversal and encoded escapes before any upstream call", asy
 });
 
 test("proxy requires a valid desktop cookie and refuses other methods", async () => {
-  const desktop = createBrowserDesktop({ enabled: true, desktopPort: 9 });
+  const desktop = createBrowserDesktop({ enabled: true, desktopHost: '127.0.0.1', desktopPort: 9 });
   const noCookie = await desktop.proxy(new Request("http://localhost/browser/desktop/vnc.html"));
   assert.equal(noCookie.status, 401);
   const badCookie = await desktop.proxy(new Request("http://localhost/browser/desktop/vnc.html", {
@@ -80,7 +80,7 @@ test("proxy requires a valid desktop cookie and refuses other methods", async ()
 });
 
 test("handleUpgrade ignores non-desktop paths and rejects missing cookie or origin", () => {
-  const desktop = createBrowserDesktop({ enabled: true, desktopPort: 9 });
+  const desktop = createBrowserDesktop({ enabled: true, desktopHost: '127.0.0.1', desktopPort: 9 });
   const socket = {
     destroyed: false,
     wrote: "",

@@ -35,7 +35,8 @@
     "browser": {
       "enabled": true,
       "allowPrivateTargets": false,
-      "desktopPort": 6080
+      "desktopPort": 6080,
+      "desktopHost": "127.0.0.1"
     },
     "presentation": {
       "default": "hidden",

@@ -460,6 +460,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   // 关闭时仅清内存 ticket/session 与 WS 代理，不参与 feature/pi 生命周期。
   const browserDesktop = createBrowserDesktop({
     enabled: config.browser.enabled,
+    desktopHost: config.browser.desktopHost,
     desktopPort: config.browser.desktopPort,
   });
   const agents = createAgentService({ conversationHub, storage: createAgentStorage(layout), jobs, monitors, actions, dream, information, communication, group, groupRouting, features, messageFeedbackRepository, forgetPresence: workspaceEvents.presence.forget });
