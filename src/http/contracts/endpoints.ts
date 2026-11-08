@@ -4,6 +4,7 @@ import { groupEndpoints } from "./group-chat.js";
 import { z } from "zod";
 import * as req from "./rest.js";
 import * as resp from "./responses.js";
+import * as trace from "./traces.js";
 import * as activity from "./activities.js";
 import * as approval from "./approvals.js";
 import * as status from "./agent-status.js";
@@ -70,6 +71,32 @@ export const endpoints: EndpointSpec[] = [
   ...featureEndpoints,
   ...agentCommunicationEndpoints,
   ...groupEndpoints,
+  {
+    operationId: "listTraces",
+    method: "get", path: "/api/traces", tag: "模型追踪", summary: "分页读取模型调用摘要",
+    auth: true, query: trace.tracesQuerySchema, response: trace.tracesResponse,
+    hint: "需 Bearer 鉴权。仅开发者诊断，不进入模型上下文；GET 无副作用，不提供删除/清理 API。" +
+      "agentId/kind 精确匹配；since/until 接受 ISO 日期、带时区 ISO 时间或 Unix 毫秒时间戳，按 startedAt 包含边界过滤。" +
+      "按 startedAt 倒序，同时间按 fileName 倒序。默认 20 条，上限 100。游标以最后一条文件名为锚点并绑定过滤条件；" +
+      "改变过滤条件或锚点已被保留策略清理时从第一页重读。非法/重复/未知参数、since>until 和非法游标均 400。" +
+      "关闭记录或缺少 traces 目录返回空集。单个损坏/不可读文件跳过并计入 badCount（全目录扫描数量，不按过滤缩减）；目录级故障为 500。摘要不含 request/response 正文。",
+  },
+  {
+    operationId: "getTrace",
+    method: "get", path: "/api/traces/:fileName", tag: "模型追踪", summary: "读取完整模型调用记录",
+    auth: true, response: trace.traceDetailResponse,
+    hint: "需 Bearer 鉴权。使用列表 fileName 原样作为单段路径参数：yyyy-mm-dd.HHmmss-sss-agentId-kind-seq.json；" +
+      "严格匹配一期文件格式，只允许 ASCII 字母、数字、点、连字符和下划线；斜杠、反斜杠、路径穿越与格式非法返回 400。" +
+      "只读 traces 根内日目录中的普通文件，拒绝符号链接。不存在、损坏或不可读返回 404。返回完整 meta/request/response（原始记录已脱敏）；仅供诊断，不进入模型上下文。",
+  },
+  {
+    operationId: "getTraceByDay",
+    method: "get", path: "/api/traces/:day/:fileName", tag: "模型追踪", summary: "按日目录和文件名读取完整调用记录",
+    auth: true, response: trace.traceDetailResponse,
+    hint: "需 Bearer 鉴权。两段式只读详情：day 为 yyyy-mm-dd，fileName 为 HHmmss-sss-agentId-kind-seq.json；" +
+      "返回的 fileName 仍为列表使用的日目录加点的单段标识。每段严格校验，拒绝路径穿越、斜杠编码、反斜杠和符号链接；" +
+      "格式非法 400，不存在、损坏或不可读 404。完整请求与响应仅供开发者诊断，不进入模型上下文。",
+  },
   // ---- 基础 ----
   {
     operationId: "getHealth",

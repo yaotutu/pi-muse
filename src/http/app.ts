@@ -16,6 +16,7 @@ import { createAgentRoutes } from "./routes/agents.js";
 import { createInformationRoutes } from "./routes/information.js";
 import { createNewsRoutes } from "./routes/news.js";
 import { createWorkspaceEventRoutes } from "./routes/events.js";
+import { createTracesRoutes } from "./routes/traces.js";
 import { createBrowserRoutes } from "./routes/browser.js";
 import { serviceVersion } from "../bootstrap/service-version.js";
 import { isFeatureAgent } from "../features/agent-extensions/types.js";
@@ -122,6 +123,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/api/news", createNewsRoutes(dependencies));
   app.route("/api/features", createFeatureRoutes(dependencies));
   app.route("/api/agent-communication", createAgentCommunicationRoutes(dependencies));
+  app.route("/", createTracesRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);
   app.all("/api/*", (c) =>

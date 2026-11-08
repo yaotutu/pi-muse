@@ -22,6 +22,8 @@ import type {
   ResetAgentDto,
   DeleteAgentDto,
 } from "../../../src/http/contracts/responses.js";
+import type { TraceDetailDto, TraceSummaryDto, TracesQueryDto, TracesResponseDto } from "../../../src/http/contracts/traces.js";
+export type { TraceDetailDto, TraceSummaryDto, TracesQueryDto, TracesResponseDto };
 import type { RunRequestDto } from "../../../src/http/contracts/rest.js";
 import {
   messageFeedbackEventsResponse,
@@ -130,6 +132,20 @@ export const login = async (accessKey?: string): Promise<boolean> => {
   return true;
 };
 export const isLoggedIn = () => Boolean(getToken());
+
+export const listTraces = async (query: Partial<TracesQueryDto>, signal?: AbortSignal): Promise<TracesResponseDto> => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value !== undefined) params.set(key, String(value));
+  const response = await request(`/api/traces?${params}`, { signal });
+  if (!response.ok) throw new ApiError(response.status, response.status === 400 ? "过滤条件或分页游标无效，请重新筛选" : "无法加载模型追踪");
+  return response.json() as Promise<TracesResponseDto>;
+};
+
+export const getTrace = async (fileName: string, signal?: AbortSignal): Promise<TraceDetailDto> => {
+  const response = await request(`/api/traces/${encodeURIComponent(fileName)}`, { signal });
+  if (!response.ok) throw new ApiError(response.status, response.status === 404 ? "记录不存在、已被清理或无法读取" : "无法加载追踪详情");
+  return response.json() as Promise<TraceDetailDto>;
+};
 
 export const listAgents = async (): Promise<AgentDto[]> => {
   const response = await request("/api/agents");

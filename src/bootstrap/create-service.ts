@@ -71,6 +71,7 @@ import { createDreamService } from "../features/dream/service.js";
 import { createDreamScheduler } from "../features/dream/scheduler.js";
 import { createDreamProposer } from "../adapters/pi/dream-runner.js";
 import { readDreamTranscript } from "../adapters/pi/session-history.js";
+import { createModelTraceReader } from "../adapters/model-trace/reader.js";
 import { createModelTraceProxy } from "../adapters/model-trace/proxy.js";
 import { withModelTraceExecution } from "../adapters/model-trace/context.js";
 
@@ -462,7 +463,9 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     desktopPort: config.browser.desktopPort,
   });
   const agents = createAgentService({ conversationHub, storage: createAgentStorage(layout), jobs, monitors, actions, dream, information, communication, group, groupRouting, features, messageFeedbackRepository, forgetPresence: workspaceEvents.presence.forget });
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, communication, group, groupRouting, agents, browser, browserDesktop, messageFeedbackRepository };
+  // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
+  const traces = createModelTraceReader(layout.tracesDir);
+  const dependencies = { traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, features, communication, group, groupRouting, agents, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。

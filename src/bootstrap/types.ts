@@ -48,6 +48,7 @@ export type ServiceContainer = {
   workspaceFiles: WorkspaceFileService;
   workspaceCommits: WorkspaceCommitQueue;
   activities: ActivityService;
+  traces: import("../adapters/model-trace/reader.js").ModelTraceReader;
   dream: DreamService;
   dreamScheduler: DreamScheduler;
   information: InformationService;
@@ -64,5 +65,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "information" | "news" | "features" | "communication" | "group" | "groupRouting" | "agents" | "browser" | "browserDesktop" | "messageFeedbackRepository"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "information" | "news" | "features" | "communication" | "group" | "groupRouting" | "agents" | "browser" | "browserDesktop" | "messageFeedbackRepository"
 >;

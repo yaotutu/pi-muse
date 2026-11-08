@@ -221,7 +221,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 注册给唯一 `ModelRuntime` 的 provider baseUrl 指向进程内回环记录代理（仅 127.0.0.1 随机端口，不进入对外监听），代理原样转发真实供应商；`traces.enabled=false` 时不建代理、不写任何文件，请求行为不变。
 - 所有模型轮都各落一条 trace：聊天（含定时触发）、信息批、群薄路由、智能体通信、Dream、子代理，以及压缩/缓存预热等 SDK 内部请求。每条含业务标识（agentId、kind、runId/informationRunId 等）、上游 origin、HTTP 状态、请求投影（system/messages 全文、工具名与完整 schema、可见采样参数）与响应投影（完整文本输出、工具调用、流结束信息；失败时含上游错误正文）。同一 SDK 轮内的多次请求各自成条。
 - 硬边界：请求头与 Authorization 永不记录；已知模型 Key 在整个落盘文本中替换为 `[REDACTED]`（Key 取自运行时配置，不落盘原值）；上游 URL 只记 origin；单条响应捕获上限 2MiB，超限截断并标记。
-- 记录是纯旁路：解析或落盘失败只打印一行脱敏摘要，绝不影响模型调用与流式透传。轮次标签由各发起处显式传播（AsyncLocalStorage，经仅回环传输的不透明 id 跨代理边界）；标签缺失时记为 `unlabeled`，不丢条目。查看接口与页面属二期，不在当前契约内。
+- 记录是纯旁路：解析或落盘失败只打印一行脱敏摘要，绝不影响模型调用与流式透传。轮次标签由各发起处显式传播（AsyncLocalStorage，经仅回环传输的不透明 id 跨代理边界）；标签缺失时记为 `unlabeled`，不丢条目。Web 工作台“模型追踪”提供只读列表与完整记录查看，HTTP 契约由 `src/http/contracts/traces.ts` 生成到 `/docs`；诊断内容不进入模型上下文。
 
 ## HTTP 与前端适配边界
 

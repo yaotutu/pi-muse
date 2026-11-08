@@ -2,6 +2,7 @@ import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "r
 import { ChatView } from "../chat/ChatView";
 import { JobsView } from "../jobs/JobsView";
 import { GoalsView } from "../goals/GoalsView";
+import { TracesView } from "../traces/TracesView";
 import { SettingsView } from "../settings/SettingsView";
 import {
   ApiError,
@@ -324,7 +325,7 @@ export const App = () => {
   const [newAgent, setNewAgent] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [error, setError] = useState("");
-  type View = "chat" | "jobs" | "goals" | "settings";
+  type View = "chat" | "jobs" | "goals" | "traces" | "settings";
   const [view, setView] = useState<View>("chat");
   // 小屏（<768px）侧栏变为抽屉；默认开抽屉选会话，选完自动收起。
   const [drawer, setDrawer] = useState(false);
@@ -421,6 +422,7 @@ export const App = () => {
     { key: "chat", label: "聊天" },
     { key: "jobs", label: "任务" },
     { key: "goals", label: "目标" },
+    { key: "traces", label: "模型追踪" },
     { key: "settings", label: "设置" },
   ];
 
@@ -450,7 +452,7 @@ export const App = () => {
         <div className="px-4 py-4 text-sm font-semibold tracking-wide text-stone-700">
           pi-muse
         </div>
-        <div className="flex gap-1 px-2 pb-2">
+        <div className="flex flex-wrap gap-1 px-2 pb-2">
           {navItems.map((item) => (
             <button
               key={item.key}
@@ -458,7 +460,7 @@ export const App = () => {
                 setView(item.key);
                 setDrawer(false);
               }}
-              className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium ${
+              className={`min-w-16 flex-1 rounded-lg px-2 py-1.5 text-xs font-medium ${
                 view === item.key
                   ? "bg-stone-800 text-white"
                   : "text-stone-500 hover:bg-stone-100"
@@ -593,6 +595,7 @@ export const App = () => {
         )}
         {view === "jobs" && <JobsView />}
         {view === "goals" && <GoalsView />}
+        {view === "traces" && <TracesView />}
         {view === "settings" && <SettingsView agentId={active} />}
         </div>
       </main>
