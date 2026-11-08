@@ -3,7 +3,8 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { agentDiscussionsDir, agentDiscussionDir, agentWorkspaceDir } from "../storage/data-layout.js";
 import { AgentCommunicationError, type AgentCommunicationRunner, type AgentRequestExecution } from "../../features/agent-communication/service.js";
 import { TURN_ENTRY_TYPE, RESULT_ENTRY_TYPE } from "../../features/conversation/types.js";
-import { projectConversationHistory } from "./history-projection.js";
+import { buildExecutionBoundary } from "../../features/conversation/execution-boundary.js";
+import { collectConversationRecords, projectConversationHistory } from "./history-projection.js";
 import { openPi, type PiDeps } from "./session-factory.js";
 import { projectExecutionEvent } from "./execution.js";
 import { runWithModelTrace } from "../model-trace/context.js";
@@ -54,12 +55,15 @@ export const createAgentCommunicationRunner = (getDeps: () => Omit<PiDeps, "sess
     request.signal.addEventListener("abort", abort, { once: true });
     try {
       request.signal.throwIfAborted();
+      // 在追加本轮控制条目前读取既有讨论；仅投影中断边界，不合成历史消息或恢复旧执行。
+      const boundary = buildExecutionBoundary(collectConversationRecords(manager.getBranch()), request.requestId);
       manager.appendCustomEntry(AGENT_REQUEST_ENTRY, {
         requestId: request.requestId, discussionId: request.discussionId,
         sourceAgentId: request.sourceAgentId, sourceSessionId: request.sourceSessionId, ...(request.sourceDiscussionId ? { sourceDiscussionId: request.sourceDiscussionId } : {}), targetAgentId: request.targetAgentId,
       });
       manager.appendCustomEntry(TURN_ENTRY_TYPE, { userId: request.requestId, assistantId: `reply-${request.requestId}`, runId: request.requestId, text: request.message });
       const prompt = [
+        ...(boundary ? [boundary] : []),
         request.userView === "notification" ? "The user is following up on a verified notification from your agent in its own dedicated discussion. Reply as yourself. This is not a shared group chat or the receiving agent's ordinary chat; do not claim to see other discussions or private messages."
           : request.userView === "group" ? "The user is speaking to you in the shared group chat. Only messages explicitly addressed to you enter your context. Reply as yourself, using your own agent; never claim to see other members' messages or private chats."
           : `Project agent request from ${request.sourceAgentId} to ${request.targetAgentId}.`,

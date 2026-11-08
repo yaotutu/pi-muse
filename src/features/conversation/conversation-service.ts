@@ -6,6 +6,7 @@ import type { ConversationDependencies, ConversationExecution } from "./ports.js
 import type { CancelReason, ConversationEvent, ConversationInput, ConversationResult, ConversationTurn, ConversationNotification, ConversationNotificationReceipt, ConversationSnapshot } from "./types.js";
 import type { MessageFeedbackSession } from "../messages/service.js";
 import { attachmentIdentity, buildConversationPrompt } from "./attachments.js";
+import { buildExecutionBoundary } from "./execution-boundary.js";
 
 type PendingNotification = {
   notification: ConversationNotification;
@@ -297,6 +298,9 @@ export function createConversation(
           }
         });
         const prompt = buildConversationPrompt(turn.text, user.attachments);
+        // 当前 turn 已落盘；排除本轮，只为实际新执行补充中断边界，幂等重放不提交 prompt。
+        const boundary = buildExecutionBoundary(records(), running.runId);
+        if (boundary) prompt.prompt = `${boundary}\n\n${prompt.prompt}`;
         await running.session.prompt(prompt.prompt, prompt.images);
         // prompt 完成 + waitForIdle 才允许提交终态；message_end 的 public listener
         // 早于 pi 内部 appendMessage，不能在 listener 内发 RUN_FINISHED。

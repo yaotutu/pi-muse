@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { TestContext } from "node:test";
 import { createConversation } from "../../src/features/conversation/conversation-service.js";
 import type { ConversationDependencies, ConversationExecution, ConversationHistoryPort } from "../../src/features/conversation/ports.js";
-import type { ConversationEvent, ExecutionEvent } from "../../src/features/conversation/types.js";
+import type { ConversationEvent, ConversationRecords, ExecutionEvent } from "../../src/features/conversation/types.js";
 import { createMessageFeedbackFixture } from "../support/message-session.js";
 
 /** 这里只替换 port 测生命周期，不模拟 agent loop；真实 pi/HTTP 仍由集成套件保护。 */
@@ -44,6 +44,35 @@ test("coordinator finishes only after pi idle and persisted result and then rele
   assert.equal(conversation.isRunning(), false);
   assert.deepEqual(calls.slice(-2), ["unsubscribe", "dispose"]);
 });
+
+for (const previousStatus of ["aborted", "completed"] as const) {
+  test(`coordinator submits the new user prompt with an execution boundary only after ${previousStatus}`, async (t) => {
+    const { dependencies, session } = await fixture(t);
+    const records: ConversationRecords = {
+      turns: [{ runId: "old-run", userId: "old-user", assistantId: "old-assistant", text: "old task" }],
+      results: new Map([["old-run", { runId: "old-run", status: previousStatus }]]),
+    };
+    dependencies.history.records = () => records;
+    dependencies.history.appendTurn = (turn) => { records.turns.push(turn); };
+    let receivedPrompt: string | undefined;
+    // 通过执行 port 捕获实际提交文本，同时保留正常终态事件，避免只验证纯函数的返回值。
+    const prompt = session.prompt;
+    dependencies.openSession = async () => ({
+      ...session,
+      prompt: async (text, images) => { receivedPrompt = text; await prompt(text, images); },
+    });
+    const conversation = createConversation({ configured: true, runTimeoutMs: 5000 }, dependencies);
+    const events: ConversationEvent[] = [];
+    await conversation.run({ ...input, message: { id: "new-user", content: "Good evening" } }, (event) => events.push(event));
+    assert.equal(events.at(-1)?.type, "run_finished");
+    assert.ok(receivedPrompt);
+    assert.ok(receivedPrompt.endsWith("Good evening"));
+    if (previousStatus === "aborted") {
+      assert.match(receivedPrompt, /^Execution boundary for this turn:/);
+      assert.ok(receivedPrompt.indexOf("Execution boundary") < receivedPrompt.indexOf("Good evening"));
+    } else assert.doesNotMatch(receivedPrompt, /Execution boundary for this turn:/);
+  });
+}
 
 test("coordinator records attachment metadata and passes images in the same SDK prompt", async (t) => {
   const { calls, dependencies } = await fixture(t);

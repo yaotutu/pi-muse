@@ -183,7 +183,8 @@ export async function createFakeModel() {
       });
       return;
     }
-    if (last === "broken") {
+    // 续接中断轮时 prompt 前置执行边界；故障开关仍按最后一段用户命令触发。
+    if (last.split("\n\n").at(-1) === "broken") {
       event({ content: "fragment" });
       res.destroy();
       return;

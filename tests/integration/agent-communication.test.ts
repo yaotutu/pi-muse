@@ -11,6 +11,10 @@ import { agentRequestSchema } from "../../src/http/contracts/agent-communication
 import { agentsResponse } from "../../src/http/contracts/responses.js";
 import { buildOpenApiDocument } from "../../src/http/openapi.js";
 import { registeredToolNames } from "../../src/adapters/pi/tools/index.js";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { TURN_ENTRY_TYPE, RESULT_ENTRY_TYPE } from "../../src/features/conversation/types.js";
+import { createFakeModel } from "../support/fake-model.js";
+import { textOf } from "../../src/adapters/pi/history-projection.js";
 
 test("agent request contract accepts both directions without a agent allowlist or notification binding", () => {
   for (const [sourceAgentId, targetAgentId] of [["local-main", "sms-internal"], ["sms-internal", "local-main"], ["research", "travel"], ["news-internal", "sms-internal"]]) {
@@ -53,6 +57,49 @@ test("agent communication discovery, authentication and missing history use real
   } finally {
     await service.close(); if ("closeAllConnections" in http) http.closeAllConnections();
     await new Promise<void>((resolve) => http.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("discussion continuation submits an interruption boundary after an aborted result but not after completion", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-muse-discussion-boundary-"));
+  const model = await createFakeModel();
+  let service: Awaited<ReturnType<typeof createService>> | undefined;
+  try {
+    service = await createService(createConfig({ server: { host: "127.0.0.1", accessKey: "boundary-test" },
+      model: { baseUrl: model.baseUrl, id: "fake", apiKey: "boundary-provider-fixture" }, runtime: { dataDir: root }, tools: { browser: { enabled: false } } }));
+    const headers = { authorization: `Bearer ${service.auth.login("boundary-test")}`, "content-type": "application/json" };
+    const send = async (message: string, discussionId?: string) => {
+      const response = await service!.app.request("/api/agent-communication/requests", { method: "POST", headers,
+        body: JSON.stringify({ sourceAgentId: "local-main", targetAgentId: "sms-internal", message, ...(discussionId ? { discussionId } : {}) }) });
+      assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.equal(result.status, "completed");
+      return result as { discussionId: string };
+    };
+    const latestUserText = () => {
+      const content = model.requests.at(-1)?.messages.filter((message) => message.role === "user").at(-1)?.content;
+      return textOf(content);
+    };
+    const first = await send("Initial greeting");
+    assert.doesNotMatch(latestUserText(), /Execution boundary for this turn:/);
+    // 只在隔离测试 JSONL 中预置控制条目；通过真实续接读取路径验证 custom result 被转换为模型可见指令。
+    const dir = join(root, "sessions", "sms-internal", "discussions", first.discussionId);
+    const file = (await readdir(dir)).find((name) => name.endsWith(".jsonl"));
+    assert.ok(file);
+    const manager = SessionManager.open(join(dir, file));
+    manager.appendCustomEntry(TURN_ENTRY_TYPE, { runId: "interrupted", userId: "old-user", assistantId: "old-assistant", text: "Unfinished task" });
+    manager.appendCustomEntry(RESULT_ENTRY_TYPE, { runId: "interrupted", status: "aborted" });
+    await send("Good evening", first.discussionId);
+    assert.match(latestUserText(), /^Execution boundary for this turn:/);
+    assert.match(latestUserText(), /tool results are historical facts only/);
+    assert.ok(latestUserText().endsWith("Good evening"));
+    await send("A new question", first.discussionId);
+    assert.doesNotMatch(latestUserText(), /Execution boundary for this turn:/);
+    assert.ok(latestUserText().endsWith("A new question"));
+  } finally {
+    await service?.close();
+    await model.close();
     await rm(root, { recursive: true, force: true });
   }
 });
