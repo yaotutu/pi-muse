@@ -205,6 +205,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 | `subagents/*.md` | 实例级 role 覆盖，优先于内置 `assets/subagents/<role>.md` |
 | `skills/<name>/SKILL.md` | 实例级技能资产 |
 | `config.json` / `auth.key` / `agent/` | 必需配置、token 签名密钥与 pi 运行资源 |
+| `traces/<yyyy-mm-dd>/<HHmmss-sss>-<agentId>-<kind>-<seq>.json` | 模型调用 trace 快照（按天分目录、原子写、总量超限按最旧先删）；不进入任何模型上下文 |
 | `browser/profile/` | 系统 Chrome 持久 profile；与配置同级按敏感登录态保护，不给普通文件工具访问 |
 | `browser/downloads/<uuid>/content`、`meta.json` | Playwright 下载内容与状态；独立于 workspace，目录 `0700`、文件 `0600`，普通文件工具不可访问 |
 
@@ -214,6 +215,13 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 写入先在内存序列化，以 `wx`、`0600` 创建同目录临时文件，再 `rename`；文本档案与会话指令共用带预期版本比对的原子写入口，防止后台整理覆盖并发编辑。不做 fsync、自动重试、跨进程锁或 durable execution。
 - 损坏文件需停止服务、保留原件并从有效备份恢复，不直接删文件消除报错。未来格式/路径变更单独设计离线迁移与回退，不运行中双写，不保留隐式旧 reader。
 - `runtime.dataDir` 省略或为相对路径时按配置文件目录解析，不按进程 cwd；嵌套目录陷阱与完整实例树见 [配置说明](manual/configuration.md#instance-directory-structure)。
+
+## 模型调用追踪
+
+- 注册给唯一 `ModelRuntime` 的 provider baseUrl 指向进程内回环记录代理（仅 127.0.0.1 随机端口，不进入对外监听），代理原样转发真实供应商；`traces.enabled=false` 时不建代理、不写任何文件，请求行为不变。
+- 所有模型轮都各落一条 trace：聊天（含定时触发）、信息批、群薄路由、智能体通信、Dream、子代理，以及压缩/缓存预热等 SDK 内部请求。每条含业务标识（agentId、kind、runId/informationRunId 等）、上游 origin、HTTP 状态、请求投影（system/messages 全文、工具名与完整 schema、可见采样参数）与响应投影（完整文本输出、工具调用、流结束信息；失败时含上游错误正文）。同一 SDK 轮内的多次请求各自成条。
+- 硬边界：请求头与 Authorization 永不记录；已知模型 Key 在整个落盘文本中替换为 `[REDACTED]`（Key 取自运行时配置，不落盘原值）；上游 URL 只记 origin；单条响应捕获上限 2MiB，超限截断并标记。
+- 记录是纯旁路：解析或落盘失败只打印一行脱敏摘要，绝不影响模型调用与流式透传。轮次标签由各发起处显式传播（AsyncLocalStorage，经仅回环传输的不透明 id 跨代理边界）；标签缺失时记为 `unlabeled`，不丢条目。查看接口与页面属二期，不在当前契约内。
 
 ## HTTP 与前端适配边界
 

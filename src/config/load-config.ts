@@ -71,12 +71,21 @@ const presentationSchema = z.object({
   default: toolPresentationMode.optional(),
   overrides: z.record(z.string(), toolPresentationMode).optional(),
 }).strict();
+// 模型调用全量追踪：默认开启；关闭时不建回环记录代理、不写任何 trace 文件。
+// 总量上限默认 1GiB，下限 16MiB 防止误配成过小值把历史清空。
+const tracesSchema = z.object({
+  enabled: z.boolean().default(true),
+  maxTotalBytes: z.number().int()
+    .refine((v) => v >= 16_777_216, "must be an integer >= 16777216 (16MiB)")
+    .default(1_073_741_824),
+}).strict();
 
 const configFileSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   server: serverSchema.prefault({}),
   model: modelSchema.prefault({}),
   runtime: runtimeSchema.prefault({}),
+  traces: tracesSchema.prefault({}),
   tools: z.object({
     web: webSchema.prefault({}),
     weather: weatherSchema.prefault({}),
@@ -172,6 +181,7 @@ export const createConfig = (
     default: file.tools.presentation?.default ?? "hidden",
     overrides: file.tools.presentation?.overrides ?? {},
   } as const;
+  const traces = file.traces;
   const unknownPresentationTool = Object.keys(presentation.overrides).find(
     (name) => !registeredToolNames.includes(name),
   );
@@ -201,6 +211,7 @@ export const createConfig = (
       .map((origin) => origin.trim())
       .filter(Boolean),
     configured: Boolean(baseUrl && modelId),
+    traces,
     web,
     weather,
     writable,

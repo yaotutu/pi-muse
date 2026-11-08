@@ -21,6 +21,10 @@
     "schedulerIntervalMs": 30000,
     "monitorScanIntervalMs": 60000
   },
+  "traces": {
+    "enabled": true,
+    "maxTotalBytes": 1073741824
+  },
   "tools": {
     "web": {
       "enabled": true

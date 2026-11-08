@@ -3,11 +3,20 @@ import { Type } from "@earendil-works/pi-ai";
 import type { Config } from "../../config/load-config.js";
 import type { RouteDecision, RouteInput } from "../../features/group-chat/routing.js";
 import type { DataLayout } from "../storage/data-layout.js";
+import { runWithModelTrace } from "../model-trace/context.js";
 import { createResourceLoader } from "./resource-loader.js";
 
 /** 路由仅作一次结构化判断，没有成员私有历史和业务工具，不产生目标执行或文件副作用。 */
 export const createGroupRoutingRunner = (deps: { config: Config; layout: DataLayout; modelRuntime: ModelRuntime }) =>
-  async (input: RouteInput, signal: AbortSignal): Promise<RouteDecision> => {
+  async (input: RouteInput, signal: AbortSignal): Promise<RouteDecision> =>
+    // 群薄路由是组级判断而非某个智能体的轮次；agentId 固定用 "group" 标注。
+    runWithModelTrace({ agentId: "group", kind: "group-routing" }, () => runGroupRouting(deps, input, signal));
+
+const runGroupRouting = async (
+  deps: { config: Config; layout: DataLayout; modelRuntime: ModelRuntime },
+  input: RouteInput,
+  signal: AbortSignal,
+): Promise<RouteDecision> => {
     const model = deps.config.modelId && deps.modelRuntime.getModel("personal", deps.config.modelId);
     if (!model) throw new Error("Routing model unavailable");
     let result: RouteDecision | undefined; let submissions = 0; let failed = false;

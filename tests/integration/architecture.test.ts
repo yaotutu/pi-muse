@@ -63,6 +63,7 @@ test("DataLayout describes the current paths without migrating legacy data", () 
     browserDownloadsDir: join(root, "browser", "downloads"),
     skillsDir: join(root, "skills"),
     subagentsDir: join(root, "subagents"),
+    tracesDir: join(root, "traces"),
   });
 });
 

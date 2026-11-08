@@ -70,6 +70,8 @@ export type DreamDependencies = {
   memory: Pick<MemoryService, "list" | "add" | "edit" | "forget">;
   conversations: DreamConversationsPort;
   propose: (input: {
+    /** 目标智能体；用于模型调用追踪标注，不参与整理决策。 */
+    agentId: string;
     systemPrompt: string;
     userPrompt: string;
     signal?: AbortSignal;
@@ -269,6 +271,7 @@ export const createDreamService = (deps: DreamDependencies) => {
         });
 
         const proposed = await propose({
+          agentId,
           systemPrompt,
           userPrompt,
           signal: controller.signal,

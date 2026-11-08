@@ -6,6 +6,7 @@ import { TURN_ENTRY_TYPE, RESULT_ENTRY_TYPE } from "../../features/conversation/
 import { projectConversationHistory } from "./history-projection.js";
 import { openPi, type PiDeps } from "./session-factory.js";
 import { projectExecutionEvent } from "./execution.js";
+import { runWithModelTrace } from "../model-trace/context.js";
 
 export const AGENT_REQUEST_ENTRY = "pi-muse.agent-request";
 
@@ -23,9 +24,20 @@ export const createAgentCommunicationRunner = (getDeps: () => Omit<PiDeps, "sess
     await mkdir(dir, { recursive: true, mode: 0o700 });
     return SessionManager.create(cwd, dir);
   };
-  const run = async (request: AgentRequestExecution, continuing: boolean) => {
+  const run = async (request: AgentRequestExecution, continuing: boolean) =>
+    // 智能体通信（agent 工具、群投递、通知跟进讨论）都在目标智能体的独立讨论中驱动模型。
+    runWithModelTrace({
+      agentId: request.targetAgentId,
+      kind: "agent-communication",
+      extra: { discussionId: request.discussionId, requestId: request.requestId },
+    }, () => runDiscussion(getDeps(), request, continuing));
+
+  const runDiscussion = async (
+    deps: Omit<PiDeps, "sessionManager" | "agentId">,
+    request: AgentRequestExecution,
+    continuing: boolean,
+  ) => {
     request.signal.throwIfAborted();
-    const deps = getDeps();
     const manager = await managerFor(request.targetAgentId, request.discussionId, continuing);
     request.signal.throwIfAborted();
     const session = await openPi({ ...deps, agentId: request.targetAgentId, runId: request.requestId, userText: request.message,

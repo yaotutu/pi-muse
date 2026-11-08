@@ -71,6 +71,8 @@ import { createDreamService } from "../features/dream/service.js";
 import { createDreamScheduler } from "../features/dream/scheduler.js";
 import { createDreamProposer } from "../adapters/pi/dream-runner.js";
 import { readDreamTranscript } from "../adapters/pi/session-history.js";
+import { createModelTraceProxy } from "../adapters/model-trace/proxy.js";
+import { withModelTraceExecution } from "../adapters/model-trace/context.js";
 
 /**
  * 应用唯一的运行时组装入口。
@@ -150,28 +152,47 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     allowModelNetwork: false,
     refreshOnCreate: false,
   });
+  // 模型调用全量追踪：注册给 runtime 的 baseUrl 指向本进程内回环记录代理，
+  // 代理再原样转发真实 baseUrl。traces.enabled=false（或未配置模型）时不建代理、
+  // 不写任何文件，provider 注册与请求行为和原先完全一致。记录代理只绑定
+  // 127.0.0.1 随机端口，不进入对外监听；后续组装失败时由各 catch 显式关闭。
+  let modelTrace: Awaited<ReturnType<typeof createModelTraceProxy>> | undefined;
   if (config.configured) {
-    modelRuntime.registerProvider("personal", {
-      baseUrl: config.baseUrl,
-      api: "openai-completions",
-      models: [
-        {
-          id: config.modelId!,
-          name: config.modelId!,
-          reasoning: false,
-          input: ["text", "image"],
-          contextWindow: config.contextWindow,
-          maxTokens: config.maxTokens,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          compat: {
-            supportsStore: false,
-            supportsDeveloperRole: false,
-            maxTokensField: "max_tokens",
+    const runtimeApiKey = config.apiKey || "local-no-key";
+    if (config.traces.enabled) {
+      modelTrace = await createModelTraceProxy({
+        upstreamBaseUrl: config.baseUrl!,
+        runtimeApiKey,
+        dir: layout.tracesDir,
+        maxTotalBytes: config.traces.maxTotalBytes,
+      });
+    }
+    try {
+      modelRuntime.registerProvider("personal", {
+        baseUrl: modelTrace ? modelTrace.providerBaseUrl : config.baseUrl,
+        api: "openai-completions",
+        models: [
+          {
+            id: config.modelId!,
+            name: config.modelId!,
+            reasoning: false,
+            input: ["text", "image"],
+            contextWindow: config.contextWindow,
+            maxTokens: config.maxTokens,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            compat: {
+              supportsStore: false,
+              supportsDeveloperRole: false,
+              maxTokensField: "max_tokens",
+            },
           },
-        },
-      ],
-    });
-    await modelRuntime.setRuntimeApiKey("personal", config.apiKey || "local-no-key");
+        ],
+      });
+      await modelRuntime.setRuntimeApiKey("personal", runtimeApiKey);
+    } catch (error) {
+      await modelTrace?.close();
+      throw error;
+    }
   }
 
   const conversationHub = createConversationHub(
@@ -199,35 +220,43 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             listener({ id: approval.id, pending: approval.status === "pending" });
           }
         }),
-        openSession: async ({ runId, activity, status, userText }) => createPiExecution(
-          await openPi({
-            config,
+        openSession: async ({ runId, activity, status, userText }) => {
+          const execution = createPiExecution(
+            await openPi({
+              config,
+              agentId,
+              runId,
+              userText,
+              activity,
+              status,
+              presentation,
+              modelRuntime,
+              layout,
+              sessionManager: manager,
+              memory,
+              jobs,
+              goals,
+              actions,
+              actionTimeoutMs: config.writable.actionTimeoutMs,
+              monitors,
+              web,
+              weather,
+              browser,
+              skills,
+              workspaceCommits,
+              information,
+              features,
+              communication,
+            }),
+            manager,
+          );
+          // 主聊天（含定时触发与重试）都经此入口驱动模型；只包标签，不改执行语义。
+          return withModelTraceExecution(execution, {
             agentId,
-            runId,
-            userText,
-            activity,
-            status,
-            presentation,
-            modelRuntime,
-            layout,
-            sessionManager: manager,
-            memory,
-            jobs,
-            goals,
-            actions,
-            actionTimeoutMs: config.writable.actionTimeoutMs,
-            monitors,
-            web,
-            weather,
-            browser,
-            skills,
-            workspaceCommits,
-            information,
-            features,
-            communication,
-          }),
-          manager,
-        ),
+            kind: "chat",
+            ...(runId ? { extra: { runId } } : {}),
+          });
+        },
       });
     },
     async () => {
@@ -334,6 +363,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     await information?.close();
     await conversationHub.closeAll();
     await browser?.close();
+    await modelTrace?.close();
     throw error;
   }
   let mainConversation: Awaited<ReturnType<typeof conversationHub.forAgent>>;
@@ -364,6 +394,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     await information?.close();
     await conversationHub.closeAll();
     await browser?.close();
+    await modelTrace?.close();
     throw error;
   }
   const scheduler = createScheduler(config, jobs, mainConversation, (agentId) => conversationHub.findAgent(agentId));
@@ -450,6 +481,8 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
         browserDesktop.close();
       }
       await recency.flush();
+      // 执行源收尾后再关记录代理：取消产生的 abort/断流 trace 先完成旁路写入。
+      await modelTrace?.close();
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
     })();

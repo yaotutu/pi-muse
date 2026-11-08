@@ -16,6 +16,7 @@ import type {
 } from "../../features/information/types.js";
 import { parseInformationResult } from "../../features/information/result.js";
 import type { DataLayout } from "../storage/data-layout.js";
+import { runWithModelTrace } from "../model-trace/context.js";
 import { projectExecutionEvent } from "./execution.js";
 import { createResourceLoader } from "./resource-loader.js";
 
@@ -137,7 +138,19 @@ export const createInformationRunner = (deps: {
   layout: DataLayout;
   modelRuntime: ModelRuntime;
 }) =>
-  async (input: InformationModelInput, signal: AbortSignal): Promise<InformationModelResult> => {
+  async (input: InformationModelInput, signal: AbortSignal): Promise<InformationModelResult> =>
+    // 信息批（短信/通知与新闻推荐）显式标注轮次类型；mode 决定 kind。
+    runWithModelTrace({
+      agentId: input.agentId,
+      kind: input.mode === "recommendations" ? "information:recommendations" : "information:notifications",
+      extra: { informationRunId: input.runId },
+    }, () => runInformationRound(deps, input, signal));
+
+const runInformationRound = async (
+  deps: { config: Config; layout: DataLayout; modelRuntime: ModelRuntime },
+  input: InformationModelInput,
+  signal: AbortSignal,
+): Promise<InformationModelResult> => {
     if (!deps.config.configured || !deps.config.modelId) return { ok: false, error: "MODEL_REQUEST_FAILED" };
     const model = deps.modelRuntime.getModel("personal", deps.config.modelId);
     if (!model) return { ok: false, error: "MODEL_REQUEST_FAILED" };

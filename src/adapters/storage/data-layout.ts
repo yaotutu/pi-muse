@@ -30,6 +30,7 @@ export type DataLayout = {
   browserDownloadsDir: string;
   skillsDir: string;
   subagentsDir: string;
+  tracesDir: string;
 };
 
 export const createDataLayout = (dataDir: string): DataLayout => {
@@ -58,6 +59,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     browserDownloadsDir: join(root, "browser", "downloads"),
     skillsDir: join(root, "skills"),
     subagentsDir: join(root, "subagents"),
+    tracesDir: join(root, "traces"),
   };
 };
 

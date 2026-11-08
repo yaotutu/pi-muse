@@ -11,6 +11,7 @@ import type { Config } from "../../config/load-config.js";
 import { parseProposal, type ProposedChange } from "../../features/dream/proposal.js";
 import type { DreamProposeResult } from "../../features/dream/service.js";
 import type { DataLayout } from "../storage/data-layout.js";
+import { runWithModelTrace } from "../model-trace/context.js";
 import { projectExecutionEvent } from "./execution.js";
 import { createResourceLoader } from "./resource-loader.js";
 
@@ -101,6 +102,7 @@ export const createDreamProposer = (deps: {
   layout: DataLayout;
   modelRuntime: ModelRuntime;
 }) => async (input: {
+  agentId: string;
   systemPrompt: string;
   userPrompt: string;
   signal?: AbortSignal;
@@ -156,21 +158,24 @@ export const createDreamProposer = (deps: {
   });
 
   try {
-    input.signal?.throwIfAborted();
-    await session.prompt(input.userPrompt, { expandPromptTemplates: false });
-    await session.waitForIdle();
-    if (
-      input.signal?.aborted ||
-      !stopReason ||
-      stopReason === "error" ||
-      stopReason === "aborted"
-    ) {
-      return { ok: false, error: "Consolidation model request failed or was cancelled" };
-    }
-    if (invalidCall && !collected.length) {
-      return { ok: false, error: "Model produced an invalid proposal" };
-    }
-    return { ok: true, changes: collected };
+    // Dream 整理轮按目标智能体标注；模型调用与收尾都留在同一追踪上下文内。
+    return await runWithModelTrace({ agentId: input.agentId, kind: "dream" }, async () => {
+      input.signal?.throwIfAborted();
+      await session.prompt(input.userPrompt, { expandPromptTemplates: false });
+      await session.waitForIdle();
+      if (
+        input.signal?.aborted ||
+        !stopReason ||
+        stopReason === "error" ||
+        stopReason === "aborted"
+      ) {
+        return { ok: false, error: "Consolidation model request failed or was cancelled" } as const;
+      }
+      if (invalidCall && !collected.length) {
+        return { ok: false, error: "Model produced an invalid proposal" } as const;
+      }
+      return { ok: true, changes: collected } as const;
+    });
   } catch {
     await session.abort().catch(() => undefined);
     await session.waitForIdle().catch(() => undefined);

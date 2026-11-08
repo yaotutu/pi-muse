@@ -43,6 +43,7 @@ import type { ReadOnlyFile } from "./tools/path-guard.js";
 import { loadSubagentRoles } from "../storage/subagent-roles.js";
 import { createSubagentExtension, SUBAGENT_TOOL_NAME, type SubagentRole } from "./subagent/extension.js";
 import { projectExecutionEvent } from "./execution.js";
+import { runWithModelTrace } from "../model-trace/context.js";
 import type { ActivityRun, ActivityObservation } from "../../features/activities/types.js";
 import { createActivityObserver } from "./activity-observer.js";
 import { createToolPresentation, type ToolPresentation } from "../ag-ui/tool-presentation.js";
@@ -325,8 +326,15 @@ export async function openPi(deps: PiDeps) {
       });
       try {
         signal?.throwIfAborted();
-        await session.prompt(`Task: ${task}`, { expandPromptTemplates: false });
-        await session.waitForIdle();
+        // 子代理在父轮工具执行内发起；嵌套上下文以最内层为准，trace 标注为 subagent。
+        await runWithModelTrace({
+          agentId: childId,
+          kind: "subagent",
+          extra: { parentAgentId: deps.agentId, role: role.name },
+        }, async () => {
+          await session.prompt(`Task: ${task}`, { expandPromptTemplates: false });
+          await session.waitForIdle();
+        });
         signal?.throwIfAborted();
         const failed = !reason || reason === "error" || reason === "aborted";
         deps.status?.observe({ kind: "subagent", phase: "end", id: childId, role: role.name, outcome: failed ? "failed" : "succeeded" });

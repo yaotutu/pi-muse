@@ -72,6 +72,7 @@ test("config defaults allow an unconfigured LAN-accessible instance", async (t) 
         "http://127.0.0.1:12330",
       ],
       configured: false,
+      traces: { enabled: true, maxTotalBytes: 1073741824 },
       web: {
         allowPrivateTargets: false,
         enabled: true,
@@ -180,6 +181,26 @@ test("browser desktopPort defaults to 6080 and rejects out-of-range values", () 
   assert.throws(
     () => createConfig({ tools: { browser: { desktopPort: 65536 } } }),
     /desktopPort/,
+  );
+});
+
+test("traces config defaults to enabled with a bounded size limit and rejects unknown fields", () => {
+  assert.deepEqual(createConfig({}).traces, { enabled: true, maxTotalBytes: 1073741824 });
+  assert.deepEqual(createConfig({ traces: { enabled: false, maxTotalBytes: 16777216 } }).traces, {
+    enabled: false,
+    maxTotalBytes: 16777216,
+  });
+  assert.throws(
+    () => createConfig({ traces: { maxTotalBytes: 16777215 } }),
+    /traces.maxTotalBytes/,
+  );
+  assert.throws(
+    () => createConfig({ traces: { maxTotalBytes: 1048576.5 } }),
+    /traces.maxTotalBytes/,
+  );
+  assert.throws(
+    () => createConfig({ traces: { unknown: true } }),
+    /Invalid config file/,
   );
 });
 
