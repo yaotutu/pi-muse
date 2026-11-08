@@ -1,3 +1,5 @@
+> **作废：** 本文保留旧版本设计历史。当前领域与生命周期以[单主助手多会话基线](architecture/single-agent-multisession.md)及自动生成契约为准；下文不是现行接口或数据迁移授权。
+
 # 客户端 Agent 与 Session 接入边界
 
 本文只说明客户端状态归属；精确请求、响应与事件以当前 `src/http/contracts/` 和运行实例 `/docs` 为准，不另维护迁移字段表或兼容接口。

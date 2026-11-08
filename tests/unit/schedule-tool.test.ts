@@ -5,7 +5,7 @@ import type { Job } from "../../src/features/jobs/types.js";
 
 const createJobs = (items: Job[]) => ({
   items,
-  add: async (prompt: string, daily: boolean, at: string, originAgentId = "local-main") => {
+  add: async (prompt: string, daily: boolean, at: string, originSessionId = "main") => {
     const job: Job = {
       id: "job-full-id",
       prompt,
@@ -14,7 +14,7 @@ const createJobs = (items: Job[]) => ({
       enabled: true,
       createdAt: new Date().toISOString(),
       nextRunAt: new Date(Date.now() + 60_000).toISOString(),
-      originAgentId,
+      originSessionId,
     };
     items.push(job);
     return job;
@@ -32,7 +32,7 @@ const createJobs = (items: Job[]) => ({
 const text = (result: Awaited<ReturnType<ReturnType<typeof scheduleTool>["execute"]>>) =>
   result.content[0]?.type === "text" ? result.content[0].text : "";
 
-test("schedule create returns a full usable ID and defaults to local-main", async () => {
+test("schedule create returns a full usable ID and defaults to main", async () => {
   const jobs = createJobs([]);
   const result = await scheduleTool(jobs).execute(
     "call-create",
@@ -43,7 +43,7 @@ test("schedule create returns a full usable ID and defaults to local-main", asyn
   );
 
   assert.match(text(result), /Scheduled \(id job-full-id\)/);
-  assert.equal(jobs.items[0]?.originAgentId, "local-main");
+  assert.equal(jobs.items[0]?.originSessionId, "main");
 });
 
 test("schedule list and cancel are bounded to the current agent", async () => {
@@ -55,7 +55,7 @@ test("schedule list and cancel are bounded to the current agent", async () => {
     enabled: true,
     createdAt: new Date().toISOString(),
     nextRunAt: new Date(Date.now() + 60_000).toISOString(),
-    originAgentId: "agent-a",
+    originSessionId: "agent-a",
   };
   const other: Job = {
     id: "other-job-id",
@@ -65,7 +65,7 @@ test("schedule list and cancel are bounded to the current agent", async () => {
     enabled: true,
     createdAt: new Date().toISOString(),
     nextRunAt: new Date(Date.now() + 60_000).toISOString(),
-    originAgentId: "agent-b",
+    originSessionId: "agent-b",
   };
   const jobs = createJobs([own, other]);
   const tool = scheduleTool(jobs, "agent-a");

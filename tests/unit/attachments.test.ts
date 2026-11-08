@@ -141,7 +141,7 @@ test("history projects original text plus per-attachment images and no duplicate
 
 test("conversation identity binds ordered attachment metadata and wire schemas match the contract", () => {
   const input: ConversationInput = {
-    agentId: "local-main", runId: "run-id", expectedRevision: "leaf",
+    sessionId: "main", runId: "run-id", expectedRevision: "leaf",
     message: { id: "user-id", content: "hello", attachments: [attachment()] },
   };
   const validated = validateConversationInput(input, [], { turns: [], results: new Map() }, "leaf");
@@ -162,7 +162,8 @@ test("conversation identity binds ordered attachment metadata and wire schemas m
   const five = [1, 2, 3, 4, 5].map((index) => attachment({ id: `file_${index}`, name: `file_${index}.txt` }));
   assert.equal(runRequestSchema.safeParse({ ...input, message: { ...input.message, attachments: five } }).success, false);
   conversationResponse.parse({
-    sessionId: "session-id",
+    sessionId: "main",
+    piSessionId: "session-id",
     revision: "leaf",
     messages: [{
       id: "user-id", role: "user", content: "hello",
@@ -171,7 +172,7 @@ test("conversation identity binds ordered attachment metadata and wire schemas m
     }],
   });
   assert.equal(conversationResponse.safeParse({
-    sessionId: "session-id",
+    piSessionId: "session-id",
     revision: "leaf",
     messages: [{
       id: "assistant", role: "assistant", content: "answer", metadata: messageMetadata, feedback: emptyFeedback,
@@ -179,7 +180,7 @@ test("conversation identity binds ordered attachment metadata and wire schemas m
     }],
   }).success, false);
   assert.equal(conversationResponse.safeParse({
-    sessionId: "session-id",
+    piSessionId: "session-id",
     revision: "leaf",
     messages: [{
       id: "user", role: "user", content: "", metadata: messageMetadata, feedback: emptyFeedback,

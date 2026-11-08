@@ -17,8 +17,8 @@ export type ReadOnlyFile = {
 export const safeReadOnlyFile = async (file: ReadOnlyFile): Promise<string> =>
   safeWorkspacePath(file.root, resolve(file.path), { boundaryDir: file.boundaryDir });
 
-export const guardPath = (root: string, raw: unknown, sharedDir?: string): string | null =>
-  resolveWorkspacePath(root, raw, sharedDir)?.path ?? null;
+export const guardPath = (root: string, raw: unknown): string | null =>
+  resolveWorkspacePath(root, raw)?.path ?? null;
 
 /**
  * 受控拒绝统一返回，避免绝对路径、ENOENT 文本或 SDK 内部信息泄漏到模型上下文。
@@ -40,18 +40,17 @@ const isNotFound = (error: unknown): boolean => {
 export const guardTool = (
   definition: ToolDefinition<any, any>,
   root: string,
-  sharedDir?: string,
   options: FileGuardOptions = {},
 ): ToolDefinition<any, any> => ({
   ...definition,
-    description: definition.description + " Paths are relative to this conversation's private workspace; use shared/... for shared files. Absolute paths, .. and symlinks are refused." +
+    description: definition.description + " Paths are relative to the shared workspace. Absolute paths, .. and symlinks are refused." +
       (definition.name === "read" && options.readOnlyFiles?.length ? " The exact SKILL.md and supported text resource paths of enabled skills are also readable." : ""),
   execute: async (toolCallId, params, signal, onUpdate, ctx) => {
     const rawPath = (params as { path?: unknown }).path;
     const skillFile = definition.name === "read" && typeof rawPath === "string"
       ? options.readOnlyFiles?.find((file) => resolve(rawPath) === resolve(file.path))
       : undefined;
-    const selected = resolveWorkspacePath(root, rawPath, sharedDir);
+    const selected = resolveWorkspacePath(root, rawPath);
     if (!selected && !skillFile) return denied("Access denied: path is outside the documents directory or contains a symlink.");
     try {
       // 缺失文件交给 pi 保留原有 not-found 行为；实际读取 operations 再核验 SDK 最终解析的路径。

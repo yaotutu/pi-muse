@@ -5,23 +5,21 @@ import type { ConversationExecution } from "../../features/conversation/ports.js
  * 模型调用追踪的显式上下文传播。
  *
  * 唯一 ModelRuntime 的所有请求在到达记录代理时从本模块读取当前归属：
- * 各发起处（主聊天、信息批、群薄路由、智能体通信、Dream、子代理）用
+ * 各发起处（主聊天、信息批、群薄路由、会话通信、Dream、子代理）用
  * runWithModelTrace 包住实际驱动模型的异步段。AsyncLocalStorage 保证同进程
- * 并发轮次的 agentId/kind 不串号；嵌套 run（子代理在父轮工具执行内发起）
+ * 并发轮次的 sessionId/kind 不串号；嵌套 run（子代理在父轮工具执行内发起）
  * 以最内层为准。上下文缺失时不丢条目，由记录代理降级为 kind="unlabeled"。
  */
 export type ModelTraceKind =
   | "chat"
   | "information:notifications"
   | "information:recommendations"
-  | "group-routing"
-  | "agent-communication"
   | "dream"
   | "subagent"
   | "unlabeled";
 
 export type ModelTraceContext = {
-  agentId: string;
+  sessionId: string;
   kind: ModelTraceKind;
   /** 业务标识（runId、discussionId、informationRunId 等）；值必须是可落盘的非敏感字符串。 */
   extra?: Readonly<Record<string, string>>;

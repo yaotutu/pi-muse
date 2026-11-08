@@ -1,4 +1,3 @@
-import type { FeatureSource } from "../agent-extensions/types.js";
 import type {
   ConversationAttachment,
   ConversationAttachmentInput,
@@ -13,11 +12,11 @@ export const RESULT_ENTRY_TYPE = "personal-bot.result";
 export const AGENT_STATUS_ENTRY_TYPE = "pi-muse.agent-status";
 export type ConversationNotificationReceipt = {
   notificationId: string;
-  sessionId: string;
+  piSessionId: string;
   messageId: string;
 };
 
-export type ConversationNotification = { id: string; text: string; featureSource?: FeatureSource };
+export type ConversationNotification = { id: string; text: string };
 
 export type ConversationTurn = {
   userId: string;
@@ -61,7 +60,7 @@ export type ConversationHistory = HistoryMessage[];
 
 /** 客户端只提交一条消息及读取时的历史版本，不能注入模型/工具历史。 */
 export type ConversationInput = {
-  agentId?: string;
+  sessionId?: string;
   runId: string;
   expectedRevision: string;
   message: {
@@ -81,6 +80,7 @@ export type ProjectedConversationHistory =
   Array<HistoryMessage & { metadata?: ProjectedMessageMetadata; feedback?: MessageFeedback }>;
 export type ConversationSnapshot = {
   sessionId: string;
+  piSessionId: string;
   messages: ProjectedConversationHistory;
   revision: string;
 };
@@ -98,8 +98,8 @@ export type ExecutionEvent =
 /** 生命周期由协调器决定，文本/工具事件的协议形状由 AG-UI adapter 决定。 */
 export type ConversationEvent =
   | ExecutionEvent
-  | { type: "run_started"; agentId?: string; runId: string; assistantId: string }
-  | { type: "run_finished"; agentId?: string; runId: string }
+  | { type: "run_started"; sessionId?: string; runId: string; assistantId: string }
+  | { type: "run_finished"; sessionId?: string; runId: string }
   | { type: "run_error"; code: string; message: string }
   | { type: "history_snapshot"; messages: ConversationHistory }
   | { type: "text_end"; assistantId: string };

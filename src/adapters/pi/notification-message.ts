@@ -1,4 +1,3 @@
-import { isFeatureId, type FeatureSource } from "../../features/agent-extensions/types.js";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ConversationNotification } from "../../features/conversation/types.js";
 
@@ -8,7 +7,7 @@ import type { ConversationNotification } from "../../features/conversation/types
  * 因而不能把 custom entry 当成已持久化的投递凭据。稳定 ID 随同一条 message
  * 存入唯一的 JSONL 历史，展示与下轮模型上下文均能读到，不创建第二份通知历史。
  */
-type NotificationMessage = AssistantMessage & { personalBotNotificationId: string; personalBotFeatureSource?: FeatureSource };
+type NotificationMessage = AssistantMessage & { personalBotNotificationId: string };
 type InformationNotificationSource = { notificationId: string; runId: string };
 
 const informationNotificationIdPattern =
@@ -21,7 +20,6 @@ export const createNotificationMessage = (notification: ConversationNotification
   model: "server-notification",
   api: "openai-completions",
   personalBotNotificationId: notification.id,
-  ...(notification.featureSource ? { personalBotFeatureSource: notification.featureSource } : {}),
   usage: {
     input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
@@ -42,12 +40,4 @@ export const informationNotificationSourceOf = (message: AssistantMessage): Info
   if (!notificationId) return undefined;
   const match = informationNotificationIdPattern.exec(notificationId);
   return match ? { notificationId, runId: match[1]! } : undefined;
-};
-
-/** 只认可服务端通知 marker 上的结构化来源，不识别正文中伪造的来源标签。 */
-export const featureSourceOf = (message: AssistantMessage): FeatureSource | undefined => {
-  if (!notificationIdOf(message) || !("personalBotFeatureSource" in message)) return undefined;
-  const source = message.personalBotFeatureSource as Partial<FeatureSource> | undefined;
-  if (!source || !isFeatureId(source.featureId) || !Array.isArray(source.itemIds) || !source.itemIds.length || source.itemIds.length > 20 || !source.itemIds.every((id) => typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id))) return undefined;
-  return { featureId: source.featureId, itemIds: [...source.itemIds] };
 };

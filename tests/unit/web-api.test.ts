@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addMemory, createGoal, decideApproval, editMemory, forgetMemory, getAgentSnapshot, getGoal, getMemory, getToken, listGoals, listMemories, listPendingApprovals, login, removeGoal, runConversation, setGoalStatus, subscribeAuth, toggleGoalMilestone, updateGoal } from "../../web/src/lib/api.js";
+import { addMemory, createGoal, decideApproval, editMemory, forgetMemory, getSessionSnapshot, getGoal, getMemory, getToken, listGoals, listMemories, listPendingApprovals, login, removeGoal, runConversation, setGoalStatus, subscribeAuth, toggleGoalMilestone, updateGoal } from "../../web/src/lib/api.js";
 
 /** 只替换浏览器边界，复用真实 API 客户端；认证失效必须发布到 React 订阅而非只删缓存。 */
 test("login rejects wrong keys normally and API 401 immediately invalidates the shared authentication state", async (t) => {
@@ -29,7 +29,7 @@ test("login rejects wrong keys normally and API 401 immediately invalidates the 
   assert.equal(getToken(), "signed-token");
   assert.equal(changes, 1);
   status = 401;
-  await assert.rejects(getAgentSnapshot(), /登录已过期/);
+  await assert.rejects(getSessionSnapshot(), /登录已过期/);
   assert.equal(getToken(), null);
   assert.equal(changes, 2);
 });
@@ -42,9 +42,8 @@ test("approval client uses the new routes and validates the pending envelope ins
   });
   const approval = {
     id: "approval-1", kind: "file_write", title: "Write draft",
-    agentId: "local-main",
-    workspaceAgentId: "local-main",
-    preview: { scope: "agent", ownerAgentId: "local-main", path: "draft.md", before: "", after: "complete preview", beforeExists: false }, status: "pending",
+    sessionId: "main",
+    preview: { scope: "workspace", path: "draft.md", before: "", after: "complete preview", beforeExists: false }, status: "pending",
     revision: 1, runId: null, activityId: null, toolCallId: null, subagentId: null, resolvedAt: null, decidedAt: null,
     createdAt: "2026-10-19T00:00:00.000Z", expiresAt: "2026-10-19T00:05:00.000Z", execution: null,
   };
@@ -79,11 +78,11 @@ test("chat client rejects malformed protocol events and streams that omit a term
   });
   let body = 'data: {"type":"TOOL_CALL_START","toolCallId":"missing-name"}\n\n';
   t.mock.method(globalThis, "fetch", async () => new Response(body, { headers: { "content-type": "text/event-stream" } }));
-  const input = { agentId: "main", runId: "run", expectedRevision: "empty", message: { id: "u", content: "hello" } };
+  const input = { sessionId: "main", runId: "run", expectedRevision: "empty", message: { id: "u", content: "hello" } };
   await assert.rejects(runConversation(input, () => assert.fail("invalid event must never reach the UI")), /不符合契约/);
-  body = 'data: {"type":"RUN_STARTED","agentId":"main","runId":"run"}\n\n';
+  body = 'data: {"type":"RUN_STARTED","sessionId":"main","runId":"run"}\n\n';
   await assert.rejects(runConversation(input, () => {}), /提前结束/);
-  body += 'data: {"type":"RUN_FINISHED","agentId":"main","runId":"run"}\n\n';
+  body += 'data: {"type":"RUN_FINISHED","sessionId":"main","runId":"run"}\n\n';
   const events: string[] = [];
   await runConversation(input, (event) => events.push(event.type));
   assert.deepEqual(events, ["RUN_STARTED", "RUN_FINISHED"]);

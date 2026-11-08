@@ -8,9 +8,9 @@
  * merge 语义（已对齐 main 为冲突基准，叠加 execution 与 /pending 补充读取）：
  * - 主同步来源仍是 SSE 的 ready.pendingApprovals + approval_pending；
  *   /api/approvals/pending 仅作为补充只读，不能写入或延长授权。
- * - HTTP 审批响应使用 main 的 preview{scope, ownerAgentId, path, before, after,
+ * - HTTP 审批响应使用 main 的 preview{scope, path, before, after,
  *   beforeExists} 形状，不暴露内部 payload 字段。
- * - /api/approvals 接受 cursor/limit/agentId/activityId/status 过滤参数；
+ * - /api/approvals 接受 cursor/limit/sessionId/activityId/status 过滤参数；
  *   游标 base64url 编码，且过滤绑定（换过滤必须从首屏开始）。
  * - /api/approvals/pending 已决定/已执行审批不再出现在 pending 集合。
  * - execution 字段始终存在；未观察到执行时为 null，与 status 平行。
@@ -91,7 +91,7 @@ const openServiceWithActions = async (
 
 const decodeCursor = (token: string) =>
   JSON.parse(Buffer.from(token, "base64url").toString("utf8")) as {
-    resolvedAt: string; id: string; agentId?: string; activityId?: string; status?: string;
+    resolvedAt: string; id: string; sessionId?: string; activityId?: string; status?: string;
   };
 
 /**
@@ -101,7 +101,7 @@ const decodeCursor = (token: string) =>
 const settled = (overrides: {
   id?: string; status?: PendingAction["status"]; title?: string; kind?: PendingAction["kind"];
   decidedAt: string; createdAt?: string; expiresAt?: string;
-  agentId?: string; activityId?: string; execution?: PendingAction["execution"];
+  sessionId?: string; activityId?: string; execution?: PendingAction["execution"];
 }): PendingAction => {
   const id = overrides.id ?? randomUUID();
   return {
@@ -116,11 +116,10 @@ const settled = (overrides: {
     resolvedAt: overrides.decidedAt,
     // 只有 approved/denied 才允许 decidedAt；其他终态保持 null。
     decidedAt: overrides.status === "denied" || overrides.status === "approved" ? overrides.decidedAt : null,
-    agentId: overrides.agentId ?? null,
+    sessionId: overrides.sessionId ?? null,
     runId: null,
     toolCallId: null,
     subagentId: null,
-    workspaceAgentId: null,
     activityId: overrides.activityId ?? null,
     ...(overrides.execution ? { execution: overrides.execution } : {}),
   };
@@ -156,7 +155,7 @@ test("approvals: /pending returns full preview shape, not raw payload, and disap
       beforeExists: "true",
       baseVersion: "v1",
     },
-    { agentId: "local-main", workspaceAgentId: "local-main" },
+    { sessionId: "main", },
   );
 
   const raw = await (await service.app.request("/api/approvals/pending", { headers })).json();
@@ -168,7 +167,7 @@ test("approvals: /pending returns full preview shape, not raw payload, and disap
   assert.equal(record.status, "pending");
   assert.equal(record.resolvedAt, null);
   assert.equal(record.decidedAt, null);
-  // HTTP 用 main 的 preview 形状：before/after/path/beforeExists/scope/ownerAgentId
+  // HTTP 用 main 的 preview 形状：before/after/path/beforeExists/scope
   // 内部 payload 不可见。
   assert.equal(typeof record.preview, "object");
   assert.equal(record.preview.path, "notes.md");
@@ -176,8 +175,7 @@ test("approvals: /pending returns full preview shape, not raw payload, and disap
   assert.equal(record.preview.after, fullContent);
   assert.equal(record.preview.after.length, fullContent.length);
   assert.equal(record.preview.beforeExists, true);
-  assert.equal(record.preview.scope, "agent");
-  assert.equal(record.preview.ownerAgentId, "local-main");
+  assert.equal(record.preview.scope, "workspace");
   assert.equal(Object.hasOwn(record, "payload"), false, "/pending must not expose raw payload");
   // execution 始终存在；pending 时为 null。
   assert.equal(record.execution, null);
@@ -201,7 +199,7 @@ test("approvals: decision same returns 200, preserves decidedAt, no duplicate ac
   const action = await service.actions.submit(
     "file_write", "Idempotent title",
     { path: "idem.md", content: "IDEM-CONTENT", originalContent: "" },
-    { agentId: "local-main", workspaceAgentId: "local-main" },
+    { sessionId: "main", },
   );
   assert.equal(events.length, 1, "submit must broadcast exactly one actions_updated");
 
@@ -296,7 +294,7 @@ test("approvals: detail returns full preview with execution appearing only after
   const action = await service.actions.submit(
     "file_write", "Detail preview",
     { path: "detail.md", content: "DETAIL-CONTENT " + "x".repeat(5000), originalContent: "" },
-    { agentId: "local-main", workspaceAgentId: "local-main", runId: "run-detail", activityId: "act-detail" },
+    { sessionId: "main", runId: "run-detail", activityId: "act-detail" },
   );
   await service.actions.decide(action.id, "approve");
 
@@ -345,7 +343,7 @@ test("approvals: /api/approvals exposes settled summaries only, omits preview, i
   // 现场新提交一条 pending：它不能进入历史，但能进入 /pending。
   await service.actions.submit(
     "file_write", "P", { path: "p.md", content: "p", originalContent: "" },
-    { agentId: "local-main", workspaceAgentId: "local-main" },
+    { sessionId: "main", },
   );
 
   const history = approvalPage.parse(
@@ -384,13 +382,13 @@ test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep cov
     items.push(settled({
       id: `id-${String(i).padStart(2, "0")}`,
       decidedAt: new Date(base + i * 1000).toISOString(),
-      agentId: i % 2 === 0 ? "t-A" : "t-B",
+      sessionId: i % 2 === 0 ? "00000000-0000-4000-8000-000000000001" : "00000000-0000-4000-8000-000000000002",
       activityId: i % 3 === 0 ? "act-X" : "act-Y",
       status: i % 4 === 0 ? "denied" : "approved",
     }));
   }
-  items.push(settled({ id: "id-tie-A", decidedAt: "2026-10-19T00:00:30.000Z", status: "approved", agentId: "t-C" }));
-  items.push(settled({ id: "id-tie-B", decidedAt: "2026-10-19T00:00:30.000Z", status: "approved", agentId: "t-C" }));
+  items.push(settled({ id: "id-tie-A", decidedAt: "2026-10-19T00:00:30.000Z", status: "approved", sessionId: "00000000-0000-4000-8000-000000000003" }));
+  items.push(settled({ id: "id-tie-B", decidedAt: "2026-10-19T00:00:30.000Z", status: "approved", sessionId: "00000000-0000-4000-8000-000000000003" }));
   const { service, headers } = await openServiceWithActions(t, items);
 
   // 按 resolvedAt desc + id desc 排序：自然时间大的更靠前；相同时 id 大的靠前。
@@ -428,7 +426,7 @@ test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep cov
   assert.equal(decoded.resolvedAt, last.resolvedAt);
   assert.equal(decoded.id, "id-06");
 
-  // 过滤在分页前应用；status 过滤、agentId 过滤、activityId 过滤必须保持顺序与时间不变。
+  // 过滤在分页前应用；status 过滤、sessionId 过滤、activityId 过滤必须保持顺序与时间不变。
   const denied = approvalPage.parse(
     await (await service.app.request("/api/approvals?status=denied", { headers })).json(),
   );
@@ -436,7 +434,7 @@ test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep cov
   for (const it of denied.approvals) assert.equal(it.status, "denied");
 
   const byAgent = approvalPage.parse(
-    await (await service.app.request("/api/approvals?agentId=t-C", { headers })).json(),
+    await (await service.app.request("/api/approvals?sessionId=00000000-0000-4000-8000-000000000003", { headers })).json(),
   );
   assert.deepEqual(byAgent.approvals.map((it) => it.id), ["id-tie-B", "id-tie-A"]);
 
@@ -447,8 +445,8 @@ test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep cov
 
   // pending 不是合法 status 过滤值：必须 400。
   assert.equal((await service.app.request("/api/approvals?status=pending", { headers })).status, 400);
-  // 不合法 agentId 格式必须 400。
-  assert.equal((await service.app.request("/api/approvals?agentId=-bad-start", { headers })).status, 400);
+  // 不合法 sessionId 格式必须 400。
+  assert.equal((await service.app.request("/api/approvals?sessionId=-bad-start", { headers })).status, 400);
 });
 
 test("approvals: /api/approvals strict query rejects duplicates, unknowns, illegal limits, padding/base64url mismatches", async (t) => {
@@ -477,11 +475,11 @@ test("approvals: /api/approvals strict query rejects duplicates, unknowns, illeg
 
   // 游标携带 filter binding：本次查询缺过滤或过滤条件不一致 → 400。
   const bind = Buffer.from(JSON.stringify({
-    resolvedAt: "2026-10-19T00:00:00.000Z", id: "x", agentId: "t-A", status: "approved",
+    resolvedAt: "2026-10-19T00:00:00.000Z", id: "x", sessionId: "00000000-0000-4000-8000-000000000001", status: "approved",
   }), "utf8").toString("base64url");
   assert.equal((await service.app.request(`/api/approvals?cursor=${bind}`, { headers })).status, 400);
   assert.equal(
-    (await service.app.request(`/api/approvals?agentId=t-A&status=denied&cursor=${bind}`, { headers })).status,
+    (await service.app.request(`/api/approvals?sessionId=00000000-0000-4000-8000-000000000001&status=denied&cursor=${bind}`, { headers })).status,
     400,
   );
 
@@ -497,12 +495,12 @@ test("approvals: /api/approvals strict query rejects duplicates, unknowns, illeg
 
   // 合法过滤 + 合法游标：完整匹配；服务能继续翻页。
   const matched = [
-    settled({ id: "older", decidedAt: "2026-10-18T23:59:58.000Z", status: "approved", agentId: "t-A" }),
-    settled({ id: "newer", decidedAt: "2026-10-18T23:59:59.000Z", status: "approved", agentId: "t-A" }),
+    settled({ id: "older", decidedAt: "2026-10-18T23:59:58.000Z", status: "approved", sessionId: "00000000-0000-4000-8000-000000000001" }),
+    settled({ id: "newer", decidedAt: "2026-10-18T23:59:59.000Z", status: "approved", sessionId: "00000000-0000-4000-8000-000000000001" }),
   ];
   const opened = await openServiceWithActions(t, matched);
   const ok = await opened.service.app.request(
-    `/api/approvals?agentId=t-A&status=approved&cursor=${bind}`,
+    `/api/approvals?sessionId=00000000-0000-4000-8000-000000000001&status=approved&cursor=${bind}`,
     { headers: opened.headers },
   );
   assert.equal(ok.status, 200);
@@ -514,7 +512,7 @@ test("approvals: execution running and succeeded are reported, but approved with
   const { service, headers } = await openService(t);
   const a = await service.actions.submit(
     "file_write", "a", { path: "a.md", content: "a", originalContent: "" },
-    { agentId: "local-main", workspaceAgentId: "local-main" },
+    { sessionId: "main", },
   );
   await service.actions.decide(a.id, "approve");
 
@@ -552,7 +550,7 @@ test("approvals: execution running and succeeded are reported, but approved with
   assert.equal(fromHistory.execution?.result, "OK");
 });
 
-test("approvals: legacy /api/actions is not registered and falls back to 501 with valid auth", async (t) => {
+test("approvals: legacy /api/actions is not registered and falls back to 404 with valid auth", async (t) => {
   assert.equal(
     endpoints.some((e) => e.path === "/api/actions"),
     false,
@@ -564,7 +562,7 @@ test("approvals: legacy /api/actions is not registered and falls back to 501 wit
       ? { method, headers: { ...headers, "Content-Type": "application/json" }, body: "{}" }
       : { method, headers };
     const res = await service.app.request("/api/actions", init);
-    assert.equal(res.status, 501, `${method} /api/actions with valid auth must 501`);
+    assert.equal(res.status, 404, `${method} /api/actions with valid auth must 404`);
   }
 });
 
@@ -592,7 +590,7 @@ test("approvals: buildOpenApiDocument registers the four routes with parameters,
   const list = paths["/api/approvals"]!.get!;
   assert.deepEqual(
     (list.parameters ?? []).map((p) => p.name).sort(),
-    ["activityId", "agentId", "cursor", "limit", "status"],
+    ["activityId", "sessionId", "cursor", "limit", "status"].sort(),
   );
   const limitSchema = list.parameters!.find((p) => p.name === "limit")!.schema;
   assert.equal(limitSchema.type, "integer");
@@ -608,7 +606,7 @@ test("approvals: buildOpenApiDocument registers the four routes with parameters,
   };
   assert.deepEqual(
     Object.keys(listResponse.properties ?? {}).sort(),
-    ["approvals", "hasMore", "nextCursor"],
+    ["approvals", "hasMore", "nextCursor"].sort(),
   );
   const summaryItem = (listResponse.properties!.approvals as {
     items: { properties: Record<string, { enum?: string[] }>; required: string[] };
@@ -649,7 +647,7 @@ test("approvals: buildOpenApiDocument registers the four routes with parameters,
 
   const decision = paths["/api/approvals/{id}/decision"]!.post!;
   const reqSchema = decision.requestBody!.content["application/json"].schema;
-  assert.deepEqual(Object.keys(reqSchema.properties).sort(), ["decision"]);
+  assert.deepEqual(Object.keys(reqSchema.properties).sort(), ["decision"].sort());
   assert.deepEqual(reqSchema.required, ["decision"]);
   assert.equal(reqSchema.additionalProperties, false);
   assert.deepEqual((reqSchema.properties as { decision: { enum: string[] } }).decision.enum, ["approve", "deny"]);
@@ -687,7 +685,7 @@ test("approvals: contracts - approvalListQuery and approvalDecisionRequest rejec
   assert.equal(approvalListQuery.safeParse({ limit: "101" }).success, false);
   assert.equal(approvalListQuery.safeParse({ limit: 0 }).success, false);
   assert.equal(approvalListQuery.safeParse({ since: "2026-10-19T00:00:00.000Z" }).success, false);
-  assert.equal(approvalListQuery.safeParse({ agentId: "-bad" }).success, false);
+  assert.equal(approvalListQuery.safeParse({ sessionId: "-bad" }).success, false);
   assert.equal(approvalListQuery.safeParse({ status: "pending" }).success, false);
   assert.equal(approvalListQuery.safeParse({ status: "approved" }).success, true);
   assert.equal(approvalListQuery.safeParse({ activityId: "" }).success, false);
@@ -709,18 +707,17 @@ test("approvals: zod schemas confirm wire shapes", () => {
   const pendingItem = {
     id: "id",
     revision: 1,
-    agentId: null,
+    sessionId: null,
     runId: null,
     toolCallId: null,
     subagentId: null,
-    workspaceAgentId: null,
     activityId: null,
     kind: "file_write" as const,
     title: "t",
     status: "pending" as const,
     preview: {
-      scope: "agent" as const,
-      ownerAgentId: "owner",
+      scope: "workspace" as const,
+
       path: "p",
       before: "",
       after: "a",

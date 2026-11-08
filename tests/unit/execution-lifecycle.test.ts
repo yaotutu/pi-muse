@@ -4,7 +4,7 @@ import type { TestContext } from "node:test";
 import { createConversation } from "../../src/features/conversation/conversation-service.js";
 import type { ConversationHistoryPort, ConversationExecution } from "../../src/features/conversation/ports.js";
 import type { ConversationNotification, ExecutionEvent } from "../../src/features/conversation/types.js";
-import { createConversationHub } from "../../src/features/conversation/conversation-hub.js";
+import { createSessionHub } from "../../src/features/conversation/conversation-hub.js";
 import { createMonitorService } from "../../src/features/monitors/monitor-service.js";
 import { createMonitorScheduler } from "../../src/features/monitors/monitor-scheduler.js";
 import type { MonitorRepository } from "../../src/features/monitors/types.js";
@@ -35,12 +35,12 @@ const repository = <T>(): { read: () => Promise<T[]>; update: <R>(change: (items
 const conversationFixture = async (t: TestContext) => {
   const facts: ConversationNotification[] = [];
   const calls: string[] = [];
-  const published: Array<{ agentId: string; sessionId: string }> = [];
+  const published: Array<{ sessionId: string; piSessionId: string }> = [];
   let listener: (event: ExecutionEvent) => void = () => {};
   const done = deferred();
   const history: ConversationHistoryPort = {
     history: () => facts.map((fact) => ({ id: fact.id, role: "assistant", content: fact.text })),
-    sessionId: () => "unit-session", messageFacts: () => [],
+    piSessionId: () => "unit-session", messageFacts: () => [],
     records: () => ({ turns: [], results: new Map() }), checkpoint: () => null,
     appendTurn: () => { calls.push("turn"); }, omitTurn: () => {}, restoreIfNoUser: () => {},
     appendResult: (result) => { calls.push(result.status); },
@@ -54,13 +54,13 @@ const conversationFixture = async (t: TestContext) => {
     subscribe: (next) => { listener = next; return () => {}; },
   };
   const messageFeedback = await createMessageFeedbackFixture({
-    agentId: "source", sessionId: "unit-session", facts: history.messageFacts,
+    sessionId: "source", piSessionId: "unit-session", facts: history.messageFacts,
   });
   t.after(messageFeedback.cleanup);
   const conversation = createConversation(
     { configured: true, runTimeoutMs: 5000 },
     {
-      agentId: "source",
+      sessionId: "source",
       history,
       messages: messageFeedback.messages,
       openSession: async () => session,
@@ -75,11 +75,11 @@ test("hub permanently closes, drains successful creations even if another reject
   let disposed = false;
   const good = deferred<typeof fixture.conversation>();
   const bad = deferred<typeof fixture.conversation>();
-  const hub = createConversationHub((id) => id === "good" ? good.promise : bad.promise, async () => []);
-  const first = hub.forAgent("good");
-  const second = hub.forAgent("bad").catch(() => undefined);
+  const hub = createSessionHub((id) => id === "main" ? good.promise : bad.promise, async () => [{id:"main",updatedAt:new Date(0).toISOString()},{id:"00000000-0000-4000-8000-000000000001",updatedAt:new Date(0).toISOString()}]);
+  const first = hub.forSession("main");
+  const second = hub.forSession("00000000-0000-4000-8000-000000000001").catch(() => undefined);
   const closing = hub.closeAll();
-  assert.throws(() => hub.forAgent("new"), { code: "SHUTDOWN" });
+  assert.throws(() => hub.forSession("00000000-0000-4000-8000-000000000002"), { code: "SHUTDOWN" });
   good.resolve({ ...fixture.conversation, close: async () => { disposed = true; return true; } });
   bad.reject(new Error("initialization failed"));
   await Promise.all([first, second, closing]);
@@ -87,21 +87,20 @@ test("hub permanently closes, drains successful creations even if another reject
   assert.equal(hub.closeAll(), closing);
 });
 
-test("retained task source survives idle cache eviction but deletion closes its old generation", async (t) => {
-  const instances = new Map<string, Awaited<ReturnType<typeof conversationFixture>>>();
-  const hub = createConversationHub(async (id) => {
-    const fixture = await conversationFixture(t); instances.set(id, fixture); return fixture.conversation;
-  }, async () => [...instances.keys()].map((id) => ({ id, updatedAt: new Date(0).toISOString() })));
-  await hub.forAgent("source");
-  const retained = await hub.retainAgent("source");
+test("retained session survives idle eviction but deletion closes its old generation", async (t) => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  let exists = true;
+  const hub = createSessionHub(async () => (await conversationFixture(t)).conversation,
+    async () => exists ? [{ id, updatedAt: new Date(0).toISOString() }] : []);
+  await hub.forSession(id);
+  const retained = await hub.retainSession(id);
   assert.ok(retained);
-  await hub.release("source");
-  assert.equal(await hub.findAgent("source"), retained.conversation);
+  await hub.release(id);
+  assert.equal(await hub.findSession(id), retained.conversation);
   await retained.conversation.notify("kept", "fact");
-  await hub.deleteAgent("source", async () => { instances.delete("source"); });
+  await hub.deleteSession(id, async () => { exists = false; });
   await assert.rejects(retained.conversation.notify("late", "late"), /closed/);
-  const fresh = await hub.forAgent("source");
-  assert.notEqual(fresh, retained.conversation);
+  await assert.rejects(hub.forSession(id),{code:"SESSION_NOT_FOUND"});
   retained.release(); retained.release();
   await hub.closeAll();
 });
@@ -120,7 +119,7 @@ test("trigger cancelled while session opens never starts prompt; closed coordina
   await closing;
   assert.equal(fixture.calls.includes("prompt"), false);
   assert.equal((await conversation.trigger("later", "later")).status, "failed");
-  await assert.rejects(conversation.run({ agentId: "main", runId: "r", expectedRevision: "empty", message: { id: "u", content: "hello" } }, () => {}), { code: "SHUTDOWN" });
+  await assert.rejects(conversation.run({ sessionId: "main", runId: "r", expectedRevision: "empty", message: { id: "u", content: "hello" } }, () => {}), { code: "SHUTDOWN" });
 });
 
 test("queued notification can be cancelled before it is written to PI history", async (t) => {
@@ -146,10 +145,10 @@ test("busy conversation queues factual notification without another model turn a
   assert.equal(facts.length, 0);
   done.resolve();
   await running;
-  assert.deepEqual(await delivered, { notificationId: "notification-1", sessionId: "unit-session", messageId: "notification-1" });
+  assert.deepEqual(await delivered, { notificationId: "notification-1", piSessionId: "unit-session", messageId: "notification-1" });
   await conversation.notify("monitor changed", "notification-1");
   assert.deepEqual(facts, [{ id: "notification-1", text: "monitor changed" }]);
-  assert.deepEqual(published, [{ agentId: "source", sessionId: "unit-session" }]);
+  assert.deepEqual(published, [{ sessionId: "source", piSessionId: "unit-session" }]);
   assert.equal(calls.filter((call) => call === "prompt").length, 1);
 });
 
@@ -163,7 +162,7 @@ test("notification invalidation is published only after a successful append", as
 
   await conversation.notify("first delivery", "notification-once");
   assert.deepEqual(facts.map((fact) => fact.id), ["notification-once"]);
-  assert.deepEqual(published, [{ agentId: "source", sessionId: "unit-session" }]);
+  assert.deepEqual(published, [{ sessionId: "source", piSessionId: "unit-session" }]);
 
   const originalAppend = history.appendNotification;
   let appendCalls = 0;
@@ -183,7 +182,7 @@ test("monitor close after an in-flight fetch never records a new check or dispat
   const fetched = deferred<ReturnType<typeof fetchedPage>>();
   let fetching = false;
   const notifications: string[] = [];
-  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetching = true; return fetched.promise; } } }, monitors, { notify: async (_text) => { notifications.push(_text); return { notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }; } });
+  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetching = true; return fetched.promise; } } }, monitors, { notify: async (_text) => { notifications.push(_text); return { notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" }; } });
   scheduler.start();
   t.mock.timers.tick(10);
   await until(() => fetching);
@@ -201,7 +200,7 @@ test("monitor delivery failure preserves observed change for next scan without r
   let fetches = 0;
   let attempts = 0;
   const notifications: string[] = [];
-  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetches++; return fetchedPage("yes"); } } }, monitors, { notify: async (_text) => { if (++attempts === 1) throw new Error("disk busy"); notifications.push(_text); return { notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }; } });
+  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetches++; return fetchedPage("yes"); } } }, monitors, { notify: async (_text) => { if (++attempts === 1) throw new Error("disk busy"); notifications.push(_text); return { notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" }; } });
   scheduler.start();
   t.mock.timers.tick(10);
   await until(() => attempts === 1 && !scheduler.isBusy());

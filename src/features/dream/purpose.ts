@@ -1,9 +1,9 @@
 /**
- * “智能体用途”固定写在 INSTRUCTIONS.md 的 `## 智能体用途` 标题下（紧随标题的首段非空文本，以空行或下一标题结束）。
- * 它由用户声明，是 Dream 判断“这条信息是否属于当前智能体”的依据，
+ * “会话用途”固定写在 INSTRUCTIONS.md 的 `## 会话用途` 标题下（紧随标题的首段非空文本，以空行或下一标题结束）。
+ * 它由用户声明，是 Dream 判断“这条信息是否属于当前会话”的依据，
  * 所以 Dream 绝不能改写它；用户和对话工具仍可自由修改。
  */
-export const PURPOSE_HEADING = "## 智能体用途";
+export const PURPOSE_HEADING = "## 会话用途";
 
 /** 提取用途段正文（标题下第一段非空内容，遇到空行或新标题即结束）；不存在时返回空串。 */
 export const readPurpose = (instructions: string): string => {
@@ -26,7 +26,7 @@ export const readPurpose = (instructions: string): string => {
 export const purposeChanged = (before: string, after: string): boolean =>
   readPurpose(before) !== readPurpose(after);
 
-/** 清除指令文本中的 `## 智能体用途` 段落（包含标题、其下首段正文及紧随的空行），保留其余规则。 */
+/** 清除指令文本中的 `## 会话用途` 段落（包含标题、其下首段正文及紧随的空行），保留其余规则。 */
 export const stripPurpose = (instructions: string): string => {
   let text = instructions.replace(/\r\n/g, "\n");
   while (true) {
@@ -58,7 +58,7 @@ export const stripPurpose = (instructions: string): string => {
   return text.trim();
 };
 
-/** 把智能体声明的用途写入指令文件开头，替换或清除已有用途段，保留其余规则；用途为空时仅清除用途段。 */
+/** 把会话声明的用途写入指令文件开头，替换或清除已有用途段，保留其余规则；用途为空时仅清除用途段。 */
 export const withPurpose = (instructions: string, purpose: string): string => {
   const remaining = stripPurpose(instructions);
   const text = purpose

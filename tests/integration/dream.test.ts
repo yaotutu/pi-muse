@@ -7,7 +7,6 @@ import { createService } from "../../src/bootstrap/create-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import {
   dreamOverviewResponse,
-  dreamAgentResponse,
   memoriesResponse,
 } from "../../src/http/contracts/responses.js";
 import { createFakeModel } from "../support/fake-model.js";
@@ -50,14 +49,14 @@ const createFixture = async (t: TestContext) => {
     });
     return { status: res.status, body: await res.json() };
   };
-  const chat = async (agentId: string, content: string, runId: string) => {
-    const hist = await json(`/api/conversation?agentId=${encodeURIComponent(agentId)}`);
+  const chat = async (sessionId: string, content: string, runId: string) => {
+    const hist = await json(`/api/conversation?sessionId=${encodeURIComponent(sessionId)}`);
     const revision = (hist.body as { revision: string }).revision;
     const res = await service!.app.request("/api/conversation/run", {
       method: "POST",
       headers,
       body: JSON.stringify({
-        agentId: agentId,
+        sessionId: sessionId,
         runId,
         expectedRevision: revision,
         message: { id: `u-${runId}`, content },
@@ -82,17 +81,17 @@ test("Dream integration: main agent consolidates USER/SOUL/MEMORY, advances curs
 
   // 2. 在主会话产生一条含用户偏好、助手人设与长期事实的对话。
   await chat(
-    "local-main",
+    "main",
     "请记一下：用户偏好:每天早起喝黑咖啡\n助手人设:回答直接不寒暄\n长期事实:服务器部署在东京区域",
     "run-main-1",
   );
 
   // 3. 立即执行主会话 Dream 整理：通过真实 pi SessionManager.inMemory + propose_notes 提交。
-  const runRes = await json("/api/agents/local-main/dream/run", "POST", {});
+  const runRes = await json("/api/dream/run", "POST", {});
   assert.equal(runRes.status, 200);
-  const state = dreamAgentResponse.parse(runRes.body);
+  const state = dreamOverviewResponse.parse(runRes.body);
   assert.equal(state.lastRun?.status, "completed");
-  assert.equal(state.cursor, "assistant-run-main-1");
+  assert.equal(state.cursors.main, "assistant-run-main-1");
   assert.deepEqual(state.lastRun?.changed.sort(), ["memory", "soul", "user"]);
 
   // 4. 核对 USER.md、SOUL.md 与按需检索 memory.json 真实写入。
@@ -105,44 +104,38 @@ test("Dream integration: main agent consolidates USER/SOUL/MEMORY, advances curs
 
   // 5. 无新消息时再次立即整理：不调用模型，不产生重复条目。
   const beforeCalls = model.requests.length;
-  const secondRun = await json("/api/agents/local-main/dream/run", "POST", {});
+  const secondRun = await json("/api/dream/run", "POST", {});
   assert.equal(secondRun.status, 200);
   assert.equal(model.requests.length, beforeCalls);
-  assert.equal(dreamAgentResponse.parse(secondRun.body).lastRun?.processed, 0);
+  assert.equal(dreamOverviewResponse.parse(secondRun.body).lastRun?.processed, 0);
 });
 
 test("Dream integration: non-main agent routes session rules via purpose, holds global notes in pending, and respects failure cursor boundary", async (t) => {
-  const { json, chat, dataDir } = await createFixture(t);
+  const { json, chat, dataDir, service } = await createFixture(t);
+  const {id} = await service.sessions.create("邮件");
 
-  // 1. 为邮件智能体设置智能体用途与初始规则，并开启 Dream + 自定义补充提示词。
-  const savedInst = await json("/api/agents/mail-agent/instructions", "PUT", {
-    instructions: "保持礼貌。",
-    purpose: "处理外部商务邮件",
+  // 1. 为邮件智能体设置会话用途与初始规则，并开启 Dream + 自定义补充提示词。
+  const savedInst = await json(`/api/sessions/${id}/instructions`, "PUT", {
+    instructions: "## 会话用途\n处理外部商务邮件\n\n保持礼貌。",
   });
   assert.equal(savedInst.status, 200);
-  assert.match((savedInst.body as { instructions: string }).instructions, /^## 智能体用途\n处理外部商务邮件/);
+  assert.match((savedInst.body as { instructions: string }).instructions, /^## 会话用途\n处理外部商务邮件/);
 
-  const savedDream = await json("/api/agents/mail-agent/dream", "PUT", {
-    enabled: true,
-    inheritGlobalPrompt: true,
-    prompt: "只提取与商务邮件格式相关的规则。",
-  });
-  assert.equal(savedDream.status, 200);
-  const parsedDream = dreamAgentResponse.parse(savedDream.body);
-  assert.equal(parsedDream.enabled, true);
-  assert.equal(parsedDream.purpose, "处理外部商务邮件");
+  const savedDream = await json("/api/dream", "PUT", { enabled:true, prompt: "只提取与商务邮件格式相关的规则。" });
+  assert.equal(savedDream.status,200);
+  assert.equal(dreamOverviewResponse.parse(savedDream.body).enabled,true);
 
   // 2. 在邮件会话产生一条同时含会话规则与全局用户偏好的消息。
   await chat(
-    "mail-agent",
+    id,
     "会话规则:邮件落款统一写 Best regards\n用户偏好:周末不看工作消息",
     "run-mail-1",
   );
 
   // 3. 运行邮件会话 Dream：会话规则直接进该会话 INSTRUCTIONS.md，全局偏好进入 pending。
-  const mailRun = await json("/api/agents/mail-agent/dream/run", "POST", {});
+  const mailRun = await json("/api/dream/run", "POST", {});
   assert.equal(mailRun.status, 200);
-  const mailState = dreamAgentResponse.parse(mailRun.body);
+  const mailState = dreamOverviewResponse.parse(mailRun.body);
   assert.equal(mailState.lastRun?.status, "completed");
   assert.deepEqual(mailState.lastRun?.changed, ["instructions"]);
   assert.equal(mailState.pending.length, 1);
@@ -151,36 +144,33 @@ test("Dream integration: non-main agent routes session rules via purpose, holds 
 
   // 全局 USER.md 未被非主会话直接污染。
   assert.equal(((await json("/api/profile")).body as { user: string }).user, "");
-  // 会话指令已写入，且 `## 智能体用途` 保持不变。
-  const afterInst = (await json("/api/agents/mail-agent/instructions")).body as {
+  // 会话指令已写入，且 `## 会话用途` 保持不变。
+  const afterInst = (await json(`/api/sessions/${id}/instructions`)).body as {
     instructions: string;
   };
-  assert.match(afterInst.instructions, /## 智能体用途\n处理外部商务邮件/);
+  assert.match(afterInst.instructions, /## 会话用途\n处理外部商务邮件/);
   assert.match(afterInst.instructions, /邮件落款统一写 Best regards/);
 
   // 4. 全局概览能看到待决项；用户确认写入 USER.md 后生效并清空 pending。
   const overview = dreamOverviewResponse.parse((await json("/api/dream")).body);
-  assert.equal(
-    overview.agents.find((item) => item.agentId === "mail-agent")?.pending.length,
-    1,
-  );
+  assert.equal(overview.pending.length, 1);
   const resolved = await json(
-    `/api/agents/mail-agent/dream/pending/${mailState.pending[0]!.id}`,
+    `/api/dream/pending/${mailState.pending[0]!.id}`,
     "POST",
     { action: "apply", target: "user" },
   );
   assert.equal(resolved.status, 200);
-  assert.equal(dreamAgentResponse.parse(resolved.body).pending.length, 0);
+  assert.equal(dreamOverviewResponse.parse(resolved.body).pending.length, 0);
   assert.equal(((await json("/api/profile")).body as { user: string }).user, "周末不看工作消息");
 
   // 5. 模拟整理轮模型失败（DREAM-FAIL）：状态诚实记为 failed，游标不推进。
-  const prevCursor = mailState.cursor;
-  await chat("mail-agent", "DREAM-FAIL", "run-mail-fail");
-  const failedRun = await json("/api/agents/mail-agent/dream/run", "POST", {});
+  const prevCursor = mailState.cursors[id];
+  await chat(id, "DREAM-FAIL", "run-mail-fail");
+  const failedRun = await json("/api/dream/run", "POST", {});
   assert.equal(failedRun.status, 200);
-  const failedState = dreamAgentResponse.parse(failedRun.body);
+  const failedState = dreamOverviewResponse.parse(failedRun.body);
   assert.equal(failedState.lastRun?.status, "failed");
-  assert.equal(failedState.cursor, prevCursor);
+  assert.equal(failedState.cursors[id], prevCursor);
 
   // 6. 记忆满 500 条时 POST /api/agent/memories 返回 409，不丢弃旧条目。
   await writeFile(

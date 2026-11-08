@@ -1,4 +1,3 @@
-import type { FeatureSource } from "../agent-extensions/types.js";
 export type MessageSource = "chat" | "job" | "notification";
 export type MessageReaction = "like" | "dislike";
 export type FeedbackTargetRole = "user" | "assistant";
@@ -14,7 +13,6 @@ export type MessageExecutionFact = {
   notificationId: string | null;
   /** PI adapter 判断消息是否已可安全反馈；当前 run 排除在业务层完成。 */
   feedbackAvailable: boolean;
-  featureSource?: FeatureSource;
 };
 
 export type MessageFeedback = {
@@ -74,13 +72,13 @@ export type MessageFeedbackDocument = {
 };
 
 export type MessageFeedbackRepository = {
-  read: (agentId: string, sessionId: string) => Promise<MessageFeedbackDocument>;
+  read: (sessionId: string, piSessionId: string) => Promise<MessageFeedbackDocument>;
   update: <T>(
-    agentId: string,
     sessionId: string,
+    piSessionId: string,
     change: (document: MessageFeedbackDocument) => { document?: MessageFeedbackDocument; result: T },
   ) => Promise<T>;
-  removeAgent: (agentId: string) => Promise<void>;
+  removeSession: (sessionId: string) => Promise<void>;
   validateAll: () => Promise<void>;
 };
 
@@ -96,5 +94,4 @@ export type ProjectedMessageMetadata = {
   jobId: string | null;
   notificationId: string | null;
   feedbackAvailable: boolean;
-  featureSource?: FeatureSource;
 };

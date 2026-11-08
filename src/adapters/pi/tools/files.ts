@@ -18,13 +18,13 @@ const inside = (root: string, path: string) => path === root || path.startsWith(
  * 文件名回退、ctx.cwd 或 SDK 的路径展开绕过入口 guard。grep/fd 的递归默认不跟链接，
  * 入口链接在 guard 拒绝；ls 的逐项 stat 则用 lstat 检查，跳过链接，不解引用到其他会话。
  */
-export const createFileTools = (root: string, sharedDir?: string, options: FileGuardOptions = {}) => {
+export const createFileTools = (root: string, options: FileGuardOptions = {}) => {
   const check = async (path: string, allowSkill = false): Promise<string> => {
     if (allowSkill && typeof path === "string") {
       const skillFile = options.readOnlyFiles?.find((file) => resolve(path) === resolve(file.path));
       if (skillFile) return safeReadOnlyFile(skillFile);
     }
-    for (const base of [root, ...(sharedDir ? [sharedDir] : [])]) {
+    for (const base of [root]) {
       const lexicalRoot = resolve(base);
       const physicalRoot = await safeWorkspacePath(base, base, { boundaryDir: options.boundaryDir });
       const lexicalPath = inside(lexicalRoot, path) ? path : inside(physicalRoot, path)
@@ -53,5 +53,5 @@ export const createFileTools = (root: string, sharedDir?: string, options: FileG
     isDirectory: async (path) => (await lstat(await check(path))).isDirectory(),
     readFile: async (path) => readFile(await check(path), "utf8"),
   } });
-  return [read, grep, createFindToolDefinition(root), ls].map((tool) => guardTool(tool, root, sharedDir, options));
+  return [read, grep, createFindToolDefinition(root), ls].map((tool) => guardTool(tool, root, options));
 };

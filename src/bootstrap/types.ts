@@ -1,5 +1,5 @@
 import type { Config } from "../config/load-config.js";
-import type { ConversationHub } from "../features/conversation/conversation-hub.js";
+import type { SessionHub } from "../features/conversation/conversation-hub.js";
 import type { MessageFeedbackRepository } from "../features/messages/types.js";
 import type { JobService } from "../features/jobs/job-service.js";
 import type { MemoryService } from "../features/memory/memory-service.js";
@@ -28,7 +28,7 @@ import type { NewsService } from "../features/news/service.js";
 type Auth = Awaited<ReturnType<typeof createAuth>>;
 
 export type ServiceContainer = {
-  agents: import("../features/agents/service.js").AgentService;
+  sessions: import("../features/sessions/service.js").SessionService;
   lifecycle?: { isClosing: () => boolean; enter: () => () => void };
   config: Config;
   layout: DataLayout;
@@ -36,7 +36,7 @@ export type ServiceContainer = {
   memory: MemoryService;
   identity: IdentityService;
   jobs: JobService;
-  conversationHub: ConversationHub;
+  conversationHub: SessionHub;
   scheduler: Scheduler;
   goals: GoalService;
   actions: ActionService;
@@ -54,10 +54,6 @@ export type ServiceContainer = {
   information: InformationService;
   informationScheduler: InformationScheduler;
   news: NewsService;
-  features: import("../features/agent-extensions/service.js").FeatureService;
-  communication: import("../features/agent-communication/service.js").AgentCommunication;
-  group: import("../features/group-chat/service.js").GroupChat;
-  groupRouting: import("../features/group-chat/routing.js").GroupRouting;
   browser?: BrowserService;
   browserDesktop: BrowserDesktop;
   messageFeedbackRepository: MessageFeedbackRepository;
@@ -65,5 +61,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "information" | "news" | "features" | "communication" | "group" | "groupRouting" | "agents" | "browser" | "browserDesktop" | "messageFeedbackRepository"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "information" | "news" | "sessions" | "browser" | "browserDesktop" | "messageFeedbackRepository"
 >;

@@ -5,7 +5,7 @@ This manual introduces installation, connection, daily use, and security boundar
 ## Where to Start {#where-to-start}
 
 - [Quick Start](getting-started.md): install the server, connect the phone, send a message, and receive a reply.
-- [Conversations and agents](conversations-and-agents.md): send and stop conversations, switch agents, reset sessions, and delete agents.
+- [Conversations and sessions](conversations-and-agents.md): send and stop conversations, switch agents, reset sessions, and delete agents.
 - [News reading](news.md): manage RSS sources, browse recommended and all timelines, and use per-article feedback.
 - [Attachments, files, and approvals](files-and-approvals.md): distinguish message attachments, workspace files, and model file-write approvals.
 - [Tasks and webpage monitors](tasks-and-monitors.md): manage scheduled jobs and webpage monitors through chat tools, and review activity records.

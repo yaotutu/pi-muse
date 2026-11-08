@@ -15,6 +15,6 @@ export type SkillCatalog = { skills: SkillMeta[]; diagnostics: SkillDiagnostic[]
 
 export type SkillRepository = {
   listSkills(): Promise<SkillCatalog>;
-  getAgentOverrides(agentId: string): Promise<Record<string, boolean>>;
-  setAgentOverrides(agentId: string, overrides: Record<string, boolean>): Promise<void>;
+  getSessionOverrides(sessionId: string): Promise<Record<string, boolean>>;
+  setSessionOverrides(sessionId: string, overrides: Record<string, boolean>): Promise<void>;
 };

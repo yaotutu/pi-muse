@@ -5,7 +5,7 @@ import { createJobService } from "../../src/features/jobs/job-service.js";
 import type { Job } from "../../src/features/jobs/types.js";
 import type { JobRepository } from "../../src/features/jobs/ports.js";
 
-test("POST /api/jobs/:id/control checks target agent running state, not hardcoded local-main", async () => {
+test("POST /api/jobs/:id/control checks target agent running state, not hardcoded main", async () => {
   let items: Job[] = [];
   const repository: JobRepository = {
     read: async () => structuredClone(items),
@@ -22,8 +22,8 @@ test("POST /api/jobs/:id/control checks target agent running state, not hardcode
   await jobs.control(jobInAgentA.id, "pause");
   assert.equal((await jobs.get(jobInAgentA.id))?.controlState, "paused");
 
-  // 创建一个缺省归属 (local-main) 的 paused 任务
-  const jobInMain = await jobs.add("task in main", true, "13:00", "local-main");
+  // 创建一个缺省归属 (main) 的 paused 任务
+  const jobInMain = await jobs.add("task in main", true, "13:00", "main");
   await jobs.control(jobInMain.id, "pause");
   assert.equal((await jobs.get(jobInMain.id))?.controlState, "paused");
 
@@ -32,11 +32,11 @@ test("POST /api/jobs/:id/control checks target agent running state, not hardcode
   let schedulerBusy = false;
 
   const conversationHub = {
-    forAgent: async (agentId: string) => ({
-      isRunning: () => (agentId === "agent-a" ? agentARunning : localMainRunning),
-      sessionId: () => `session-${agentId}`,
+    forSession: async (sessionId: string) => ({
+      isRunning: () => (sessionId === "agent-a" ? agentARunning : localMainRunning),
+      piSessionId: () => `session-${sessionId}`,
     }),
-    withAgent: async (_agentId: string, fn: () => Promise<unknown>) => fn(),
+    withSession: async (_sessionId: string, fn: () => Promise<unknown>) => fn(),
   };
   const scheduler = {
     isBusy: () => schedulerBusy,
@@ -48,7 +48,7 @@ test("POST /api/jobs/:id/control checks target agent running state, not hardcode
     scheduler: scheduler as never,
   });
 
-  // 1. local-main 正在运行聊天，但目标任务在 agent-a（agent-a 空闲）
+  // 1. main 正在运行聊天，但目标任务在 agent-a（agent-a 空闲）
   localMainRunning = true;
   agentARunning = false;
   schedulerBusy = false;
@@ -67,7 +67,7 @@ test("POST /api/jobs/:id/control checks target agent running state, not hardcode
   // 重新暂停 agent-a 任务准备下一阶段测试
   await jobs.control(jobInAgentA.id, "pause");
 
-  // 2. agent-a 本身正在运行聊天，即使 local-main 空闲，也必须返回 409 冲突
+  // 2. agent-a 本身正在运行聊天，即使 main 空闲，也必须返回 409 冲突
   localMainRunning = false;
   agentARunning = true;
   schedulerBusy = false;
@@ -93,7 +93,7 @@ test("POST /api/jobs/:id/control checks target agent running state, not hardcode
   });
   assert.equal(res3.status, 409);
 
-  // 4. local-main 任务在 local-main 运行时 resume 返回 409
+  // 4. main 任务在 main 运行时 resume 返回 409
   localMainRunning = true;
   schedulerBusy = false;
   const res4 = await app.request(`/api/jobs/${jobInMain.id}/control`, {

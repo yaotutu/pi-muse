@@ -96,7 +96,7 @@ async function fixture(overrides: Partial<ConfigFileInput> = {}, prepare?: (data
         headers,
         method: "POST",
         body: JSON.stringify({
-          agentId: "local-main",
+          sessionId: "main",
           runId: randomUUID(),
           expectedRevision: "empty",
           message: { id: randomUUID(), content },
@@ -116,7 +116,7 @@ async function fixture(overrides: Partial<ConfigFileInput> = {}, prepare?: (data
 }
 
 type TraceFile = {
-  meta: { agentId: string; kind: string; extra?: Record<string, string>; upstreamOrigin: string; httpStatus: number; durationMs: number };
+  meta: { sessionId: string; kind: string; extra?: Record<string, string>; upstreamOrigin: string; httpStatus: number; durationMs: number };
   request: { system: string; messages: Array<{ role: string; content: unknown }>; tools: Array<{ function?: { name?: string } }>; sampling: Record<string, unknown> };
   response: { outputText: string; finishReason?: string; streamDone?: boolean; truncated: boolean; errorBody?: string };
 };
@@ -129,7 +129,7 @@ const readTraces = async (dataDir: string): Promise<Array<{ name: string; trace:
   })));
 };
 
-test("chat round records a full trace snapshot with agentId, kind, system and messages", async () => {
+test("chat round records a full trace snapshot with sessionId, kind, system and messages", async () => {
   const h = await fixture();
   try {
     const events = await h.runChat("trace-marker-hello");
@@ -138,8 +138,8 @@ test("chat round records a full trace snapshot with agentId, kind, system and me
     const traces = await readTraces(h.dataDir);
     assert.equal(traces.length, 1);
     const { name, trace } = traces[0]!;
-    assert.match(name, /^\d{6}-\d{3}-local-main-chat-\d{6}\.json$/);
-    assert.equal(trace.meta.agentId, "local-main");
+    assert.match(name, /^\d{6}-\d{3}-main-chat-\d{6}\.json$/);
+    assert.equal(trace.meta.sessionId, "main");
     assert.equal(trace.meta.kind, "chat");
     assert.ok(trace.meta.extra?.runId);
     assert.equal(trace.meta.upstreamOrigin, new URL(h.model.baseUrl).origin);
@@ -161,30 +161,30 @@ test("chat round records a full trace snapshot with agentId, kind, system and me
   }
 });
 
-test("information batch records its own kind, agentId and informationRunId", async () => {
+test("information batch records its own kind, sessionId and informationRunId", async () => {
   const h = await fixture();
   try {
-    const agentId = "information-main";
-    assert.equal((await h.call(`/api/agents/${agentId}/instructions`, {
+    const sessionId = "main";
+    assert.equal((await h.call(`/api/sessions/${sessionId}/instructions`, {
       method: "PUT",
       body: JSON.stringify({ instructions: "Always be concise." }),
     })).status, 200);
-    assert.equal((await h.call(`/api/agents/${agentId}/information/settings`, {
+    assert.equal((await h.call(`/api/information/settings`, {
       method: "PUT",
       body: JSON.stringify({ enabled: true, batchWindowSeconds: 3600 }),
     })).status, 200);
-    assert.equal((await h.call(`/api/agents/${agentId}/information/items`, {
+    assert.equal((await h.call(`/api/information/items`, {
       method: "POST",
       body: JSON.stringify({ items: [{ source: "rss", externalId: "trace-1", content: "NOTIFY trace batch" }] }),
     })).status, 200);
-    const run = await h.call(`/api/agents/${agentId}/information/runs`, { method: "POST", body: "{}" });
+    const run = await h.call(`/api/information/runs`, { method: "POST", body: "{}" });
     assert.equal(run.status, 200);
     const runId = (run.body as { run?: { id?: string } }).run?.id;
     assert.ok(runId);
     await until(async () =>
       (await readTraces(h.dataDir)).some(({ trace }) => trace.meta.kind === "information:notifications"));
     const trace = (await readTraces(h.dataDir)).find(({ trace }) => trace.meta.kind === "information:notifications")!;
-    assert.equal(trace.trace.meta.agentId, agentId);
+    assert.equal(trace.trace.meta.sessionId, sessionId);
     assert.equal(trace.trace.meta.extra?.informationRunId, runId);
     assert.ok(trace.trace.request.system.includes("structured information decision worker"));
     assert.ok(JSON.stringify(trace.trace.request.messages).includes("NOTIFY trace batch"));

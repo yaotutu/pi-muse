@@ -1,19 +1,19 @@
 import { z } from "zod";
 
-/** 消息反馈契约：反馈只属于 agentId+sessionId+messageId，不进入 PI 历史。 */
-export const sessionIdSchema = z.string().min(1).max(128).regex(
+/** 消息反馈契约：反馈只属于 sessionId+piSessionId+messageId，不进入 PI 历史。 */
+export const piSessionIdSchema = z.string().min(1).max(128).regex(
   /^[A-Za-z0-9_-]+$/,
-  "sessionId must contain only ASCII letters, digits, hyphens, and underscores",
+  "piSessionId must contain only ASCII letters, digits, hyphens, and underscores",
 );
 export const messageTargetSchema = z.strictObject({
-  sessionId: sessionIdSchema.describe("当前智能体会话 ID；reset 后旧值返回 409"),
+  piSessionId: piSessionIdSchema.describe("当前会话会话 ID；reset 后旧值返回 409"),
 });
 export const reactionRequestSchema = z.strictObject({
-  sessionId: sessionIdSchema.describe("当前智能体会话 ID；reset 后旧值返回 409"),
+  piSessionId: piSessionIdSchema.describe("当前会话会话 ID；reset 后旧值返回 409"),
   reaction: z.enum(["like", "dislike"]).nullable().describe("互斥反应；null 表示撤销"),
 });
 export const createCommentRequestSchema = z.strictObject({
-  sessionId: sessionIdSchema.describe("当前智能体会话 ID；reset 后旧值返回 409"),
+  piSessionId: piSessionIdSchema.describe("当前会话会话 ID；reset 后旧值返回 409"),
   text: z.string().trim().min(1).max(4000).describe("评论内容；服务端去除首尾空白，不能为空"),
 });
 export const updateCommentRequestSchema = createCommentRequestSchema;
@@ -70,11 +70,6 @@ export const messageFeedbackEventsResponse = z.strictObject({
   ])).describe("按真实操作顺序保留的原始事件；包含编辑前后文本和删除前文本"),
 });
 
-export const featureSourceResponse = z.strictObject({
-  featureId: z.enum(["news", "sms"]).describe("服务端验证的功能来源，不按正文猜测"),
-  itemIds: z.array(z.string()).min(1).max(20).describe("对应功能独立智能体中的原始对象；只经 feature 工具受限读取，不开放跨智能体文件权限"),
-});
-
 export const messageMetadataResponse = z.strictObject({
   createdAt: z.string().datetime().describe("对应 PI 消息条目的服务端时间（ISO 8601）"),
   source: z.enum(["chat", "job", "notification"]).nullable()
@@ -82,7 +77,6 @@ export const messageMetadataResponse = z.strictObject({
   runId: z.string().nullable().describe("生成该消息的 run ID；通知为 null"),
   jobId: z.string().nullable().describe("定时任务来源 ID；仅 source=job 时可能有值"),
   notificationId: z.string().nullable().describe("服务端通知标记；仅 source=notification 时有值"),
-  featureSource: featureSourceResponse.optional(),
   feedbackAvailable: z.boolean().describe("当前消息是否可反馈；正在生成的 run 为 false，历史消息和幂等重放为 true"),
 });
 

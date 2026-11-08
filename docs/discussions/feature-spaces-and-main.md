@@ -1,3 +1,5 @@
+> **作废：** 本讨论的身份、组路由、独立讨论与通知承接方案已被[单主助手多会话基线](../architecture/single-agent-multisession.md)整体替代。下文仅保留设计历史，不是当前架构、API 或开工授权。
+
 # 功能模块、独立 Space 与交互承接空间的关系
 
 > 本文保留当时的 Space 术语和旧导航方案，属于历史决策资料。当前统一 Agent、通知来源续聊和界面入口以[架构规范](../architecture.md#智能体通信与独立讨论)及[用户手册](../manual/conversations-and-agents.md#continue-notification)为准；不得按旧导航继续实施。

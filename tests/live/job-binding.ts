@@ -38,7 +38,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
   let baseUrl = "";
   let serviceVersion: unknown;
   let sessionToken: string | undefined;
-  const createdAgentIds: string[] = [];
+  const createdSessionIds: string[] = [];
   const createdJobIds = new Set<string>();
 
   const stopService = async () => {
@@ -104,12 +104,12 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const client = createTestClient(() => baseUrl, token, 120_000);
     serviceVersion = (await client.json("/api/health")).serviceVersion;
 
-    const initialAgentId = "live-binding-origin-agent";
-    const targetAgentId = "live-binding-target-agent";
-    createdAgentIds.push(initialAgentId, targetAgentId);
+    const initialSessionId = (await client.createSession("live-binding-origin-agent")).id;
+    const targetSessionId = (await client.createSession("live-binding-target-agent")).id;
+    createdSessionIds.push(initialSessionId, targetSessionId);
 
     // -------------------------------------------------------------------------
-    // 阶段 1：在 initialAgentId 中通过真实对话让模型调用 schedule 创建远期一次性任务
+    // 阶段 1：在 initialSessionId 中通过真实对话让模型调用 schedule 创建远期一次性任务
     // -------------------------------------------------------------------------
     const phase1Outcome: ScenarioOutcome = {
       name: "create-job-via-chat",
@@ -130,7 +130,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         `系统测试：请严格调用 schedule 工具一次创建一次性定时提醒：action="create", prompt="${jobPrompt}", at="${futureIso}"。` +
         `不要改写时刻或提示词，不要重试。调用后简短回复。`;
 
-      const runResult = await client.startRun(prompt, initialAgentId);
+      const runResult = await client.startRun(prompt, initialSessionId);
       const events = await runResult.done;
       assert.equal(events.at(-1)?.type, "RUN_FINISHED");
 
@@ -161,8 +161,8 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
       // 从 REST API 查出新创建的任务，验证参数与归属智能体
       const jobsList = jobsResponse.parse(await client.json("/api/jobs")).jobs;
-      const found = jobsList.find((j) => j.originAgentId === initialAgentId && j.prompt === jobPrompt);
-      assert.ok(found, `在 initialAgentId=${initialAgentId} 中必须存在新创建的定时任务`);
+      const found = jobsList.find((j) => j.originSessionId === initialSessionId && j.prompt === jobPrompt);
+      assert.ok(found, `在 initialSessionId=${initialSessionId} 中必须存在新创建的定时任务`);
       assert.equal(found.at, futureIso);
       assert.equal(found.daily, false);
       assert.equal(found.status, "scheduled", `新创建的任务 status 期望 scheduled，实际 ${found.status}`);
@@ -170,7 +170,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       createdJobIds.add(targetJobId);
 
       phase1Outcome.passed = true;
-      phase1Outcome.evidence = { jobId: found.id, originAgentId: found.originAgentId, at: found.at, status: found.status };
+      phase1Outcome.evidence = { jobId: found.id, originSessionId: found.originSessionId, at: found.at, status: found.status };
       process.stdout.write(`[PASS] create-job-via-chat: jobId=${targetJobId}\n`);
     } catch (err) {
       phase1Outcome.passed = false;
@@ -180,7 +180,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     results.push(phase1Outcome);
 
     // -------------------------------------------------------------------------
-    // 阶段 2：PATCH 改绑到原本不存在的 targetAgentId；省略归属修改验证绑定保持
+    // 阶段 2：PATCH 改绑到原本不存在的 targetSessionId；省略归属修改验证绑定保持
     // -------------------------------------------------------------------------
     const phase2Outcome: ScenarioOutcome = {
       name: "patch-rebind-and-preserve",
@@ -196,21 +196,21 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       process.stdout.write("[FAIL] patch-rebind-and-preserve: 缺少前置任务\n");
     } else {
       try {
-        // 1. 确认 targetAgentId 目前不存在
-        const agentsBefore = (await client.json("/api/agents")).agents as { id: string }[];
-        assert.equal(agentsBefore.some((s) => s.id === targetAgentId), false, "targetAgentId 初始状态不得存在");
+        // 1. 确认 targetSessionId 目前不存在
+        const agentsBefore = (await client.json("/api/sessions")).sessions as { id: string }[];
+        assert.equal(agentsBefore.some((s) => s.id === targetSessionId), true, "binding target must already exist");
 
-        // 2. PATCH 将 originAgentId 改绑到 targetAgentId
-        const patchRes = await client.request(`/api/jobs/${targetJobId}`, { originAgentId: targetAgentId }, "PATCH");
+        // 2. PATCH 将 originSessionId 改绑到 targetSessionId
+        const patchRes = await client.request(`/api/jobs/${targetJobId}`, { originSessionId: targetSessionId }, "PATCH");
         assert.equal(patchRes.status, 200, "PATCH 改绑智能体必须返回 200");
-        const patchedJob = (await patchRes.json()) as { id: string; originAgentId: string };
-        assert.equal(patchedJob.originAgentId, targetAgentId, "patchedJob.originAgentId 必须为 targetAgentId");
+        const patchedJob = (await patchRes.json()) as { id: string; originSessionId: string };
+        assert.equal(patchedJob.originSessionId, targetSessionId, "patchedJob.originSessionId 必须为 targetSessionId");
 
-        // 验证 targetAgentId 被自动创建
-        const agentsAfter = (await client.json("/api/agents")).agents as { id: string }[];
-        assert.ok(agentsAfter.some((s) => s.id === targetAgentId), "改绑后 targetAgentId 必须出现在 agents 列表中");
+        // 验证 targetSessionId 被自动创建
+        const agentsAfter = (await client.json("/api/sessions")).sessions as { id: string }[];
+        assert.ok(agentsAfter.some((s) => s.id === targetSessionId), "改绑后 targetSessionId 必须出现在 agents 列表中");
 
-        // 3. 省略 originAgentId 的 PATCH 修改（如只改 prompt），验证 originAgentId 保持不变且不新建额外智能体
+        // 3. 省略 originSessionId 的 PATCH 修改（如只改 prompt），验证 originSessionId 保持不变且不新建额外智能体
         const agentsCountBefore = agentsAfter.length;
         const updatedPrompt = `${jobPrompt}。只返回标记，不补充说明。`;
         const patchPromptRes = await client.request(
@@ -219,15 +219,15 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
           "PATCH",
         );
         assert.equal(patchPromptRes.status, 200);
-        const preservedJob = (await patchPromptRes.json()) as { id: string; prompt: string; originAgentId: string };
+        const preservedJob = (await patchPromptRes.json()) as { id: string; prompt: string; originSessionId: string };
         assert.equal(preservedJob.prompt, updatedPrompt);
-        assert.equal(preservedJob.originAgentId, targetAgentId, "省略 originAgentId 时必须保留既有绑定");
+        assert.equal(preservedJob.originSessionId, targetSessionId, "省略 originSessionId 时必须保留既有绑定");
 
-        const agentsCountAfter = ((await client.json("/api/agents")).agents as { id: string }[]).length;
-        assert.equal(agentsCountAfter, agentsCountBefore, "省略 originAgentId 的更新不得新建额外智能体");
+        const agentsCountAfter = ((await client.json("/api/sessions")).sessions as { id: string }[]).length;
+        assert.equal(agentsCountAfter, agentsCountBefore, "省略 originSessionId 的更新不得新建额外智能体");
 
         phase2Outcome.passed = true;
-        phase2Outcome.evidence = { reboundAgent: targetAgentId, targetAgentCreated: true, bindingPreserved: true };
+        phase2Outcome.evidence = { reboundAgent: targetSessionId, targetSessionAlreadyExisted: true, bindingPreserved: true };
         process.stdout.write("[PASS] patch-rebind-and-preserve\n");
       } catch (err) {
         phase2Outcome.passed = false;
@@ -239,7 +239,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
     // -------------------------------------------------------------------------
     // 阶段 3：将一次性任务排到近未来，等待真实 scheduler 到点派发调用真实模型，
-    //        验证 job 终态 status=succeeded、结果落在 targetAgentId 历史、initial 与 local-main 无误投
+    //        验证 job 终态 status=succeeded、结果落在 targetSessionId 历史、initial 与 main 无误投
     // -------------------------------------------------------------------------
     const phase3Outcome: ScenarioOutcome = {
       name: "scheduler-dispatch-and-isolation",
@@ -256,9 +256,9 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     } else {
       try {
         // 创建任务的原始 user 提示词本来含 marker；比较派发前后历史，不能删历史或误判旧文本。
-        const initialBefore = conversationResponse.parse(await client.history(initialAgentId));
-        const mainBefore = conversationResponse.parse(await client.history("local-main"));
-        const targetBefore = conversationResponse.parse(await client.history(targetAgentId));
+        const initialBefore = conversationResponse.parse(await client.history(initialSessionId));
+        const mainBefore = conversationResponse.parse(await client.history("main"));
+        const targetBefore = conversationResponse.parse(await client.history(targetSessionId));
         const previousTargetIds = new Set(targetBefore.messages.map((message) => message.id));
         const baseline = proxy.traces.length;
         // 将排期设定在 1 秒后（近未来）
@@ -266,7 +266,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         const patchScheduleRes = await client.request(`/api/jobs/${targetJobId}`, { at: nearFuture }, "PATCH");
         assert.equal(patchScheduleRes.status, 200);
         const scheduled = jobItem.parse(await patchScheduleRes.json());
-        assert.equal(scheduled.originAgentId, targetAgentId, "省略 originAgentId 的排期修改仍须保持归属");
+        assert.equal(scheduled.originSessionId, targetSessionId, "省略 originSessionId 的排期修改仍须保持归属");
         assert.equal(scheduled.at, nearFuture);
 
         // 留出扫描时间以及完整的 120s 模型运行窗口。
@@ -292,16 +292,16 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         phase3Outcome.modelCalls = newTraces.length;
         assert.ok(newTraces.length >= 1, "调度器触发必须产生真实模型请求");
 
-        // 检查 targetAgentId 的历史记录：assistant 回复中必须包含 uniqueMarker
-        const targetHistory = conversationResponse.parse(await client.history(targetAgentId));
+        // 检查 targetSessionId 的历史记录：assistant 回复中必须包含 uniqueMarker
+        const targetHistory = conversationResponse.parse(await client.history(targetSessionId));
         const assistantReply = targetHistory.messages.find(
           (m) => !previousTargetIds.has(m.id) && m.role === "assistant" && m.content?.includes(uniqueMarker),
         );
-        assert.ok(assistantReply, `目标智能体 targetAgentId 历史必须包含任务触发助手回复 (${uniqueMarker})`);
+        assert.ok(assistantReply, `目标智能体 targetSessionId 历史必须包含任务触发助手回复 (${uniqueMarker})`);
 
-        const initialHistory = conversationResponse.parse(await client.history(initialAgentId));
+        const initialHistory = conversationResponse.parse(await client.history(initialSessionId));
         assert.deepEqual(initialHistory.messages, initialBefore.messages, "派发不得改变原智能体 messages");
-        const mainHistory = conversationResponse.parse(await client.history("local-main"));
+        const mainHistory = conversationResponse.parse(await client.history("main"));
         assert.deepEqual(mainHistory.messages, mainBefore.messages, "派发不得改变主智能体 messages");
 
         phase3Outcome.passed = true;
@@ -358,32 +358,32 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
           process.stderr.write(`Cleanup job ${jobId}: ${error instanceof Error ? error.message : String(error)}\n`);
         }
       }
-      for (const agentId of createdAgentIds) {
+      for (const sessionId of createdSessionIds) {
         try {
-          const res = await fetch(`${baseUrl}/api/agents/${agentId}`, {
+          const res = await fetch(`${baseUrl}/api/sessions/${sessionId}`, {
             method: "DELETE",
             headers: { Authorization: `Bearer ${authToken}` },
             signal: AbortSignal.timeout(5000),
           });
           if (res.ok || res.status === 404) {
             // 确认智能体已被删除
-            const verifyRes: Response = await fetch(`${baseUrl}/api/agents`, {
+            const verifyRes: Response = await fetch(`${baseUrl}/api/sessions`, {
               headers: { Authorization: `Bearer ${authToken}` },
               signal: AbortSignal.timeout(5000),
             });
             assert.equal(verifyRes.status, 200, "Cleanup agents verification must return HTTP 200");
-            const currentAgents = (await verifyRes.json()) as { agents: { id: string }[] };
-            if (currentAgents.agents.some((s) => s.id === agentId)) {
+            const currentAgents = (await verifyRes.json()) as { sessions: { id: string }[] };
+            if (currentAgents.sessions.some((s) => s.id === sessionId)) {
               cleanupFailed = true;
-              process.stderr.write(`Cleanup verification failed: agent ${agentId} still exists\n`);
+              process.stderr.write(`Cleanup verification failed: agent ${sessionId} still exists\n`);
             }
           } else {
             cleanupFailed = true;
-            process.stderr.write(`Cleanup agent ${agentId} failed with HTTP ${res.status}\n`);
+            process.stderr.write(`Cleanup agent ${sessionId} failed with HTTP ${res.status}\n`);
           }
         } catch (error) {
           cleanupFailed = true;
-          process.stderr.write(`Cleanup agent ${agentId}: ${error instanceof Error ? error.message : String(error)}\n`);
+          process.stderr.write(`Cleanup agent ${sessionId}: ${error instanceof Error ? error.message : String(error)}\n`);
         }
       }
       // 前置断言失败时可能尚未捕获 jobId；智能体级联清理后也必须确认无漏删任务。

@@ -5,44 +5,45 @@ import { createInformationService } from "../../src/features/information/service
 import { defaultInformationState, type InformationRepository } from "../../src/features/information/types.js";
 import type { HttpDependencies } from "../../src/bootstrap/types.js";
 
-test("PUT preferences leaves the hub lock before retaining for feedback examples", async () => {
+test("global preferences save main rules before retaining main for feedback", async () => {
   let state = { ...defaultInformationState(), preferences: { notes: "old", learnedNotes: "" } };
   const repository: InformationRepository = {
     read: async () => structuredClone(state),
-    update: async (_agentId, change) => {
+    update: async (change) => {
       const changed = await change(structuredClone(state));
       if (changed.state) state = changed.state;
       return changed.result;
     },
-    listAgentIds: async () => ["agent"],
-    removeAgent: async () => undefined,
+
     reconcileOnStart: async () => undefined,
     validateAll: async () => undefined,
   };
   let hubDepth = 0;
+  let instructions = "";
   const order: string[] = [];
   const information = createInformationService({
     repository,
-    agentExists: async () => true,
-    retainAgent: async () => {
-      assert.equal(hubDepth, 0, "retainAgent must run outside withExistingAgent");
+
+    retainMain: async () => {
+      assert.equal(hubDepth, 0, "retainMain must run outside withExistingSession");
       order.push("retain");
       return {
         conversation: {
-          sessionId: () => "session-1",
-          notify: async (_text, id) => ({ sessionId: "session-1", messageId: id }),
+          piSessionId: () => "session-1",
+          notify: async (_text, id) => ({ piSessionId: "session-1", messageId: id }),
         },
         release: () => order.push("release"),
       };
     },
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
+    readInstructions: async () => instructions,
+    writeInstructions: async (text) => { instructions = text; },
     enabledSkillTexts: async () => [],
   });
   const dependencies = {
     conversationHub: {
-      withExistingAgent: async <T>(_agentId: string, change: () => Promise<T>) => {
+      withExistingSession: async <T>(_sessionId: string, change: () => Promise<T>) => {
         hubDepth++;
         order.push("lock");
         try {
@@ -55,26 +56,25 @@ test("PUT preferences leaves the hub lock before retaining for feedback examples
     information,
   } as unknown as HttpDependencies;
   const app = createInformationRoutes(dependencies);
-  const response = await app.request("/agent/information/preferences", {
+  const response = await app.request("/preferences", {
     method: "PUT",
     body: JSON.stringify({ notes: "latest" }),
   });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { notes: "latest", feedbackExamples: [] });
-  assert.deepEqual(order, ["lock", "retain", "release"]);
+  assert.deepEqual(order, ["retain", "release"]);
 });
 
-test("POST runs returns the cancelled record when pause aborts while retain is pending", async () => {
+test("POST runs returns the cancelled record when pause aborts while retain is pending", async (t) => {
   let state = defaultInformationState();
   const repository: InformationRepository = {
     read: async () => structuredClone(state),
-    update: async (_agentId, change) => {
+    update: async (change) => {
       const changed = await change(structuredClone(state));
       if (changed.state) state = changed.state;
       return changed.result;
     },
-    listAgentIds: async () => ["agent"],
-    removeAgent: async () => undefined,
+
     reconcileOnStart: async () => undefined,
     validateAll: async () => undefined,
   };
@@ -84,14 +84,14 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
   const retainGate = new Promise<void>((resolve) => { releaseRetain = resolve; });
   const information = createInformationService({
     repository,
-    agentExists: async () => true,
-    retainAgent: async () => {
+
+    retainMain: async () => {
       retainStarted = true;
       await retainGate;
       return {
         conversation: {
-          sessionId: () => "session-1",
-          notify: async (_text, id) => ({ sessionId: "session-1", messageId: id }),
+          piSessionId: () => "session-1",
+          notify: async (_text, id) => ({ piSessionId: "session-1", messageId: id }),
         },
         release: () => { retainReleased = true; },
       };
@@ -101,19 +101,22 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
     readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
-  await information.saveSettings("agent", { enabled: true, batchWindowSeconds: 0 });
-  await information.ingest("agent", [{ source: "rss", externalId: "1", content: "one" }]);
+  await information.saveSettings({ enabled: true, batchWindowSeconds: 0 });
+  await information.ingest([{ source: "rss", externalId: "1", content: "one" }]);
 
   const app = createInformationRoutes({
     conversationHub: {},
     information,
   } as unknown as HttpDependencies);
-  const responsePromise = app.request("/agent/information/runs", {
+  const responsePromise = app.request("/runs", {
     method: "POST",
     body: "{}",
   });
-  while (!retainStarted) await new Promise((resolve) => setImmediate(resolve));
-  const pause = information.pauseAgent("agent");
+  t.after(() => { releaseRetain(); });
+  const deadline = Date.now() + 2000;
+  while (!retainStarted && Date.now() < deadline && !t.signal.aborted) await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(retainStarted,"global run route must actually retain main");
+  const pause = information.pause();
   releaseRetain();
 
   const response = await responsePromise;

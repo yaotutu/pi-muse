@@ -112,41 +112,25 @@ chmod 600 .pi-muse/config.json
 
 默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
 `runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
-会话按 `sessions/<agentId>/` 保存，每个 agent 有独立 pi 会话；单用户可有多个 agent，subagent 内部 `subagent-<uuid>` 工作区与旧 worker 遗留的 `task-*` 目录都不显示在用户会话列表中。每个 agent 的工作目录固定为 `workspace/agents/<agentId>/`，共享区为 `workspace/shared/`；完整目录树见下方 [实例目录结构](#instance-directory-structure)。没有可配置的全局 workspace 回退，旧根文件和旧 cwd 历史不会自动迁移或清理。
+公开会话 id 与内部 pi 会话 id 区分。main 永久存在，专题会话按需创建；聊天与规则隔离，工作区只有一个实例级根。
 
 ## 实例目录结构 {#instance-directory-structure}
 
 ```text
-.pi-muse/
-├── config.json                         # 启动配置与凭据
-├── auth.key                            # token 签名密钥
-├── profile/                            # 全局用户画像、助手人设与记忆配置
-│   ├── SOUL.md                         # 助手人设自由文本
-│   ├── USER.md                         # 用户画像自由文本
-│   ├── DREAM.md                        # 全局 Dream 整理提示词
-│   └── memory.json                     # 长期记忆与身份设置（按需检索）
-├── jobs.json / goals.json / actions.json / monitors.json
-├── news.json                            # RSS 源配置与采集健康状态
-├── information/<agentId>.json           # 智能体局部信息/新闻条目、决策与逐篇反馈
-├── sessions/<agentId>/
-│   ├── *.jsonl                          # pi 权威历史
-│   ├── INSTRUCTIONS.md                  # 会话专属指令（含 ## 智能体用途），按需存在
-│   ├── DREAM.md                         # 会话补充 Dream 提示词，按需存在
-│   ├── dream.json                       # 会话 Dream 开关、游标、最近结果与待决项，按需存在
-│   └── skills.json                      # 会话技能覆盖，按需存在
-├── workspace/
-│   ├── shared/                          # 用 shared/... 显式访问
-│   └── agents/<agentId>/              # 各会话私有文件区
-├── skills/<name>/                         # 可选实例技能；config 由系统维护
-│   ├── SKILL.md                           # 技能定义
-│   ├── config.json                        # defaultEnabled，新技能默认 false
-│   ├── references/                        # 可选受支持文本参考
-│   └── assets/                            # 可选受支持文本资产
-├── subagents/<role>.md                  # 可选的实例角色覆盖
-└── agent/                               # pi 运行资源
+DATA_DIR/
+  profile/          SOUL.md USER.md DREAM.md memory.json dream.json
+  workspace/
+  sessions.json
+  sessions/<sessionId>/  pi JSONL, INSTRUCTIONS.md, skills.json
+  messages/<sessionId>/<piSessionId>.json
+  information/sms.json
+  news.json
+  jobs.json goals.json actions.json monitors.json
+  agent/            pi auth resources
+  skills/ subagents/ traces/ browser/
 ```
 
-内置技能和子代理角色位于仓库 `assets/skills/`、`assets/subagents/`，构建时复制到 `dist/assets/`，不放入实例目录。实例中的同名技能或角色可以覆盖内置定义，但不能绕过既有权限；`skill-creator` 内置技能默认启用，提供产品技能维护工具。
+所有会话与子代理共用唯一 workspace 根；子代理使用内存上下文，不落盘或建目录。新布局不隐式读取、迁移或删除旧实例。
 
 ## 数据存储与安全边界 {#data-storage-and-security-boundaries}
 
@@ -160,21 +144,21 @@ chmod 600 .pi-muse/config.json
 
 ## 文件写入审批 {#file-write-approvals}
 
-- `write` / `edit` 只能操作 `DATA_DIR/workspace/agents/<agentId>/` 私有区和通过 `shared/...` 显式访问的 `workspace/shared/`；主会话同样使用 `agents/local-main/`，不使用父目录。读写均拒绝绝对路径、`..` 和根/目标/父目录符号链接；`bash` 永不暴露。
+- `write` / `edit` 只操作唯一 DATA_DIR/workspace/，每次修改仍需完整预览、人工审批与文件版本绑定；拒绝、过期、取消或版本变化不提交。路径越界与符号链接始终拒绝，模型没有 bash。
 - 每次操作都需独立人工审批，审批载荷保留完整修改前后文本和文件版本；`edit` 的待替换文本必须唯一命中。
 - 提交前重新检查路径安全与文件版本。文件在等待期间变化时，旧审批不能授权覆盖，需重新发起操作和审批。
 - 拒绝、审批过期或运行取消均不会提交该次修改；服务重启会取消上一进程遗留的 pending 审批。审批有效期由登记时的 `expiresAt` 固定，提交前再次校验期限和取消状态。
 - `skills` 工具参数为 `action=list|read|save`、`name`、可选 `file`（默认 `SKILL.md`）与 save 必填的完整 `content`。`name` 只能是小写字母、数字或单个连字符，最长 64 位；允许 `SKILL.md` 及 `references/`、`assets/` 下 `.md/.txt/.json/.csv/.yaml/.yml` 普通 UTF-8 文本，单文件最大 100KB。
-- `skills.save` 只能在用户明确要求时使用，写入 `DATA_DIR/skills/<name>`；同名内置技能会创建实例覆盖，内置文件不变。保存资源前必须先保存合法实例 `SKILL.md`。审批预览为 `scope=skill`、`ownerAgentId=null`、path=`<name>/<file>`，同样绑定版本并在提交前复查路径、取消、过期与文件变化。
-- 新技能的 `config.json` 固定为 `{ "defaultEnabled": false }`，不会自动在当前智能体启用。通过智能体技能开关启用后，新定义、参考与资产从下一轮模型装配生效；当前轮不会获得新技能指令或扩展能力。拒绝、过期、Stop 或等待期间文件变化均不落盘，结果未明不自动重发。
-- 技能维护拒绝删除、目录操作、`config.json` 直接编辑、脚本/代码、二进制、嵌套 `SKILL.md`、绝对路径、穿越与符号链接。已启用技能的普通 `read` 只额外开放该技能的 `SKILL.md` 与受支持资源文本，不开放 ls/grep/find 或邻居文件；子代理没有 `skills` 工具。
+- `skills.save` 只能在用户明确要求时使用，写入 `DATA_DIR/skills/<name>`；同名内置技能会创建实例覆盖，内置文件不变。保存资源前必须先保存合法实例 `SKILL.md`。审批预览为 `scope=skill`、path=`<name>/<file>`，同样绑定版本并在提交前复查路径、取消、过期与文件变化。
+- 新技能的 `config.json` 固定为 `{ "defaultEnabled": false }`，不会自动在当前会话启用。通过会话技能开关启用后，新定义、参考与资产从下一轮模型装配生效；当前轮不会获得新技能指令或扩展能力。拒绝、过期、Stop 或等待期间文件变化均不落盘，结果未明不自动重发。
+- 技能维护拒绝删除、目录操作、`config.json` 直接编辑、脚本/代码、二进制、嵌套 `SKILL.md`、绝对路径、穿越与符号链接。已启用技能的普通 `read` 只额外开放该技能的 `SKILL.md` 与受支持资源文本，不开放 ls/grep/find 或邻居文件；子代理仅继承父轮实际工具快照，角色只能收窄；技能写入仍逐次人工审批。
 - 关闭 `tools.writable.enabled` 会移除 `write` / `edit` 并受控拒绝 `skills.save`，但保留 `skills.list/read`；工具展示策略不能跳过审批或开启被关闭的写入能力。
 
 在手机客户端中创建并使用技能：
 
 1. 在聊天中告诉助手需要创建或修改的技能，例如“创建一个 Linux 新闻筛选技能，优先关注内核和发行版更新”。
 2. 点击顶部虚拟形象打开会话面板，进入审批页，查看“技能库”中的目标文件及完整修改前后内容；确认符合预期后批准，并等待“文件写入成功”的执行回执。
-3. 在同一会话面板的工作区中找到该技能，打开开关并保存智能体技能；新技能默认关闭，需要在希望使用它的智能体分别启用。
+3. 在同一会话面板的工作区中找到该技能，打开开关并保存会话技能；新技能默认关闭，需要在希望使用它的会话分别启用。
 4. 发送下一条消息使用该技能。修改已启用技能后，也从下一轮对话开始加载新内容；批准保存本身不代表已经启用。
 
 ## 工具展示策略 {#tool-presentation-policy}

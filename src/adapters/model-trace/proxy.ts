@@ -9,7 +9,7 @@ import { currentModelTraceContext, type ModelTraceContext } from "./context.js";
 const CAPTURE_LIMIT = 2 * 1024 * 1024;
 /**
  * 调用方上下文经此头跨越回环 HTTP 边界：值只是进程内注册表的不透明 id，
- * 不含 agentId/kind 正文；代理消费后立即删除，且永不转发给上游或写进 trace。
+ * 不含 sessionId/kind 正文；代理消费后立即删除，且永不转发给上游或写进 trace。
  */
 const TRACE_ID_HEADER = "x-pi-muse-trace-id";
 /** 逐跳/由传输层重算的头不转发；其余请求头原样透传，且永不进入任何 trace 字段。 */
@@ -99,7 +99,7 @@ export const createModelTraceProxy = async (deps: {
         startedAt: startedAt.toISOString(),
         endedAt: "",
         durationMs: 0,
-        agentId: context?.agentId ?? "unknown",
+        sessionId: context?.sessionId ?? "unknown",
         kind: context?.kind ?? "unlabeled",
         ...(context?.extra ? { extra: { ...context.extra } } : {}),
         upstreamOrigin: upstream.origin,

@@ -1,104 +1,54 @@
 # Long-term memory and Dream
 
-This page explains how to browse, search, create, edit, and delete global long-term memories in the mobile client, and how Dream consolidates conversations into profiles, agent rules, or memories. Entry points and limits were checked against current mobile and server source; source capabilities do not automatically equal a released APK. Follow the UI in your installed release.
+Memory, SOUL/USER and Dream are global instance resources. Chat text and instructions remain session-specific. This page describes current server semantics; native client and real-model paths still require coordinated acceptance. Check the installed release.
 
 ## Prerequisites {#prerequisites}
 
-- The server is connected as described in [Quick Start](getting-started.md#connect-mobile-client), and 「长期记忆」 and 「Dream 记忆整理」 are available in Settings.
-- Browsing, searching, and managing long-term memories only require server access. A Dream consolidation run also makes a real call to the external model configured on the server; if the model is missing or unavailable, the run fails.
-- Long-term memories and the SOUL/USER profiles are global. Chat history, agent rules, and Dream consolidation cursors are independent for each agent.
+Connect to an accessible matching server. Browsing/managing memory does not require a model; Dream requires a configured external model.
 
-## Manage Long-term Memories {#manage-long-term-memories}
+## Manage long-term memories {#manage-long-term-memories}
 
-1. Tap the bottom 「设置」 (Settings) tab → 「助手记忆」 → 「长期记忆」. The page opens with all memories; while loading, it says it is waiting for server memories.
-2. The 「全部」 view shows at most 500 memories, newest by update time first. Each card shows the text, source, and update time.
-3. Enter a keyword in 「搜索记忆关键词」 and tap 「搜索」 or the keyboard search action. Search is a case-insensitive substring match and returns at most 10 recently updated matches. The trimmed keyword can be at most 200 characters.
-4. Tap 「全部」 to return to the full list, or 「刷新」 to reload the current view.
-5. Tap 「新增记忆」, enter 1–2000 characters, and tap 「保存记忆」. Success shows 「记忆已新增」 and returns to the list. Items created in the mobile UI are labeled `Mobile UI`.
-6. Tap 「编辑」 on a memory, change the text, and save. Success shows 「记忆已更新」, and the update time changes.
-7. Tap 「删除」. The page shows the complete text before deletion. Confirming deletes it for every agent and does not delete chat history; success shows 「记忆已删除」.
+Use memory settings to browse, search by keyword, add, edit or delete. The limit is 500 records, each 1–2000 characters. A full store rejects additions rather than discarding records. Search is case-insensitive substring matching.
 
-Deleting a long-term memory cannot be undone. After the total reaches 500 items, the server rejects new items; edit and merge or remove old items first. Do not save passwords, API keys, tokens, or other secrets as memories.
+Deletion is irreversible and affects all sessions without deleting chat. Never store passwords, keys, tokens or other secrets. Read the full store before retrying a write with an unknown outcome. A failed read is not an empty store.
 
-If a read fails, the page keeps the last observed content and reports that the latest state must be verified; changes are disabled. An interrupted or timed-out write may already have taken effect, so the page locks changes and asks you to reload 「全部」 first. After checking, tap 「已核对，解除提交锁定」 before deciding whether to submit another operation. The client does not automatically retry the write.
+## Memory and profile boundaries {#memory-and-profile-boundaries}
 
-## Memory and Profile Boundaries {#memory-and-profile-boundaries}
-
-| Content | Scope | When it reaches the model |
-| --- | --- | --- |
-| Long-term memory | Global, shared by all agents | Not carried every turn; searched by keyword when it may matter |
-| USER profile | Global, shared by all agents | Injected as user profile from the next turn |
-| SOUL profile | Global, shared by all agents | Injected as assistant persona from the next turn |
-| Assistant name and tone | Global, shared by all agents | Effective from the next conversation turn after saving |
-| Long-term goals | Global, shared by all agents | Not automatically included in ordinary chat; agents with the goal skill enabled can query and manage them on demand |
-| Skill assets | One instance-level file set | Only skills enabled for the current agent load on the next turn; an agent stores only switch overrides |
-| Shared workspace | Global | Accessed explicitly through `shared/...`; it does not appear in private-workspace searches |
-| Information preference notes | Independent for each agent | Read only by that agent's information processing; Dream does not rewrite them into another preference store |
-| Chat history | Independent per agent | Used by that agent's conversation; reset or agent deletion clears it |
-| Agent rules | Independent per agent | Effective from the next conversation turn after saving |
-
-In an agent with the memory skill enabled, you can explicitly ask the assistant to add, edit, or forget a fact. Whether that happened is determined by the actual tool result and can be checked here by refreshing and searching. An agent with Dream enabled may also consolidate its chat separately. Message feedback does not automatically enter ordinary chat context and is not used for preference training; when information processing is explicitly enabled for an agent, its background decision may read current feedback examples from that agent. For editing SOUL/USER, see [Profile and settings](profile-and-settings.md#assistant-and-user-profile).
+- USER, SOUL, identity and memory are global. SOUL/USER are reread each turn; memory is retrieved on demand rather than injected in full.
+- Each session has independent instructions and skill overrides. Main instructions also guide news/SMS preferences.
+- There is one shared workspace root. Shared files do not merge chat histories.
+- Feedback itself does not start Dream, a model or training. Information processing may explicitly read bounded current main feedback examples.
 
 ## Configure Dream {#configure-dream}
 
-1. Tap the bottom 「设置」 (Settings) tab → 「助手记忆」 → 「Dream 记忆整理」. The agent selector, latest run, and pending suggestions come first. Agent settings and the global prompt are collapsed below them. Expanding or collapsing does not save or discard drafts; unsaved changes remain indicated in the configuration summary and continue to block an immediate run.
-2. Expand 「配置」 beside 「全局整理提示词」. This is the shared base configuration for all agents and can contain at most 20,000 characters. Saving it empty clears the custom override and uses the built-in default prompt. Tap 「查看内置默认提示词」 to inspect the default behavior.
-3. Tap 「保存全局提示词」 after editing. Success shows 「全局 Dream 提示词已保存」. 「取消修改」 returns to the last successfully loaded value; 「清空草稿」 only clears the draft and has no effect until you save.
-4. Tap an existing agent under 「选择整理智能体」. If the current agent has unsaved periodic or supplemental prompt changes, switching requires confirming that its agent draft will be discarded; the global draft is retained.
-5. Expand 「配置」 beside 「当前智能体设置」, then configure:
-   - 「参加定期整理」: on by default for the main agent and off for other agents. Turning it off still allows manual consolidation.
-   - 「继承全局提示词」: when on, the global prompt is combined with this agent's supplemental prompt. When off, the agent supplement takes precedence; if it is empty, the effective global prompt or built-in default is still used as the fallback.
-   - 「本智能体补充提示词」: at most 20,000 characters, only for this agent. Saving an empty string clears the supplement.
-6. Tap 「保存智能体设置」. Success shows 「智能体 Dream 设置已保存」.
+Dream has one global enablement setting and one prompt in profile/DREAM.md. There are no per-session settings, inheritance or supplemental prompts. The prompt limit is 20,000 characters; saving an empty string restores the built-in default.
 
-Dream's fixed safety rules always apply and cannot be overridden by a global or agent prompt: a consolidation run may only submit structured note proposals and has no file, network, browsing, or delegation tools. External content is not an instruction. Dream must not save credentials, record assistant guesses as user facts, or change permissions, tools, models, or configuration. 「本智能体用途」 is read-only on the Dream page.
+Every two hours the background service scans existing sessions, reads new messages using source cursors and skips busy sessions. Disabling only affects later scans and does not undo writes. Prompts, instructions and skills cannot expand the consolidation tool set.
 
-The fixed rules also describe data scope: USER, SOUL, and long-term memory are global targets. Only filtering rules, topic scope, sensitivity requirements, or format requirements caused by this agent's purpose belong in this agent's rules. Information-processing preference notes remain owned by their existing information entry and are not silently rewritten. A target being globally available does not make it suitable for every context; when a new fact's cross-agent stability is unclear, it should enter the pending list. These are model classification instructions. The server enforces tool and approval boundaries, but cannot guarantee the real-world scope of every fact automatically; automatically written content can be checked in its pages afterward, while pending suggestions still require human confirmation.
+The model round can only submit structured proposals. It has no file, network, shell, delegation or arbitrary configuration tools. External data is untrusted; credentials, assistant guesses presented as user facts and permission changes must not be stored.
 
-The background check runs every 2 hours for agents with periodic consolidation enabled. A check time is not a completion guarantee; agents with an active conversation or an existing Dream run are skipped. Turning off periodic consolidation for an agent affects future checks only and does not undo content already written.
+## Run Dream manually {#run-dream-manually}
 
-## Run Dream Manually {#run-dream-manually}
+Save or explicitly discard configuration drafts first. An immediate request processes sessions in sequence. Only one consolidation flow is admitted; model requests are not retried automatically. No new messages means no model call.
 
-1. On the Dream page, select an agent and first save or discard both global and agent changes. While a draft exists, 「立即整理当前智能体」 is unavailable and the draft is not used for this model run.
-2. Tap 「立即整理当前智能体」. The request waits synchronously for the real model to finish; the client waits at most 300 seconds. You can continue using the app, but do not tap the button repeatedly.
-3. Check the result:
-   - 「已完成」 means the whole run succeeded and the cursor advances past the messages processed. With no new messages, it records zero processed messages and no changes.
-   - 「部分完成」 means some targets or pending suggestions were written, but part failed. The cursor does not advance, so the next run rereads from the original position.
-   - 「失败」 means the completed run was normally recorded with no writes, and the cursor does not advance. An interruption caused by a service restart must be checked as described below.
-4. Review 「处理消息」 and 「实际变更」 to understand the scope. For a failed or partial run, the page shows the server's controlled error explanation.
+- completed: all work for that source succeeded; only then is its cursor advanced.
+- partial: some writes/proposals succeeded but an error occurred. The cursor stays unchanged and completed writes are not rolled back.
+- failed: execution failed or startup reconciled an interrupted round. This status alone does not prove that nothing was written earlier.
 
-Dream has no stop operation. Leaving the page, moving the app to the background, closing the app, or a client timeout only stops the phone from waiting; they do not stop or fail the remote consolidation. After returning, tap 「刷新」 to verify the latest run before running Dream again. A service restart changes a run left in the running state to failed; that failure marker does not mean earlier writes are absent and does not roll back completed writes. Read back USER/SOUL, agent rules, long-term memories, and pending suggestions, verify them, then consolidate again instead of rerunning solely from the failed status.
+Extraction uses new messages and bounded overlapping context. USER/SOUL/memory are global targets; global profile proposals from non-main sources require confirmation. Source-specific rules go only to that source's instructions. Writes compare the read version and purpose so concurrent user edits are not overwritten. Existing memory edit/delete must cite an exact id; an uncertain edit must not become an addition.
 
-Manual consolidation extracts messages after the last cursor and includes earlier overlapping context for understanding; the model is instructed to extract only from new messages. The main agent may write global USER/SOUL directly. A global USER/SOUL suggestion from a non-main agent enters the pending list. Writing agent rules requires that agent to have a purpose and should only collect preferences caused by that purpose. Editing or deleting an existing long-term memory requires its exact ID; if the model is unsure about the change, it should omit it rather than convert it into a pending addition. If a target changes concurrently, Dream skips overwriting it and reports failure or partial completion.
+Leaving the page or a client timeout does not establish remote cancellation. Read results and target contents before running again. Shutdown cancels active model work; restart marks running records failed without resuming them.
 
-## Resolve Pending Suggestions {#resolve-dream-suggestions}
+## Resolve pending suggestions {#resolve-dream-suggestions}
 
-1. Under 「待决建议」, read the complete text, creation time, reason, and suggested target. A reason may be shown as 「归属不明确」 (unclear ownership), 「来自单一会话，但建议写入全局资料」 (a global profile suggestion from one session), or 「智能体尚未设置用途」 (the agent has no purpose).
-2. Under 「实际应用到」, choose `USER`, `SOUL`, `规则`, or `记忆`. You do not have to keep the model's suggested target.
-3. Tap 「应用到所选目标」, check the complete text and target in the confirmation, then tap 「确认应用」.
-4. To avoid writing it, tap 「忽略建议」 and confirm dismissal.
+Up to 50 deduplicated pending proposals are kept globally with their source session. Before applying, inspect the full text, reason, source and target. Choose USER, SOUL, source instructions or new memory, or explicitly dismiss.
 
-Actual effects:
+Instruction application uses the proposal's source rather than the currently viewed chat. Deleted sources cannot be recreated. Global targets affect all sessions. Dismissal only removes the proposal, not chat. Read the list and target after an unknown write rather than automatically resending.
 
-- `USER`: appends to the global user profile and affects every agent.
-- `SOUL`: appends to the global assistant persona and affects every agent.
-- `规则`: appends to the current agent's rules and affects only that agent; it fails if the agent rule length limit is exceeded.
-- `记忆`: always adds one global long-term memory and counts toward the 500-item limit; it is not used to confirm an edit or deletion. Uncertain edits/deletions of existing memories should be omitted at the proposal stage.
-- 「忽略」 only removes that suggestion from the pending list and writes nothing. The chat transcript itself is not deleted.
+## Reset and delete effects {#dream-reset-and-delete}
 
-After a successful apply, the pending item disappears immediately. The write is an append or a new memory; Dream does not rewrite it into a summary and does not provide a difference editor. You must manually confirm the complete text before applying. If the result is unknown, refresh and check both the list and target content before acting again; the client does not automatically retry.
+Session reset/deletion does not delete global Dream configuration or previously written profile/memory. Deleted sources cannot receive new instruction proposals; inspect global pending proposals and dismiss or explicitly choose a valid target. See [Session management](conversations-and-agents.md#reset-and-delete-sessions) for irreversible history/feedback effects.
 
-## Reset and Delete Effects {#dream-reset-and-delete}
+## Limits and failures {#limits-and-failures}
 
-- 「重置当前会话」 clears that agent's chat history, message feedback, Dream cursor, latest run, and pending suggestions. Its Dream switch, inheritance setting, supplemental prompt, agent rules, and workspace files are retained. USER/SOUL, global memories, or agent rules Dream previously wrote are not rolled back.
-- Deleting an agent also removes its chat history, message feedback, Dream configuration and consolidation state, pending suggestions, agent rules, and bound jobs. Global USER/SOUL and global long-term memories already written are not removed.
-- For steps, confirmations, and irreversible scope, see [Conversations and agents](conversations-and-agents.md#reset-and-delete-agents).
-
-## Limits and Failures {#limits-and-failures}
-
-- If the Dream overview cannot be read or its state must be rechecked, saving, running, and pending decisions are disabled until you refresh.
-- Only one Dream consolidation run can exist at a time. A manual run is rejected when the selected agent has an active conversation, does not exist, or another Dream run is active.
-- A missing model, failed model request, invalid proposal, concurrent modification, full memory capacity, or service shutdown can produce failure or partial completion. Already written parts are not automatically rolled back.
-- The pending list keeps at most 50 deduplicated suggestions. Check the complete text before handling one, especially when changing the target to global USER, SOUL, or memory.
-- Dream's scope classification relies on the model following its instructions. The server enforces tools, permissions, IDs, and main/non-main write rules, but code cannot prove that every fact is genuinely stable across real-life agents.
-- Content written by Dream affects subsequent model turns and does not rewrite already generated chat history.
+Model failures, invalid proposals, concurrent edits, full memory or shutdown can cause failure/partial completion. There is no automatic rollback or retry. Scope classification depends on model understanding; the server enforces permission, tool and version boundaries, not whether a real-world fact applies to every topic. Writes affect later turns, not existing chat text.

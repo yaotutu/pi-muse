@@ -100,7 +100,7 @@ test("workspace events require Bearer auth and reconnect yields fresh ready snap
 
   const first = await connect(t, service, headers);
   assert.deepEqual(first.ready.pendingApprovals, []);
-  assert.deepEqual(first.ready.agentStatuses, []);
+  assert.deepEqual(first.ready.sessionStatuses, []);
   await first.reader.cancel();
 
   // 断线期间登记新待审批
@@ -182,7 +182,7 @@ test("execution receipts push higher approval revisions without changing the hum
 test("a persisted conversation notification pushes one identity-only invalidation frame", async (t) => {
   const { service, headers } = await fixture(t);
   const stream = await connect(t, service, headers);
-  const conversation = await service.conversationHub.forAgent("local-main");
+  const conversation = await service.conversationHub.forSession("main");
 
   const receipt = await conversation.notify("information arrived", "workspace-notification-1");
   const frame = await stream.nextFrame();
@@ -190,8 +190,8 @@ test("a persisted conversation notification pushes one identity-only invalidatio
     event: "conversation_updated",
     data: {
       instanceId: stream.ready.instanceId,
-      agentId: "local-main",
-      sessionId: receipt.sessionId,
+      sessionId: "main",
+      piSessionId: receipt.piSessionId,
     },
   });
 
@@ -200,30 +200,30 @@ test("a persisted conversation notification pushes one identity-only invalidatio
   assert.equal(unexpected, null);
 });
 
-test("model conversation run pushes agent_status_updated events and disconnecting events does not cancel a chat", async (t) => {
+test("model conversation run pushes session_status_updated events and disconnecting events does not cancel a chat", async (t) => {
   const { service, headers, model } = await fixture(t, true);
   const events = await connect(t, service, headers);
 
   const runPromise = post(service, headers, "/api/conversation/run", {
-    agentId: "local-main", runId: randomUUID(), expectedRevision: "empty",
+    sessionId: "main", runId: randomUUID(), expectedRevision: "empty",
     message: { id: randomUUID(), content: "记住我喜欢喝茶" },
   }).then(drain);
 
   // 接收运行状态推送
   let statusFrame = await events.nextFrame();
-  while (statusFrame.event !== "agent_status_updated") statusFrame = await events.nextFrame();
-  assert.equal(statusFrame.event, "agent_status_updated");
-  assert.equal(statusFrame.data.agentId, "local-main");
+  while (statusFrame.event !== "session_status_updated") statusFrame = await events.nextFrame();
+  assert.equal(statusFrame.event, "session_status_updated");
+  assert.equal(statusFrame.data.sessionId, "main");
   assert.ok(statusFrame.data.revision >= 1);
 
   assert.match(await runPromise, /RUN_FINISHED/);
   assert.equal((await service.memory.list()).length, 1);
 
   // 验证事件流断开不影响正在运行的会话
-  const conversation = await service.conversationHub.forAgent("local-main");
+  const conversation = await service.conversationHub.forSession("main");
   const revision = (await conversation.snapshot()).revision;
   const frozenPromise = post(service, headers, "/api/conversation/run", {
-    agentId: "local-main", runId: randomUUID(), expectedRevision: revision,
+    sessionId: "main", runId: randomUUID(), expectedRevision: revision,
     message: { id: randomUUID(), content: "freeze" },
   }).then(drain);
 
@@ -240,7 +240,7 @@ test("activity status changes push activity_updated with terminal result; ready 
   assert.deepEqual(events.ready.activities, []);
 
   const run = post(service, headers, "/api/conversation/run", {
-    agentId: "local-main", runId: randomUUID(), expectedRevision: "empty",
+    sessionId: "main", runId: randomUUID(), expectedRevision: "empty",
     message: { id: randomUUID(), content: "活动交办调研 Pi 生态圈并生成报告" },
   }).then(drain);
 
@@ -255,7 +255,7 @@ test("activity status changes push activity_updated with terminal result; ready 
   const statuses = frames.map((frame) => frame.data.status);
   assert.deepEqual(statuses, ["running", "completed"]);
   assert.equal(frames[0]!.data.title, "调研 Pi 生态圈");
-  assert.equal(frames[0]!.data.agentId, "local-main");
+  assert.equal(frames[0]!.data.sessionId, "main");
   assert.ok(frames[0]!.data.instanceId);
   assert.equal(completed!.data.id, frames[0]!.data.id);
   assert.equal(completed!.data.result, "交付成果：已完成调研总结报告");

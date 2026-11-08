@@ -20,7 +20,7 @@ description: 把子任务交给一个隔离上下文的子代理（subagent）�
 - `worker` — 执行代理，受父代理权限上限约束（写仍走审批，不可发起 schedule/monitor/subagent/instructions）。
 
 ## 调用方式
-主模型自主选择代理与模式。任何调用都不接受 `cwd` 或 `agentScope`：每个 child 在独立的上下文窗口与私有 `workspace/agents/subagent-<uuid>/` 根中运行，与父代理的私有根互不可见；只有 `shared/` 在父子之间互通。
+主模型自主选择角色与模式；调用不接受 cwd 等路径配置。每个 child 只有独立内存上下文，使用与父会话相同的扁平 workspace/，不创建目录、不保留历史。结果直接返回父工具调用。
 
 ### single — 单代理
 ```json
@@ -61,4 +61,4 @@ description: 把子任务交给一个隔离上下文的子代理（subagent）�
 - 结果回到**父模型**，而不是直接落到聊天；父代理拿到后再继续生成后续回复。**不要**承诺后台通知、任务页记录、用户直接管理入口。
 - 父代理对权限负责：worker 的 `write`/`edit` 仍需用户审批；
   scheduler / monitor / 子代理 / 指令（schedule/monitor/subagent/instructions）这些会扩张副作用面与后端状态的能力都不可调用。
-- 你是个人助手，不是完整操作系统：保持任务简洁，避免触碰 `/etc`、`~/.ssh`、原始 dotfiles 等越界路径。child 只能在它自己的私有根（`workspace/agents/subagent-<uuid>/`）和 `shared/` 下读写。
+- 你是个人助手，不是完整操作系统：保持任务简洁，避免触碰 `/etc`、`~/.ssh`、原始 dotfiles 等越界路径。child 只能在与父会话相同的 workspace/ 内读写，修改仍需逐次人工审批。

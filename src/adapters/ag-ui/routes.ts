@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { runRequestSchema, stopRequestSchema } from "../../http/contracts/rest.js";
-import type { ConversationHub } from "../../features/conversation/conversation-hub.js";
+import type { SessionHub } from "../../features/conversation/conversation-hub.js";
 import { ConversationError } from "../../features/conversation/errors.js";
 import { createEventProjector } from "./events.js";
 import type { ToolPresentation } from "./tool-presentation.js";
@@ -11,7 +11,7 @@ import type { ToolPresentation } from "./tool-presentation.js";
  * 自有 HTTP 输入与 AG-UI 输出之间的薄适配层，不需要 runtime/agent 宿主。
  * 协调器仍独占运行锁；流断开和显式 Stop 都绑定 runId，拒绝迟到取消误伤下一轮。
  */
-export const createAgUiRoutes = (hub: ConversationHub, presentation: ToolPresentation) => {
+export const createAgUiRoutes = (hub: SessionHub, presentation: ToolPresentation) => {
   const app = new Hono();
   // 附件随 run JSON 一次性提交；此路由必须先于全局 1MiB 限制获得专用上限。
   app.use("/api/conversation/run", bodyLimit({
@@ -22,16 +22,17 @@ export const createAgUiRoutes = (hub: ConversationHub, presentation: ToolPresent
     const parsed = runRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid conversation request", code: "INVALID_INPUT" }, 400);
     const input = parsed.data;
-    const agentId = input.agentId || "local-main";
+    const sessionId = input.sessionId || "main";
     let conversation;
     try {
-      conversation = await hub.forAgent(agentId);
-      conversation.validate({ ...input, agentId });
+      conversation = await hub.forSession(sessionId);
+      conversation.validate({ ...input, sessionId });
     }
     catch (error) {
       if (!(error instanceof ConversationError)) throw error;
       const status = error.code === "SHUTDOWN" || error.code === "MODEL_NOT_CONFIGURED" ? 503
-        : error.code === "INVALID_INPUT" || error.code === "UNSUPPORTED_AGENT" ? 400 : 409;
+        : error.code === "SESSION_NOT_FOUND" ? 404
+        : error.code === "INVALID_INPUT" || error.code === "UNSUPPORTED_SESSION" ? 400 : 409;
       return c.json({ error: error.message, code: error.code }, status);
     }
     return streamSSE(c, async (stream) => {
@@ -61,8 +62,8 @@ export const createAgUiRoutes = (hub: ConversationHub, presentation: ToolPresent
   app.post("/api/conversation/stop", async (c) => {
     const parsed = stopRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid stop request" }, 400);
-    const agentId = parsed.data.agentId || "local-main";
-    const conversation = await hub.findAgent(agentId);
+    const sessionId = parsed.data.sessionId || "main";
+    const conversation = await hub.findSession(sessionId);
     return c.json({ stopped: await conversation?.cancel("STOPPED", parsed.data.runId) ?? false });
   });
   return app;

@@ -18,7 +18,7 @@ export const tracesResponse = z.object({
   traces: z.array(traceSummarySchema).describe("按 meta.startedAt 倒序，同时间按 fileName 倒序；不含请求/响应正文"),
   badCount: z.number().int().nonnegative().describe("本次全目录扫描跳过的损坏或不可读条目数，不按过滤条件缩减"),
   hasMore: z.boolean(),
-  nextCursor: z.string().nullable().describe("下一页不透明游标，绑定 agentId/kind/since/until；无下一页为 null"),
+  nextCursor: z.string().nullable().describe("下一页不透明游标，绑定 sessionId/kind/since/until；无下一页为 null"),
 }).describe("只读分页，不冻结快照；新记录出现在第一页。关闭记录或目录不存在返回空集。单条损坏不使整页失败。");
 export const traceDetailResponse = z.object({ fileName: traceFileNameSchema, ...modelTraceRecordSchema.shape })
   .describe("完整单条 trace（已按一期记录规则脱敏），包括请求、响应与全部 meta。不存在、损坏或不可读均返回 404，绝不写回文件。");
@@ -31,7 +31,7 @@ export const traceTimeSchema = z.string().max(64).refine((value) => {
 }, "Expected ISO date/datetime or Unix milliseconds").describe("ISO 日期 YYYY-MM-DD（UTC 零点）、带时区 ISO 时间，或 Unix 毫秒时间戳；边界按 startedAt 包含式过滤。");
 export const traceTimeMs = (value: string) => /^\d+$/.test(value) ? Number(value) : Date.parse(value);
 export const tracesQuerySchema = z.strictObject({
-  agentId: z.string().min(1).max(256).optional().describe("agentId 精确匹配；省略则不限，不要求智能体仍存在"),
+  sessionId: z.string().min(1).max(256).optional().describe("sessionId 精确匹配；省略则不限，不要求会话仍存在"),
   kind: modelTraceKindSchema.optional().describe("调用场景精确匹配；省略则不限"),
   since: traceTimeSchema.optional(),
   until: traceTimeSchema.optional(),

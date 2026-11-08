@@ -1,4 +1,4 @@
-import type { StatusRun, AgentStatus } from "../workspace/agent-status.js";
+import type { StatusRun, SessionStatus } from "../workspace/session-status.js";
 import type { ActivityOverview, ActivityRun } from "../activities/types.js";
 import type { ActivitySession } from "../activities/activity-session.js";
 import type { MessageFeedbackSession } from "../messages/service.js";
@@ -17,7 +17,7 @@ import type {
  * checkpoint/restore 仅用于 prompt 未写入新 user 时保住待重试的旧历史。
  */
 export type ConversationHistoryPort = {
-  sessionId: () => string;
+  piSessionId: () => string;
   history: () => ConversationHistory;
   /** PI adapter 提供的可反馈消息事实；业务层不接触 SDK entry 类型。 */
   messageFacts: () => readonly MessageExecutionFact[];
@@ -28,8 +28,8 @@ export type ConversationHistoryPort = {
   appendNotification: (notification: ConversationNotification) => void;
   appendResult: (result: ConversationResult) => void;
   restoreIfNoUser: (runId: string, checkpoint: string | null) => void;
-  appendAgentStatus?: (status: AgentStatus) => void;
-  agentStatuses?: () => AgentStatus[];
+  appendAgentStatus?: (status: SessionStatus) => void;
+  sessionStatuses?: () => SessionStatus[];
 };
 
 /** 执行仍交给 pi；port 只包含协调器实际调用的操作，不重建 agent loop。 */
@@ -48,18 +48,18 @@ export type ConversationExecution = {
   subscribe: (listener: (event: ExecutionEvent) => void) => () => void;
 };
 export type ConversationDependencies = {
-  agentId?: string;
+  sessionId?: string;
   history: ConversationHistoryPort;
   activities?: ActivitySession;
-  beginStatus?: (input: { agentId: string; runId: string; source: "chat" | "job"; jobId?: string; initialRevision: number }) => StatusRun;
+  beginStatus?: (input: { sessionId: string; runId: string; source: "chat" | "job"; jobId?: string; initialRevision: number }) => StatusRun;
   /** 活动概览状态变化时的展示推送（SSE 直推通道）；不拥有活动持久化，权威记录仍是会话 JSONL。 */
   publishActivity?: (overview: ActivityOverview) => void;
   /** 通知成功 append 到 PI 历史后的失效推送；只在真正新增时调用，幂等 noop 不发。 */
-  publishNotification?: (identity: { agentId: string; sessionId: string }) => void;
-  cancelApprovals?: (agentId: string, runId: string) => Promise<void>;
+  publishNotification?: (identity: { sessionId: string; piSessionId: string }) => void;
+  cancelApprovals?: (sessionId: string, runId: string) => Promise<void>;
   /** 只订阅本轮真实审批的等待变化；不传载荷，也不依赖展示状态或推断文件执行成功。 */
   subscribeApprovals?: (
-    agentId: string,
+    sessionId: string,
     runId: string,
     listener: (change: { id: string; pending: boolean }) => void,
   ) => () => void;

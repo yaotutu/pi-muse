@@ -29,10 +29,10 @@ export type SkillsToolDependencies = {
   actions: ApprovalActions;
   timeoutMs: number;
   saveEnabled: boolean;
-  agentId?: string;
+  sessionId?: string;
   runId?: string;
-  /** 跨智能体调用仅改变审批归属，技能查询仍使用实际执行智能体。 */
-  approvalOwner?: { agentId: string; runId: string };
+  /** 子调用沿用父会话/运行，仅用临时 id 关联真实工具步骤。 */
+  subagentId?: string;
   observation?: ActivityApprovalObservation;
 };
 
@@ -106,9 +106,9 @@ export const createSkillsTool = ({
   actions,
   timeoutMs,
   saveEnabled,
-  agentId,
+  sessionId,
   runId,
-  approvalOwner,
+  subagentId,
   observation,
 }: SkillsToolDependencies) => defineTool({
   name: "skills",
@@ -130,8 +130,8 @@ export const createSkillsTool = ({
   }, { additionalProperties: false }),
   async execute(_id, params, signal) {
     if (params.action === "list") {
-      if (!agentId) return deniedResult("Skills are unavailable without an agent context.");
-      const view = await skills.describeAuthoring(agentId);
+      if (!sessionId) return deniedResult("Skills are unavailable without an agent context.");
+      const view = await skills.describeAuthoring(sessionId);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(view, null, 2) }],
         details: { denied: false },
@@ -149,8 +149,8 @@ export const createSkillsTool = ({
       try {
         const target = await resolveSkillTarget(skill.path, file, dirname(skill.path));
         const snapshot = await readTargetText(target);
-        const enabled = agentId
-          ? (await skills.describeAuthoring(agentId)).skills.find((skill) => skill.name === name)?.enabled ?? false
+        const enabled = sessionId
+          ? (await skills.describeAuthoring(sessionId)).skills.find((skill) => skill.name === name)?.enabled ?? false
           : false;
         return {
           content: [{ type: "text" as const, text: snapshot.content }],
@@ -209,7 +209,7 @@ export const createSkillsTool = ({
       },
       timeoutMs,
       signal,
-      { agentId: approvalOwner?.agentId ?? agentId, runId: approvalOwner?.runId ?? runId, toolCallId: _id, workspaceAgentId: null } satisfies ApprovalContext,
+      { sessionId, runId, subagentId, toolCallId: _id } satisfies ApprovalContext,
       observation ? (event) => observation.observe({
         ...event,
         id: `${observation.prefix}:${event.id}`,
@@ -245,8 +245,8 @@ export const createSkillsTool = ({
     }).then(async (result) => {
       if ((result as { isError?: boolean }).isError === true) return result;
       const saved = (await skills.findSkill(name))?.defaultEnabled ?? false;
-      const enabledInAgent = agentId
-        ? (await skills.describeAuthoring(agentId)).skills.find((skill) => skill.name === name)?.enabled ?? false
+      const enabledInAgent = sessionId
+        ? (await skills.describeAuthoring(sessionId)).skills.find((skill) => skill.name === name)?.enabled ?? false
         : false;
       return {
         ...result,

@@ -2,15 +2,15 @@ import { z } from "zod";
 
 /** 一期记录的纯 JSON 校验，无 Node 依赖，供读取器与 HTTP 契约共享。 */
 export const modelTraceKindSchema = z.enum([
-  "chat", "information:notifications", "information:recommendations", "group-routing",
-  "agent-communication", "dream", "subagent", "unlabeled",
+  "chat", "information:notifications", "information:recommendations",
+   "dream", "subagent", "unlabeled",
 ]);
 export const modelTraceRecordSchema = z.object({
   meta: z.object({
     startedAt: z.iso.datetime().describe("调用开始时间，UTC ISO 8601"),
     endedAt: z.iso.datetime().describe("调用结束时间，UTC ISO 8601"),
     durationMs: z.number().nonnegative().describe("调用耗时（毫秒）"),
-    agentId: z.string().describe("调用归属智能体；未标注时为 unknown"),
+    sessionId: z.string().describe("调用归属会话；未标注时为 unknown"),
     kind: modelTraceKindSchema.describe("调用场景；unlabeled 表示缺少业务标签"),
     extra: z.record(z.string(), z.string()).optional().describe("额外业务标识，如 runId、discussionId"),
     upstreamOrigin: z.string().describe("上游 origin，不含路径、query 或认证头"),
@@ -39,4 +39,4 @@ export const modelTraceRecordSchema = z.object({
 /** 单段标识用日目录 + 点 + 原文件名，避免向路径参数开放任意相对路径。 */
 export const traceFileNameSchema = z.string().max(512).regex(
   /^\d{4}-\d{2}-\d{2}\.\d{6}-\d{3}-[A-Za-z0-9_-]+-\d{6,}\.json$/,
-).describe("完整文件标识：yyyy-mm-dd.HHmmss-sss-agentId-kind-seq.json；只能使用 ASCII 字母、数字、点、下划线和连字符，不接受斜杠、反斜杠或路径穿越。");
+).describe("完整文件标识：yyyy-mm-dd.HHmmss-sss-sessionId-kind-seq.json；只能使用 ASCII 字母、数字、点、下划线和连字符，不接受斜杠、反斜杠或路径穿越。");

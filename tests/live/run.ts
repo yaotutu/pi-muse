@@ -77,10 +77,11 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const client = createTestClient(() => baseUrl, token, 190_000);
     version = (await client.json("/api/health")).serviceVersion;
     const wait = <T>(check: () => T | Promise<T>, label: string, timeoutMs = 90_000) => waitForTest(check, label, timeoutMs);
-    const begin = async (name: string, prompt: string, agentId = "live-" + name) => {
+    const begin = async (name: string, prompt: string, sessionId?: string) => {
+      sessionId ??= (await client.createSession("live-" + name)).id;
       scenario = name;
       const baseline = proxy!.traces.length;
-      const running = await client.startRun(prompt, agentId);
+      const running = await client.startRun(prompt, sessionId);
       return { ...running, baseline };
     };
     const finish = async (running: Awaited<ReturnType<typeof begin>>, type = "RUN_FINISHED") => {
@@ -147,29 +148,30 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     record(scenario, { naturalChainMode: naturalArgs.mode, previousSubstituted: true, chainResultReturned: true });
 
     scenario = "isolation";
-    await client.json("/api/agents/live-isolation/instructions", { instructions: "PARENT-RULE-NOT-COPIED-582c" }, "PUT");
-    await writeFile(join(dataDir, "workspace/agents/live-isolation/private.txt"), "PRIVATE-NO-LEAK-421e", { mode: 0o600 });
-    await writeFile(join(dataDir, "workspace/shared/live-shared.txt"), "LIVE-SHARED-OK-a7cd", { mode: 0o600 });
-    const isolation = await begin(scenario, delegate({ mode: "single", tasks: [{ agent: "worker", task: "实际调用read三次：private.txt、shared/live-shared.txt、../live-isolation/private.txt。仅根据工具结果报告，不猜测，不写文件。" }] }));
-    rows = await finish(isolation); const isoArgs = dispatch(rows);
-    assert.equal(isoArgs.mode, "single"); assert.equal(isoArgs.tasks?.length, 1);
-    const childRows = rows.filter((row) => row.child); const facts = toolResults(childRows);
-    assert.match(facts, /File not found/); assert.match(facts, /LIVE-SHARED-OK-a7cd/); assert.match(facts, /Access denied/);
-    assert.ok(!JSON.stringify(childRows).includes("PRIVATE-NO-LEAK-421e"));
-    record(scenario, { privateRootDenied: true, sharedRead: true });
+    const isolated = await client.createSession("live-isolation");
+    await client.json(`/api/sessions/${isolated.id}/instructions`,{instructions:"PARENT-RULE-NOT-COPIED-582c"},"PUT");
+    await writeFile(join(dataDir,"workspace","parent.txt"),"COMMON-WORKSPACE-421e",{mode:0o600});
+    await writeFile(join(dataDir,"workspace","live-common.txt"),"LIVE-COMMON-OK-a7cd",{mode:0o600});
+    const isolation = await begin(scenario,delegate({mode:"single",tasks:[{agent:"worker",task:"实际调用read三次：parent.txt、live-common.txt、../config.json。仅根据工具结果报告，不猜测，不写文件。"}]}),isolated.id);
+    rows=await finish(isolation);
+    const childRows=rows.filter((row)=>row.child);
+    const facts=toolResults(childRows);
+    assert.match(facts,/COMMON-WORKSPACE-421e/);assert.match(facts,/LIVE-COMMON-OK-a7cd/);assert.match(facts,/Access denied/);
+    assert.ok(!JSON.stringify(childRows).includes("PARENT-RULE-NOT-COPIED-582c"));
+    assert.deepEqual((await readdir(join(dataDir,"workspace"))).sort(),["live-common.txt","parent.txt"]);
+    record(scenario,{workspaceShared:true,parentInstructionsNotCopied:true,traversalDenied:true,noChildDirectories:true});
 
     for (const decision of ["approve", "deny", "cancel"] as const) {
       const name = "approval-" + decision;
-      const path = `shared/live-${decision}.txt`; const content = "LIVE-" + decision.toUpperCase() + "-CONTENT";
+      const path = `live-${decision}.txt`; const content = "LIVE-" + decision.toUpperCase() + "-CONTENT";
       const running = await begin(name, delegate({ mode: "single", tasks: [{ agent: "worker", task: `只调用一次write，path=${path}，content精确为${content}。等待人工审批，不假设批准，不改路径，不重试；如实返回工具结果。` }] }));
       // 待审批由 SSE ready 的完整集合给出；同时校验不可变预览与初始 revision。
       const action = await wait(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval");
-      assert.equal(action.agentId, running.agentId); assert.equal(action.preview.path, path); assert.equal(action.preview.after, content);
-      assert.equal(action.preview.scope, "shared"); assert.equal(action.preview.ownerAgentId, null);
+      assert.equal(action.sessionId, running.sessionId); assert.equal(action.preview.path, path); assert.equal(action.preview.after, content);
       assert.equal(action.preview.beforeExists, false); assert.equal(action.revision, 1);
       await absent(join(dataDir, "workspace", path));
       if (decision === "cancel") {
-        const start = Date.now(); assert.equal((await client.json("/api/conversation/stop", { agentId: running.agentId, runId: running.runId })).stopped, true);
+        const start = Date.now(); assert.equal((await client.json("/api/conversation/stop", { sessionId: running.sessionId, runId: running.runId })).stopped, true);
         const elapsedMs = Date.now() - start; assert.ok(elapsedMs < 3000); await finish(running, "RUN_ERROR");
         const settled = await client.approval(action.id);
         assert.equal(settled.status, "cancelled"); assert.equal(settled.revision, 2); assert.equal(settled.decidedAt, null);
@@ -190,7 +192,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
     const generating = await begin("model-stop", delegate({ mode: "single", tasks: [{ agent: "worker", task: "不用任何工具，不写文件，连续输出3000条编号清单，每条20字，不省略不总结。" }] }));
     const activeModel = await wait(() => proxy!.traces.find((row) => row.index >= generating.baseline && row.child && !row.endedAt), "active child model");
-    let start = Date.now(); assert.equal((await client.json("/api/conversation/stop", { agentId: generating.agentId, runId: generating.runId })).stopped, true);
+    let start = Date.now(); assert.equal((await client.json("/api/conversation/stop", { sessionId: generating.sessionId, runId: generating.runId })).stopped, true);
     const modelStopMs = Date.now() - start; await finish(generating, "RUN_ERROR");
     await wait(() => activeModel.disconnected, "model socket close", 3000); assert.ok(modelStopMs < 3000); record(scenario, { elapsedMs: modelStopMs, modelDisconnected: true });
 
@@ -198,12 +200,12 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       const path = phase === "body" ? "/slow-body" : "/slow";
       const running = await begin("web-stop-" + phase, delegate({ mode: "single", tasks: [{ agent: "worker", task: `实际调用一次web_fetch读取${fixtureUrl}${path}，不要改URL，不搜索不写文件，等待真实结果。` }] }));
       const hit = await wait(() => hits.find((entry) => entry.path === path), "slow HTTP fixture");
-      start = Date.now(); assert.equal((await client.json("/api/conversation/stop", { agentId: running.agentId, runId: running.runId })).stopped, true);
+      start = Date.now(); assert.equal((await client.json("/api/conversation/stop", { sessionId: running.sessionId, runId: running.runId })).stopped, true);
       const elapsedMs = Date.now() - start; rows = await finish(running, "RUN_ERROR");
       assert.ok(rows.some((row) => row.child && row.calls.some((call) => call.name === "web_fetch")));
       await wait(() => hit.closed, "web socket close", 3000); assert.equal(hit.finished, false); assert.ok(elapsedMs < 3000);
       record(scenario, { elapsedMs, socketClosed: true, fixtureFinished: false });
-      const follow = await begin("after-stop-" + phase, "不要调用子代理，只实际调用currentTime一次，再回复LIVE-AFTER-STOP。", running.agentId);
+      const follow = await begin("after-stop-" + phase, "不要调用子代理，只实际调用currentTime一次，再回复LIVE-AFTER-STOP。", running.sessionId);
       rows = await finish(follow); assert.ok(rows.some((row) => !row.child && row.calls.some((call) => call.name === "currentTime"))); record(scenario, { sameAgentCompleted: true });
     }
 
@@ -219,7 +221,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     rows = await finish(actRun);
     const actCalls = rows.filter((row) => !row.child).flatMap((row) => row.calls).filter((call) => call.name === "activity");
     assert.ok(actCalls.length >= 2, "Agent should call activity start and complete");
-    const actList = await client.json("/api/activities?agentId=" + actRun.agentId);
+    const actList = await client.json("/api/activities?sessionId=" + actRun.sessionId);
     assert.equal(actList.activities.length, 1);
     const actItem = actList.activities[0];
     assert.equal(actItem.status, "completed");
@@ -236,9 +238,9 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       const prompt = `隔离验收：请先调用 activity start，登记目标“创建验收文档”、交付“${path}”。随后只调用一次 write，path=${path}，content 精确为 ${content}。等真实审批与工具结果，不重试，不改路径。批准并真正写成后才可调用 activity complete；拒绝或取消不能宣称完成。最后简短如实报告。`;
       const running = await begin(name, prompt);
       const action = await wait(async () => (await client.pending()).find((item) => item.runId === running.runId), "activity write approval");
-      assert.equal(action.agentId, running.agentId);
+      assert.equal(action.sessionId, running.sessionId);
       assert.equal(action.preview.path, path); assert.equal(action.preview.after, content); assert.equal(action.revision, 1);
-      const page = await client.json(`/api/activities?agentId=${running.agentId}`);
+      const page = await client.json(`/api/activities?sessionId=${running.sessionId}`);
       assert.equal(page.activities.length, 1);
       const id = page.activities[0].id;
       const before = await client.json(`/api/activities/${id}`);
@@ -249,7 +251,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       assert.ok(!JSON.stringify(before.steps).includes(path) && !JSON.stringify(before.steps).includes(content));
       await absent(join(dataDir, "workspace", path));
       if (decision === "cancel") {
-        await client.json("/api/conversation/stop", { agentId: running.agentId, runId: running.runId });
+        await client.json("/api/conversation/stop", { sessionId: running.sessionId, runId: running.runId });
         await finish(running, "RUN_ERROR");
       } else {
         await client.decideApproval(action.id, decision);
@@ -274,7 +276,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     rows = await finish(chatRun);
     const chatActCalls = rows.filter((row) => !row.child).flatMap((row) => row.calls).filter((call) => call.name === "activity");
     assert.equal(chatActCalls.length, 0, "Ordinary chat must not call activity tool");
-    const chatActList = await client.json("/api/activities?agentId=" + chatRun.agentId);
+    const chatActList = await client.json("/api/activities?sessionId=" + chatRun.sessionId);
     assert.equal(chatActList.activities.length, 0);
     record(scenario, { activityCount: 0 });
 
@@ -283,9 +285,9 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const actStopRun = await begin("activity-stop", stopPrompt);
     await wait(() => proxy!.traces.find((row) => row.index >= actStopRun.baseline && !row.child && row.calls.some((c) => c.name === "activity")), "activity start called");
     start = Date.now();
-    assert.equal((await client.json("/api/conversation/stop", { agentId: actStopRun.agentId, runId: actStopRun.runId })).stopped, true);
+    assert.equal((await client.json("/api/conversation/stop", { sessionId: actStopRun.sessionId, runId: actStopRun.runId })).stopped, true);
     await finish(actStopRun, "RUN_ERROR");
-    const stoppedActList = await client.json("/api/activities?agentId=" + actStopRun.agentId);
+    const stoppedActList = await client.json("/api/activities?sessionId=" + actStopRun.sessionId);
     assert.equal(stoppedActList.activities.length, 1);
     const stoppedAct = stoppedActList.activities[0];
     assert.equal(stoppedAct.status, "stopped");
@@ -293,11 +295,11 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
     // 恢复原活动
     const resumePrompt = `这是隔离真实验收。请继续刚才的工作，调用 activity resume（activityId='${stoppedAct.id}'），再调用 activity complete（result='恢复并完成报告'），最后简短回复。`;
-    const actResumeRun = await begin("activity-resume", resumePrompt, actStopRun.agentId);
+    const actResumeRun = await begin("activity-resume", resumePrompt, actStopRun.sessionId);
     rows = await finish(actResumeRun);
     const resumeCalls = rows.filter((row) => !row.child).flatMap((row) => row.calls).filter((call) => call.name === "activity");
     assert.ok(resumeCalls.some((c) => c.name === "activity" && c.arguments.includes("resume")));
-    const resumedActList = await client.json("/api/activities?agentId=" + actStopRun.agentId);
+    const resumedActList = await client.json("/api/activities?sessionId=" + actStopRun.sessionId);
     assert.equal(resumedActList.activities.length, 1);
     const resumedAct = resumedActList.activities[0];
     assert.equal(resumedAct.id, stoppedAct.id);
@@ -305,21 +307,21 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     record(scenario, { resumedSameActivity: true, finalStatus: "completed" });
 
     scenario = "restart-seed";
-    const seedRun = await begin("restart-seed", "这是隔离真实验收。请实际调用currentTime一次，只回复LIVE-RESTART-SEED与工具中的ISO时间。不要调用其他工具，不要写文件。", "local-main");
+    const seedRun = await begin("restart-seed", "这是隔离真实验收。请实际调用currentTime一次，只回复LIVE-RESTART-SEED与工具中的ISO时间。不要调用其他工具，不要写文件。", "main");
     rows = await finish(seedRun);
     assert.ok(rows.some((row) => !row.child && row.calls.some((call) => call.name === "currentTime")));
     assert.match(toolResults(rows.filter((row) => !row.child)), /ISO 8601/);
     record(scenario, { actualParentTool: "currentTime", isoObserved: true });
 
     scenario = "restart";
-    const agents = (await client.json("/api/agents")).agents as { id: string }[];
+    const agents = (await client.json("/api/sessions")).sessions as { id: string }[];
     const histories = Object.fromEntries(await Promise.all(agents.map(async (agent) => [agent.id, await client.history(agent.id)])));
     const actions = await readFile(join(dataDir, "actions.json"), "utf8");
-    const sharedHashes = async () => Object.fromEntries(await Promise.all((await readdir(join(dataDir, "workspace/shared"))).map(async (name) => [name, createHash("sha256").update(await readFile(join(dataDir, "workspace/shared", name))).digest("hex")])));
-    const hashes = await sharedHashes(); const requestCount = proxy.traces.length;
+    const workspaceHashes = async () => Object.fromEntries(await Promise.all((await readdir(join(dataDir, "workspace"))).map(async (name) => [name, createHash("sha256").update(await readFile(join(dataDir, "workspace", name))).digest("hex")])));
+    const hashes = await workspaceHashes(); const requestCount = proxy.traces.length;
     await stopService(); await startService();
     for (const agent of agents) assert.deepEqual(await client.history(agent.id), histories[agent.id]);
-    assert.equal(await readFile(join(dataDir, "actions.json"), "utf8"), actions); assert.deepEqual(await sharedHashes(), hashes);
+    assert.equal(await readFile(join(dataDir, "actions.json"), "utf8"), actions); assert.deepEqual(await workspaceHashes(), hashes);
     // 重启后 pending 仍由 ready 给出；不重新执行模型，也不伪造历史重放。
     assert.deepEqual(await client.pending(), []); assert.equal(proxy.traces.length, requestCount);
     record(scenario, { agents: agents.length, historiesAndFilesEqual: true, automaticModelRequests: 0 });

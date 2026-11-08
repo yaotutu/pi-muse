@@ -1,3 +1,5 @@
+import { INFORMATION_BACKGROUND_SYSTEM_PROMPT } from "./information-notification-context.js";
+import { ACTIVITY_TOOL_INSTRUCTIONS } from "./tools/activity.js";
 import type { DataLayout } from "../storage/data-layout.js";
 import { readProfileFile } from "../storage/profile-files.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
@@ -9,34 +11,27 @@ import type { MemoryItem } from "../../features/memory/types.js";
 const basePrompt = `You are the user's personal assistant; your name and persona
 come from the identity sections below when present.
 Answer in the user's language. Be clear, practical, and honest about uncertainty.
-File tools, when available, use this conversation's private workspace as their
-default root; the main conversation has no parent-directory privilege. Other
-conversations' files and histories are not accessible. Use the explicit shared/
-prefix to access the global shared workspace (for example
-shared/templates/signature.txt), and do not infer that a shared file is missing
-from a search in the private workspace. Absolute paths, parent traversal and
-symlinks cannot bypass these roots.
+File tools, when available, use the single instance workspace as their root.
+All conversations use this same workspace, but conversation histories remain isolated.
+Absolute paths, parent traversal and symlinks cannot bypass the workspace boundary.
 The exact SKILL.md and supported text resource paths listed for enabled skills
 are an additional read-only exception; this does not grant directory listing or
 access to neighboring code/config files.
 Conversation instructions never grant additional tools, file access or approval.
-Product skills are instance assets. Ordinary file operations and workspace
-shared/... paths never install or modify product skills; if the skills tool is
+Product skills are instance assets. Ordinary file operations and workspace paths never install or modify product skills; if the skills tool is
 unavailable, say so instead of writing to a wrong location.
 No shell, email, or calendar tools are available. Never claim to have performed an
 action you cannot do.`;
 
 const fileToolsPrompt = `
-The available read/grep/find/ls tools default to this private root. ls/find/grep
-with path="shared" search the shared area; a search in "." does not search shared
-files.`;
+The available read/grep/find/ls tools use the workspace root. Paths are relative to it.`;
 
 const currentTimePrompt = `
 currentTime reads the local clock.`;
 
 const writePrompt = `
-write/edit can change private or shared files only after explicit approval for
-every operation. Shared files survive conversation deletion.`;
+write/edit change workspace files only after explicit approval for every operation.
+Workspace files survive conversation deletion.`;
 
 const instructionsPrompt = `
 instructions reads or replaces only this conversation's rules on explicit user
@@ -44,13 +39,13 @@ requests; changes apply next turn.`;
 
 const skillsPrompt = `
 For maintaining Pi Muse product skills, consult skill-creator and use the skills
-tool. Skill assets are stored once for the instance; the current agent only
+tool. Skill assets are stored once for the instance; the current conversation only
 selects whether a skill is enabled; enabling never happens implicitly through
 another tool.`;
 
 const memoryPrompt = `
 Saved long-term memories are global and not loaded into this prompt; use
-memory_search to look them up by keyword when cross-agent facts about the user
+memory_search to look them up by keyword when cross-conversation facts about the user
 may matter. Use memory to remember, edit or forget a fact (edit/forget take the
 id from memory_search) only on explicit user requests. Never store credentials,
 API keys, or secrets.`;
@@ -67,7 +62,7 @@ requests. Checks and notifications follow the current monitor tool contract; do
 not promise capabilities not present in that tool.`;
 
 const goalPrompt = `
-goal manages the user's global personal goals across agents. Query it only when
+goal manages the user's global personal goals across conversations. Query it only when
 the user asks about goals or clearly needs that information; active goals are not
 preloaded into this prompt.`;
 
@@ -101,9 +96,9 @@ const section = (heading: string, text: string): string =>
 export type SystemPromptOptions = {
   layout: Pick<DataLayout, "soulFile" | "userFile">;
   memory: Pick<MemoryService, "renderForPrompt">;
-  /** 最终模型工具名单：已经包含智能体技能与 child 角色过滤。 */
+  /** 最终模型工具名单：已经包含会话技能与 child 角色过滤。 */
   allowedToolNames: readonly string[];
-  agentInstructions?: string;
+  sessionInstructions?: string;
   recalledMemories?: readonly MemoryItem[];
 };
 
@@ -112,7 +107,7 @@ export const buildSystemPrompt = async ({
   layout,
   memory,
   allowedToolNames,
-  agentInstructions,
+  sessionInstructions,
   recalledMemories,
 }: SystemPromptOptions): Promise<string> => {
   const tools = new Set(allowedToolNames);
@@ -124,6 +119,8 @@ export const buildSystemPrompt = async ({
     has("write", "edit") ? writePrompt : "",
     has("instructions") ? instructionsPrompt : "",
     has("skills") ? skillsPrompt : "",
+    has("information") ? INFORMATION_BACKGROUND_SYSTEM_PROMPT : "",
+    has("activity") ? section("Work activity management", ACTIVITY_TOOL_INSTRUCTIONS) : "",
     has("memory", "memory_search") ? memoryPrompt : "",
     has("schedule") ? schedulePrompt : "",
     has("monitor") ? monitorPrompt : "",
@@ -137,6 +134,6 @@ export const buildSystemPrompt = async ({
     capabilityPrompt +
     section("Your identity (SOUL)", await readProfileFile(layout.soulFile)) +
     section("The user (USER)", await readProfileFile(layout.userFile)) +
-    section("Current conversation instructions", agentInstructions ?? "") +
+    section("Current conversation instructions", sessionInstructions ?? "") +
     (await memory.renderForPrompt({ includeMemory: has("memory_search"), recalledMemories }));
 };

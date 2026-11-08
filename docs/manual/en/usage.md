@@ -4,7 +4,7 @@ This page keeps only capability entry points. Detailed procedures live in their 
 
 ## Conversations and Agents {#conversations-and-agents}
 
-The mobile client has only three primary tabs: 「消息 / 新闻 / 设置」 (Messages / News / Settings), opening the Messages group by default. Enter private chat through the group’s 「成员」 (Members) → 「单独聊」 (private chat), and configuration through 「设置」 → 「智能体管理」 (Agent Management). It supports streaming chat, execution status, the session panel, stopping runs, resetting sessions, and deleting agents. Each agent has an independent conversation, private workspace, agent rules, and skill switches. See [Conversations and agents](conversations-and-agents.md).
+The new contract provides a session list, chat, news and settings. Histories, instructions and skill overrides are session-specific; the workspace is global. Streaming, Stop, reset and topic deletion are supported by the server; native paths still require coordinated acceptance. See [Conversations](conversations-and-agents.md).
 
 ## Attachments, Files, and Approvals {#files-and-approvals}
 

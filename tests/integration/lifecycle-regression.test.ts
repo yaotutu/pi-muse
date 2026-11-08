@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test, { type TestContext } from "node:test";
 import type { ConversationInput } from "../../src/features/conversation/types.js";
-import { createDataLayout, agentWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout } from "../../src/adapters/storage/data-layout.js";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
@@ -84,13 +84,13 @@ const readOptional = async (file: string) => {
 test("Stop cancels a pending write approval without changing the existing file", async (t) => {
   const h = await createFixture(t);
   const service = await h.startService();
-  const target = join(agentWorkspaceDir(h.layout, "local-main"), "draft.md");
+  const target = join(h.layout.workspaceDir, "draft.md");
   const original = "EXISTING-DRAFT must survive Stop\n";
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, original);
   const runId = randomUUID();
   const input: ConversationInput = {
-    agentId: "local-main", runId,
+    sessionId: "main", runId,
     expectedRevision: "empty", message: { id: randomUUID(), content: "帮我写入草稿" },
   };
   // 立即消费 SSE，并提前接住失败，避免等待审批期间产生未处理的 rejection。
@@ -108,7 +108,7 @@ test("Stop cancels a pending write approval without changing the existing file",
   assert.equal(pending[0].kind, "file_write");
   assert.equal(await readFile(target, "utf8"), original);
 
-  const stopped = await post(service, "/api/conversation/stop", { agentId: "local-main", runId });
+  const stopped = await post(service, "/api/conversation/stop", { sessionId: "main", runId });
   assert.equal(stopped.status, 200);
   assert.equal((await stopped.json()).stopped, true);
   const outcome = await run;
@@ -122,7 +122,7 @@ test("Stop cancels a pending write approval without changing the existing file",
   // 同时核对落盘终态，防止仅内存撤销、进程重启后旧审批仍可批准。
   const persisted: { id: string; status: string }[] = JSON.parse(await readFile(h.layout.actionsFile, "utf8"));
   assert.equal(persisted.find((action) => action.id === pending[0].id)?.status, "cancelled");
-  assert.equal((await service.conversationHub.forAgent("local-main")).isRunning(), false);
+  assert.equal((await service.conversationHub.forSession("main")).isRunning(), false);
   assert.equal(await readFile(target, "utf8"), original);
 });
 

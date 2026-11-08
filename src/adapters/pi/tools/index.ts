@@ -1,5 +1,3 @@
-import { createFeatureTool } from "./feature.js";
-import { createAgentTool } from "./agent.js";
 import type { MemoryService } from "../../../features/memory/memory-service.js";
 import type { JobService } from "../../../features/jobs/job-service.js";
 import type { GoalService } from "../../../features/goals/goal-service.js";
@@ -30,13 +28,12 @@ import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js"
 
 type ToolDependencies = {
   root: string;
-  agentId?: string;
+  sessionId?: string;
   runId?: string;
   memory: MemoryService;
   jobs: JobService;
   isSubagent?: boolean;
   subagentId?: string;
-  workspaceAgentId?: string;
   currentActivityId?: () => string | null;
   activity?: ActivityRun;
   activityObservation?: ActivityToolObservation;
@@ -50,12 +47,7 @@ type ToolDependencies = {
   weather?: WeatherService;
   browser?: BrowserService;
   layout?: DataLayout;
-  features?: Pick<import("../../../features/agent-extensions/service.js").FeatureService, "query">;
-  communication?: import("../../../features/agent-communication/service.js").AgentCommunication;
-  approvalOwner?: { agentId: string; runId: string };
-  communicationCaller?: import("../../../features/agent-communication/service.js").AgentCaller;
   information?: Pick<import("../../../features/information/service.js").InformationService, "query">;
-  sharedDir?: string;
   readOnlyFiles?: readonly ReadOnlyFile[];
   workspaceCommits?: WorkspaceCommitQueue;
 };
@@ -82,42 +74,40 @@ export const skillToToolsMap: Record<string, string[]> = {
 };
 
 const registrations = [
-  { names: ["agent"], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.communication && deps.agentId ? [createAgentTool(deps.communication, deps.agentId, deps.communicationCaller)] : [] },
-  { names: ["feature"], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.features && deps.agentId ? [createFeatureTool(deps.features, deps.agentId)] : [] },
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
-  { names: [INFORMATION_TOOL_NAME], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.information && deps.agentId ? [createInformationTool(deps.information, deps.agentId)] : [] },
+  { names: [INFORMATION_TOOL_NAME], create: (deps: ToolDependencies) => deps.information && deps.sessionId ? [createInformationTool(deps.information)] : [] },
   { names: [ACTIVITY_TOOL_NAME], create: (deps: ToolDependencies) => deps.activity && !isSubagent(deps) ? [createActivityTool(deps.activity)] : [] },
-  { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout ? [] : [instructionsTool(deps.layout, deps.agentId)] },
+  { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout ? [] : [instructionsTool(deps.layout, deps.sessionId)] },
   { names: ["memory", "memory_search"], create: (deps: ToolDependencies) => [memoryTool(deps.memory), memorySearchTool(deps.memory)] },
-  { names: ["schedule"], create: (deps: ToolDependencies) => isSubagent(deps) ? [] : [scheduleTool(deps.jobs, deps.agentId)] },
+  { names: ["schedule"], create: (deps: ToolDependencies) => isSubagent(deps) ? [] : [scheduleTool(deps.jobs, deps.sessionId)] },
   { names: ["goal"], create: (deps: ToolDependencies) => deps.goals ? [goalTool(deps.goals)] : [] },
-  { names: ["monitor"], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.monitors ? [monitorTool(deps.monitors, deps.agentId)] : [] },
-  { names: ["read", "grep", "find", "ls"], create: (deps: ToolDependencies) => createFileTools(deps.root, deps.sharedDir, { boundaryDir: deps.layout?.workspaceDir, readOnlyFiles: deps.readOnlyFiles }) },
+  { names: ["monitor"], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.monitors ? [monitorTool(deps.monitors, deps.sessionId)] : [] },
+  { names: ["read", "grep", "find", "ls"], create: (deps: ToolDependencies) => createFileTools(deps.root, { boundaryDir: deps.layout?.workspaceDir, readOnlyFiles: deps.readOnlyFiles }) },
   // 写文件默认开启，经人工审批闸门；config tools.writable=false 可整体关闭。
   {
     names: ["write", "edit"],
     create: (deps: ToolDependencies) =>
-      deps.actions && deps.writableEnabled !== false ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { agentId: deps.approvalOwner?.agentId ?? deps.agentId, runId: deps.approvalOwner?.runId ?? deps.runId, subagentId: deps.subagentId, workspaceAgentId: deps.workspaceAgentId ?? deps.agentId, activityId: deps.currentActivityId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation, deps.workspaceCommits) : [],
+      deps.actions && deps.writableEnabled !== false ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { sessionId: deps.sessionId, runId: deps.runId, subagentId: deps.subagentId, activityId: deps.currentActivityId }, deps.layout?.workspaceDir, deps.activityObservation, deps.workspaceCommits) : [],
   },
   {
     names: ["skills"],
-    create: (deps: ToolDependencies) => !isSubagent(deps) && deps.skillsService && deps.actions && deps.layout
+    create: (deps: ToolDependencies) => deps.skillsService && deps.actions && deps.layout
       ? [createSkillsTool({
         layout: deps.layout,
         skills: deps.skillsService,
         actions: deps.actions,
         timeoutMs: deps.actionTimeoutMs ?? 300_000,
         saveEnabled: deps.writableEnabled !== false,
-        agentId: deps.agentId,
+        sessionId: deps.sessionId,
         runId: deps.runId,
-        approvalOwner: deps.approvalOwner,
+        subagentId: deps.subagentId,
         observation: deps.activityObservation,
       })]
       : [],
   },
   { names: ["search_web", "web_fetch"], create: (deps: ToolDependencies) => deps.web ? createWebTools(deps.web) : [] },
   { names: ["get_weather"], create: (deps: ToolDependencies) => deps.weather ? [weatherTool(deps.weather)] : [] },
-  { names: ["navigate", "snapshot", "act", "tab"], create: (deps: ToolDependencies) => deps.browser && !isSubagent(deps) ? createBrowserTools(deps.browser) : [] },
+  { names: ["navigate", "snapshot", "act", "tab"], create: (deps: ToolDependencies) => deps.browser ? createBrowserTools(deps.browser) : [] },
 ];
 
 export const registeredToolNames: readonly string[] = [...registrations.flatMap((group) => group.names), SUBAGENT_TOOL_NAME];

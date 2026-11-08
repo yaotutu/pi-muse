@@ -114,7 +114,10 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   let service: Awaited<ReturnType<typeof createService>> | undefined;
   let apiServer: ReturnType<typeof serve> | undefined;
   let detachWebSocket: (() => void) | undefined;
+  const clientSockets = new Set<WebSocket>();
   t.after(async () => {
+    // 断言失败或测试超时也要释放客户端连接，否则 teardown 会等不到升级连接关闭。
+    for (const socket of clientSockets) socket.terminate();
     detachWebSocket?.();
     try { await service?.close(); }
     finally {
@@ -122,6 +125,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
         if ("closeAllConnections" in apiServer) apiServer.closeAllConnections();
         await new Promise<void>((resolve) => apiServer!.close(() => resolve()));
       }
+      fixture.server.closeAllConnections();
       await new Promise<void>((resolve, reject) => fixture.server.close((error) => error ? reject(error) : resolve()));
       await rm(dataDir, { recursive: true, force: true });
     }
@@ -158,6 +162,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   const request = async (path: string, body?: unknown, method = body === undefined ? "GET" : "POST") => {
     const response = await fetch(base + path, {
       method, headers,
+      signal: t.signal,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (!response.ok)
@@ -219,6 +224,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
 
   const ticketResponse = await request("/api/browser/ws-ticket", {});
   const ws = new WebSocket(`ws://127.0.0.1:${address.port}/ws/browser?ticket=${encodeURIComponent(ticketResponse.ticket)}`);
+  clientSockets.add(ws);
   const messages: unknown[] = [];
   const frames: { metadata: { frameId: number; tabId: string; sessionId: string; width: number; height: number }; jpeg: Uint8Array }[] = [];
   ws.binaryType = "nodebuffer";
@@ -238,6 +244,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
 
   const waitUntil = async (predicate: () => boolean, label: string) => {
     for (let index = 0; index < 600; index++) {
+      t.signal.throwIfAborted();
       if (predicate()) return;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
@@ -245,6 +252,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   };
   const waitUntilAsync = async (predicate: () => Promise<boolean>, label: string) => {
     for (let index = 0; index < 600; index++) {
+      t.signal.throwIfAborted();
       if (await predicate()) return;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
@@ -413,7 +421,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   // Chrome 上的 tab/navigate/snapshot/act，而不是只检查注册表。
   assert.ok(skillToToolsMap.browser.every((name) => registeredToolNames.includes(name)));
   const tools = createTools({
-    root: join(dataDir, "workspace", "agents", "local-main"),
+    root: service.layout.workspaceDir,
     memory: service.memory,
     jobs: service.jobs,
     browser: browserService,
@@ -464,6 +472,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
 
   // ticket 一次性：同一个 ticket 的第二次升级必须失败，不能复用 URL 凭据。
   const replay = new WebSocket(`ws://127.0.0.1:${address.port}/ws/browser?ticket=${encodeURIComponent(ticketResponse.ticket)}`);
+  clientSockets.add(replay);
   await Promise.race([once(replay, "error"), once(replay, "close")]);
   ws.close();
 });

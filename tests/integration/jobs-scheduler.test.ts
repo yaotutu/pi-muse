@@ -56,7 +56,7 @@ test("deleted job snapshot cannot execute after asynchronous destination resolut
   t.after(async () => { resume(); await scheduler.close(); });
   scheduler.start();
   await waitFor(() => reached);
-  await jobs.removeByOriginAgentId("deleted");
+  await jobs.removeByOriginSessionId("deleted");
   resume();
   await waitFor(() => !scheduler.isBusy());
   await scheduler.close();
@@ -197,7 +197,7 @@ test("restart rereads stored outcomes and schedules only future work", async (t)
   assert.equal(calls, 2, "restart neither replays completed work nor catches up missed schedules");
 });
 
-test("scheduler dispatches to originAgentId and skips busy origin while letting other agents run", async (t) => {
+test("scheduler dispatches to originSessionId and skips busy origin while letting other agents run", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "personal-bot-scheduler-multi-"));
   const file = join(directory, "jobs.json");
   const jobs = createJobService(createJobRepository(file));
@@ -224,7 +224,7 @@ test("scheduler dispatches to originAgentId and skips busy origin while letting 
     { schedulerIntervalMs: 10 },
     jobs,
     defaultConv,
-    async (agentId) => conversationMap[agentId] ?? defaultConv,
+    async (sessionId) => conversationMap[sessionId] ?? defaultConv,
   );
 
   t.after(async () => {
@@ -242,7 +242,7 @@ test("scheduler dispatches to originAgentId and skips busy origin while letting 
   // agent-b 应该顺利运行并完成，而 agent-a 正在 busy 所以被跳过
   await waitFor(async () => {
     const list = await jobs.list();
-    const jobB = list.find((j) => j.originAgentId === "agent-b");
+    const jobB = list.find((j) => j.originSessionId === "agent-b");
     return jobB?.lastStatus === "completed";
   });
 
@@ -255,7 +255,7 @@ test("scheduler dispatches to originAgentId and skips busy origin while letting 
   // 等待 agent-a 触发并完成
   await waitFor(async () => {
     const list = await jobs.list();
-    const jobA = list.find((j) => j.originAgentId === "agent-a");
+    const jobA = list.find((j) => j.originSessionId === "agent-a");
     return jobA?.lastStatus === "completed";
   });
 

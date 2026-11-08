@@ -1,9 +1,4 @@
-export type WorkspaceScope = "agent" | "shared";
-
-export type WorkspaceSelector = {
-  scope: WorkspaceScope;
-  agentId: string | null;
-};
+export type WorkspaceSelector = Record<never, never>;
 
 export type WorkspaceFileSelector = WorkspaceSelector & { path: string };
 
@@ -113,20 +108,10 @@ const validUnicode = (content: string): boolean => {
  */
 export const createWorkspaceFileService = (
   store: WorkspaceFileStore,
-  dependencies: { agentExists: (agentId: string) => Promise<boolean> },
 ) => {
   const prepare = async (input: WorkspaceFileSelector, mode: "read" | "write"): Promise<WorkspaceFileSelector> => {
-    if (input.scope === "agent") {
-      const agentId = input.agentId;
-      if (!agentId) reject(400, "INVALID_REQUEST", "agentId is required when scope is agent");
-      if (!(await dependencies.agentExists(agentId!))) reject(404, "NOT_FOUND", "Workspace agent not found");
-    } else if (input.agentId !== null) {
-      reject(400, "INVALID_REQUEST", "agentId must be omitted when scope is shared");
-    }
     // 显式构造响应选择器；请求里的 content/confirmed 或未来新增字段不得进入 HTTP 返回值。
     return {
-      scope: input.scope,
-      agentId: input.agentId,
       path: mode === "write" ? normalizeWritePath(input.path) : normalizeReadPath(input.path),
     };
   };

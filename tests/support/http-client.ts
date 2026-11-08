@@ -1,3 +1,4 @@
+import { sessionRecordResponse } from "../../src/http/contracts/responses.js";
 import { randomUUID } from "node:crypto";
 import { sseEventSchema, type SseEvent } from "../../src/http/contracts/sse-events.js";
 import {
@@ -6,10 +7,10 @@ import {
 } from "../../src/http/contracts/workspace-events.js";
 
 /** 测试客户端也遵循真实协议：增量输入、首终态、SSE跨chunk分帧与有界等待。 */
-export const createTestClient = (baseUrl: () => string, token: string, timeoutMs = 45_000) => {
+export const createTestClient = (baseUrl: () => string, token: string, timeoutMs = 45_000, lifetimeSignal?: AbortSignal) => {
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   const request = (path: string, body?: unknown, method = body === undefined ? "GET" : "POST") => fetch(baseUrl() + path, {
-    method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs),
+    method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: lifetimeSignal ? AbortSignal.any([lifetimeSignal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
   });
   const json = async (path: string, body?: unknown, method?: string) => {
     const response = await request(path, body, method);
@@ -24,7 +25,7 @@ export const createTestClient = (baseUrl: () => string, token: string, timeoutMs
     // 通知流不套用单次请求超时：调用方显式 close，避免长连接被 45s 超时误断。
     const controller = new AbortController();
     const response = await fetch(baseUrl() + "/api/events", {
-      headers: { Authorization: `Bearer ${token}` }, signal: controller.signal,
+      headers: { Authorization: `Bearer ${token}` }, signal: lifetimeSignal ? AbortSignal.any([controller.signal, lifetimeSignal]) : controller.signal,
     });
     if (response.status !== 200 || !response.body)
       throw new Error(`Event stream returned ${response.status}`);
@@ -77,12 +78,12 @@ export const createTestClient = (baseUrl: () => string, token: string, timeoutMs
   /** 决定返回 Response，调用方自行断言 200/409；409 响应体携带当前审批视图。 */
   const decideApproval = (id: string, decision: "approve" | "deny") =>
     request(`/api/approvals/${encodeURIComponent(id)}/decision`, { decision });
-  const history = (agentId = "local-main") => json(`/api/conversation?agentId=${encodeURIComponent(agentId)}`);
-  const startRun = async (content: string, agentId = "local-main") => {
-    const current = await history(agentId);
+  const history = (sessionId = "main") => json(`/api/conversation?sessionId=${encodeURIComponent(sessionId)}`);
+  const startRun = async (content: string, sessionId = "main") => {
+    const current = await history(sessionId);
     const runId = randomUUID();
     const response = await request("/api/conversation/run", {
-      agentId, runId, expectedRevision: current.revision, message: { id: randomUUID(), content },
+      sessionId, runId, expectedRevision: current.revision, message: { id: randomUUID(), content },
     });
     if (response.status !== 200 || !response.body) throw new Error(`Run returned ${response.status}`);
     const reader = response.body.getReader();
@@ -110,11 +111,12 @@ export const createTestClient = (baseUrl: () => string, token: string, timeoutMs
     })();
     // 等待审批/fixture时先接住错误，最终仍由调用方await done断言，不吞失败。
     void done.catch(() => undefined);
-    return { agentId, runId, events, done, cancel: () => reader.cancel() };
+    return { sessionId, runId, events, done, cancel: () => reader.cancel() };
   };
-  const run = async (content: string, agentId?: string) => (await startRun(content, agentId)).done;
+  const run = async (content: string, sessionId?: string) => (await startRun(content, sessionId)).done;
   return {
     request, json, history, startRun, run,
+    createSession: async (title?: string) => sessionRecordResponse.parse(await json("/api/sessions", {title})).session,
     // 通知流与审批新协议 helper；pending 保留“当前待审批集合”语义，内部走 ready。
     subscribeEvents, readReady, pending, approval, approvalPage, decideApproval,
   };

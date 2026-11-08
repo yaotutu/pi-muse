@@ -1,24 +1,24 @@
 import type { ActivityOverview } from "../activities/types.js";
 import type { PendingAction } from "../actions/types.js";
-import type { AgentPhase, AgentStatus, StatusRun } from "./agent-status.js";
-import { MAX_CURRENT_RUNS, MAX_TRACKED_ACTIVITIES, MAX_STATUS_TOOLS, MAX_STATUS_SUBAGENTS } from "./agent-status.js";
-import { createAgentPresence, type AgentPresence } from "./agent-presence.js";
+import type { SessionPhase, SessionStatus, StatusRun } from "./session-status.js";
+import { MAX_CURRENT_RUNS, MAX_TRACKED_ACTIVITIES, MAX_STATUS_TOOLS, MAX_STATUS_SUBAGENTS } from "./session-status.js";
+import { createSessionPresence, type SessionPresence } from "./session-presence.js";
 
 /** 活动进入终态的集合：这些状态不再出现在 ready.activities，变化只通过 activity_updated 通知一次。 */
 const ACTIVITY_TERMINAL: ReadonlySet<ActivityOverview["status"]> = new Set(["completed", "failed", "stopped", "interrupted"]);
 export type WorkspaceUpdate =
-  | { event: "agent_presence_updated"; presence: AgentPresence }
-  | { event: "agent_status_updated"; status: AgentStatus }
+  | { event: "session_presence_updated"; presence: SessionPresence }
+  | { event: "session_status_updated"; status: SessionStatus }
   | { event: "approval_pending" | "approval_updated"; approval: PendingAction }
   | { event: "activity_updated"; activity: ActivityOverview }
-  | { event: "conversation_updated"; conversation: { agentId: string; sessionId: string } };
+  | { event: "conversation_updated"; conversation: { sessionId: string; piSessionId: string } };
 type Subscriber = { notify: (event: WorkspaceUpdate) => void; close: () => void };
 export class ExecutionCapacityError extends Error {
   constructor() { super("Too many active executions (maximum 32)"); }
 }
 const copy = <T>(value: T): T => structuredClone(value);
-const runKey = (agentId: string, runId: string) => JSON.stringify([agentId, runId]);
-const labelFor: Record<AgentPhase, string> = {
+const runKey = (sessionId: string, runId: string) => JSON.stringify([sessionId, runId]);
+const labelFor: Record<SessionPhase, string> = {
   preparing: "正在准备执行", waiting_model: "等待模型响应", responding: "正在生成回复",
   executing_tool: "正在执行工具", waiting_subagents: "正在等待子代理", waiting_approval: "等待人工审批", finalizing: "正在保存结果",
 };
@@ -28,7 +28,7 @@ const toolLabel = (name: string | null) => ({ search_web: "正在搜索资料", 
 export const createWorkspaceEvents = (recency?: { initial: Record<string, string>; save: (value: Record<string, string>) => void }) => {
   const instanceId = crypto.randomUUID();
   const subscribers = new Set<Subscriber>();
-  const active = new Map<string, AgentStatus>();
+  const active = new Map<string, SessionStatus>();
   const approvals = new Map<string, PendingAction>();
   const activities = new Map<string, ActivityOverview>();
   let closed = false;
@@ -43,11 +43,11 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
     }
   };
   const liveRuns = new Map<string, { refreshApprovals: () => void }>();
-  const presence = createAgentPresence((value) => publish({ event: "agent_presence_updated", presence: value }), recency?.initial, recency?.save);
+  const presence = createSessionPresence((value) => publish({ event: "session_presence_updated", presence: value }), recency?.initial, recency?.save);
   return {
     instanceId,
     presence,
-    current: (): AgentStatus[] => [...active.values()].map(copy),
+    current: (): SessionStatus[] => [...active.values()].map(copy),
     pending: (): PendingAction[] => [...approvals.values()].filter((item) => Date.parse(item.expiresAt) > Date.now()).map(copy),
     activities: (): (ActivityOverview & { instanceId: string })[] => [...activities.values()].map((act) => ({ ...copy(act), instanceId })),
     subscribe: (subscriber: Subscriber): (() => void) => {
@@ -59,7 +59,7 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
       approvals.clear();
       for (const item of items) if (item.status === "pending") {
         approvals.set(item.id, copy(item));
-        const owner = item.workspaceAgentId ?? item.agentId;
+        const owner = item.sessionId;
         if (owner && Date.parse(item.expiresAt) > Date.now()) presence.set(owner, `approval:${item.id}`, { state: "waiting", label: "等待你审批文件修改" });
       }
     },
@@ -68,24 +68,24 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
       const newlyPending = item.status === "pending" && !approvals.has(item.id);
       if (item.status === "pending") approvals.set(item.id, copy(item));
       else approvals.delete(item.id);
-      const owner = item.workspaceAgentId ?? item.agentId;
+      const owner = item.sessionId;
       if (owner) presence.set(owner, `approval:${item.id}`, item.status === "pending" && Date.parse(item.expiresAt) > Date.now() ? { state: "waiting", label: "等待你审批文件修改" } : null, newlyPending);
       publish({ event: item.status === "pending" ? "approval_pending" : "approval_updated", approval: item });
-      const targetAgent = item.agentId;
+      const targetAgent = item.sessionId;
       if (targetAgent && item.runId) liveRuns.get(runKey(targetAgent, item.runId))?.refreshApprovals();
     },
     /**
      * 通知成功落盘后的瞬时失效信号。这里不保存通知内容或运行状态；
      * 客户端按载荷身份重读权威历史，断线漏帧由新连接 ready 后重读恢复。
      */
-    conversationNotificationAppended: (conversation: { agentId: string; sessionId: string }) => {
+    conversationNotificationAppended: (conversation: { sessionId: string; piSessionId: string }) => {
       if (closed) return;
       publish({ event: "conversation_updated", conversation });
     },
     /**
      * 活动概览投影推送：由会话服务在活动状态变化时调用。
      * 非终态活动保留在内存集合中供 ready 同步；终态只发布一次变化并从集合移除，
-     * 不做历史重放或第二份活动存储（权威记录仍是各智能体 JSONL 的 custom entries）。
+     * 不做历史重放或第二份活动存储（权威记录仍是各会话 JSONL 的 custom entries）。
      */
     activityChanged: (overview: ActivityOverview) => {
       if (closed) return;
@@ -98,21 +98,21 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
       }
       publish({ event: "activity_updated", activity: overview });
       const waiting = ["waiting_user", "waiting_approval", "awaiting_continuation"].includes(overview.status);
-      presence.set(overview.agentId, `activity:${overview.id}`, waiting ? { state: "waiting", label: "有待你处理的事项" } : null, waiting && previousStatus !== overview.status);
+      presence.set(overview.sessionId, `activity:${overview.id}`, waiting ? { state: "waiting", label: "有待你处理的事项" } : null, waiting && previousStatus !== overview.status);
     },
-    beginRun: (input: { agentId?: string; runId: string; source: "chat" | "job"; jobId?: string | null; title?: string; initialRevision?: number; onChange?: (status: AgentStatus) => void }): StatusRun => {
+    beginRun: (input: { sessionId?: string; runId: string; source: "chat" | "job"; jobId?: string | null; title?: string; initialRevision?: number; onChange?: (status: SessionStatus) => void }): StatusRun => {
       if (closed) throw new Error("Service is closing");
       if (active.size >= MAX_CURRENT_RUNS) throw new ExecutionCapacityError();
-      const agentId = input.agentId ?? "local-main";
-      const key = runKey(agentId, input.runId);
+      const sessionId = input.sessionId ?? "main";
+      const key = runKey(sessionId, input.runId);
       if (active.has(key)) throw new Error("Execution already active");
       const now = new Date().toISOString();
       // 每次新执行替换同来源的旧错误，不让已重试问题继续亮红。
       const presenceKey = `run:${input.source}`;
       let ended = false;
-      let parentPhase: AgentPhase = "preparing";
-      let state: AgentStatus = {
-        activityId: null, agentId, runId: input.runId, source: input.source, jobId: input.jobId ?? null,
+      let parentPhase: SessionPhase = "preparing";
+      let state: SessionStatus = {
+        activityId: null, sessionId, runId: input.runId, source: input.source, jobId: input.jobId ?? null,
         revision: input.initialRevision ?? 1, title: (input.title || "正在处理请求").slice(0, 500), status: "running", phase: "preparing", label: labelFor.preparing,
         tools: [], subagents: [], pendingApprovalIds: [], startedAt: now, updatedAt: now, endedAt: null,
       };
@@ -122,14 +122,14 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
         if (!ended) active.set(key, copy(state));
         // 展示通知错误不能中断模型或已完成的工具；持久终态由协调器另行提交。
         try { input.onChange?.(copy(state)); } catch { /* 观察出口不拥有运行生命周期。 */ }
-        publish({ event: "agent_status_updated", status: state });
-        presence.set(agentId, presenceKey, ended
+        publish({ event: "session_status_updated", status: state });
+        presence.set(sessionId, presenceKey, ended
           ? state.status === "failed" ? { state: "error", label: "执行失败，请查看动态与审批" } : null
           : { state: state.phase === "waiting_approval" ? "waiting" : "working", label: state.label }, (ended && state.status === "succeeded") || (!increment && input.source === "chat"));
       };
       const refresh = () => {
         if (ended) return;
-        const waiting = [...approvals.values()].filter((item) => item.agentId === state.agentId && item.runId === state.runId && Date.parse(item.expiresAt) > Date.now());
+        const waiting = [...approvals.values()].filter((item) => item.sessionId === state.sessionId && item.runId === state.runId && Date.parse(item.expiresAt) > Date.now());
         state.pendingApprovalIds = waiting.map((item) => item.id);
         for (const tool of state.tools) tool.status = waiting.some((item) => item.toolCallId === tool.toolCallId && item.subagentId === tool.subagentId) ? "waiting_approval" : "running";
         for (const child of state.subagents) if (child.status === "running" && waiting.some((item) => item.subagentId === child.id)) { child.phase = "waiting_approval"; child.label = labelFor.waiting_approval; }

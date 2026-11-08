@@ -24,7 +24,7 @@ const failure = (error: WorkspaceFileError) =>
     : undefined;
 
 /**
- * 手机手动文件管理端点。请求校验只负责协议形状；智能体存在性、UTF-8、
+ * 手机手动文件管理端点。请求校验只负责协议形状；会话存在性、UTF-8、
  * 字节数、路径与文件系统安全边界由 workspace file service 统一执行。
  */
 export const createWorkspaceFileRoutes = (
@@ -38,8 +38,6 @@ export const createWorkspaceFileRoutes = (
     if (!parsed.success) return c.json({ error: "Invalid workspace file query", code: "INVALID_REQUEST" }, 400);
     try {
       return c.json(await workspaceFiles.list({
-        scope: parsed.data.scope,
-        agentId: parsed.data.scope === "agent" ? parsed.data.agentId! : null,
         path: parsed.data.path,
       }));
     } catch (error) {
@@ -54,8 +52,6 @@ export const createWorkspaceFileRoutes = (
     if (!parsed.success) return c.json({ error: "Invalid workspace file query", code: "INVALID_REQUEST" }, 400);
     try {
       return c.json(await workspaceFiles.read({
-        scope: parsed.data.scope,
-        agentId: parsed.data.scope === "agent" ? parsed.data.agentId! : null,
         path: parsed.data.path,
       }));
     } catch (error) {
@@ -70,8 +66,6 @@ export const createWorkspaceFileRoutes = (
     if (!parsed.success) return c.json({ error: "Invalid workspace file request", code: "INVALID_REQUEST" }, 400);
     try {
       return c.json(await workspaceFiles.create({
-        scope: parsed.data.scope,
-        agentId: parsed.data.scope === "agent" ? parsed.data.agentId! : null,
         path: parsed.data.path,
         content: parsed.data.content,
         confirmed: parsed.data.confirmed,
@@ -88,8 +82,6 @@ export const createWorkspaceFileRoutes = (
     if (!parsed.success) return c.json({ error: "Invalid workspace file request", code: "INVALID_REQUEST" }, 400);
     try {
       return c.json(await workspaceFiles.update({
-        scope: parsed.data.scope,
-        agentId: parsed.data.scope === "agent" ? parsed.data.agentId! : null,
         path: parsed.data.path,
         content: parsed.data.content,
         confirmed: parsed.data.confirmed,
@@ -106,8 +98,6 @@ export const createWorkspaceFileRoutes = (
     if (!parsed.success) return c.json({ error: "Invalid workspace file query", code: "INVALID_REQUEST" }, 400);
     try {
       return c.json(await workspaceFiles.delete({
-        scope: parsed.data.scope,
-        agentId: parsed.data.scope === "agent" ? parsed.data.agentId! : null,
         path: parsed.data.path,
       }));
     } catch (error) {

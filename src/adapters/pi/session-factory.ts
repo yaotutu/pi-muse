@@ -1,6 +1,3 @@
-import { isFeatureAgent } from "../../features/agent-extensions/types.js";
-import { FEATURE_TOOL_INSTRUCTIONS } from "./tools/feature.js";
-import { AGENT_TOOL_INSTRUCTIONS } from "./tools/agent.js";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
@@ -19,8 +16,8 @@ import {
   type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 import type { DataLayout } from "../storage/data-layout.js";
-import { agentWorkspaceDir, sharedWorkspaceDir, ensureAgentWorkspace, agentInstructionsFile } from "../storage/data-layout.js";
-import { readAgentInstructions } from "../storage/agent-instructions.js";
+import { sessionInstructionsFile } from "../storage/data-layout.js";
+import { readSessionInstructions } from "../storage/session-instructions.js";
 import { getBuiltinSkillsDir } from "../storage/builtin-skills.js";
 import type { Config } from "../../config/load-config.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
@@ -35,7 +32,6 @@ import type { SkillsService } from "../../features/skills/service.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import {
   createInformationNotificationContextExtension,
-  INFORMATION_BACKGROUND_SYSTEM_PROMPT,
 } from "./information-notification-context.js";
 import { createResourceLoader } from "./resource-loader.js";
 import { createTools, skillToToolsMap, registeredToolNames } from "./tools/index.js";
@@ -48,8 +44,7 @@ import type { ActivityRun, ActivityObservation } from "../../features/activities
 import { createActivityObserver } from "./activity-observer.js";
 import { createToolPresentation, type ToolPresentation } from "../ag-ui/tool-presentation.js";
 import type { WorkspaceCommitQueue } from "../workspace/file-commit-queue.js";
-import { ACTIVITY_TOOL_INSTRUCTIONS, ACTIVITY_TOOL_NAME } from "./tools/activity.js";
-import type { StatusRun } from "../../features/workspace/agent-status.js";
+import type { StatusRun } from "../../features/workspace/session-status.js";
 import { createStatusObserver } from "./status-observer.js";
 
 /**
@@ -66,8 +61,8 @@ export type PiDeps = {
   memory: MemoryService;
   jobs: JobService;
   /** 仅子会话使用：父会话技能/工具快照作为权限上限，角色只可收窄。 */
-  child?: { role: SubagentRole; enabledSkills: readonly string[]; allowedTools: readonly string[]; ownerAgentId: string; ownerRunId?: string };
-  agentId: string;
+  child?: { role: SubagentRole; enabledSkills: readonly string[]; allowedTools: readonly string[]; };
+  sessionId: string;
   runId?: string;
   /** 当前轮次的用户输入文本，用于自动召回长会话记忆线索并注入提示词。 */
   userText?: string;
@@ -87,13 +82,9 @@ export type PiDeps = {
   presentation?: ToolPresentation;
   /** 与手动 HTTP 文件入口共用，保证最终版本检查与提交按物理路径串行。 */
   workspaceCommits?: WorkspaceCommitQueue;
-  /** 普通聊天的智能体局部信息查询；后台信息 runner 不装配该入口。 */
-  features?: import("../../features/agent-extensions/service.js").FeatureService;
-  communication?: import("../../features/agent-communication/service.js").AgentCommunication;
-  /** 业务智能体中的独立讨论；即使后台自动处理关闭，仍可主动查询本智能体已有信息。 */
-  communicationDiscussion?: string;
-  /** 跨智能体写入的审批回到原调用者；工作区与实际文件版本仍属于执行智能体。 */
-  communicationOwner?: { agentId: string; runId: string };
+  /** 普通聊天的会话局部信息查询；后台信息 runner 不装配该入口。 */
+  /** 业务会话中的独立讨论；即使后台自动处理关闭，仍可主动查询本会话已有信息。 */
+  /** 跨会话写入的审批回到原调用者；工作区与实际文件版本仍属于执行会话。 */
   information?: Pick<import("../../features/information/service.js").InformationService, "getSettings" | "query">;
 };
 
@@ -149,18 +140,16 @@ export async function openPi(deps: PiDeps) {
   const { config, layout, sessionManager, memory, jobs, modelRuntime } = deps;
   const { goals, actions, actionTimeoutMs, monitors, web, weather, browser, skills, child } = deps;
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
-  const cwd = agentWorkspaceDir(layout, deps.agentId);
-  const sharedDir = sharedWorkspaceDir(layout);
-  await ensureAgentWorkspace(layout, deps.agentId);
+  const cwd = layout.workspaceDir;
   const agentDir = layout.agentDir;
   // openPi 每轮执行都会重新创建；设置读取失败必须中止本轮，不能伪装成关闭。
-  const informationEnabled = !child && deps.information && deps.agentId
-    ? (await deps.information.getSettings(deps.agentId)).enabled
+  const informationEnabled = deps.information && deps.sessionId
+    ? child ? child.allowedTools.includes("information") : (await deps.information.getSettings()).enabled
     : false;
 
   // 1. 加载技能并计算生效值
-  const effectiveSkills = !child && skills && deps.agentId
-    ? await skills.getEffectiveSkills(deps.agentId)
+  const effectiveSkills = !child && skills && deps.sessionId
+    ? await skills.getEffectiveSkills(deps.sessionId)
     : [];
   const enabledSkillNames = new Set(
     child?.enabledSkills ?? effectiveSkills.filter(s => s.enabled).map(s => s.name)
@@ -177,7 +166,7 @@ export async function openPi(deps: PiDeps) {
 
   const activeSkills = Array.from(skillMap.values()).filter((s) => enabledSkillNames.has(s.name) &&
     (!child || !["task", "cron", "monitor"].includes(s.name)) &&
-    (s.name !== "browser" || (!child && Boolean(browser))));
+    (s.name !== "browser" || Boolean(browser)));
 
   const extensionPaths: string[] = [];
   for (const skill of activeSkills) {
@@ -194,13 +183,11 @@ export async function openPi(deps: PiDeps) {
   // 3. 裁剪工具并合并 Extension 工具
   const allCustomTools = createTools({
     root: cwd,
-    sharedDir,
     readOnlyFiles: await collectReadableSkillFiles(activeSkills),
-    agentId: child?.ownerAgentId ?? deps.agentId,
-    runId: child?.ownerRunId ?? deps.runId,
+    sessionId: deps.sessionId,
+    runId: deps.runId,
     isSubagent: Boolean(child),
     subagentId: deps.statusSubagentId,
-    workspaceAgentId: child?.ownerAgentId ?? deps.agentId,
     currentActivityId: () => deps.status?.snapshot().activityId ?? null,
     activity: child ? undefined : deps.activity,
     activityObservation: deps.activity ? {
@@ -221,14 +208,7 @@ export async function openPi(deps: PiDeps) {
     skillsService: skills,
     writableEnabled: deps.config.writable.enabled,
     workspaceCommits: deps.workspaceCommits,
-    information: informationEnabled || isFeatureAgent(deps.agentId) || Boolean(deps.communicationDiscussion) ? deps.information : undefined,
-    features: !child ? deps.features : undefined,
-    communication: !child ? deps.communication : undefined,
-    approvalOwner: deps.communicationOwner ?? (deps.runId ? { agentId: child?.ownerAgentId ?? deps.agentId, runId: child?.ownerRunId ?? deps.runId } : undefined),
-    communicationCaller: {
-      sessionId: sessionManager.getSessionId(), discussionId: deps.communicationDiscussion,
-      approvalOwner: deps.communicationOwner ?? (deps.runId ? { agentId: deps.agentId, runId: deps.runId } : undefined),
-    },
+    information: informationEnabled ? deps.information : undefined,
   });
 
   const builtinToolNames = new Set(registeredToolNames);
@@ -288,7 +268,9 @@ export async function openPi(deps: PiDeps) {
   // 官方扩展仅替换 child runner：上下文独立，凭据/工具边界复用项目装配。
   // 不启动 CLI，也不会从个人 ~/.pi 或可写工作区发现资源。
   const inlineExtensions: InlineExtension[] = [];
-  if (!child && (informationEnabled || deps.features)) {
+  // 内联 loader 的 runtime 不等于最终会话 runtime；只从实际 AgentSession 读公开工具快照。
+  let activeParentTools: () => readonly string[] = () => [];
+  if (!child && informationEnabled) {
     inlineExtensions.push({
       name: "pi-muse-information-notification-context",
       hidden: true,
@@ -297,18 +279,17 @@ export async function openPi(deps: PiDeps) {
   }
   if (!child && enabledSkillNames.has("task")) {
     const roles = await loadSubagentRoles(layout.subagentsDir);
-    const extension = createSubagentExtension(roles, async (role, task, signal, update, parentToolCallId, queuedChildId) => {
+    const extension = createSubagentExtension(roles, async (role, task, signal, update, parentToolCallId, queuedChildId, parentTools) => {
       signal?.throwIfAborted();
       const childId = queuedChildId ?? `subagent-${randomUUID()}`;
       deps.status?.observe({ kind: "subagent", phase: "start", id: childId, role: role.name });
       const parentStepId = `main:tool:${parentToolCallId}`;
       deps.activity?.observe({ id: childId, parentId: parentStepId, kind: "subagent", phase: "start", title: "Subagent executing" });
-      await ensureAgentWorkspace(layout, childId);
       signal?.throwIfAborted();
-      const manager = SessionManager.inMemory(agentWorkspaceDir(layout, childId));
+      const manager = SessionManager.inMemory(layout.workspaceDir);
       const session = await openPi({
-        ...deps, sessionManager: manager, agentId: childId,
-        child: { role, enabledSkills: [...enabledSkillNames], allowedTools: [...allowedToolNames], ownerAgentId: deps.agentId, ownerRunId: deps.runId },
+        ...deps, sessionManager: manager,
+        child: { role, enabledSkills: [...enabledSkillNames], allowedTools: parentTools ?? [] },
         activity: deps.activity,
         activityPrefix: childId,
         activityParentId: childId,
@@ -328,9 +309,9 @@ export async function openPi(deps: PiDeps) {
         signal?.throwIfAborted();
         // 子代理在父轮工具执行内发起；嵌套上下文以最内层为准，trace 标注为 subagent。
         await runWithModelTrace({
-          agentId: childId,
+          sessionId: deps.sessionId,
           kind: "subagent",
-          extra: { parentAgentId: deps.agentId, role: role.name },
+          extra: { parentSessionId: deps.sessionId, role: role.name },
         }, async () => {
           await session.prompt(`Task: ${task}`, { expandPromptTemplates: false });
           await session.waitForIdle();
@@ -368,7 +349,7 @@ export async function openPi(deps: PiDeps) {
         unsubscribe();
         session.dispose();
       }
-    }, (id, role) => deps.status?.observe({ kind: "subagent", phase: "queued", id, role }));
+    }, () => activeParentTools(), (id, role) => deps.status?.observe({ kind: "subagent", phase: "queued", id, role }));
     inlineExtensions.push({ name: "pi-muse-subagent", hidden: true, factory: extension });
     allowedToolNames.push(SUBAGENT_TOOL_NAME);
   }
@@ -385,20 +366,13 @@ export async function openPi(deps: PiDeps) {
   }
 
   // 4. 构建 System Prompt 并注入技能、专属会话指令与 Extension
-  const instructionsFile = !child && deps.agentId ? agentInstructionsFile(layout, deps.agentId) : undefined;
-  const agentInstructions = instructionsFile ? await readAgentInstructions(instructionsFile) : undefined;
+  const instructionsFile = !child && deps.sessionId ? sessionInstructionsFile(layout, deps.sessionId) : undefined;
+  const sessionInstructions = instructionsFile ? await readSessionInstructions(instructionsFile) : undefined;
   const recalledMemories = (deps.userText && memory) ? await memory.recall(deps.userText) : [];
   const systemPrompt = await buildSystemPrompt(
-    { layout, memory, allowedToolNames, agentInstructions, recalledMemories },
+    { layout, memory, allowedToolNames, sessionInstructions, recalledMemories },
   ) +
-    (informationEnabled ? INFORMATION_BACKGROUND_SYSTEM_PROMPT : "") +
-    (!child && deps.features ? `\n## Feature interactions\n${FEATURE_TOOL_INSTRUCTIONS}\n` : "") +
-    (!child && deps.communication ? `\n## Agent communication\nCurrent agent: ${deps.agentId}.\n${AGENT_TOOL_INSTRUCTIONS}\n` : "") +
-    (deps.communicationDiscussion ? "\nThis is a separate discussion owned by this agent, not its primary chat. Use this agent's rules, tools, workspace and information. Answer the caller here; do not send a notification just to return the result. A completed turn may ask the user a question; never invent missing user choices.\n" : "") +
-    (allowedToolNames.includes(ACTIVITY_TOOL_NAME)
-      ? `\n\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}`
-      : "") +
-    (child ? `\n\n## Subagent role\n${child.role.systemPrompt}\nYou have an isolated context and private workspace. Return the result to the parent agent. You cannot delegate or schedule work. Use shared/... for shared materials; never assume access to the parent's private files.` : "");
+    (child ? `\n\n## Subagent role\n${child.role.systemPrompt}\nYou have an isolated context and the same workspace as the caller. Return the result directly. You cannot delegate or schedule work.` : "");
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);
 
   // provider 与内存凭据由 bootstrap 唯一初始化；每轮仅查询模型，避免修改共享 runtime。
@@ -429,6 +403,7 @@ export async function openPi(deps: PiDeps) {
       retry: { enabled: false },
     }),
   });
+  activeParentTools = () => session.getActiveToolNames();
   if (deps.activity) {
     const observer = createActivityObserver(
       (event) => deps.activity!.observe(event),

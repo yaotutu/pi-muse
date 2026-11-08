@@ -36,7 +36,7 @@ export type ModelTraceRecord = {
     startedAt: string;
     endedAt: string;
     durationMs: number;
-    agentId: string;
+    sessionId: string;
     kind: ModelTraceKind;
     extra?: Record<string, string>;
     upstreamOrigin: string;
@@ -66,7 +66,7 @@ const traceLogFailure = (action: string, error: unknown) => {
 };
 
 /**
- * trace 文件存储：DATA_DIR/traces/<yyyy-mm-dd>/<HHmmss-sss>-<agentId>-<kind>-<seq>.json。
+ * trace 文件存储：DATA_DIR/traces/<yyyy-mm-dd>/<HHmmss-sss>-<sessionId>-<kind>-<seq>.json。
  *
  * 写入经进程内串行队列原子完成（同目录临时文件 + rename）；任何失败只打印
  * 一行脱敏摘要，绝不向上抛出——记录是旁路，不能影响模型调用本身。
@@ -140,7 +140,7 @@ export const createModelTraceStore = (deps: {
     const now = new Date();
     const day = `${now.getFullYear()}-${pad(now.getMonth() + 1, 2)}-${pad(now.getDate(), 2)}`;
     const prefix = `${pad(now.getHours(), 2)}${pad(now.getMinutes(), 2)}${pad(now.getSeconds(), 2)}-${pad(now.getMilliseconds(), 3)}`;
-    const name = `${prefix}-${fileNamePart(record.meta.agentId)}-${fileNamePart(record.meta.kind)}-${pad(sequence, 6)}.json`;
+    const name = `${prefix}-${fileNamePart(record.meta.sessionId)}-${fileNamePart(record.meta.kind)}-${pad(sequence, 6)}.json`;
     const dayPath = join(deps.dir, day);
     await mkdir(dayPath, { recursive: true, mode: 0o700 });
     const text = redactTraceText(`${JSON.stringify(record, null, 2)}\n`, secrets);

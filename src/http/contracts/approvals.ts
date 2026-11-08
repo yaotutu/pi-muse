@@ -1,3 +1,4 @@
+import { SESSION_ID_PATTERN } from "../../features/conversation/session-id.js";
 import { z } from "zod";
 import type { SettledActionStatus } from "../../features/actions/types.js";
 
@@ -30,12 +31,12 @@ export const MAX_PENDING_APPROVAL_BYTES = 6_000_000;
 
 const isoTime = z.iso.datetime().describe("ISO 8601 UTC 时间（服务端写入，固定 Z 后缀）");
 
-const nullableAgentId = z
+const nullableSessionId = z
   .string()
   .min(1)
   .max(64)
   .nullable()
-  .describe("智能体标识；与当前审批无关时为 null，不推断当前上下文");
+  .describe("会话标识；与当前审批无关时为 null，不推断当前上下文");
 
 const nullableRunId = z
   .string()
@@ -74,23 +75,7 @@ export const approvalKinds = ["file_write", "file_edit"] as const;
 // ---------------------------------------------------------------------------
 export const approvalPreview = z
   .strictObject({
-    scope: z
-      .enum(["agent", "shared", "skill"])
-      .describe(
-        "文件作用域：agent=当前智能体私有工作区；shared=显式 shared/... 共享区；skill=实例级技能资源。" +
-          "scope=agent 时 ownerAgentId 指向文件归属的工作区智能体；子代理发起的审批" +
-          "仍归属其 ownerAgentId，而不是子智能体自身；scope=skill 表示写入 DATA_DIR/skills，" +
-          "不属于任何工作区，ownerAgentId 固定为 null。",
-      ),
-    ownerAgentId: z
-      .string()
-      .min(1)
-      .max(64)
-      .nullable()
-      .describe(
-        "文件归属的工作区智能体 ID。scope=agent 时必填，并覆盖 child/subagent 的真实归属；" +
-          "scope=shared 或 scope=skill 时为 null。",
-      ),
+    scope: z.enum(["workspace", "skill"]).describe("workspace=唯一扁平工作区；skill=实例技能文本，不按会话隔离"),
     path: z
       .string()
       .min(1)
@@ -104,11 +89,6 @@ export const approvalPreview = z
     beforeExists: z
       .boolean()
       .describe("登记时目标文件是否已存在；false 表示新建，不能据此推断最终落盘结果"),
-  })
-  .superRefine((preview, ctx) => {
-    const ownerIsNull = preview.ownerAgentId === null;
-    if ((preview.scope === "agent") === ownerIsNull)
-      ctx.addIssue({ code: "custom", path: ["ownerAgentId"], message: "scope 与 ownerAgentId 归属不一致" });
   })
   .describe(
     "审批的完整、不可变预览。用于让用户看到本次将写入/替换的全部文本；" +
@@ -126,11 +106,10 @@ export const approvalView = z
         "审批版本：创建时为 1，进入终态与每次执行回执时 +1。内容字段不可变；" +
           "客户端按 (id, revision) 判断是否已应用最新状态，重复决定不推进版本。",
       ),
-    agentId: nullableAgentId,
+    sessionId: nullableSessionId,
     runId: nullableRunId,
     toolCallId: nullableRef("发起审批的工具调用 ID"),
     subagentId: nullableRef("发起审批的子代理 ID"),
-    workspaceAgentId: nullableRef("文件归属的工作区智能体 ID"),
     activityId: nullableRef("关联的 Activity ID"),
     kind: z
       .enum(approvalKinds)
@@ -184,7 +163,7 @@ export const approvalResolution = approvalView
       .describe("终态：approved/denied/expired/cancelled；该事件不会携带 pending"),
   })
   .describe(
-    "审批进入终态时的轻量投影：保留 id、revision、智能体/运行/工具/子代理/工作区/活动关联、" +
+    "审批进入终态时的轻量投影：保留 id、revision、会话/运行/工具/子代理/工作区/活动关联、" +
       "终态与 createdAt/expiresAt/resolvedAt/decidedAt；不包含 title、kind 和预览全文。" +
       "收到后按 (id, revision) 更新本地状态；未知 id 或需要完整内容时读取 GET /api/approvals/:id。",
   );
@@ -208,22 +187,22 @@ export const approvalDecisionRequest = z
   );
 
 /** 历史只含终态；十进制 limit 与过滤绑定游标在 HTTP 边界严格校验。 */
-const historyAgentId = z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
+const historySessionId = z.string().min(1).max(64).regex(SESSION_ID_PATTERN);
 const historyActivityId = z.string().min(1).max(200);
 export const approvalListQuery = z.strictObject({
   limit: z.preprocess((value) => typeof value === "string" && /^[0-9]+$/.test(value) ? Number(value) : value,
     z.number().int().min(1).max(100).default(20)).describe("每页数量，默认 20，范围 1–100；非十进制整数、空值或越界返回 400"),
   cursor: z.string().min(1).max(1024).optional().describe(
-    "上一页 nextCursor，原样回传。不透明 base64url，绑定 resolvedAt/id 与 status/agentId/activityId 过滤；结构非法、非规范编码或过滤不匹配返回 400，改变过滤后必须从第一页重新开始"),
+    "上一页 nextCursor，原样回传。不透明 base64url，绑定 resolvedAt/id 与 status/sessionId/activityId 过滤；结构非法、非规范编码或过滤不匹配返回 400，改变过滤后必须从第一页重新开始"),
   status: z.enum(terminalApprovalStatuses).optional().describe("只返回该终态，pending 非法；省略表示全部终态"),
-  agentId: historyAgentId.optional().describe("只返回该来源智能体的记录"),
+  sessionId: historySessionId.optional().describe("只返回该来源会话的记录"),
   activityId: historyActivityId.optional().describe("只返回该关联活动的记录"),
 }).describe("历史分页只包含终态；未声明、重复、非法参数或游标一律 400，按 resolvedAt 降序、同一时间按 id 降序");
 export const approvalCursorPayloadSchema = z.strictObject({
   resolvedAt: z.iso.datetime(), id: z.string().min(1).max(200),
-  status: z.enum(terminalApprovalStatuses).optional(), agentId: historyAgentId.optional(), activityId: historyActivityId.optional(),
+  status: z.enum(terminalApprovalStatuses).optional(), sessionId: historySessionId.optional(), activityId: historyActivityId.optional(),
 });
-export type ApprovalFilter = { status?: SettledActionStatus; agentId?: string; activityId?: string };
+export type ApprovalFilter = { status?: SettledActionStatus; sessionId?: string; activityId?: string };
 export type ApprovalCursorPayloadDto = z.infer<typeof approvalCursorPayloadSchema>;
 export const pendingApprovalsResponse = z.strictObject({ approvals: z.array(approvalView) })
   .describe("仅未过期 pending 的完整预览补充读取；主要同步来源仍是 SSE ready.pendingApprovals 与 approval_pending，查询不执行写入或恢复授权");

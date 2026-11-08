@@ -59,9 +59,9 @@ test("memories REST API: CRUD lifecycle, query parameters, sorting, limits and s
   const snapshot = await snapshotRes.json();
   assert.equal(Object.hasOwn(snapshot, "memories"), false);
 
-  // 4. 旧接口废弃验证：GET/POST /api/agent/memories 返回 501
-  assert.equal((await request("/api/agent/memories")).status, 501);
-  assert.equal((await request("/api/agent/memories", { method: "POST", body: JSON.stringify({ text: "a" }) })).status, 501);
+  // 4. 旧接口废弃验证：GET/POST /api/agent/memories 返回 404
+  assert.equal((await request("/api/agent/memories")).status, 404);
+  assert.equal((await request("/api/agent/memories", { method: "POST", body: JSON.stringify({ text: "a" }) })).status, 404);
 
   // 5. POST /api/memories 新增记忆
   const addRes1 = await request("/api/memories", {

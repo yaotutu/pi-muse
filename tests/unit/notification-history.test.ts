@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDataLayout, agentSessionsDir } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout, sessionDir } from "../../src/adapters/storage/data-layout.js";
 import { createSessionHistory } from "../../src/adapters/pi/session-history.js";
 import { createMessageFeedbackRepository } from "../../src/adapters/storage/message-feedback-repository.js";
 import { createMessageFeedbackSession } from "../../src/features/messages/service.js";
@@ -15,13 +15,13 @@ test("notification alone persists a new pi session and survives reopen without m
   const root = await mkdtemp(join(tmpdir(), "personal-bot-notification-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const layout = createDataLayout(root);
-  const { history } = await createSessionHistory(layout, "source-agent");
+  const { history } = await createSessionHistory(layout, "main");
   const repository = createMessageFeedbackRepository(layout);
   const make = (port: typeof history) => createConversation({ configured: false, runTimeoutMs: 1000 }, {
     history: port,
     messages: createMessageFeedbackSession({
-      agentId: "source-agent",
-      sessionId: () => port.sessionId(),
+      sessionId: "main",
+      piSessionId: () => port.piSessionId(),
       facts: port.messageFacts,
       repository,
     }),
@@ -30,12 +30,12 @@ test("notification alone persists a new pi session and survives reopen without m
   const first = make(history);
   await first.notify("📋 服务端任务完成事实", "stable-notification");
   await first.close();
-  const directory = agentSessionsDir(layout, "source-agent");
+  const directory = sessionDir(layout, "main");
   const files = (await readdir(directory)).filter((file) => file.endsWith(".jsonl"));
   assert.equal(files.length, 1);
   const persisted = await readFile(join(directory, files[0]!), "utf8");
   assert.match(persisted, /server-notification/);
-  const reopened = await createSessionHistory(layout, "source-agent");
+  const reopened = await createSessionHistory(layout, "main");
   assert.deepEqual(reopened.history.history(), [{ id: "stable-notification", role: "assistant", content: "📋 服务端任务完成事实" }]);
   // 标准 pi 上下文也可见服务端事实，不需要伪造用户请求去让模型重述。
   assert.ok(reopened.manager.buildSessionContext().messages.some((message) => JSON.stringify(message).includes("服务端任务完成事实")));
@@ -49,7 +49,7 @@ test("notification alone persists a new pi session and survives reopen without m
 test("server facts keep independent IDs instead of merging into adjacent model replies", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "personal-bot-notification-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const { manager, history } = await createSessionHistory(createDataLayout(root), "agent");
+  const { manager, history } = await createSessionHistory(createDataLayout(root), "main");
   manager.appendCustomEntry(TURN_ENTRY_TYPE, { runId: "run", userId: "user", assistantId: "assistant-run", text: "question" });
   const { personalBotNotificationId: _id, ...assistant } = createNotificationMessage({ id: "unused", text: "answer" });
   manager.appendMessage({ ...assistant, provider: "personal", model: "test" });
@@ -64,7 +64,7 @@ test("retrying a failed model turn preserves later independent task notification
   const root = await mkdtemp(join(tmpdir(), "personal-bot-notification-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const layout = createDataLayout(root);
-  const { manager, history } = await createSessionHistory(layout, "agent");
+  const { manager, history } = await createSessionHistory(layout, "main");
   history.appendTurn({ runId: "failed-run", userId: "question", assistantId: "answer", text: "question" });
   manager.appendMessage({ role: "user", content: "question", timestamp: Date.now() });
   const { personalBotNotificationId: _id, ...assistant } = createNotificationMessage({ id: "unused", text: "partial reply" });
@@ -74,6 +74,6 @@ test("retrying a failed model turn preserves later independent task notification
   history.omitTurn("failed-run");
   assert.deepEqual(history.history(), [{ id: "task-fact", role: "assistant", content: "task result" }]);
   assert.ok(manager.buildSessionContext().messages.some((message) => JSON.stringify(message).includes("task result")));
-  const reopened = await createSessionHistory(layout, "agent");
+  const reopened = await createSessionHistory(layout, "main");
   assert.deepEqual(reopened.history.history(), history.history());
 });

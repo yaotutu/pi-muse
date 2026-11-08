@@ -7,7 +7,7 @@ import type { ActivityDetail, ActivityOverview, ActivityStatus } from "./types.j
  */
 
 export type ActivityFilter = {
-  agentId?: string;
+  sessionId?: string;
   status?: ActivityStatus;
 };
 
@@ -30,14 +30,14 @@ export type ActivityPage = {
 };
 
 /**
- * 游标绑定过滤条件：改变 agentId/status 后继续翻页会跳过一个不存在的序列，
+ * 游标绑定过滤条件：改变 sessionId/status 后继续翻页会跳过一个不存在的序列，
  * 必须从第一页重新开始。未设置与显式 undefined 视为同一种过滤。
  */
 export const activityCursorMatchesFilter = (
   cursor: ActivityCursor,
   filter: ActivityFilter,
 ): boolean => {
-  return (cursor.agentId ?? undefined) === (filter.agentId ?? undefined) &&
+  return (cursor.sessionId ?? undefined) === (filter.sessionId ?? undefined) &&
     (cursor.status ?? undefined) === (filter.status ?? undefined);
 };
 
@@ -77,12 +77,12 @@ export const queryActivities = (
     timestamp(detail.activity.createdAt);
   }
   if (cursor) timestamp(cursor.createdAt);
-  const targetAgent = filter.agentId;
+  const targetAgent = filter.sessionId;
   const matches = details
     .map((detail) => detail.activity)
     .filter(
       (activity) =>
-        (targetAgent === undefined || activity.agentId === targetAgent) &&
+        (targetAgent === undefined || activity.sessionId === targetAgent) &&
         (filter.status === undefined || activity.status === filter.status),
     )
     .sort(compareDescending)
@@ -93,13 +93,13 @@ export const queryActivities = (
   return {
     activities,
     hasMore,
-    // nextCursor 携带本次过滤条件，后续请求若改变 agentId/status 会被路由拒绝。
+    // nextCursor 携带本次过滤条件，后续请求若改变 sessionId/status 会被路由拒绝。
     nextCursor:
       hasMore && last
         ? {
             createdAt: last.createdAt,
             id: last.id,
-            ...(filter.agentId !== undefined ? { agentId: filter.agentId } : {}),
+            ...(filter.sessionId !== undefined ? { sessionId: filter.sessionId } : {}),
             ...(filter.status !== undefined ? { status: filter.status } : {}),
           }
         : null,

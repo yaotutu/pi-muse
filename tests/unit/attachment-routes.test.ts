@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAgUiRoutes } from "../../src/adapters/ag-ui/routes.js";
-import type { ConversationHub } from "../../src/features/conversation/conversation-hub.js";
+import type { SessionHub } from "../../src/features/conversation/conversation-hub.js";
 import type { ToolPresentation } from "../../src/adapters/ag-ui/tool-presentation.js";
 import { runRequestSchema } from "../../src/http/contracts/rest.js";
 import { validateConversationInput } from "../../src/features/conversation/validate-input.js";
 import type { ConversationInput } from "../../src/features/conversation/types.js";
 
 const routes = () => createAgUiRoutes(
-  undefined as unknown as ConversationHub,
+  undefined as unknown as SessionHub,
   undefined as unknown as ToolPresentation,
 );
 
@@ -16,7 +16,7 @@ const imageBody = (size: number) => {
   const bytes = Buffer.alloc(size, 0);
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   const input: ConversationInput = {
-    agentId: "local-main",
+    sessionId: "main",
     runId: "boundary-run",
     expectedRevision: "empty",
     message: {
@@ -37,11 +37,11 @@ const hubWithValidation = (
   history: Parameters<typeof validateConversationInput>[1],
   turns: Parameters<typeof validateConversationInput>[2]["turns"] = [],
 ) => ({
-  forAgent: async () => ({
+  forSession: async () => ({
     validate: (input: ConversationInput) =>
       validateConversationInput(input, history, { turns, results: new Map() }, "empty"),
   }),
-}) as unknown as ConversationHub;
+}) as unknown as SessionHub;
 
 test("run attachment route reports oversized JSON before starting SSE or a conversation", async () => {
   const body = Buffer.alloc(12 * 1024 * 1024 + 1, 97);

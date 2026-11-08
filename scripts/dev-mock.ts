@@ -1,9 +1,16 @@
 import { resolve } from "node:path";
+import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
 import { once } from "node:events";
 import { createService } from "../src/bootstrap/create-service.js";
 import { createConfig } from "../src/config/load-config.js";
 import { createFakeModel } from "../tests/support/fake-model.js";
+
+// 固定联调实例不充当测试临时目录；验收者须显式选择新的空目录，不迁移或清理已有数据。
+const { values } = parseArgs({ options: { "data-dir": { type: "string" }, port: { type: "string" } }, strict: true });
+const port = values.port === undefined ? 17891 : Number(values.port);
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid mock port");
+const dataDir = resolve(values["data-dir"] ?? ".pi-muse/mock");
 
 // 只用于协议/UI 联调，不读取正式 config.json，也不调用真实模型；mock 历史与正式数据隔离。
 const model = await createFakeModel();
@@ -36,7 +43,7 @@ try {
     server: {
       host: "127.0.0.1",
       // 避开 nanobot(7890) 与服务端 dev(12330) 默认端口；联调 Web 时用 API_TARGET=http://127.0.0.1:17891 pnpm --dir web dev
-      port: 17891,
+      port,
     },
     model: {
       baseUrl: model.baseUrl,
@@ -46,7 +53,7 @@ try {
     },
     runtime: {
       // createConfig 的相对路径基于配置目录；此处显式绝对路径避免重复嵌套。
-      dataDir: resolve(".pi-muse/mock"),
+      dataDir,
       runTimeoutMs: 15000,
       schedulerIntervalMs: 2000,
     },

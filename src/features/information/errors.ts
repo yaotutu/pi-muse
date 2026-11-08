@@ -3,9 +3,9 @@ export class InformationError extends Error {
     public code:
       | "INVALID_INPUT"
       | "CONFLICT"
-      | "AGENT_NOT_FOUND"
+      | "SESSION_NOT_FOUND"
       | "DISABLED"
-      | "AGENT_PAUSED"
+      | "SESSION_PAUSED"
       | "BUSY"
       | "NO_PENDING"
       | "NOT_FOUND"

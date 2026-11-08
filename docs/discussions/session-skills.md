@@ -1,3 +1,5 @@
+> **作废：** 本文保留旧版本设计历史。当前领域与生命周期以[单主助手多会话基线](../architecture/single-agent-multisession.md)及自动生成契约为准；下文不是现行接口或数据迁移授权。
+
 # 单 Agent、多会话
 
 > **项目：pi-muse**

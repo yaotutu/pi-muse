@@ -39,37 +39,14 @@ export const errorResponse = z.object({
   code: z.string().optional().describe("机器可读业务错误码（如 MEMORY_CAPACITY_REACHED, REVISION_CONFLICT 等）"),
 });
 
-// 智能体 -----------------------------------------------------------------
-export const agentSnapshot = z.object({
-  id: z.string().describe("agentId"),
-  sessionId: z.string().describe("当前活跃绑定的 sessionId"),
-  updatedAt: z.string().describe("该智能体当前会话 JSONL 最近修改时间（ISO 8601）"),
-  name: z.string().optional(),
-  extensions: z.array(z.enum(["news", "sms"])).describe("附加业务与专属视图；不改变智能体的基础会话能力"),
-});
-export const agentsResponse = z.object({
-  agents: z.array(agentSnapshot).describe("按最近活跃倒序"),
-});
-export const createAgentResponse = z.object({ agent: agentSnapshot });
-export const resetAgentResponse = z.object({
-  ok: z.literal(true),
-  agentId: z.string().describe("重置的智能体 ID"),
-  sessionId: z.string().describe("重置后绑定的全新 session ID"),
-  cancelledApprovals: z.number().int().nonnegative().describe("重置时作废的待审批写操作数"),
-  removed: z.object({
-    jobs: z.number().int().nonnegative().describe("级联清理的定时任务数（当 clearSchedules=true）"),
-    monitors: z.number().int().nonnegative().describe("级联清理的网页监控数（当 clearSchedules=true）"),
-  }),
-});
-export type ResetAgentDto = z.infer<typeof resetAgentResponse>;
-export const deleteAgentResponse = z.object({
-  ok: z.literal(true),
-  removed: z.object({
-    jobs: z.number().int().nonnegative().describe("级联删除的定时任务数"),
-    monitors: z.number().int().nonnegative().describe("级联删除的网页监控数"),
-  }),
-});
-export type DeleteAgentDto = z.infer<typeof deleteAgentResponse>;
+// 会话 -----------------------------------------------------------------
+export const sessionRecord = z.strictObject({ id: z.string(), title: z.string(), createdAt: z.string().datetime(), updatedAt: z.string().datetime(), isMain: z.boolean() });
+export const sessionsResponse = z.object({ sessions: z.array(sessionRecord).describe("main 第一，其余按 updatedAt 倒序") });
+export const sessionRecordResponse = z.object({ session: sessionRecord });
+export const resetSessionResponse = z.object({ session: sessionRecord, cancelledApprovals: z.number().int().nonnegative(), removed: z.object({ jobs: z.number().int().nonnegative(), monitors: z.number().int().nonnegative() }) });
+export const deleteSessionResponse = z.object({ ok: z.literal(true), removed: z.object({ sessions: z.number().int().nonnegative() }) });
+export type ResetSessionDto = z.infer<typeof resetSessionResponse>;
+export type DeleteSessionDto = z.infer<typeof deleteSessionResponse>;
 export const conversationAttachment = z.strictObject({
   id: z.string().describe("请求内稳定的附件 ID"),
   name: z.string().describe("用户可见原始文件名；纯展示，不是路径"),
@@ -116,7 +93,8 @@ export const chatMessage = z.strictObject({
     context.addIssue({ code: "custom", message: "isError is only valid on tool messages" });
 });
 export const conversationResponse = z.object({
-  sessionId: z.string().nullable().describe("当前智能体绑定的 PI 会话 ID；合法但不存在/已删除智能体为 null"),
+  sessionId: z.string().describe("公开会话 id；reset 后保持不变"),
+  piSessionId: z.string().nullable().describe("当前会话绑定的 PI 会话 ID；合法但不存在/已删除会话为 null"),
   revision: z.string().describe("pi 当前叶子版本；空会话为 empty，发送时作为 expectedRevision"),
   messages: z.array(chatMessage).describe("服务端权威历史（含工具投影）；客户端不得回写"),
 });
@@ -125,7 +103,7 @@ export const profileResponse = z.object({
   user: z.string().describe("USER.md 内容；空串表示未设置"),
 });
 export const instructionsResponse = z.object({
-  instructions: z.string().describe("该智能体当前生效的专属指令文本（INSTRUCTIONS.md）"),
+  instructions: z.string().describe("该会话当前生效的专属指令文本（INSTRUCTIONS.md）"),
 });
 export type InstructionsDto = z.infer<typeof instructionsResponse>;
 
@@ -147,7 +125,7 @@ export const jobItem = z.object({
   lastRunAt: z.string().optional().describe("最近一次触发时间（ISO 8601）"),
   lastResult: z.string().optional().describe("最近一次执行结果文本摘要"),
   error: z.string().nullable().describe("错误信息（上次执行失败时非 null）"),
-  originAgentId: z.string().optional().describe("所属智能体 ID"),
+  originSessionId: z.string().optional().describe("所属会话 ID"),
 });
 
 export const jobsResponse = z.object({
@@ -215,7 +193,7 @@ export const monitorItem = z.object({
   intervalMinutes: z.number(),
   status: z.enum(["active", "paused", "stopped"]),
   createdAt: z.string(),
-  originAgentId: z.string().optional().describe("接收监控通知的来源智能体；未指定时投递主智能体"),
+  originSessionId: z.string().optional().describe("接收监控通知的来源会话；未指定时投递主会话"),
   lastCheckedAt: z.string().optional(),
   lastFingerprint: z.string().optional().describe("change 条件的内容指纹（内部）"),
   lastMatched: z.boolean().optional().describe("contains 条件上次是否命中"),
@@ -251,13 +229,14 @@ export const deleteMemoryResponse = z.object({
 export type DeleteMemoryResponseDto = z.infer<typeof deleteMemoryResponse>;
 export const dreamTargetView = z.enum(["user", "soul", "instructions", "memory"]);
 export const dreamPendingItem = z.object({
+  sourceSessionId: z.string().optional().describe("建议来源会话；应用 instructions 时使用，已删除来源不能复活"),
   id: z.string().describe("待决建议 ID"),
   text: z.string().describe("建议保存的纯文本内容"),
   suggestedTarget: dreamTargetView.describe("模型建议归属"),
   reason: z
     .enum(["ambiguous", "global_from_session", "no_purpose"])
     .describe(
-      "未直接落盘的原因：ambiguous=模型不确定归属，global_from_session=非主会话提出的全局 USER/SOUL 建议，no_purpose=会话未声明 `## 智能体用途`",
+      "未直接落盘的原因：ambiguous=模型不确定归属，global_from_session=非主会话提出的全局 USER/SOUL 建议，no_purpose=会话未声明 `## 会话用途`",
     ),
   createdAt: z.string().describe("生成时间（ISO 8601）"),
 });
@@ -272,25 +251,11 @@ export const dreamRunView = z.object({
   processed: z.number().int().nonnegative().describe("本次待整理段的新消息条数"),
   error: z.string().optional().describe("受控错误说明；不含原始模型/文件载荷"),
 });
-export const dreamAgentResponse = z.object({
-  agentId: z.string().describe("智能体 ID"),
-  enabled: z.boolean().describe("该智能体是否开启周期 Dream 整理"),
-  inheritGlobalPrompt: z.boolean().describe("是否继承全局 DREAM.md 提示词"),
-  cursor: z.string().optional().describe("已整理到的消息 ID；整轮成功后才推进"),
-  lastRun: dreamRunView.optional().describe("最近一次整理结果"),
-  pending: z.array(dreamPendingItem).describe("等待人工确认归属的建议列表"),
-  prompt: z.string().describe("该智能体专属补充提示词（DREAM.md）；未设置为空串"),
-  purpose: z.string().describe("从 INSTRUCTIONS.md 提取的 `## 智能体用途` 正文；未设置为空串"),
-});
 export const dreamOverviewResponse = z.object({
-  globalPrompt: z.string().describe("全局 DREAM.md 内容；空串表示使用 defaultPrompt"),
-  defaultPrompt: z.string().describe("内置默认整理提示词（只读参考）"),
-  intervalHours: z.number().int().positive().describe("后台周期检查间隔（小时，固定为 2）"),
-  running: z.boolean().describe("当前进程内是否有 Dream 整理轮正在执行"),
-  agents: z.array(dreamAgentResponse).describe("所有已知智能体的 Dream 状态与待决项"),
+  enabled: z.boolean(), cursors: z.record(z.string(), z.string()), lastRun: dreamRunView.optional(), pending: z.array(dreamPendingItem),
+  globalPrompt: z.string(), defaultPrompt: z.string(), intervalHours: z.number().int().positive(), running: z.boolean(),
 });
 export type DreamPendingDto = z.infer<typeof dreamPendingItem>;
-export type DreamAgentDto = z.infer<typeof dreamAgentResponse>;
 export type DreamOverviewDto = z.infer<typeof dreamOverviewResponse>;
 export const identityView = z.object({
   name: z.string(),
@@ -321,14 +286,14 @@ export type MonitorDto = MonitorItemDto;
  */
 export type ActionDto = ApprovalViewDto;
 export type IdentitySnapshotDto = z.infer<typeof identitySnapshot>;
-export type AgentDto = z.infer<typeof agentSnapshot>;
+export type SessionDto = z.infer<typeof sessionRecord>;
 
 // 技能 -----------------------------------------------------------------
 export const skillItem = z.object({
   name: z.string().describe("技能名称（目录名）"),
   description: z.string().describe("技能描述"),
   defaultEnabled: z.boolean().describe("技能默认开关状态"),
-  enabled: z.boolean().describe("当前智能体的生效开关状态"),
+  enabled: z.boolean().describe("当前会话的生效开关状态"),
 });
 export const skillsResponse = z.object({
   skills: z.array(skillItem),

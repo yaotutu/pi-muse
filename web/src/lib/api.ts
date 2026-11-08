@@ -5,7 +5,6 @@ import type {
   ConversationSnapshotDto,
   DreamOverviewDto,
   DreamPendingDto,
-  DreamAgentDto,
   GoalDto,
   InstructionsDto,
   MemoriesResponseDto,
@@ -18,9 +17,9 @@ import type {
   DeleteJobResponseDto,
   GoalsResponseDto,
   DeleteGoalResponseDto,
-  AgentDto,
-  ResetAgentDto,
-  DeleteAgentDto,
+  SessionDto,
+  ResetSessionDto,
+  DeleteSessionDto,
 } from "../../../src/http/contracts/responses.js";
 import type { TraceDetailDto, TraceSummaryDto, TracesQueryDto, TracesResponseDto } from "../../../src/http/contracts/traces.js";
 export type { TraceDetailDto, TraceSummaryDto, TracesQueryDto, TracesResponseDto };
@@ -32,12 +31,12 @@ import {
   type MessageFeedbackEventsDto,
 } from "../../../src/http/contracts/messages.js";
 import { sseEventSchema, type SseEvent } from "../../../src/http/contracts/sse-events.js";
-import type { AgentStatusDto } from "../../../src/http/contracts/agent-status.js";
+import type { SessionStatusDto } from "../../../src/http/contracts/session-status.js";
 import { pendingApprovalsResponse, type ApprovalViewDto } from "../../../src/http/contracts/approvals.js";
 import {
   workspaceEvents,
   type ActivityUpdatedEventDto,
-  type AgentStatusUpdatedEventDto,
+  type SessionStatusUpdatedEventDto,
   type ApprovalPendingEventDto,
   type ApprovalUpdatedEventDto,
   type ConversationUpdatedEventDto,
@@ -45,10 +44,10 @@ import {
 } from "../../../src/http/contracts/workspace-events.js";
 export type { SseEvent };
 export type {
-  AgentStatusDto,
+  SessionStatusDto,
   ApprovalViewDto,
   ActivityUpdatedEventDto,
-  AgentStatusUpdatedEventDto,
+  SessionStatusUpdatedEventDto,
   ApprovalPendingEventDto,
   ApprovalUpdatedEventDto,
   ConversationUpdatedEventDto,
@@ -65,12 +64,11 @@ export type {
   MemoryDto,
   MonitorDto,
   GoalDto,
-  AgentDto,
-  ResetAgentDto,
-  DeleteAgentDto,
+  SessionDto,
+  ResetSessionDto,
+  DeleteSessionDto,
   DreamOverviewDto,
   DreamPendingDto,
-  DreamAgentDto,
   InstructionsDto,
 };
 export type IdentityDto = NonNullable<IdentitySnapshotDto["identity"]>;
@@ -147,29 +145,29 @@ export const getTrace = async (fileName: string, signal?: AbortSignal): Promise<
   return response.json() as Promise<TraceDetailDto>;
 };
 
-export const listAgents = async (): Promise<AgentDto[]> => {
-  const response = await request("/api/agents");
-  if (!response.ok) throw new ApiError(response.status, "无法加载智能体列表");
-  return ((await response.json()) as { agents: AgentDto[] }).agents;
+export const listSessions = async (): Promise<SessionDto[]> => {
+  const response = await request("/api/sessions");
+  if (!response.ok) throw new ApiError(response.status, "无法加载会话列表");
+  return ((await response.json()) as { sessions: SessionDto[] }).sessions;
 };
 
-export const createAgent = async (agentId: string): Promise<AgentDto> => {
-  const response = await request("/api/agents", {
+export const createSession = async (title?: string): Promise<SessionDto> => {
+  const response = await request("/api/sessions", {
     method: "POST",
-    body: JSON.stringify({ agentId }),
+    body: JSON.stringify({ title }),
   });
   if (!response.ok) {
     const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
-    throw new ApiError(response.status, failure?.error ?? "创建智能体失败");
+    throw new ApiError(response.status, failure?.error ?? "创建会话失败");
   }
-  return ((await response.json()) as { agent: AgentDto }).agent;
+  return ((await response.json()) as { session: SessionDto }).session;
 };
 
-export const resetAgent = async (
-  agentId: string,
+export const resetSession = async (
+  sessionId: string,
   clearSchedules?: boolean,
-): Promise<ResetAgentDto> => {
-  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/reset`, {
+): Promise<ResetSessionDto> => {
+  const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
     method: "POST",
     body: JSON.stringify({ clearSchedules }),
   });
@@ -180,28 +178,28 @@ export const resetAgent = async (
   return response.json();
 };
 
-export const deleteAgent = async (agentId: string): Promise<DeleteAgentDto> => {
-  const response = await request(`/api/agents/${encodeURIComponent(agentId)}`, {
+export const deleteSession = async (sessionId: string): Promise<DeleteSessionDto> => {
+  const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
     method: "DELETE",
   });
   if (!response.ok) {
     const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
-    throw new ApiError(response.status, failure?.error ?? "删除智能体失败");
+    throw new ApiError(response.status, failure?.error ?? "删除会话失败");
   }
   return response.json();
 };
 
 export const loadHistory = async (
-  agentId: string,
+  sessionId: string,
   signal?: AbortSignal,
 ): Promise<ConversationSnapshotDto> => {
-  const response = await request(`/api/conversation?agentId=${encodeURIComponent(agentId)}`, { signal });
+  const response = await request(`/api/conversation?sessionId=${encodeURIComponent(sessionId)}`, { signal });
   if (!response.ok) throw new ApiError(response.status, "无法加载历史");
   return response.json();
 };
 
-const messageFeedbackBase = (agentId: string, messageId: string) =>
-  `/api/agents/${encodeURIComponent(agentId)}/messages/${encodeURIComponent(messageId)}/feedback`;
+const messageFeedbackBase = (sessionId: string, messageId: string) =>
+  `/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/feedback`;
 
 const feedbackFailure = async (response: Response, action: string): Promise<never> => {
   const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
@@ -209,11 +207,11 @@ const feedbackFailure = async (response: Response, action: string): Promise<neve
 };
 
 export const getMessageFeedback = async (
-  input: { agentId: string; sessionId: string; messageId: string },
+  input: { sessionId: string; piSessionId: string; messageId: string },
   signal?: AbortSignal,
 ): Promise<MessageFeedbackDto> => {
   const response = await request(
-    `${messageFeedbackBase(input.agentId, input.messageId)}?sessionId=${encodeURIComponent(input.sessionId)}`,
+    `${messageFeedbackBase(input.sessionId, input.messageId)}?piSessionId=${encodeURIComponent(input.piSessionId)}`,
     { signal },
   );
   if (!response.ok) await feedbackFailure(response, "读取反馈");
@@ -221,11 +219,11 @@ export const getMessageFeedback = async (
 };
 
 export const getMessageFeedbackEvents = async (
-  input: { agentId: string; sessionId: string; messageId: string },
+  input: { sessionId: string; piSessionId: string; messageId: string },
   signal?: AbortSignal,
 ): Promise<MessageFeedbackEventsDto> => {
   const response = await request(
-    `${messageFeedbackBase(input.agentId, input.messageId)}/events?sessionId=${encodeURIComponent(input.sessionId)}`,
+    `${messageFeedbackBase(input.sessionId, input.messageId)}/events?piSessionId=${encodeURIComponent(input.piSessionId)}`,
     { signal },
   );
   if (!response.ok) await feedbackFailure(response, "读取反馈历史");
@@ -233,43 +231,43 @@ export const getMessageFeedbackEvents = async (
 };
 
 export const setMessageReaction = async (
-  input: { agentId: string; sessionId: string; messageId: string; reaction: "like" | "dislike" | null },
+  input: { sessionId: string; piSessionId: string; messageId: string; reaction: "like" | "dislike" | null },
 ): Promise<MessageFeedbackDto> => {
-  const response = await request(`${messageFeedbackBase(input.agentId, input.messageId)}/reaction`, {
+  const response = await request(`${messageFeedbackBase(input.sessionId, input.messageId)}/reaction`, {
     method: "PUT",
-    body: JSON.stringify({ sessionId: input.sessionId, reaction: input.reaction }),
+    body: JSON.stringify({ piSessionId: input.piSessionId, reaction: input.reaction }),
   });
   if (!response.ok) await feedbackFailure(response, "保存反馈");
   return messageFeedbackResponse.parse(await response.json());
 };
 
 export const addMessageComment = async (
-  input: { agentId: string; sessionId: string; messageId: string; text: string },
+  input: { sessionId: string; piSessionId: string; messageId: string; text: string },
 ): Promise<MessageFeedbackDto> => {
-  const response = await request(messageFeedbackBase(input.agentId, input.messageId) + "/comments", {
+  const response = await request(messageFeedbackBase(input.sessionId, input.messageId) + "/comments", {
     method: "POST",
-    body: JSON.stringify({ sessionId: input.sessionId, text: input.text }),
+    body: JSON.stringify({ piSessionId: input.piSessionId, text: input.text }),
   });
   if (!response.ok) await feedbackFailure(response, "新增评论");
   return messageFeedbackResponse.parse(await response.json());
 };
 
 export const editMessageComment = async (
-  input: { agentId: string; sessionId: string; messageId: string; commentId: string; text: string },
+  input: { sessionId: string; piSessionId: string; messageId: string; commentId: string; text: string },
 ): Promise<MessageFeedbackDto> => {
   const response = await request(
-    `${messageFeedbackBase(input.agentId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}`,
-    { method: "PATCH", body: JSON.stringify({ sessionId: input.sessionId, text: input.text }) },
+    `${messageFeedbackBase(input.sessionId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}`,
+    { method: "PATCH", body: JSON.stringify({ piSessionId: input.piSessionId, text: input.text }) },
   );
   if (!response.ok) await feedbackFailure(response, "编辑评论");
   return messageFeedbackResponse.parse(await response.json());
 };
 
 export const deleteMessageComment = async (
-  input: { agentId: string; sessionId: string; messageId: string; commentId: string },
+  input: { sessionId: string; piSessionId: string; messageId: string; commentId: string },
 ): Promise<MessageFeedbackDto> => {
   const response = await request(
-    `${messageFeedbackBase(input.agentId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}?sessionId=${encodeURIComponent(input.sessionId)}`,
+    `${messageFeedbackBase(input.sessionId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}?piSessionId=${encodeURIComponent(input.piSessionId)}`,
     { method: "DELETE" },
   );
   if (!response.ok) await feedbackFailure(response, "删除评论");
@@ -345,7 +343,7 @@ export const runConversation = async (
 // 任务（定时任务投影）、记忆、身份与 SOUL/USER 管理
 // ---------------------------------------------------------------------------
 
-export const getAgentSnapshot = async (signal?: AbortSignal): Promise<IdentitySnapshotDto> => {
+export const getSessionSnapshot = async (signal?: AbortSignal): Promise<IdentitySnapshotDto> => {
   const response = await request("/api/identity", { signal });
   if (!response.ok) throw new ApiError(response.status, "无法加载工作区");
   return response.json();
@@ -353,14 +351,14 @@ export const getAgentSnapshot = async (signal?: AbortSignal): Promise<IdentitySn
 
 export const listJobs = async (
   query?: {
-    agentId?: string;
+    sessionId?: string;
     sort?: "nextRunAt" | "updatedAt" | "createdAt";
     order?: "asc" | "desc";
   },
   signal?: AbortSignal,
 ): Promise<JobDto[]> => {
   const params = new URLSearchParams();
-  if (query?.agentId) params.set("agentId", query.agentId);
+  if (query?.sessionId) params.set("sessionId", query.sessionId);
   if (query?.sort) params.set("sort", query.sort);
   if (query?.order) params.set("order", query.order);
   const suffix = params.size ? `?${params.toString()}` : "";
@@ -395,7 +393,7 @@ export const controlTask = controlJob;
 
 export const updateJob = async (
   id: string,
-  updates: { prompt?: string; daily?: boolean; at?: string; originAgentId?: string },
+  updates: { prompt?: string; daily?: boolean; at?: string; originSessionId?: string },
 ): Promise<JobDto> => {
   const response = await request(`/api/jobs/${encodeURIComponent(id)}`, {
     method: "PATCH",
@@ -486,22 +484,21 @@ export const saveProfile = async (patch: {
   return response.json();
 };
 
-export const getAgentInstructions = async (agentId: string): Promise<InstructionsDto> => {
-  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/instructions`);
-  if (!response.ok) throw new ApiError(response.status, "无法加载智能体指令");
+export const getSessionInstructions = async (sessionId: string): Promise<InstructionsDto> => {
+  const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}/instructions`);
+  if (!response.ok) throw new ApiError(response.status, "无法加载会话指令");
   return response.json();
 };
 
-export const saveAgentInstructions = async (
-  agentId: string,
+export const saveSessionInstructions = async (
+  sessionId: string,
   instructions: string,
-  purpose?: string,
 ): Promise<InstructionsDto> => {
-  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/instructions`, {
+  const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}/instructions`, {
     method: "PUT",
-    body: JSON.stringify({ instructions, ...(purpose !== undefined ? { purpose } : {}) }),
+    body: JSON.stringify({ instructions }),
   });
-  if (!response.ok) throw new ApiError(response.status, "保存智能体指令失败");
+  if (!response.ok) throw new ApiError(response.status, "保存会话指令失败");
   return response.json();
 };
 
@@ -511,65 +508,25 @@ export const getDreamOverview = async (): Promise<DreamOverviewDto> => {
   return response.json();
 };
 
-export const saveGlobalDreamPrompt = async (globalPrompt: string): Promise<DreamOverviewDto> => {
-  const response = await request("/api/dream", {
-    method: "PUT",
-    body: JSON.stringify({ globalPrompt }),
-  });
-  if (!response.ok) throw new ApiError(response.status, "保存全局 Dream 提示词失败");
+export const updateDream = async (patch: { enabled?: boolean; prompt?: string }): Promise<DreamOverviewDto> => {
+  const response = await request("/api/dream", { method: "PUT", body: JSON.stringify(patch) });
+  if (!response.ok) throw new ApiError(response.status, "保存 Dream 配置失败");
   return response.json();
 };
-
-export const getAgentDream = async (agentId: string): Promise<DreamAgentDto> => {
-  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/dream`);
-  if (!response.ok) throw new ApiError(response.status, "无法加载智能体 Dream 配置");
+export const runDream = async (): Promise<DreamOverviewDto> => {
+  const response = await request("/api/dream/run", { method: "POST", body: "{}" });
+  if (!response.ok) throw new ApiError(response.status, "立即整理失败");
   return response.json();
 };
-
-export const updateAgentDream = async (
-  agentId: string,
-  patch: { enabled?: boolean; inheritGlobalPrompt?: boolean; prompt?: string },
-): Promise<DreamAgentDto> => {
-  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/dream`, {
-    method: "PUT",
-    body: JSON.stringify(patch),
-  });
-  if (!response.ok) throw new ApiError(response.status, "保存智能体 Dream 配置失败");
+export const resolveDreamPending = async (pendingId: string, decision: { action: "apply" | "dismiss"; target?: "user" | "soul" | "instructions" | "memory" }): Promise<DreamOverviewDto> => {
+  const response = await request(`/api/dream/pending/${encodeURIComponent(pendingId)}`, { method: "POST", body: JSON.stringify(decision) });
+  if (!response.ok) throw new ApiError(response.status, "处理建议失败");
   return response.json();
 };
-
-export const runAgentDream = async (agentId: string): Promise<DreamAgentDto> => {
-  const response = await request(`/api/agents/${encodeURIComponent(agentId)}/dream/run`, {
-    method: "POST",
-    body: "{}",
-  });
-  if (!response.ok) {
-    const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
-    throw new ApiError(response.status, failure?.error ?? "立即整理失败");
-  }
-  return response.json();
-};
-
-export const resolveAgentDreamPending = async (
-  agentId: string,
-  pendingId: string,
-  decision: {
-    action: "apply" | "dismiss";
-    target?: "user" | "soul" | "instructions" | "memory";
-  },
-): Promise<DreamAgentDto> => {
-  const response = await request(
-    `/api/agents/${encodeURIComponent(agentId)}/dream/pending/${encodeURIComponent(pendingId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify(decision),
-    },
-  );
-  if (!response.ok) {
-    const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
-    throw new ApiError(response.status, failure?.error ?? "处理待决建议失败");
-  }
-  return response.json();
+export const renameSession = async (sessionId: string, title: string): Promise<SessionDto> => {
+  const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "PATCH", body: JSON.stringify({ title }) });
+  if (!response.ok) throw new ApiError(response.status, "改名失败");
+  return ((await response.json()) as { session: SessionDto }).session;
 };
 
 // ---------------------------------------------------------------------------
@@ -691,12 +648,12 @@ export const listPendingApprovals = async (signal?: AbortSignal): Promise<Approv
 // 网页监控
 // ---------------------------------------------------------------------------
 export const listMonitors = async (query?: {
-  agentId?: string;
+  sessionId?: string;
   sort?: "createdAt" | "lastCheckedAt" | "status";
   order?: "asc" | "desc";
 }): Promise<MonitorDto[]> => {
   const params = new URLSearchParams();
-  if (query?.agentId) params.set("agentId", query.agentId);
+  if (query?.sessionId) params.set("sessionId", query.sessionId);
   if (query?.sort) params.set("sort", query.sort);
   if (query?.order) params.set("order", query.order);
   const qs = params.toString();
@@ -718,7 +675,7 @@ export const createMonitor = async (input: {
   value?: string;
   title?: string;
   intervalMinutes?: number;
-  originAgentId?: string;
+  originSessionId?: string;
 }): Promise<MonitorDto> => {
   const response = await request("/api/monitors", {
     method: "POST",
@@ -748,7 +705,7 @@ export const updateMonitor = async (
     condition?: "change" | "contains";
     value?: string;
     intervalMinutes?: number;
-    originAgentId?: string;
+    originSessionId?: string;
   },
 ): Promise<MonitorDto> => {
   const response = await request(`/api/monitors/${id}`, {
@@ -769,7 +726,7 @@ export const deleteMonitor = async (id: string): Promise<{ ok: true; id: string 
 
 export type WorkspaceEvent =
   | { type: "ready"; data: ReadyEventDto }
-  | { type: "agent_status_updated"; data: AgentStatusUpdatedEventDto }
+  | { type: "session_status_updated"; data: SessionStatusUpdatedEventDto }
   | { type: "approval_pending"; data: ApprovalPendingEventDto }
   | { type: "approval_updated"; data: ApprovalUpdatedEventDto }
   | { type: "activity_updated"; data: ActivityUpdatedEventDto }
@@ -835,10 +792,10 @@ export const subscribeWorkspaceEvents = async (
             event = { type: "ready", data: parsed.data };
             break;
           }
-          case "agent_status_updated": {
-            const parsed = workspaceEvents.agent_status_updated.safeParse(payload);
+          case "session_status_updated": {
+            const parsed = workspaceEvents.session_status_updated.safeParse(payload);
             if (!parsed.success) throw invalid();
-            event = { type: "agent_status_updated", data: parsed.data };
+            event = { type: "session_status_updated", data: parsed.data };
             break;
           }
           case "approval_pending": {
@@ -883,7 +840,20 @@ export const subscribeWorkspaceEvents = async (
 };
 
 /** 显式停止必须等待服务端完成取消，随后读取的 revision 才是稳定终态。 */
-export const stopConversation = async (agentId: string, runId: string, signal?: AbortSignal): Promise<void> => {
-  const response = await request("/api/conversation/stop", { method: "POST", signal, body: JSON.stringify({ agentId, runId }) });
+export const stopConversation = async (sessionId: string, runId: string, signal?: AbortSignal): Promise<void> => {
+  const response = await request("/api/conversation/stop", { method: "POST", signal, body: JSON.stringify({ sessionId, runId }) });
   if (!response.ok) throw new ApiError(response.status, "停止失败，请重试");
+};
+
+export type { NewsArticleDto } from "../../../src/http/contracts/news.js";
+export const listNews = async (view: "all" | "recommended", cursor?: string, signal?: AbortSignal): Promise<import("../../../src/http/contracts/news.js").NewsArticleListDto> => {
+  const query = new URLSearchParams({ view });
+  if (cursor) query.set("cursor", cursor);
+  const response = await request(`/api/news/articles?${query}`, { signal });
+  if (!response.ok) throw new ApiError(response.status, "无法读取新闻");
+  return response.json();
+};
+export const refreshNews = async (): Promise<void> => {
+  const response = await request("/api/news/refresh", { method: "POST", body: "{}" });
+  if (!response.ok) throw new ApiError(response.status, "抓取失败；请检查新闻状态，不自动重发");
 };

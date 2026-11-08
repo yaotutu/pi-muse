@@ -23,7 +23,7 @@ const fixture = async (t: TestContext) => {
   });
   assert.equal(response.status, 200);
   const { token } = await response.json();
-  return { service, model, token: token as string, client: createTestClient(() => service!.baseUrl, token) };
+  return { service, model, token: token as string, client: createTestClient(() => service!.baseUrl, token, 45_000, t.signal) };
 };
 const terminalSuccess = (events: { type: string }[]) => assert.equal(events.at(-1)?.type, "RUN_FINISHED");
 const userText = (value: unknown) => typeof value === "string" ? value : Array.isArray(value) ? value.map((item) => item.text ?? "").join("") : "";
@@ -40,38 +40,38 @@ test("e2e: built entry authenticates, streams tools, persists state and restarts
   assert.equal(health.serviceVersion.mode, "build");
   assert.deepEqual(health.serviceVersion, spec["x-service-version"]);
   assert.equal(spec.paths["/api/agent/tasks"], undefined);
-  assert.equal((await client.request("/api/agent/tasks", { prompt: "legacy must not execute" })).status, 501);
+  assert.equal((await client.request("/api/agent/tasks", { prompt: "legacy must not execute" })).status, 404);
   assert.match(await (await client.request("/docs")).text(), /scalar\.js/);
-  const timeEvents = await client.run("现在几点", "e2e-main");
+  const timeEvents = await client.run("现在几点", "main");
   terminalSuccess(timeEvents);
   assert.ok(timeEvents.some((event) => event.type === "TOOL_CALL_START" && event.toolCallName === "currentTime"));
-  await client.run("记住E2E记忆", "e2e-main");
+  await client.run("记住E2E记忆", "main");
   const snapshot = identitySnapshot.parse(await client.json("/api/identity"));
   const memoriesList = (await client.json("/api/memories")) as { memories: Array<{ id: string; text: string }> };
   assert.ok(memoriesList.memories.some((memory) => memory.text.includes("E2E记忆")));
   assert.equal(Object.hasOwn(snapshot, "worker"), false);
-  await client.json("/api/agents/e2e-main/instructions", { instructions: "E2E-INSTRUCTIONS" }, "PUT");
-  const before = await client.history("e2e-main");
+  await client.json("/api/sessions/main/instructions", { instructions: "E2E-INSTRUCTIONS" }, "PUT");
+  const before = await client.history("main");
   await service.restart();
-  assert.deepEqual(await client.history("e2e-main"), before);
+  assert.deepEqual(await client.history("main"), before);
   assert.equal((await client.request("/api/identity")).status, 200, "auth.key and token survive process restart");
-  assert.equal(await readFile(join(service.dataDir, "sessions/e2e-main/INSTRUCTIONS.md"), "utf8"), "E2E-INSTRUCTIONS\n");
+  assert.equal(await readFile(join(service.dataDir, "sessions/main/INSTRUCTIONS.md"), "utf8"), "E2E-INSTRUCTIONS\n");
   assert.equal(typeof token, "string");
-  terminalSuccess(await client.run("hello after restart", "e2e-main"));
-  assert.match(JSON.stringify(await client.history("e2e-main")), /after restart/);
+  terminalSuccess(await client.run("hello after restart", "main"));
+  assert.match(JSON.stringify(await client.history("main")), /after restart/);
 });
 
 test("e2e: parent dispatches single, concurrent and chained subagents without a second task queue", { timeout: 90_000 }, async (t) => {
   const { service, model, client } = await fixture(t);
-  terminalSuccess(await client.run("E2E single", "e2e-subagent"));
+  terminalSuccess(await client.run("E2E single", "main"));
   const parallelStart = model.requests.length;
-  terminalSuccess(await client.run("E2E parallel", "e2e-subagent"));
+  terminalSuccess(await client.run("E2E parallel", "main"));
   const parallelChildren = model.requests.map((request, index) => ({ request, timing: model.requestTimings[index], index }))
     .filter(({ request, index }) => index >= parallelStart && childRequest(request) && !request.messages.some((message) => message.role === "tool"));
   assert.equal(parallelChildren.length, 2);
   assert.ok(Math.max(...parallelChildren.map(({ timing }) => timing.startedAt)) < Math.min(...parallelChildren.map(({ timing }) => timing.endedAt!)), "two provider requests must actually overlap");
   const chainStart = model.requests.length;
-  terminalSuccess(await client.run("E2E chain", "e2e-subagent"));
+  terminalSuccess(await client.run("E2E chain", "main"));
   const chainChildren = model.requests.slice(chainStart).filter(childRequest);
   assert.equal(chainChildren.length, 2);
   assert.ok(chainChildren.some((request) => request.messages.some((message) => message.role === "user" && userText(message.content) === "Task: E2E previous E2E-CHAIN-SEED")));
@@ -82,30 +82,29 @@ test("e2e: parent dispatches single, concurrent and chained subagents without a 
   }
   assert.ok((await readdir(join(service.dataDir, "sessions"))).every((name) => !name.startsWith("subagent-")));
   await assert.rejects(stat(join(service.dataDir, "tasks.json")), { code: "ENOENT" });
-  await client.json("/api/agents/e2e-subagent/skills", { overrides: { task: false } }, "PUT");
+  await client.json("/api/sessions/main/skills", { overrides: { task: false } }, "PUT");
   const disabledStart = model.requests.length;
-  terminalSuccess(await client.run("plain check", "e2e-subagent"));
+  terminalSuccess(await client.run("plain check", "main"));
   assert.ok(!(model.requests[disabledStart].tools as { function: { name: string } }[]).some((tool) => tool.function.name === "subagent"));
 });
 
 for (const decision of ["approve", "deny", "cancel"] as const) {
   test(`e2e: subagent file approval ${decision} preserves ownership and filesystem truth`, { timeout: 90_000 }, async (t) => {
     const { service, client } = await fixture(t);
-    const running = await client.startRun("请子代理写入", "e2e-approval");
+    const running = await client.startRun("请子代理写入", "main");
     // 主同步来源仍为 SSE ready 的完整集合，HTTP pending 只是补充只读入口。
     const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval");
-    assert.equal(action.agentId, running.agentId);
+    assert.equal(action.sessionId, running.sessionId);
     assert.equal(action.revision, 1);
     assert.match(action.preview.after, /DRAFT-CONTENT/);
     assert.equal(action.preview.path, "draft.md");
     assert.equal(action.preview.before, "");
     assert.equal(action.preview.beforeExists, false);
-    const childDir = (await readdir(join(service.dataDir, "workspace/agents"))).find((name) => name.startsWith("subagent-"));
-    assert.ok(childDir);
-    const target = join(service.dataDir, "workspace/agents", childDir, "draft.md");
+    assert.deepEqual(await readdir(join(service.dataDir,"workspace")),[]);
+    const target=join(service.dataDir,"workspace","draft.md");
     await assert.rejects(stat(target), { code: "ENOENT" });
     if (decision === "cancel") {
-      assert.equal((await client.json("/api/conversation/stop", { agentId: running.agentId, runId: running.runId })).stopped, true);
+      assert.equal((await client.json("/api/conversation/stop", { sessionId: running.sessionId, runId: running.runId })).stopped, true);
       const events = await running.done;
       assert.equal(events.at(-1)?.type, "RUN_ERROR");
     } else {
@@ -129,20 +128,20 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     assert.equal(Object.hasOwn(page.approvals[0], "preview"), false);
     assert.equal(page.hasMore, false);
     assert.equal(page.nextCursor, null);
-    terminalSuccess(await client.run("现在几点", running.agentId));
+    terminalSuccess(await client.run("现在几点", running.sessionId));
   });
 }
 
 test("e2e: Stop interrupts the child model and real slow HTTP socket, then the same agent remains usable", { timeout: 90_000 }, async (t) => {
   const { model, client } = await fixture(t);
   const started = model.requests.length;
-  const child = await client.startRun("请子代理挂起", "e2e-stop");
+  const child = await client.startRun("请子代理挂起", "main");
   await waitForTest(() => model.requests.length >= started + 2, "child provider request");
   const closedBefore = model.slowClosed();
-  assert.equal((await client.json("/api/conversation/stop", { agentId: child.agentId, runId: child.runId })).stopped, true);
+  assert.equal((await client.json("/api/conversation/stop", { sessionId: child.sessionId, runId: child.runId })).stopped, true);
   assert.equal((await child.done).at(-1)?.type, "RUN_ERROR");
   await waitForTest(() => model.slowClosed() > closedBefore, "child provider disconnect");
-  terminalSuccess(await client.run("现在几点", child.agentId));
+  terminalSuccess(await client.run("现在几点", child.sessionId));
   let entered = false;
   let closed = false;
   const server = createServer((_request, response) => {
@@ -153,33 +152,33 @@ test("e2e: Stop interrupts the child model and real slow HTTP socket, then the s
   t.after(async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); });
   server.listen(0, "127.0.0.1"); await once(server, "listening");
   const address = server.address(); assert.ok(address && typeof address !== "string");
-  const web = await client.startRun(`E2E child-web http://127.0.0.1:${address.port}/slow`, child.agentId);
+  const web = await client.startRun(`E2E child-web http://127.0.0.1:${address.port}/slow`, child.sessionId);
   await waitForTest(() => entered, "child real HTTP socket");
   const stopStart = Date.now();
-  assert.equal((await client.json("/api/conversation/stop", { agentId: web.agentId, runId: web.runId })).stopped, true);
+  assert.equal((await client.json("/api/conversation/stop", { sessionId: web.sessionId, runId: web.runId })).stopped, true);
   assert.equal((await web.done).at(-1)?.type, "RUN_ERROR");
   await waitForTest(() => closed, "slow socket closed", 3000);
   assert.ok(Date.now() - stopStart < 3000, "must not wait for web transport timeout");
-  terminalSuccess(await client.run("现在几点", web.agentId));
+  terminalSuccess(await client.run("现在几点", web.sessionId));
 });
 
-test("e2e: private workspaces stay isolated and deleted agents do not revive on reads or late Stop", { timeout: 90_000 }, async (t) => {
-  const { service, client } = await fixture(t);
-  await client.json("/api/agents/e2e-owner/instructions", { instructions: "owner" }, "PUT");
-  await client.json("/api/agents/e2e-other/instructions", { instructions: "other" }, "PUT");
-  await writeFile(join(service.dataDir, "workspace/agents/e2e-owner/private.md"), "OWNER-PRIVATE");
-  await writeFile(join(service.dataDir, "workspace/shared/shared.md"), "SHARED-OK");
-  const missing = await client.run("读 private.md", "e2e-other");
-  assert.ok(!JSON.stringify(missing).includes("OWNER-PRIVATE"));
-  const shared = await client.run("读 shared/shared.md", "e2e-other");
-  assert.match(shared.filter((event) => event.type === "TEXT_MESSAGE_CONTENT").map((event) => event.delta).join(""), /SHARED-OK/);
-  terminalSuccess(await client.run("hello", "e2e-owner"));
-  const remove = await client.json("/api/agents/e2e-owner", undefined, "DELETE");
-  assert.deepEqual(remove.removed, { jobs: 0, monitors: 0 });
-  assert.deepEqual(await client.history("e2e-owner"), { sessionId: null, messages: [], revision: "empty" });
-  assert.deepEqual(await client.json("/api/conversation/stop", { agentId: "e2e-owner", runId: "late" }), { stopped: false });
-  assert.ok(!(await client.json("/api/agents")).agents.some((agent: { id: string }) => agent.id === "e2e-owner"));
-  await assert.rejects(stat(join(service.dataDir, "sessions/e2e-owner")), { code: "ENOENT" });
+test("e2e: chat contexts are isolated, files are global and deleted sessions never revive", {timeout:90_000}, async(t)=>{
+  const {service,client}=await fixture(t);
+  const owner=await client.createSession("owner");const other=await client.createSession("other");
+  await client.json(`/api/sessions/${owner.id}/instructions`,{instructions:"OWNER-CONTEXT"},"PUT");
+  await writeFile(join(service.dataDir,"workspace","common.md"),"COMMON-WORKSPACE");
+  const read=await client.run("读 common.md",other.id);
+  assert.match(JSON.stringify(read),/COMMON-WORKSPACE/);
+  terminalSuccess(await client.run("hello owner",owner.id));
+  assert.doesNotMatch(JSON.stringify(await client.history(other.id)),/hello owner/);
+  const removed=await client.json(`/api/sessions/${owner.id}`,undefined,"DELETE");
+  assert.deepEqual(removed,{ok:true,removed:{sessions:1}});
+  assert.deepEqual(await client.history(owner.id),{sessionId:owner.id,piSessionId:null,messages:[],revision:"empty"});
+  assert.deepEqual(await client.json("/api/conversation/stop",{sessionId:owner.id,runId:"late"}),{stopped:false});
+  assert.ok(!(await client.json("/api/sessions")).sessions.some((s:{id:string})=>s.id===owner.id));
+  await assert.rejects(stat(join(service.dataDir,"sessions",owner.id)),{code:"ENOENT"});
+  assert.equal(await readFile(join(service.dataDir,"workspace","common.md"),"utf8"),"COMMON-WORKSPACE");
+  assert.deepEqual(await readdir(join(service.dataDir,"workspace")),["common.md"]);
 });
 
 test("e2e: workspace named SSE pushes ready state and real run status without memory invalidation frames", { timeout: 90_000 }, async (t) => {
@@ -192,20 +191,20 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
   const ready = workspaceEvents.ready.parse(readyFrame!.data);
   assert.equal(typeof ready.instanceId, "string");
   assert.ok(Number.isFinite(Date.parse(ready.serverTime)));
-  assert.deepEqual(ready.agentStatuses, []);
-  assert.deepEqual(ready.agentPresences, []);
+  assert.deepEqual(ready.sessionStatuses, []);
+  assert.deepEqual(ready.sessionPresences, []);
   assert.deepEqual(ready.pendingApprovals, []);
-  // 真实 run 期间必须收到 agent_status_updated（含终态），事件本身按各自 schema 校验。
-  const running = await client.startRun("现在几点", "e2e-events");
+  // 真实 run 期间必须收到 session_status_updated（含终态），事件本身按各自 schema 校验。
+  const running = await client.startRun("现在几点", "main");
   // 从事件流中取本轮终态帧；帧本身用契约 schema 校验，证明推送的是可展示状态而非空通知。
   const terminal = await (async () => {
     for (;;) {
       const frame = await stream.next();
       assert.ok(frame, "event stream ended before the run terminal status");
-      assert.ok(["agent_status_updated", "agent_presence_updated", "approval_pending", "approval_updated"].includes(frame.event), `unexpected event ${frame.event}`);
-      if (frame.event === "agent_presence_updated") workspaceEvents.agent_presence_updated.parse(frame.data);
-      if (frame.event === "agent_status_updated") {
-        const status = workspaceEvents.agent_status_updated.parse(frame.data);
+      assert.ok(["session_status_updated", "session_presence_updated", "approval_pending", "approval_updated"].includes(frame.event), `unexpected event ${frame.event}`);
+      if (frame.event === "session_presence_updated") workspaceEvents.session_presence_updated.parse(frame.data);
+      if (frame.event === "session_status_updated") {
+        const status = workspaceEvents.session_status_updated.parse(frame.data);
         if (status.runId === running.runId && status.status !== "running") return status;
       }
     }
@@ -215,32 +214,32 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
   assert.ok(terminal.endedAt);
   // 记忆写入不再发失效通知；下一条业务帧应属于新 run 而不是 memory/workspace_updated。
   await client.json("/api/memories", { text: "SSE-E2E" });
-  const nextRun = await client.startRun("现在几点", "e2e-events");
+  const nextRun = await client.startRun("现在几点", "main");
   let next = await stream.next();
-  while (next?.event === "agent_presence_updated") {
-    workspaceEvents.agent_presence_updated.parse(next.data);
+  while (next?.event === "session_presence_updated") {
+    workspaceEvents.session_presence_updated.parse(next.data);
     next = await stream.next();
   }
-  assert.equal(next?.event, "agent_status_updated");
-  assert.equal(workspaceEvents.agent_status_updated.parse(next!.data).runId, nextRun.runId);
+  assert.equal(next?.event, "session_status_updated");
+  assert.equal(workspaceEvents.session_status_updated.parse(next!.data).runId, nextRun.runId);
   // 排空本轮其余状态帧直到终态，避免把遗留增量误当作断流后的 EOF。
   for (;;) {
     const frame = await stream.next();
     assert.ok(frame);
-    if (frame.event !== "agent_status_updated") continue;
-    const status = workspaceEvents.agent_status_updated.parse(frame.data);
+    if (frame.event !== "session_status_updated") continue;
+    const status = workspaceEvents.session_status_updated.parse(frame.data);
     if (status.runId === nextRun.runId && status.status !== "running") break;
   }
   terminalSuccess(await nextRun.done);
   const spec = await client.json("/openapi.json");
   assert.deepEqual(Object.keys(spec.paths["/api/events"].get.responses["200"]["x-sse-events"]).sort(),
-    ["activity_updated", "agent_presence_updated", "agent_status_updated", "approval_pending", "approval_updated", "conversation_updated", "ready"]);
+    ["activity_updated", "session_presence_updated", "session_status_updated", "approval_pending", "approval_updated", "conversation_updated", "ready"].sort());
   // 结束服务应关闭长连接，客户端读到 EOF。
   await service.stop();
   // 运行终态后还可能有最新的空闲头像帧；必须校验后排空，而非把它误认成额外业务操作。
   for (let remaining = await stream.next(); remaining; remaining = await stream.next()) {
-    assert.equal(remaining.event, "agent_presence_updated");
-    assert.equal(workspaceEvents.agent_presence_updated.parse(remaining.data).state, "idle");
+    assert.equal(remaining.event, "session_presence_updated");
+    assert.equal(workspaceEvents.session_presence_updated.parse(remaining.data).state, "idle");
   }
   assert.equal(await stream.next(), null);
 });
@@ -250,7 +249,7 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   const first = await client.subscribeEvents();
   t.after(async () => { await first.close(); });
   assert.deepEqual(workspaceEvents.ready.parse((await first.next())!.data).pendingApprovals, []);
-  const running = await client.startRun("帮我写入草稿", "e2e-sse-approval");
+  const running = await client.startRun("帮我写入草稿", "main");
   let pending: ReturnType<typeof workspaceEvents.approval_pending.parse> | undefined;
   let waiting: { pendingApprovalIds: string[]; phase: string | null } | undefined;
   for (;;) {
@@ -259,8 +258,8 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
     if (frame.event === "approval_pending") {
       const approval = workspaceEvents.approval_pending.parse(frame.data);
       if (approval.runId === running.runId) pending = approval;
-    } else if (frame.event === "agent_status_updated") {
-      const status = workspaceEvents.agent_status_updated.parse(frame.data);
+    } else if (frame.event === "session_status_updated") {
+      const status = workspaceEvents.session_status_updated.parse(frame.data);
       if (status.runId === running.runId && status.phase === "waiting_approval") waiting = status;
     }
     if (pending && waiting) break;
@@ -268,8 +267,7 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   assert.equal(pending.revision, 1);
   assert.equal(pending.status, "pending");
   assert.equal(pending.preview.path, "draft.md");
-  assert.equal(pending.preview.scope, "agent");
-  assert.equal(pending.preview.ownerAgentId, running.agentId);
+  assert.equal(pending.preview.scope, "workspace");
   assert.match(pending.preview.after, /DRAFT-CONTENT/);
   assert.ok(waiting.pendingApprovalIds.includes(pending.id));
   // HTTP 完整视图与 SSE 推送是同一 id、同一 revision、同一不可变预览。
@@ -283,7 +281,7 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   t.after(async () => { await second.close(); });
   const reconnected = workspaceEvents.ready.parse((await second.next())!.data);
   assert.deepEqual(reconnected.pendingApprovals.map((item) => [item.id, item.revision]), [[pending.id, 1]]);
-  assert.deepEqual(reconnected.agentStatuses.map((item) => item.runId), [running.runId]);
+  assert.deepEqual(reconnected.sessionStatuses.map((item) => item.runId), [running.runId]);
   assert.equal((await client.decideApproval(pending.id, "approve")).status, 200);
   let settled: ReturnType<typeof workspaceEvents.approval_updated.parse> | undefined;
   let terminal: { status: string; endedAt: string | null } | undefined;
@@ -293,8 +291,8 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
     if (frame.event === "approval_updated") {
       const approval = workspaceEvents.approval_updated.parse(frame.data);
       if (approval.id === pending.id) settled = approval;
-    } else if (frame.event === "agent_status_updated") {
-      const status = workspaceEvents.agent_status_updated.parse(frame.data);
+    } else if (frame.event === "session_status_updated") {
+      const status = workspaceEvents.session_status_updated.parse(frame.data);
       if (status.runId === running.runId && status.status !== "running") terminal = status;
     }
     if (settled && terminal) break;
@@ -309,12 +307,12 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   terminalSuccess(await running.done);
   assert.equal(terminal.status, "succeeded");
   // 本轮新增输出与落盘结果都可读；断线后运行终态仍能通过 GET /api/runs/status 取回。
-  const history = await client.history(running.agentId);
+  const history = await client.history(running.sessionId);
   assert.match(JSON.stringify(history), /DRAFT-CONTENT|write reply:/);
-  assert.equal(await readFile(join(service.dataDir, "workspace/agents/e2e-sse-approval/draft.md"), "utf8"),
+  assert.equal(await readFile(join(service.dataDir, "workspace/draft.md"), "utf8"),
     pending.preview.after);
   await second.close();
-  const final = await client.json(`/api/runs/status?agentId=${encodeURIComponent(running.agentId)}&runId=${encodeURIComponent(running.runId)}`);
+  const final = await client.json(`/api/runs/status?sessionId=${encodeURIComponent(running.sessionId)}&runId=${encodeURIComponent(running.runId)}`);
   assert.equal(final.status.status, "succeeded");
   assert.equal(final.status.endedAt, terminal.endedAt);
   assert.deepEqual(final.status.pendingApprovalIds, []);

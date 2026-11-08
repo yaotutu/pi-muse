@@ -1,3 +1,4 @@
+import { informationStateSchema } from "./information-repository.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -26,6 +27,7 @@ const sourceSchema = z.strictObject({
 });
 
 const stateSchema = z.strictObject({
+  processing: informationStateSchema,
   schemaVersion: z.literal(1),
   sources: z.array(sourceSchema),
   lastRefreshedAt: z.string().datetime().nullable(),
@@ -54,7 +56,7 @@ export const createNewsRepository = (file: string): NewsRepository => {
     read: () => serialized(() => read(file)),
     update: (change) => serialized(async () => {
       const current = await read(file);
-      const changed = change(current);
+      const changed = await change(current);
       if (changed.state) {
         const validated = parse(changed.state);
         await mkdir(dirname(file), { recursive: true, mode: 0o700 });

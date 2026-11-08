@@ -16,8 +16,8 @@ const newPending = (overrides: Partial<PendingAction> = {}): PendingAction => ({
   payload: { path: "notes.md", originalContent: "", content: "hello", beforeExists: "true", baseVersion: "v1" },
   status: "pending", revision: 1,
   createdAt: "2026-01-01T00:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", resolvedAt: null, decidedAt: null,
-  agentId: "local-main", runId: "run-1", toolCallId: "tc-1", subagentId: null,
-  workspaceAgentId: "local-main", activityId: null,
+  sessionId: "main", runId: "run-1", toolCallId: "tc-1", subagentId: null,
+  activityId: null,
   ...overrides,
 });
 
@@ -27,7 +27,7 @@ const resolvePending = (pending: PendingAction, status: "approved" | "denied" | 
 });
 
 const expectedPreview = {
-  scope: "agent", ownerAgentId: "local-main", path: "notes.md", before: "", after: "hello", beforeExists: true,
+  scope: "workspace", path: "notes.md", before: "", after: "hello", beforeExists: true,
 };
 
 type Frame = { event: string | null; data: any; raw: string };
@@ -83,19 +83,19 @@ const open = async (events: WorkspaceEvents) => {
 test("presence: recovered approvals keep recency and waiting belongs to the executing workspace", () => {
   const oldTime = "2026-01-01T00:00:00.000Z";
   let saves = 0;
-  const events = createWorkspaceEvents({ initial: { "sms-internal": oldTime }, save: () => { saves++; } });
+  const events = createWorkspaceEvents({ initial: { "main": oldTime }, save: () => { saves++; } });
   try {
-    const approval = newPending({ agentId: "local-main", workspaceAgentId: "sms-internal" });
+    const approval = newPending({ sessionId: "main", });
     events.seedApprovals([approval]);
-    assert.deepEqual(events.presence.current(), [{ agentId: "sms-internal", state: "waiting", label: "等待你审批文件修改", lastActiveAt: oldTime }]);
+    assert.deepEqual(events.presence.current(), [{ sessionId: "main", state: "waiting", label: "等待你审批文件修改", lastActiveAt: oldTime }]);
     events.approvalChanged(approval);
     assert.equal(saves, 0, "恢复和重复审批阶段不能改变活动顺序");
     events.approvalChanged(resolvePending(approval, "denied"));
     assert.equal(events.presence.current()[0].state, "idle");
     assert.equal(events.presence.current()[0].lastActiveAt, oldTime);
-    events.approvalChanged(newPending({ id: "approval-new", workspaceAgentId: "sms-internal" }));
+    events.approvalChanged(newPending({ id: "approval-new", }));
     assert.equal(saves, 1, "真正新增待办才更新活动时间");
-    assert.equal(events.presence.current().some((item) => item.agentId === "local-main"), false);
+    assert.equal(events.presence.current().some((item) => item.sessionId === "main" && item.state === "waiting"), true);
   } finally { events.close(); }
 });
 
@@ -105,19 +105,19 @@ test("unit: no legacy invalidate; throwing subscriber is dropped; copies are iso
   const seen: WorkspaceUpdate[] = [];
   let badCalls = 0;
   events.subscribe({ notify: () => { badCalls++; throw new Error("boom"); }, close: () => {} });
-  events.subscribe({ notify: (event) => { if (event.event === "agent_status_updated") seen.push(event); }, close: () => {} });
-  const run = events.beginRun({ agentId: "local-main", runId: "run-copy", source: "chat" });
+  events.subscribe({ notify: (event) => { if (event.event === "session_status_updated") seen.push(event); }, close: () => {} });
+  const run = events.beginRun({ sessionId: "main", runId: "run-copy", source: "chat" });
   assert.equal(badCalls, 1); // 坏订阅者只被调用一次，随后被移除
 
   const first = seen[0];
-  assert.equal(first.event, "agent_status_updated");
-  if (first.event !== "agent_status_updated") return;
+  assert.equal(first.event, "session_status_updated");
+  if (first.event !== "session_status_updated") return;
   first.status.label = "mutated";
   first.status.tools.push({ toolCallId: "injected", name: "x", label: "x", status: "running", subagentId: null });
   run.observe({ kind: "tool", phase: "start", toolCallId: "tc-1", name: "write", subagentId: null });
   const second = seen[1];
-  assert.equal(second.event, "agent_status_updated");
-  if (second.event !== "agent_status_updated") return;
+  assert.equal(second.event, "session_status_updated");
+  if (second.event !== "session_status_updated") return;
   assert.notEqual(second.status.label, "mutated");
   assert.deepEqual(second.status.tools.map((tool) => tool.toolCallId), ["tc-1"]);
 
@@ -132,7 +132,7 @@ test("unit: a finished run stays terminal and stops publishing", () => {
   const events = createWorkspaceEvents();
   const seen: WorkspaceUpdate[] = [];
   events.subscribe({ notify: (event) => seen.push(event), close: () => {} });
-  const run = events.beginRun({ agentId: "local-main", runId: "run-done", source: "chat" });
+  const run = events.beginRun({ sessionId: "main", runId: "run-done", source: "chat" });
   run.observe({ kind: "tool", phase: "start", toolCallId: "tc-1", name: "write", subagentId: null });
   const terminal = run.finish("succeeded");
   assert.deepEqual([terminal.status, terminal.phase, terminal.tools.length, terminal.endedAt !== null, events.current().length],
@@ -148,7 +148,7 @@ test("unit: a finished run stays terminal and stops publishing", () => {
 
 test("unit: pending approvals put the parent tool and subagent into waiting_approval", () => {
   const events = createWorkspaceEvents();
-  const run = events.beginRun({ agentId: "local-main", runId: "run-wait", source: "chat" });
+  const run = events.beginRun({ sessionId: "main", runId: "run-wait", source: "chat" });
   run.observe({ kind: "tool", phase: "start", toolCallId: "tc-parent", name: "write", subagentId: null });
   run.observe({ kind: "subagent", phase: "start", id: "sub-1", role: "worker" });
   const parent = newPending({ id: "approval-parent", runId: "run-wait", toolCallId: "tc-parent" });
@@ -176,13 +176,13 @@ test("routes: ready is the complete empty snapshot with instanceId", async () =>
   assert.equal(ready.event, "ready");
   assert.equal(ready.data.instanceId, events.instanceId);
   assert.match(ready.data.serverTime, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-  assert.deepEqual([ready.data.agentStatuses, ready.data.pendingApprovals], [[], []]);
+  assert.deepEqual([ready.data.sessionStatuses, ready.data.pendingApprovals], [[], []]);
   await sse.close();
 });
 
 test("routes: ready carries the full existing run and pending approval snapshot", async () => {
   const events = createWorkspaceEvents();
-  const run = events.beginRun({ agentId: "local-main", runId: "run-ready", source: "chat" });
+  const run = events.beginRun({ sessionId: "main", runId: "run-ready", source: "chat" });
   run.observe({ kind: "tool", phase: "start", toolCallId: "tc-1", name: "write", subagentId: null });
   const pending = newPending({ id: "approval-ready", runId: "run-ready", toolCallId: "tc-1" });
   events.seedApprovals([pending]);
@@ -190,7 +190,7 @@ test("routes: ready carries the full existing run and pending approval snapshot"
   const [ready] = await sse.take(1);
   assert.equal(ready.event, "ready");
   assert.equal(ready.data.instanceId, events.instanceId);
-  assert.deepEqual(ready.data.agentStatuses, [run.snapshot()]);
+  assert.deepEqual(ready.data.sessionStatuses, [run.snapshot()]);
   const view = ready.data.pendingApprovals[0];
   assert.deepEqual([view.id, view.revision, view.status, view.title, view.kind],
     [pending.id, 1, "pending", pending.title, pending.kind]);
@@ -201,15 +201,15 @@ test("routes: ready carries the full existing run and pending approval snapshot"
 
 test("routes: status exposes tool name/hidden, subagent lifecycle, increasing revisions", async () => {
   const events = createWorkspaceEvents();
-  const run = events.beginRun({ agentId: "local-main", runId: "run-status", source: "chat" });
+  const run = events.beginRun({ sessionId: "main", runId: "run-status", source: "chat" });
   const sse = await open(events);
   await sse.take(1); // ready
 
   const revisions: number[] = [];
   const nextStatus = async () => {
-    const frame = (await sse.until("agent_status_updated"))!;
-    assert.equal(frame.event, "agent_status_updated");
-    assert.deepEqual([frame.data.instanceId, frame.data.agentId, frame.data.runId], [events.instanceId, "local-main", "run-status"]);
+    const frame = (await sse.until("session_status_updated"))!;
+    assert.equal(frame.event, "session_status_updated");
+    assert.deepEqual([frame.data.instanceId, frame.data.sessionId, frame.data.runId], [events.instanceId, "main", "run-status"]);
     revisions.push(frame.data.revision);
     return frame.data;
   };
@@ -245,7 +245,7 @@ test("routes: status exposes tool name/hidden, subagent lifecycle, increasing re
 
 test("routes: approval_pending is full, terminal is lightweight, status waits correctly", async () => {
   const events = createWorkspaceEvents();
-  const run = events.beginRun({ agentId: "local-main", runId: "run-approval", source: "chat" });
+  const run = events.beginRun({ sessionId: "main", runId: "run-approval", source: "chat" });
   run.observe({ kind: "tool", phase: "start", toolCallId: "tc-1", name: "write", subagentId: null });
   const sse = await open(events);
   const [ready] = await sse.take(1);
@@ -289,7 +289,7 @@ test("routes: approval registered during subscribe appears in ready and its fram
   const [ready] = await sse.take(1);
   assert.equal(ready.event, "ready");
   assert.deepEqual(ready.data.pendingApprovals.map((item: any) => item.id), ["approval-race"]);
-  assert.equal(ready.data.agentPresences[0].state, "waiting");
+  assert.equal(ready.data.sessionPresences[0].state, "waiting");
   const added = await sse.until("approval_pending");
   assert.ok(added);
   assert.deepEqual([added.event, added.data.id, added.data.revision], ["approval_pending", "approval-race", 1]);
@@ -301,13 +301,13 @@ test("routes: appended notification emits one strict conversation_updated identi
   const sse = await open(events);
   await sse.take(1);
 
-  events.conversationNotificationAppended({ agentId: "agent-a", sessionId: "session-a" });
+  events.conversationNotificationAppended({ sessionId: "agent-a", piSessionId: "session-a" });
   const updated = await sse.until("conversation_updated");
   assert.ok(updated);
   assert.deepEqual(updated.data, {
     instanceId: events.instanceId,
-    agentId: "agent-a",
-    sessionId: "session-a",
+    sessionId: "agent-a",
+    piSessionId: "session-a",
   });
 
   await sse.close();
@@ -362,7 +362,7 @@ test("routes: 30s heartbeat is a comment frame", async (t) => {
 
 test("routes: slow reader merges run frames but preserves approval order", async () => {
   const events = createWorkspaceEvents();
-  const run = events.beginRun({ agentId: "local-main", runId: "run-slow", source: "chat" });
+  const run = events.beginRun({ sessionId: "main", runId: "run-slow", source: "chat" });
   const response = await createWorkspaceEventRoutes(events).request("/api/events");
   const sse = sseReader(response.body!.getReader());
 
@@ -372,9 +372,9 @@ test("routes: slow reader merges run frames but preserves approval order", async
   events.approvalChanged(newPending({ id: "approval-b", runId: null }));
 
   const received = await sse.take(5);
-  assert.equal(received.filter((frame) => frame.event === "agent_presence_updated").length, 1);
-  const frames = received.filter((frame) => frame.event !== "agent_presence_updated");
-  assert.deepEqual(frames.map((frame) => frame.event), ["ready", "agent_status_updated", "approval_pending", "approval_pending"]);
+  assert.equal(received.filter((frame) => frame.event === "session_presence_updated").length, 1);
+  const frames = received.filter((frame) => frame.event !== "session_presence_updated");
+  assert.deepEqual(frames.map((frame) => frame.event), ["ready", "session_status_updated", "approval_pending", "approval_pending"]);
   assert.equal(frames[1].data.revision, run.snapshot().revision); // 合并到最新 revision
   assert.deepEqual(frames[1].data.tools.map((tool: any) => tool.toolCallId), ["tc-late"]);
   assert.deepEqual(frames.slice(2).map((frame) => frame.data.id), ["approval-a", "approval-b"]);

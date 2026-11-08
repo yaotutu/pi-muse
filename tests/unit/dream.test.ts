@@ -5,18 +5,17 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import {
   createDataLayout,
-  agentDreamFile,
-  agentInstructionsFile,
-  agentSessionsDir,
+  sessionInstructionsFile,
+  sessionDir,
 } from "../../src/adapters/storage/data-layout.js";
 import { InvalidDocumentError } from "../../src/adapters/storage/document-schemas.js";
 import { createDreamRepository } from "../../src/adapters/storage/dream-repository.js";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
 import { readProfileFile, writeProfileFile } from "../../src/adapters/storage/profile-files.js";
 import {
-  readAgentInstructions,
-  writeAgentInstructions,
-} from "../../src/adapters/storage/agent-instructions.js";
+  readSessionInstructions,
+  writeSessionInstructions,
+} from "../../src/adapters/storage/session-instructions.js";
 import {
   buildDreamInput,
   composePrompt,
@@ -40,7 +39,7 @@ const setup = async (t: TestContext) => {
   const dir = await mkdtemp(join(tmpdir(), "personal-bot-dream-unit-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const layout = createDataLayout(dir);
-  await mkdir(agentSessionsDir(layout, "local-main"), { recursive: true, mode: 0o700 });
+  await mkdir(sessionDir(layout, "main"), { recursive: true, mode: 0o700 });
   const memoryRepo = createMemoryRepository(layout.memoryFile);
   const memory = createMemoryService(memoryRepo);
   const identity = createIdentityService(memoryRepo, {
@@ -92,19 +91,19 @@ test("purpose helpers and proposal planner enforce session purpose, length limit
   const formatted = withPurpose("Always sign as Alex.", "处理客户邮件");
   assert.equal(readPurpose(formatted), "处理客户邮件");
   assert.equal(purposeChanged(formatted, formatted + "\nUse formal tone."), false);
-  assert.equal(purposeChanged(formatted, "## 智能体用途\n被篡改的用途\n\nAlways sign as Alex."), true);
+  assert.equal(purposeChanged(formatted, "## 会话用途\n被篡改的用途\n\nAlways sign as Alex."), true);
 
   // withPurpose 替换与清除旧用途段，不重复堆叠
   const replaced = withPurpose(formatted, "处理技术支持");
   assert.equal(readPurpose(replaced), "处理技术支持");
-  assert.equal(replaced, "## 智能体用途\n处理技术支持\n\nAlways sign as Alex.");
+  assert.equal(replaced, "## 会话用途\n处理技术支持\n\nAlways sign as Alex.");
   assert.equal(replaced.includes("处理客户邮件"), false);
-  assert.equal(replaced.split("## 智能体用途").length, 2);
+  assert.equal(replaced.split("## 会话用途").length, 2);
 
   const cleared = withPurpose(replaced, "");
   assert.equal(readPurpose(cleared), "");
   assert.equal(cleared, "Always sign as Alex.");
-  assert.equal(withPurpose("## 智能体用途\n只有用途", ""), "");
+  assert.equal(withPurpose("## 会话用途\n只有用途", ""), "");
 
   const parsed = parseProposal({
     changes: [
@@ -140,7 +139,7 @@ test("purpose helpers and proposal planner enforce session purpose, length limit
   assert.equal(nonMainPlan.rejected.length, 1);
   assert.equal(nonMainPlan.rejected[0]?.reason, "unknown memory id");
 
-  // 未声明智能体用途时，instructions 建议降级为 pending(no_purpose)。
+  // 未声明会话用途时，instructions 建议降级为 pending(no_purpose)。
   const noPurposePlan = planProposal(
     [{ target: "instructions", text: "rule", source: "m1" }],
     { isMain: true, hasPurpose: false, existingMemoryIds: new Set(), instructions: "" },
@@ -172,22 +171,12 @@ test("purpose helpers and proposal planner enforce session purpose, length limit
   assert.ok(withBoth.includes(differentMulti));
 });
 
-test("prompt composer keeps fixed safety rules regardless of global inheritance", () => {
-  assert.equal(
-    composePrompt({ global: "", session: "", inherit: true }),
-    DEFAULT_DREAM_PROMPT,
-  );
-  assert.match(DEFAULT_DREAM_PROMPT, /USER, SOUL, and MEMORY are global targets/);
-  assert.match(DEFAULT_DREAM_PROMPT, /purpose-bound filtering rules/);
-  assert.match(DEFAULT_DREAM_PROMPT, /not this agent's business\s+preferences/);
-  assert.match(
-    composePrompt({ global: "GLOBAL", session: "SESSION", inherit: true }),
-    /GLOBAL[\s\S]*Extra guidance[\s\S]*SESSION/,
-  );
-  assert.equal(
-    composePrompt({ global: "GLOBAL", session: "SESSION", inherit: false }),
-    "SESSION",
-  );
+test("global Dream prompt falls back to defaults and fixed safety rules remain separate", () => {
+  assert.equal(composePrompt(""),DEFAULT_DREAM_PROMPT);
+  assert.equal(composePrompt("  GLOBAL  "),"GLOBAL");
+  assert.match(DEFAULT_DREAM_PROMPT,/USER, SOUL, and MEMORY are global targets/);
+  assert.match(DEFAULT_DREAM_PROMPT,/purpose-bound filtering rules/);
+  assert.match(DEFAULT_DREAM_PROMPT,/not this conversation's business\s+preferences/);
   const rules = fixedRules("处理邮件", false);
   assert.match(rules, /Never save credentials/);
   assert.match(rules, /target=pending, never a direct write/);
@@ -216,18 +205,17 @@ test("profile files and dream repository enforce strict validation, conditional 
   assert.equal(await writeProfileFile(layout.userFile, "v1", ""), true);
   assert.equal(await writeProfileFile(layout.userFile, "stale-dream", ""), false);
   assert.equal(await readProfileFile(layout.userFile), "v1");
-  const instFile = agentInstructionsFile(layout, "local-main");
-  assert.equal(await writeAgentInstructions(instFile, "inst-v1", ""), true);
-  assert.equal(await writeAgentInstructions(instFile, "stale", ""), false);
-  assert.equal(await readAgentInstructions(instFile), "inst-v1");
+  const instFile = sessionInstructionsFile(layout, "main");
+  assert.equal(await writeSessionInstructions(instFile, "inst-v1", ""), true);
+  assert.equal(await writeSessionInstructions(instFile, "stale", ""), false);
+  assert.equal(await readSessionInstructions(instFile), "inst-v1");
 
-  // 3. dream.json 默认值：local-main 默认开启，其余会话默认关闭，GET 不落盘。
-  assert.equal((await repository.read("local-main")).enabled, true);
-  assert.equal((await repository.read("other-agent")).enabled, false);
-  await assert.rejects(stat(agentDreamFile(layout, "other-agent")), { code: "ENOENT" });
+  // 3. dream.json 默认值：main 默认开启，其余会话默认关闭，GET 不落盘。
+  assert.equal((await repository.read()).enabled, true);
+  await assert.rejects(stat(join(layout.profileDir, "dream.json")), { code: "ENOENT" });
 
   // 4. 损坏或带 schemaVersion 的 dream.json 必须抛 InvalidDocumentError("dream")。
-  const dreamFile = agentDreamFile(layout, "local-main");
+  const dreamFile = join(layout.profileDir, "dream.json");
   for (const bad of [
     "{broken",
     '{"enabled":true,"inheritGlobalPrompt":true,"pending":[],"schemaVersion":1}',
@@ -235,7 +223,7 @@ test("profile files and dream repository enforce strict validation, conditional 
     '{"enabled":"yes","inheritGlobalPrompt":true,"pending":[]}',
   ]) {
     await writeFile(dreamFile, bad);
-    await assert.rejects(repository.read("local-main"), InvalidDocumentError);
+    await assert.rejects(repository.read(), InvalidDocumentError);
     assert.equal(await readFile(dreamFile, "utf8"), bad);
   }
 
@@ -244,7 +232,7 @@ test("profile files and dream repository enforce strict validation, conditional 
     dreamFile,
     JSON.stringify({
       enabled: true,
-      inheritGlobalPrompt: true,
+      cursors: {},
       lastRun: {
         at: "2026-10-20T00:00:00.000Z",
         status: "running",
@@ -255,20 +243,21 @@ test("profile files and dream repository enforce strict validation, conditional 
     }),
   );
   await repository.reconcileOnStart();
-  const reconciled = await repository.read("local-main");
+  const reconciled = await repository.read();
   assert.equal(reconciled.lastRun?.status, "failed");
   assert.match(reconciled.lastRun?.error ?? "", /Interrupted by service restart/);
 });
 
 test("DreamService skips overwriting concurrently edited files, keeps cursor on partial failure and resolves pending items", async (t) => {
   const { layout, memory, identity, repository } = await setup(t);
-  await mkdir(agentSessionsDir(layout, "work-mail"), { recursive: true, mode: 0o700 });
-  await writeAgentInstructions(
-    agentInstructionsFile(layout, "work-mail"),
+  await mkdir(sessionDir(layout, "00000000-0000-4000-8000-000000000001"), { recursive: true, mode: 0o700 });
+  await writeSessionInstructions(
+    sessionInstructionsFile(layout, "00000000-0000-4000-8000-000000000001"),
     withPurpose("Keep replies brief.", "处理工作邮件"),
   );
 
   let concurrentUserEdit = false;
+  let sessionIds = ["00000000-0000-4000-8000-000000000001"];
   const service = createDreamService({
     repository,
     notes: {
@@ -288,18 +277,18 @@ test("DreamService skips overwriting concurrently edited files, keeps cursor on 
       },
       writeSoulIfUnchanged: (content, expected) =>
         identity.writeIfUnchanged("soul", content, expected),
-      readInstructions: (id) => readAgentInstructions(agentInstructionsFile(layout, id)),
+      readInstructions: (id) => readSessionInstructions(sessionInstructionsFile(layout, id)),
       writeInstructions: async (id, content) => {
-        await writeAgentInstructions(agentInstructionsFile(layout, id), content);
+        await writeSessionInstructions(sessionInstructionsFile(layout, id), content);
       },
       writeInstructionsIfUnchanged: (id, content, expected) =>
-        writeAgentInstructions(agentInstructionsFile(layout, id), content, expected),
+        writeSessionInstructions(sessionInstructionsFile(layout, id), content, expected),
     },
     memory,
     conversations: {
-      listAgentIds: async () => ["local-main", "work-mail"],
-      agentExists: async (id) => id === "local-main" || id === "work-mail",
-      isAgentBusy: async () => false,
+      listSessionIds: async () => sessionIds,
+      sessionExists: async (id) => id === "main" || id === "00000000-0000-4000-8000-000000000001",
+      isSessionBusy: async () => false,
       readTranscript: async (id) => ({
         messages: [{ id: `${id}-m1`, role: "user", text: "hello" }],
       }),
@@ -315,24 +304,24 @@ test("DreamService skips overwriting concurrently edited files, keeps cursor on 
   });
 
   // 1. 非主会话 work-mail：instructions 与 memory 直接落盘，user 建议进入 pending，不改全局 USER.md。
-  const mailRun = await service.runNow("work-mail");
+  const mailRun = await service.runNow();
   assert.equal(mailRun.ok, true);
   if (mailRun.ok) {
     assert.equal(mailRun.state.lastRun?.status, "completed");
-    assert.equal(mailRun.state.cursor, "work-mail-m1");
+    assert.equal(mailRun.state.cursors["00000000-0000-4000-8000-000000000001"], "00000000-0000-4000-8000-000000000001-m1");
     assert.equal(mailRun.state.pending.length, 1);
     assert.equal(mailRun.state.pending[0]?.reason, "global_from_session");
   }
   assert.equal(await readProfileFile(layout.userFile), "");
   assert.match(
-    await readAgentInstructions(agentInstructionsFile(layout, "work-mail")),
+    await readSessionInstructions(sessionInstructionsFile(layout, "00000000-0000-4000-8000-000000000001")),
     /统一使用中文回复/,
   );
   assert.equal((await memory.list()).length, 1);
 
   // 2. 用户在页面确认该条 pending 写入 USER.md。
   const pendingId = mailRun.ok ? mailRun.state.pending[0]!.id : "";
-  const resolved = await service.resolvePending("work-mail", pendingId, {
+  const resolved = await service.resolvePending(pendingId, {
     action: "apply",
     target: "user",
   });
@@ -342,11 +331,12 @@ test("DreamService skips overwriting concurrently edited files, keeps cursor on 
   // 3. 主会话整理期间用户在外部并发修改了 USER.md：不覆盖用户新内容，标记 partial 且不推进游标。
   await writeProfileFile(layout.userFile, "初始用户画像");
   concurrentUserEdit = true;
-  const mainRun = await service.runNow("local-main");
+  sessionIds = ["main"];
+  const mainRun = await service.runNow();
   assert.equal(mainRun.ok, true);
   if (mainRun.ok) {
     assert.equal(mainRun.state.lastRun?.status, "partial");
-    assert.equal(mainRun.state.cursor, undefined);
+    assert.equal(mainRun.state.cursors.main, undefined);
     assert.match(mainRun.state.lastRun?.error ?? "", /USER\.md was modified concurrently/);
   }
   assert.equal(await readProfileFile(layout.userFile), "USER-CONCURRENT-EDIT");

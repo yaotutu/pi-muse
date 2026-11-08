@@ -102,7 +102,7 @@ export const createDreamProposer = (deps: {
   layout: DataLayout;
   modelRuntime: ModelRuntime;
 }) => async (input: {
-  agentId: string;
+  sessionId: string;
   systemPrompt: string;
   userPrompt: string;
   signal?: AbortSignal;
@@ -158,8 +158,8 @@ export const createDreamProposer = (deps: {
   });
 
   try {
-    // Dream 整理轮按目标智能体标注；模型调用与收尾都留在同一追踪上下文内。
-    return await runWithModelTrace({ agentId: input.agentId, kind: "dream" }, async () => {
+    // Dream 整理轮按目标会话标注；模型调用与收尾都留在同一追踪上下文内。
+    return await runWithModelTrace({ sessionId: input.sessionId, kind: "dream" }, async () => {
       input.signal?.throwIfAborted();
       await session.prompt(input.userPrompt, { expandPromptTemplates: false });
       await session.waitForIdle();

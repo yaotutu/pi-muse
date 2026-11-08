@@ -18,10 +18,10 @@ export const createJobsRoutes = (
     const query = jobsQuerySchema.safeParse(c.req.query());
     if (!query.success) return c.json({ error: "Invalid query parameters", code: "INVALID_REQUEST" }, 400);
 
-    const targetAgent = query.data.agentId;
+    const targetAgent = query.data.sessionId;
     let all = await jobs.list();
     if (targetAgent) {
-      all = all.filter((j) => (j.originAgentId ?? "local-main") === targetAgent);
+      all = all.filter((j) => (j.originSessionId ?? "main") === targetAgent);
     }
 
     const sortField = query.data.sort ?? "nextRunAt";
@@ -57,8 +57,8 @@ export const createJobsRoutes = (
     if (!parsed.success) return c.json({ error: "Invalid job control request", code: "INVALID_REQUEST" }, 400);
     const existing = await jobs.get(c.req.param("id"));
     if (!existing) return c.json({ error: "Task not found" }, 404);
-    const targetAgent = existing.originAgentId ?? "local-main";
-    const agentConversation = await conversationHub.forAgent(targetAgent);
+    const targetAgent = existing.originSessionId ?? "main";
+    const agentConversation = await conversationHub.forSession(targetAgent);
     const result = await jobs.control(c.req.param("id"), parsed.data.action, () =>
       agentConversation.isRunning() || scheduler.isBusy(),
     );
@@ -74,11 +74,11 @@ export const createJobsRoutes = (
     const existing = await jobs.get(c.req.param("id"));
     if (!existing) return c.json({ error: "Job not found", code: "JOB_NOT_FOUND" }, 404);
 
-    const originAgentId = parsed.data.originAgentId;
+    const originSessionId = parsed.data.originSessionId;
     const nextDaily = parsed.data.daily !== undefined ? parsed.data.daily : existing.daily;
     const nextAt = parsed.data.at !== undefined ? parsed.data.at.trim() : existing.at;
 
-    // 预校验合并后的排期设定：在进入 withAgent 之前校验，防止非法时刻创建新智能体
+    // 预校验合并后的排期设定：在进入 withSession 之前校验，防止非法时刻创建新会话
     try {
       assertValidSchedule(nextDaily, nextAt);
     } catch (err) {
@@ -94,7 +94,7 @@ export const createJobsRoutes = (
           prompt: parsed.data.prompt,
           daily: parsed.data.daily,
           at: parsed.data.at,
-          originAgentId,
+          originSessionId,
         });
         if (!updated) return c.json({ error: "Job not found", code: "JOB_NOT_FOUND" }, 404);
         return c.json(presentJob(updated));
@@ -106,8 +106,8 @@ export const createJobsRoutes = (
       }
     };
 
-    return originAgentId
-      ? conversationHub.withAgent(originAgentId, update)
+    return originSessionId
+      ? conversationHub.withSession(originSessionId, update)
       : update();
   });
 

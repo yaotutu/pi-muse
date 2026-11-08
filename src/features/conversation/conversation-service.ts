@@ -1,4 +1,4 @@
-import type { AgentStatus, StatusRun, RunOutcome } from "../workspace/agent-status.js";
+import type { SessionStatus, StatusRun, RunOutcome } from "../workspace/session-status.js";
 import type { ActivityRun } from "../activities/types.js";
 import { ConversationError, rejectConversation } from "./errors.js";
 import { validateConversationInput } from "./validate-input.js";
@@ -37,7 +37,7 @@ export function createConversation(
   const notifications = new Map<string, PendingNotification>();
   const receiptOf = (id: string): ConversationNotificationReceipt => ({
     notificationId: id,
-    sessionId: historyPort.sessionId(),
+    piSessionId: historyPort.piSessionId(),
     messageId: id,
   });
   const removeQueued = (pending: {
@@ -64,8 +64,8 @@ export function createConversation(
           // 先落盘后推送；同 ID 幂等 noop、取消和 append 失败都不能产生实时帧。
           try {
             dependencies.publishNotification?.({
-              agentId: dependencies.agentId ?? "local-main",
-              sessionId: historyPort.sessionId(),
+              sessionId: dependencies.sessionId ?? "main",
+              piSessionId: historyPort.piSessionId(),
             });
           } catch { /* 展示失效推送不改变已成功的持久化结果。 */ }
         }
@@ -81,7 +81,7 @@ export function createConversation(
   const notify = (
     text: string,
     id: string,
-    options?: { signal?: AbortSignal; featureSource?: ConversationNotification["featureSource"] },
+    options?: { signal?: AbortSignal },
   ): Promise<ConversationNotificationReceipt> => {
     if (closed) return Promise.reject(new Error("Conversation is closed"));
     if (options?.signal?.aborted) return Promise.reject(new Error("Notification cancelled"));
@@ -94,7 +94,7 @@ export function createConversation(
       reject = no;
     });
     const pending: PendingNotification = {
-      notification: { id, text, ...(options?.featureSource ? { featureSource: options.featureSource } : {}) },
+      notification: { id, text },
       resolve,
       reject,
       done,
@@ -132,30 +132,31 @@ export function createConversation(
   // 预检用于 HTTP 在开启 SSE 前返回 400/409；run 再检查一次，防止异步创建流期间争锁。
   const validate = (input: ConversationInput) => {
     if (closed) rejectConversation("SHUTDOWN", "Conversation is closed");
-    if (active) rejectConversation("agent_locked", "Wait for the current response to stop");
+    if (active) rejectConversation("session_locked", "Wait for the current response to stop");
     const validated = validateConversationInput(input, history(), records(), historyPort.checkpoint() ?? "empty");
     if (!config.configured) rejectConversation("MODEL_NOT_CONFIGURED", "Configure the server model before sending");
     return validated;
   };
   const snapshot = async (): Promise<ConversationSnapshot> => {
     // 反馈文件读取前先原子捕获 PI 事实，避免旧消息被配到新 revision。
-    const sessionId = historyPort.sessionId();
+    const piSessionId = historyPort.piSessionId();
     const messages = history();
     const revision = historyPort.checkpoint() ?? "empty";
     return {
-      sessionId,
+      sessionId: dependencies.sessionId ?? "main",
+      piSessionId,
       messages: await dependencies.messages.project(messages),
       revision,
     };
   };
-  const executionStatus = (runId: string): AgentStatus | undefined => {
+  const executionStatus = (runId: string): SessionStatus | undefined => {
     if (active?.runId === runId && active.status) return active.status.snapshot();
-    const saved = historyPort.agentStatuses?.().findLast((status) => status.runId === runId);
+    const saved = historyPort.sessionStatuses?.().findLast((status) => status.runId === runId);
     return saved ? structuredClone(saved) : undefined;
   };
-  const beginStatus = (agentId: string, runId: string, source: "chat" | "job", jobId?: string) => {
+  const beginStatus = (sessionId: string, runId: string, source: "chat" | "job", jobId?: string) => {
     const previous = executionStatus(runId);
-    return dependencies.beginStatus?.({ agentId, runId, source, jobId, initialRevision: (previous?.revision ?? 0) + 1 });
+    return dependencies.beginStatus?.({ sessionId, runId, source, jobId, initialRevision: (previous?.revision ?? 0) + 1 });
   };
   const statusActivity = (activity: ActivityRun | undefined, status: StatusRun | undefined): ActivityRun | undefined => {
     if (!activity || !status) return activity;
@@ -189,8 +190,8 @@ export function createConversation(
       },
     };
   };
-  const finishStatus = async (running: ActiveRun, agentId: string, outcome: RunOutcome) => {
-    await dependencies.cancelApprovals?.(agentId, running.runId);
+  const finishStatus = async (running: ActiveRun, sessionId: string, outcome: RunOutcome) => {
+    await dependencies.cancelApprovals?.(sessionId, running.runId);
     if (running.status) historyPort.appendAgentStatus?.(running.status.finish(outcome));
   };
   const run = async (
@@ -198,8 +199,8 @@ export function createConversation(
     emit: (event: ConversationEvent) => void,
     signal?: AbortSignal,
   ) => {
-    const currentAgentId = input.agentId || dependencies.agentId || "local-main";
-    input.agentId = currentAgentId;
+    const currentSessionId = input.sessionId || dependencies.sessionId || "main";
+    input.sessionId = currentSessionId;
     const { user, previous, replay } = validate(input);
     if (signal?.aborted)
       rejectConversation("DISCONNECTED", "Client disconnected before the run started");
@@ -252,7 +253,7 @@ export function createConversation(
     const endText = () => emit({ type: "text_end", assistantId: turn.assistantId });
     try {
       // 在打开模型执行前订阅，避免漏掉本轮（含子代理）刚登记的审批。
-      unsubscribeApprovals = dependencies.subscribeApprovals?.(currentAgentId, running.runId, ({ id, pending }) => {
+      unsubscribeApprovals = dependencies.subscribeApprovals?.(currentSessionId, running.runId, ({ id, pending }) => {
         if (pending) {
           if (pendingApprovals.size === 0) {
             clearTimeout(timeout);
@@ -267,7 +268,7 @@ export function createConversation(
       emit({
         type: "run_started",
         assistantId: turn.assistantId,
-        agentId: currentAgentId,
+        sessionId: currentSessionId,
         runId: input.runId,
       });
       if (replay) {
@@ -276,7 +277,7 @@ export function createConversation(
       } else {
         // 初始化或刚开始就停止时，不应先隐藏待重试的旧消息。先打开宿主，
         // 再提交 context edit，并同步宿主内存中的模型上下文。
-        running.status = beginStatus(currentAgentId, running.runId, "chat");
+        running.status = beginStatus(currentSessionId, running.runId, "chat");
         activity = statusActivity(dependencies.activities?.beginRun(running.runId), running.status);
         running.session = await openSession({ runId: running.runId, activity, status: running.status, userText: turn.text });
         if (running.reason)
@@ -324,11 +325,11 @@ export function createConversation(
           status,
         } satisfies ConversationResult);
         activity?.finish("completed", delivered);
-        await finishStatus(running, currentAgentId, "succeeded");
+        await finishStatus(running, currentSessionId, "succeeded");
       }
       emit({
         type: "run_finished",
-        agentId: currentAgentId,
+        sessionId: currentSessionId,
         runId: input.runId,
       });
     } catch (error) {
@@ -346,7 +347,7 @@ export function createConversation(
         status,
       } satisfies ConversationResult);
       activity?.finish(running.reason === "STOPPED" || running.reason === "DISCONNECTED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
-      await finishStatus(running, currentAgentId, running.reason ? "cancelled" : "failed");
+      await finishStatus(running, currentSessionId, running.reason ? "cancelled" : "failed");
       const code =
         running.reason ||
         (error instanceof ConversationError ? error.code : "MODEL_ERROR");
@@ -386,7 +387,7 @@ export function createConversation(
   const trigger = async (
     text: string,
     runId: string,
-    options: { signal?: AbortSignal; timeoutMs?: number; jobId?: string; agentId?: string } = {},
+    options: { signal?: AbortSignal; timeoutMs?: number; jobId?: string; sessionId?: string } = {},
   ) => {
     if (closed || options.signal?.aborted) return { status: "failed" as const, text: "cancelled" };
     if (active) return { status: "failed" as const, text: "busy" };
@@ -417,9 +418,9 @@ export function createConversation(
       source: "job",
       ...(options.jobId ? { jobId: options.jobId } : {}),
     };
-    const sourceAgentId = dependencies.agentId ?? options.agentId ?? "local-main";
+    const sourceSessionId = dependencies.sessionId ?? options.sessionId ?? "main";
     try {
-      running.status = beginStatus(sourceAgentId, running.runId, "job", options.jobId);
+      running.status = beginStatus(sourceSessionId, running.runId, "job", options.jobId);
       activity = statusActivity(dependencies.activities?.beginRun(running.runId), running.status);
       running.session = await openSession({ runId: running.runId, activity, status: running.status, userText: text });
       if (running.reason) throw new ConversationError(running.reason, "Response cancelled");
@@ -442,7 +443,7 @@ export function createConversation(
         status: ok ? "completed" : "failed",
       } satisfies ConversationResult);
       activity?.finish(ok ? "completed" : running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed", Boolean(finalText.trim()));
-      await finishStatus(running, sourceAgentId, ok ? "succeeded" : running.reason ? "cancelled" : "failed");
+      await finishStatus(running, sourceSessionId, ok ? "succeeded" : running.reason ? "cancelled" : "failed");
       return { status: ok ? ("completed" as const) : ("failed" as const), text: finalText };
     } catch {
       if (running.session) {
@@ -454,7 +455,7 @@ export function createConversation(
         status: "failed",
       } satisfies ConversationResult);
       activity?.finish(running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
-      await finishStatus(running, sourceAgentId, running.reason ? "cancelled" : "failed");
+      await finishStatus(running, sourceSessionId, running.reason ? "cancelled" : "failed");
       return { status: "failed" as const, text: "" };
     } finally {
       if (timeout) clearTimeout(timeout);
@@ -472,7 +473,7 @@ export function createConversation(
     }
   };
   return {
-    sessionId: () => historyPort.sessionId(),
+    piSessionId: () => historyPort.piSessionId(),
     messages: dependencies.messages,
     executionStatus,
     activities: () => dependencies.activities?.details() ?? [],

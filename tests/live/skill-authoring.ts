@@ -96,11 +96,11 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const { token } = await login.json() as { token: string };
     const client = createTestClient(() => baseUrl, token, 260_000);
     version = (await client.json("/api/health")).serviceVersion;
-    const agentId = "live-skill-authoring";
+    const sessionId = (await client.createSession("live-skill-authoring")).id;
 
     const begin = async (prompt: string) => {
       const baseline = proxy!.traces.length;
-      return { ...(await client.startRun(prompt, agentId)), baseline };
+      return { ...(await client.startRun(prompt, sessionId)), baseline };
     };
     const finish = async (running: Awaited<ReturnType<typeof begin>>, type = "RUN_FINISHED") => {
       const events = await running.done;
@@ -127,7 +127,6 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       120_000,
     );
     assert.equal(firstAction.preview.scope, "skill");
-    assert.equal(firstAction.preview.ownerAgentId, null);
     assert.equal(firstAction.preview.path, `${skillName}/SKILL.md`);
     assert.equal(firstAction.preview.after, firstSkill);
     assert.equal((await humanDecision(firstAction)), "approve");
@@ -147,10 +146,10 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.equal(await readFile(join(dataDir, "skills", skillName, "SKILL.md"), "utf8"), firstSkill);
     assert.equal(await readFile(join(dataDir, "skills", skillName, "references", "seasoning.md"), "utf8"), resource);
     assert.deepEqual(JSON.parse(await readFile(join(dataDir, "skills", skillName, "config.json"), "utf8")), { defaultEnabled: false });
-    const beforeEnable = await client.json(`/api/agents/${agentId}/skills`) as { skills: { name: string; enabled: boolean }[] };
+    const beforeEnable = await client.json(`/api/sessions/${sessionId}/skills`) as { skills: { name: string; enabled: boolean }[] };
     assert.equal(beforeEnable.skills.find((skill) => skill.name === skillName)?.enabled, false);
-    await client.json(`/api/agents/${agentId}/skills`, { overrides: { [skillName]: true } }, "PUT");
-    const afterEnable = await client.json(`/api/agents/${agentId}/skills`) as { skills: { name: string; enabled: boolean }[] };
+    await client.json(`/api/sessions/${sessionId}/skills`, { overrides: { [skillName]: true } }, "PUT");
+    const afterEnable = await client.json(`/api/sessions/${sessionId}/skills`) as { skills: { name: string; enabled: boolean }[] };
     assert.equal(afterEnable.skills.find((skill) => skill.name === skillName)?.enabled, true);
     record("real-model-authoring-and-enable", { approvalScope: "skill", savedFiles: 2, defaultEnabled: false, enabled: true });
 
@@ -227,7 +226,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     );
     assert.equal(stopAction.preview.after, stoppedSkill);
     assert.equal(await humanDecision(stopAction, "cancel"), "cancel");
-    await client.json("/api/conversation/stop", { agentId, runId: stopRun.runId });
+    await client.json("/api/conversation/stop", { sessionId, runId: stopRun.runId });
     await finish(stopRun, "RUN_ERROR");
     const stopped = await client.approval(stopAction.id);
     assert.equal(stopped.status, "cancelled");

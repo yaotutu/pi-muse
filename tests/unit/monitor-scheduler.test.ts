@@ -22,8 +22,8 @@ const fixture = async () => {
     },
   };
   const monitors = createMonitorService(repository);
-  const first = await monitors.create({ url: "https://example.com/first", condition: "contains", value: "yes", originAgentId: "first" });
-  const second = await monitors.create({ url: "https://example.com/second", condition: "contains", value: "yes", originAgentId: "second" });
+  const first = await monitors.create({ url: "https://example.com/first", condition: "contains", value: "yes", originSessionId: "first" });
+  const second = await monitors.create({ url: "https://example.com/second", condition: "contains", value: "yes", originSessionId: "second" });
   return { monitors, first, second };
 };
 
@@ -34,10 +34,10 @@ test("busy notification does not block other monitors, duplicate delivery, or sc
   const busy = new Promise<void>((resolve) => { release = resolve; });
   const delivered: string[] = [];
   let fetches = 0;
-  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetches++; return fetchedPage("yes"); } } }, monitors, { notify: async () => ({ notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }) }, async (agent) => ({ notify: async () => {
+  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetches++; return fetchedPage("yes"); } } }, monitors, { notify: async () => ({ notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" }) }, async (agent) => ({ notify: async () => {
     delivered.push(agent);
     if (agent === "first") await busy;
-    return { notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" };
+    return { notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" };
   } }));
   scheduler.start();
   t.mock.timers.tick(10);
@@ -69,10 +69,10 @@ test("failed delivery and failed check leave other monitors running", async (t) 
       if (id === first.id) throw new Error("write failed");
       return monitors.check(id, result);
     },
-  }, { notify: async () => ({ notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }) }, async (agent) => ({ notify: async () => {
+  }, { notify: async () => ({ notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" }) }, async (agent) => ({ notify: async () => {
     if (agent === "first" && ++attempts === 1) throw new Error("delivery failed");
     delivered++;
-    return { notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" };
+    return { notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" };
   } }));
   scheduler.start();
   t.mock.timers.tick(10);
@@ -96,7 +96,7 @@ test("one monitor check write failure does not stop the remaining scan", async (
       if (id === first.id) throw new Error("write failed");
       return monitors.check(id, result);
     },
-  }, { notify: async () => ({ notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }) });
+  }, { notify: async () => ({ notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" }) });
   scheduler.start();
   t.mock.timers.tick(10);
   await until(() => checks === 2 && !scheduler.isBusy());
@@ -115,16 +115,16 @@ test("deleted monitor snapshots never notify a recreated source or fall back to 
   const gate = new Promise<void>((resolve) => { resume = resolve; });
   const notifications: string[] = [];
   const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10 }, monitors,
-    { notify: async () => { notifications.push("main"); return { notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }; } }, async () => {
+    { notify: async () => { notifications.push("main"); return { notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" }; } }, async () => {
       resolving = true;
       await gate;
-      return { notify: async () => { notifications.push("new source"); return { notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }; } };
+      return { notify: async () => { notifications.push("new source"); return { notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" }; } };
     });
   t.after(() => resume());
   scheduler.start();
   t.mock.timers.tick(10);
   await until(() => resolving);
-  await monitors.removeByOriginAgentId("first");
+  await monitors.removeByOriginSessionId("first");
   resume();
   await scheduler.close();
   assert.deepEqual(notifications, []);
@@ -138,7 +138,7 @@ test("missing explicit monitor source preserves pending notification without usi
   let resolutions = 0;
   let notifications = 0;
   const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10 }, monitors,
-    { notify: async () => { notifications++; return { notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }; } }, async () => { resolutions++; return undefined; });
+    { notify: async () => { notifications++; return { notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" }; } }, async () => { resolutions++; return undefined; });
   scheduler.start();
   t.mock.timers.tick(10);
   await until(() => resolutions > 0 && !scheduler.isBusy());

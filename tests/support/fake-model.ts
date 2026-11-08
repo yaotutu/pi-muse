@@ -106,7 +106,9 @@ export async function createFakeModel() {
       .findLast((x) => x.role === "tool" && x.content);
     // 固定脚本只决定模型发出的工具调用，不模拟登记/审批/文件/历史等服务端事实。
     // 以本轮真实 tool result 数推进，避免旧会话的工具结果影响下一轮测试。
-    const activityPlan = last.startsWith("E2E activity ") ? JSON.parse(last.slice("E2E activity ".length)) as {
+    // 中断边界会前置到当前真实用户输入；夹具仍需识别尾部显式脚本，不能回退为普通问候。
+    const activityScript = last.match(/(?:^|\n\n)E2E activity (\{[^\n]*\})$/)?.[1];
+    const activityPlan = activityScript ? JSON.parse(activityScript) as {
       calls: { name: string; args: object }[];
       end?: "reply" | "hold" | "fail" | "empty";
     } : undefined;
@@ -377,7 +379,7 @@ export async function createFakeModel() {
     // 主模型自行委派；子模型没有 subagent 工具，不会递归进入此分支。
     if (declaresTool("subagent") && /子代理/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });
-      const task = /子代理写入/.test(last) ? "帮我写入草稿" : /子代理挂起/.test(last) ? "freeze" : /子代理读取/.test(last) ? "读 shared/subagent-test.md" : "Reply SUBAGENT-MARKER";
+      const task = /子代理写入/.test(last) ? "帮我写入草稿" : /子代理挂起/.test(last) ? "freeze" : /子代理读取/.test(last) ? "读 subagent-test.md" : "Reply SUBAGENT-MARKER";
       event(toolCall("subagent", { mode: "single", tasks: [{ agent: /只读子代理/.test(last) ? "scout" : "worker", task }] }));
       event({}, "tool_calls");
       res.end("data: [DONE]\n\n");
@@ -398,22 +400,20 @@ export async function createFakeModel() {
       return;
     }
     // 离线回归只验证路由契约；真实模型验收另行执行，不以此替代。
-    if (declaresTool("submit_group_route") && !pendingToolResult) {
-      const input = JSON.parse(last);
-      const content = String(input.content);
-      const targets = content.includes("ROUTE_CONFIRM") ? input.members.map((item: { id: string }) => item.id)
-        : [content.includes("ROUTE_SMS") ? "sms-internal" : input.settings.defaultAgentId];
-      event({ role: "assistant" });
-      event(toolCall("submit_group_route", { mode: content.includes("ROUTE_CONFIRM") ? "confirm" : "direct", targetAgentIds: targets, reason: "请选择处理成员" }));
-      event({}, "tool_calls"); res.end("data: [DONE]\n\n"); return;
-    }
+    const informationTool = (input.tools ?? []).find((tool) => (tool as {function?:{name?:string}}).function?.name === "submit_information_result") as {function?:{parameters?:{properties?:Record<string,unknown>}}} | undefined;
+    const recommendation = Boolean(informationTool?.function?.parameters?.properties?.learnedNotes && !informationTool?.function?.parameters?.properties?.notifications);
+    const submissionFor = (items: Array<{id:string;content:string}>, invalid = false) => {
+      const result = informationSubmission(items, invalid);
+      if (!recommendation) return result;
+      return { decisions:result.decisions, learnedNotes:"", ...(items.some((item)=>item.content.includes("NEWS_OBJECT_NOTIFICATIONS")) ? {notifications:{}} : {}) };
+    };
     // 信息后台受限轮：真实执行 submit 工具，分类只用于自动化脚本，不伪造副作用。
     if (declaresTool("submit_information_result") && !pendingToolResult) {
       const items = informationItems(last);
       const invalid = items.some((item) => /INVALID_SUBMISSION|INVALID_THEN_VALID/.test(item.content));
       if (items.some((item) => /TWO_VALID_SUBMISSIONS/.test(item.content))) informationSubmitCounts.set(last, 1);
       event({ role: "assistant" });
-      event(toolCall("submit_information_result", informationSubmission(items, invalid)));
+      event(toolCall("submit_information_result", submissionFor(items, invalid)));
       event({}, "tool_calls");
       res.end("data: [DONE]\n\n");
       return;
@@ -425,7 +425,7 @@ export async function createFakeModel() {
         last.includes("INVALID_THEN_VALID") &&
         pendingText.includes("Invalid information result")) {
         event({ role: "assistant" });
-        event(toolCall("submit_information_result", informationSubmission(informationItems(last))));
+        event(toolCall("submit_information_result", submissionFor(informationItems(last))));
         event({}, "tool_calls");
         res.end("data: [DONE]\n\n");
         return;
@@ -437,7 +437,7 @@ export async function createFakeModel() {
         if (count < 2) {
           informationSubmitCounts.set(last, count + 1);
           event({ role: "assistant" });
-          event(toolCall("submit_information_result", informationSubmission(informationItems(last))));
+          event(toolCall("submit_information_result", submissionFor(informationItems(last))));
           event({}, "tool_calls");
           res.end("data: [DONE]\n\n");
           return;

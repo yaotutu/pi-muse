@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createDataLayout, ensureAgentLayout, agentWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout, ensureLayout } from "../../src/adapters/storage/data-layout.js";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
 import { createMemoryService } from "../../src/features/memory/memory-service.js";
@@ -38,8 +38,8 @@ const setup = async (t: TestContext) => {
       isError: false,
     }),
   };
-  await ensureAgentLayout(layout);
-  const tools = createTools({ root: agentWorkspaceDir(layout, "local-main"), memory, jobs, web, weather });
+  await ensureLayout(layout);
+  const tools = createTools({ root: layout.workspaceDir, memory, jobs, web, weather });
   // SDK ToolDefinition 的 context 与本测试无关；工具不访问 session 环境。
   const execute = (name: string, params: unknown) => tools.find((tool) => tool.name === name)!
     .execute("test-call", params as never, undefined, undefined, {} as never);
@@ -185,7 +185,7 @@ test("system prompt business guidance follows the final tool allowlist", async (
     allowedToolNames: ["currentTime", "read", "grep", "find", "ls"],
   });
   for (const unavailable of [
-    "write/edit can change",
+    "write/edit change",
     "instructions reads or replaces",
     "For maintaining Pi Muse product skills",
     "memory_search",
@@ -208,7 +208,7 @@ test("system prompt business guidance follows the final tool allowlist", async (
     ],
   });
   for (const available of [
-    "write/edit can change",
+    "write/edit change",
     "instructions reads or replaces",
     "Skill assets are stored once",
     "memory_search to look",
@@ -265,18 +265,15 @@ test("system prompt describes searchable memory and schedules without expanding 
   assert.match(text, /they run later in this conversation/);
   assert.match(text, /Reminders appear only here and may require a refresh or later sync/);
   assert.match(text, /do not promise email notifications or real-time push/);
-  assert.match(text, /File tools, when available, use this conversation's private workspace as their default root/);
-  assert.match(text, /read\/grep\/find\/ls tools default to this private root/);
-  assert.match(text, /the main conversation has no parent-directory privilege/);
-  assert.match(text, /explicit shared\/ prefix/);
-  assert.match(text, /path="shared" search the shared area/);
-  assert.match(text, /a search in "\." does not search shared files/i);
-  assert.match(text, /after explicit approval for every operation/);
-  assert.match(text, /consult skill-creator and use the skills tool/);
-  assert.match(text, /workspace shared\/\.\.\. paths never install or modify product skills/);
+  assert.match(text, /single instance workspace as their root/);
+  assert.match(text, /read\/grep\/find\/ls tools use the workspace root/);
+  assert.match(text, /Absolute paths, parent traversal and symlinks cannot bypass/);
+  assert.match(text, /workspace paths never install or modify product skills/);
+  assert.doesNotMatch(text, /private workspace|explicit shared/);
+
   assert.match(text, /if the skills tool is unavailable, say so instead of writing to a wrong location/);
   assert.match(text, /enabling never happens implicitly through another tool/);
-  assert.match(text, /Skill assets are stored once for the instance; the current agent only selects whether a skill is enabled/);
+  assert.match(text, /Skill assets are stored once for the instance; the current conversation only selects whether a skill is enabled/);
   assert.match(text, /Conversation instructions never grant additional tools, file access or approval/);
   assert.doesNotMatch(text, /you have no file write access/);
   assert.match(text, /currentTime reads the local clock/);

@@ -68,23 +68,23 @@ const withEvent = (
  * 反馈事件独立持久化，不进入模型上下文，也不改变 PI 会话 revision。
  */
 export const createMessageFeedbackSession = (input: {
-  agentId: string;
-  sessionId: () => string;
+  sessionId: string;
+  piSessionId: () => string;
   facts: () => readonly MessageExecutionFact[];
   repository: MessageFeedbackRepository;
 }) => {
   let activeRunId: string | null = null;
-  const currentSessionId = input.sessionId;
+  const currentPiSessionId = input.piSessionId;
   const available = (fact: MessageExecutionFact) =>
     fact.feedbackAvailable && (activeRunId === null || fact.runId !== activeRunId);
-  const guardSession = (sessionId: string) => {
-    if (sessionId !== currentSessionId()) {
+  const guardSession = (piSessionId: string) => {
+    if (piSessionId !== currentPiSessionId()) {
       throw new MessageFeedbackDomainError("SESSION_CONFLICT", "Feedback belongs to an old session");
     }
   };
   const facts = () => input.facts();
-  const target = (messageId: string, sessionId: string): MessageExecutionFact & { role: FeedbackTargetRole } => {
-    guardSession(sessionId);
+  const target = (messageId: string, piSessionId: string): MessageExecutionFact & { role: FeedbackTargetRole } => {
+    guardSession(piSessionId);
     const fact = facts().find((item) => item.id === messageId);
     if (!fact || (fact.role !== "user" && fact.role !== "assistant")) {
       throw new MessageFeedbackDomainError("NOT_FOUND", "Message not found");
@@ -96,32 +96,32 @@ export const createMessageFeedbackSession = (input: {
   };
   const append = async (
     messageId: string,
-    sessionId: string,
+    piSessionId: string,
     create: (document: MessageFeedbackDocument, role: FeedbackTargetRole) => {
       document?: MessageFeedbackDocument;
       feedback: MessageFeedback;
     },
   ) => {
-    const fact = target(messageId, sessionId);
-    return input.repository.update(input.agentId, currentSessionId(), (document) => {
+    const fact = target(messageId, piSessionId);
+    return input.repository.update(input.sessionId, currentPiSessionId(), (document) => {
       const changed = create(document, fact.role);
       return { ...(changed.document ? { document: changed.document } : {}), result: changed.feedback };
     });
   };
   return {
-    sessionId: currentSessionId,
+    piSessionId: currentPiSessionId,
     setActiveRun: (runId: string | null) => { activeRunId = runId; },
-    async get(messageId: string, sessionId: string): Promise<MessageFeedback> {
-      target(messageId, sessionId);
-      return projectFeedback(await input.repository.read(input.agentId, currentSessionId()), messageId);
+    async get(messageId: string, piSessionId: string): Promise<MessageFeedback> {
+      target(messageId, piSessionId);
+      return projectFeedback(await input.repository.read(input.sessionId, currentPiSessionId()), messageId);
     },
-    async events(messageId: string, sessionId: string) {
-      target(messageId, sessionId);
-      return (await input.repository.read(input.agentId, currentSessionId()))
+    async events(messageId: string, piSessionId: string) {
+      target(messageId, piSessionId);
+      return (await input.repository.read(input.sessionId, currentPiSessionId()))
         .events.filter((event) => event.messageId === messageId);
     },
-    setReaction(sessionId: string, messageId: string, reaction: "like" | "dislike" | null) {
-      return append(messageId, sessionId, (document, role) => {
+    setReaction(piSessionId: string, messageId: string, reaction: "like" | "dislike" | null) {
+      return append(messageId, piSessionId, (document, role) => {
         const feedback = projectFeedback(document, messageId);
         if (feedback.reaction === reaction) return { feedback };
         const next = withEvent(document, {
@@ -131,9 +131,9 @@ export const createMessageFeedbackSession = (input: {
         return { document: next, feedback: projectFeedback(next, messageId) };
       });
     },
-    addComment(sessionId: string, messageId: string, text: string) {
+    addComment(piSessionId: string, messageId: string, text: string) {
       const normalized = normalizeComment(text);
-      return append(messageId, sessionId, (document, role) => {
+      return append(messageId, piSessionId, (document, role) => {
         const next = withEvent(document, {
           id: randomUUID(), type: "comment_added", messageId, role,
           commentId: randomUUID(), text: normalized, at: new Date().toISOString(),
@@ -141,9 +141,9 @@ export const createMessageFeedbackSession = (input: {
         return { document: next, feedback: projectFeedback(next, messageId) };
       });
     },
-    editComment(sessionId: string, messageId: string, commentId: string, text: string) {
+    editComment(piSessionId: string, messageId: string, commentId: string, text: string) {
       const normalized = normalizeComment(text);
-      return append(messageId, sessionId, (document, role) => {
+      return append(messageId, piSessionId, (document, role) => {
         const feedback = projectFeedback(document, messageId);
         const comment = feedback.comments.find((item) => item.id === commentId);
         if (!comment) throw new MessageFeedbackDomainError("NOT_FOUND", "Comment not found");
@@ -155,8 +155,8 @@ export const createMessageFeedbackSession = (input: {
         return { document: next, feedback: projectFeedback(next, messageId) };
       });
     },
-    deleteComment(sessionId: string, messageId: string, commentId: string) {
-      return append(messageId, sessionId, (document, role) => {
+    deleteComment(piSessionId: string, messageId: string, commentId: string) {
+      return append(messageId, piSessionId, (document, role) => {
         const feedback = projectFeedback(document, messageId);
         const comment = feedback.comments.find((item) => item.id === commentId);
         if (!comment) throw new MessageFeedbackDomainError("NOT_FOUND", "Comment not found");
@@ -169,7 +169,7 @@ export const createMessageFeedbackSession = (input: {
     },
     async project<T extends ProjectedMessage>(messages: readonly T[]): Promise<T[]> {
       const executionFacts = new Map(input.facts().map((fact) => [`${fact.role}:${fact.id}`, fact]));
-      const document = await input.repository.read(input.agentId, currentSessionId());
+      const document = await input.repository.read(input.sessionId, currentPiSessionId());
       return messages.map((message) => {
         const fact = executionFacts.get(`${message.role}:${message.id}`);
         if (!fact || message.role === "tool") return message;
@@ -180,7 +180,6 @@ export const createMessageFeedbackSession = (input: {
           jobId: fact.jobId,
           notificationId: fact.notificationId,
           feedbackAvailable: available(fact),
-          ...(fact.featureSource ? { featureSource: fact.featureSource } : {}),
         };
         return {
           ...message,

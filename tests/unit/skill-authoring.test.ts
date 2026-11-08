@@ -1,3 +1,4 @@
+import { createTools } from "../../src/adapters/pi/tools/index.js";
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
@@ -43,7 +44,7 @@ const fixture = async (t: TestContext, writable = true) => {
     actions,
     timeoutMs: 5_000,
     saveEnabled: writable,
-    agentId: "local-main",
+    sessionId: "main",
   });
   return { root, layout, repository, service, actions, tool };
 };
@@ -90,13 +91,13 @@ test("skills save validates with pi, creates default-off instance skill, and pre
     actions: approving(actions),
     timeoutMs: 5_000,
     saveEnabled: true,
-    agentId: "local-main",
+    sessionId: "main",
   });
   const result = await call(approvingTool, { action: "save", name: "recipe-helper", content: validSkill });
   assert.notEqual(result.isError, true);
   assert.equal(await readFile(join(layout.skillsDir, "recipe-helper", "SKILL.md"), "utf8"), validSkill);
   assert.deepEqual(JSON.parse(await readFile(join(layout.skillsDir, "recipe-helper", "config.json"), "utf8")), { defaultEnabled: false });
-  const listed = await service.describeAuthoring("local-main");
+  const listed = await service.describeAuthoring("main");
   assert.deepEqual(listed.skills.find((skill) => skill.name === "recipe-helper"), {
     name: "recipe-helper",
     description: "Collect and apply the user's recipe preferences.",
@@ -106,7 +107,6 @@ test("skills save validates with pi, creates default-off instance skill, and pre
   });
   const [action] = await actions.list();
   assert.equal(action.kind, "file_write");
-  assert.equal(action.workspaceAgentId, null);
   assert.equal(presentApproval(action).preview.scope, "skill");
   assert.equal(presentApproval(action).preview.path, "recipe-helper/SKILL.md");
   assert.match(text(result), /defaultEnabled=false/);
@@ -123,7 +123,7 @@ test("built-in overwrite lands only in the instance copy and remains disabled by
     actions: approving(actions),
     timeoutMs: 5_000,
     saveEnabled: true,
-    agentId: "local-main",
+    sessionId: "main",
   });
   const result = await call(approvingTool, { action: "save", name: "write", content });
   assert.notEqual(result.isError, true);
@@ -132,7 +132,6 @@ test("built-in overwrite lands only in the instance copy and remains disabled by
   const [action] = await actions.list();
   const view = presentApproval(action);
   assert.equal(view.preview.scope, "skill");
-  assert.equal(view.preview.ownerAgentId, null);
 });
 
 test("skill save rejects invalid names, files, formats, symlinks, code, and config edits before approval", async (t) => {
@@ -194,7 +193,7 @@ test("skill resources require an existing valid instance skill and reject invali
     actions: approving(actions),
     timeoutMs: 5_000,
     saveEnabled: true,
-    agentId: "local-main",
+    sessionId: "main",
   });
   const result = await call(approvingTool, {
     action: "save",
@@ -214,7 +213,7 @@ test("skill saves share deny, cancellation, and file-version approval semantics"
     actions: denying(first.actions),
     timeoutMs: 5_000,
     saveEnabled: true,
-    agentId: "local-main",
+    sessionId: "main",
   });
   const denied = await call(denyTool, { action: "save", name: "recipe-helper", content: validSkill });
   assert.equal(denied.isError, true);
@@ -240,7 +239,7 @@ test("skill saves share deny, cancellation, and file-version approval semantics"
     }),
     timeoutMs: 5_000,
     saveEnabled: true,
-    agentId: "local-main",
+    sessionId: "main",
   });
   const conflict = await call(conflictTool, { action: "save", name: "recipe-helper", content: `${before}\nModel version.\n` });
   assert.equal(conflict.isError, true);
@@ -268,3 +267,24 @@ const serviceBuiltInWriteFile = async () => {
   const { getBuiltinSkillsDir } = await import("../../src/adapters/storage/builtin-skills.js");
   return join(getBuiltinSkillsDir(), "write", "SKILL.md");
 };
+
+test("inherited child skills save retains parent session/run and per-operation human approval", async(t)=>{
+  const {layout,service,actions}=await fixture(t);
+  const sessionId="00000000-0000-4000-8000-000000000001";
+  const tools=createTools({root:layout.workspaceDir,layout,skillsService:service,
+    memory:{} as never,jobs:{} as never,actions:approving(actions,async(action)=>{
+      assert.equal(action.sessionId,sessionId);assert.equal(action.runId,"parent-run");
+      assert.equal(action.subagentId,"child-call");
+      assert.equal(action.status,"pending");
+      assert.equal(action.payload.content,validSkill);
+      await assert.rejects(stat(join(layout.skillsDir,"recipe-helper","SKILL.md")),{code:"ENOENT"});
+    }),sessionId,runId:"parent-run",subagentId:"child-call",isSubagent:true});
+  const childTool=tools.find((tool)=>tool.name==="skills") as ReturnType<typeof createSkillsTool>;
+  assert.ok(childTool);
+  const result=await call(childTool,{action:"save",name:"recipe-helper",content:validSkill});
+  assert.notEqual(result.isError,true);
+  const [saved]=await actions.list();
+  assert.equal(saved.status,"approved");assert.equal(saved.execution?.status,"succeeded");
+  assert.equal(saved.sessionId,sessionId);assert.equal(saved.runId,"parent-run");assert.equal(saved.subagentId,"child-call");
+  assert.equal(await readFile(join(layout.skillsDir,"recipe-helper","SKILL.md"),"utf8"),validSkill);
+});

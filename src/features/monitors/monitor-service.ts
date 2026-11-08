@@ -17,7 +17,7 @@ export const createMonitorService = (repository: MonitorRepository) => {
     get: async (id: string): Promise<Monitor | undefined> =>
       (await repository.read()).find((monitor) => monitor.id === id),
     create: (
-      input: { title?: string; url: string; condition: MonitorCondition; value?: string; intervalMinutes?: number; originAgentId?: string },
+      input: { title?: string; url: string; condition: MonitorCondition; value?: string; intervalMinutes?: number; originSessionId?: string },
     ): Promise<Monitor> =>
       repository.update((items) => {
         if (input.condition === "contains" && !input.value?.trim())
@@ -33,7 +33,7 @@ export const createMonitorService = (repository: MonitorRepository) => {
           intervalMinutes: Math.max(MIN_INTERVAL_MINUTES, input.intervalMinutes ?? 30),
           status: "active",
           createdAt: now(),
-          originAgentId: input.originAgentId,
+          originSessionId: input.originSessionId,
                     checks: 0,
         };
         items.push(monitor);
@@ -81,7 +81,7 @@ export const createMonitorService = (repository: MonitorRepository) => {
         condition?: MonitorCondition;
         value?: string;
         intervalMinutes?: number;
-        originAgentId?: string;
+        originSessionId?: string;
       },
     ): Promise<Monitor | undefined> =>
       repository.update((items) => {
@@ -102,9 +102,9 @@ export const createMonitorService = (repository: MonitorRepository) => {
         const urlChanged = input.url !== undefined && input.url.trim() !== monitor.url;
         const conditionChanged = input.condition !== undefined && input.condition !== monitor.condition;
         const valueChanged = input.value !== undefined && nextValue !== monitor.value;
-        const currentOrigin = monitor.originAgentId ?? "local-main";
-        const nextOrigin = input.originAgentId ?? currentOrigin;
-        const originChanged = input.originAgentId !== undefined && nextOrigin !== currentOrigin;
+        const currentOrigin = monitor.originSessionId ?? "main";
+        const nextOrigin = input.originSessionId ?? currentOrigin;
+        const originChanged = input.originSessionId !== undefined && nextOrigin !== currentOrigin;
 
         if (input.url !== undefined) {
           monitor.url = input.url.trim();
@@ -116,8 +116,8 @@ export const createMonitorService = (repository: MonitorRepository) => {
           monitor.intervalMinutes = Math.max(MIN_INTERVAL_MINUTES, input.intervalMinutes);
         }
 
-        if (input.originAgentId !== undefined) {
-          monitor.originAgentId = nextOrigin;
+        if (input.originSessionId !== undefined) {
+          monitor.originSessionId = nextOrigin;
         }
 
         if (urlChanged || conditionChanged || valueChanged) {
@@ -145,19 +145,19 @@ export const createMonitorService = (repository: MonitorRepository) => {
           ? { result: false }
           : { items: next, result: true };
       }),
-    removeByOriginAgentId: (originAgentId: string): Promise<number> =>
+    removeByOriginSessionId: (originSessionId: string): Promise<number> =>
       repository.update((items) => {
-        const next = items.filter((x) => (x.originAgentId ?? "local-main") !== originAgentId);
+        const next = items.filter((x) => (x.originSessionId ?? "main") !== originSessionId);
         const count = items.length - next.length;
         return { items: next, result: count };
       }),
-    /** 重置智能体会话但保留监控时，清空尚未投递的旧通知，避免污染新会话。 */
-    clearPendingByOriginAgentId: (originAgentId: string): Promise<number> =>
+    /** 重置会话会话但保留监控时，清空尚未投递的旧通知，避免污染新会话。 */
+    clearPendingByOriginSessionId: (originSessionId: string): Promise<number> =>
       repository.update((items) => {
         let cleared = 0;
         for (const item of items) {
-          const itemOrigin = item.originAgentId ?? "local-main";
-          if (itemOrigin === originAgentId && item.pendingNotification) {
+          const itemOrigin = item.originSessionId ?? "main";
+          if (itemOrigin === originSessionId && item.pendingNotification) {
             item.pendingNotification = undefined;
             cleared++;
           }

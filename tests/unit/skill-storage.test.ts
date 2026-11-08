@@ -3,10 +3,10 @@ import { test } from "node:test";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createDataLayout, agentSkillsFile, agentInstructionsFile } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout, sessionSkillsFile, sessionInstructionsFile } from "../../src/adapters/storage/data-layout.js";
 import { createSkillRepository } from "../../src/adapters/storage/skill-repository.js";
 import { createSkillsService, UnknownSkillError } from "../../src/features/skills/service.js";
-import { readAgentInstructions, writeAgentInstructions } from "../../src/adapters/storage/agent-instructions.js";
+import { readSessionInstructions, writeSessionInstructions } from "../../src/adapters/storage/session-instructions.js";
 import { instructionsTool } from "../../src/adapters/pi/tools/instructions.js";
 
 const fixture = async (t: { after: (fn: () => Promise<void>) => void }) => {
@@ -19,14 +19,14 @@ const fixture = async (t: { after: (fn: () => Promise<void>) => void }) => {
 
 test("skill overrides only default on missing files and preserve damaged documents", async (t) => {
   const { layout, repository } = await fixture(t);
-  assert.deepEqual(await repository.getAgentOverrides("a"), {});
-  const file = agentSkillsFile(layout, "a");
+  assert.deepEqual(await repository.getSessionOverrides("00000000-0000-4000-8000-000000000001"), {});
+  const file = sessionSkillsFile(layout, "00000000-0000-4000-8000-000000000001");
   await assert.rejects(stat(dirname(file)), { code: "ENOENT" });
   await mkdir(dirname(file), { recursive: true });
   for (const original of ["{broken", "[]", '{"overrides":{"cron":"yes"}}', '{"overrides":{},"schemaVersion":1}']) {
     await writeFile(file, original);
-    await assert.rejects(repository.getAgentOverrides("a"), /Invalid skills-overrides document/);
-    await assert.rejects(repository.setAgentOverrides("a", { cron: false }), /Invalid skills-overrides document/);
+    await assert.rejects(repository.getSessionOverrides("00000000-0000-4000-8000-000000000001"), /Invalid skills-overrides document/);
+    await assert.rejects(repository.setSessionOverrides("00000000-0000-4000-8000-000000000001", { cron: false }), /Invalid skills-overrides document/);
     assert.equal(await readFile(file, "utf8"), original);
   }
 });
@@ -68,28 +68,28 @@ test("skill diagnostics use logical builtin/ user paths while keeping the skill 
 
 test("overrides replace serially with private permissions and unknown names fail visibly", async (t) => {
   const { layout, repository, service } = await fixture(t);
-  const writes = Array.from({ length: 12 }, (_, index) => repository.setAgentOverrides("a", { cron: index % 2 === 0 }));
+  const writes = Array.from({ length: 12 }, (_, index) => repository.setSessionOverrides("00000000-0000-4000-8000-000000000001", { cron: index % 2 === 0 }));
   await Promise.all(writes);
-  assert.deepEqual(await repository.getAgentOverrides("a"), { cron: false });
-  assert.equal((await stat(agentSkillsFile(layout, "a"))).mode & 0o777, 0o600);
-  assert.deepEqual(await readdir(dirname(agentSkillsFile(layout, "a"))), ["skills.json"]);
-  await assert.rejects(service.updateAgentOverrides("a", { "unknown-skill": true }), UnknownSkillError);
-  await service.updateAgentOverrides("a", {});
-  assert.deepEqual(await repository.getAgentOverrides("a"), {});
+  assert.deepEqual(await repository.getSessionOverrides("00000000-0000-4000-8000-000000000001"), { cron: false });
+  assert.equal((await stat(sessionSkillsFile(layout, "00000000-0000-4000-8000-000000000001"))).mode & 0o777, 0o600);
+  assert.deepEqual(await readdir(dirname(sessionSkillsFile(layout, "00000000-0000-4000-8000-000000000001"))), ["skills.json"]);
+  await assert.rejects(service.updateSessionOverrides("00000000-0000-4000-8000-000000000001", { "unknown-skill": true }), UnknownSkillError);
+  await service.updateSessionOverrides("00000000-0000-4000-8000-000000000001", {});
+  assert.deepEqual(await repository.getSessionOverrides("00000000-0000-4000-8000-000000000001"), {});
 });
 
 test("agent instructions share an atomic writer and a missing tool argument cannot clear rules", async (t) => {
   const { layout } = await fixture(t);
-  const file = agentInstructionsFile(layout, "a");
-  assert.equal(await readAgentInstructions(file), "");
-  await Promise.all([writeAgentInstructions(file, "first"), writeAgentInstructions(file, "second")]);
-  assert.equal(await readAgentInstructions(file), "second");
+  const file = sessionInstructionsFile(layout, "00000000-0000-4000-8000-000000000001");
+  assert.equal(await readSessionInstructions(file), "");
+  await Promise.all([writeSessionInstructions(file, "first"), writeSessionInstructions(file, "second")]);
+  assert.equal(await readSessionInstructions(file), "second");
   assert.equal((await stat(file)).mode & 0o777, 0o600);
-  const tool = instructionsTool(layout, "a");
+  const tool = instructionsTool(layout, "00000000-0000-4000-8000-000000000001");
   const denied = await tool.execute("id", { action: "set" }, undefined, undefined, {} as never);
   assert.equal(denied.isError, true);
-  assert.equal(await readAgentInstructions(file), "second");
+  assert.equal(await readSessionInstructions(file), "second");
   await tool.execute("clear", { action: "set", content: "" }, undefined, undefined, {} as never);
-  assert.equal(await readAgentInstructions(file), "");
+  assert.equal(await readSessionInstructions(file), "");
   assert.deepEqual(await readdir(dirname(file)), ["INSTRUCTIONS.md"]);
 });

@@ -20,7 +20,7 @@ test("trace reader: round-trips phase-one files without writing and rejects syml
   assert.equal(await reader.read("../outside.json"), undefined);
   const store = createModelTraceStore({ dir: root, maxTotalBytes: 100_000 });
   const record: ModelTraceRecord = {
-    meta: { startedAt: new Date().toISOString(), endedAt: new Date().toISOString(), durationMs: 0, agentId: "agent-A", kind: "information:notifications", upstreamOrigin: "https://example.invalid" },
+    meta: { startedAt: new Date().toISOString(), endedAt: new Date().toISOString(), durationMs: 0, sessionId: "agent-A", kind: "information:notifications", upstreamOrigin: "https://example.invalid" },
     request: { system: "完整系统文本", messages: [], tools: [], sampling: {} },
     response: { outputText: "全文", toolCalls: [], truncated: false },
   };

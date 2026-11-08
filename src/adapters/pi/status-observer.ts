@@ -1,5 +1,5 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { StatusRun } from "../../features/workspace/agent-status.js";
+import type { StatusRun } from "../../features/workspace/session-status.js";
 import type { ToolPresentation } from "../ag-ui/tool-presentation.js";
 
 /** 与Activity共用pi真实事件，但只输出当前运行投影；不记录模型文本或原始工具载荷。 */

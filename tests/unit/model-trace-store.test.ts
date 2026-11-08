@@ -14,7 +14,7 @@ const record = (index: number, overrides: Partial<ModelTraceRecord["meta"]> = {}
     startedAt: new Date(Date.now() - 1000).toISOString(),
     endedAt: new Date().toISOString(),
     durationMs: 1000,
-    agentId: "local-main",
+    sessionId: "main",
     kind: "chat",
     upstreamOrigin: "https://model.example.com",
     httpStatus: 200,
@@ -41,20 +41,20 @@ test("store writes one ASCII-named JSON file per record under the day directory"
   try {
     const store = createModelTraceStore({ dir, maxTotalBytes: 1024 * 1024 * 1024 });
     store.write(record(1));
-    store.write(record(2, { agentId: "news-internal", kind: "information:recommendations" }));
+    store.write(record(2, { sessionId: "main", kind: "information:recommendations" }));
     await store.close();
 
     const files = await traceFiles(dir);
     assert.equal(files.length, 2);
     const [first, second] = files;
-    assert.match(first!, /^\d{4}-\d{2}-\d{2}\/\d{6}-\d{3}-local-main-chat-\d{6}\.json$/);
+    assert.match(first!, /^\d{4}-\d{2}-\d{2}\/\d{6}-\d{3}-main-chat-\d{6}\.json$/);
     // kind 中的 ":" 在文件名里折叠为 "-"，且全文件名为 ASCII 安全字符。
-    assert.match(second!, /^\d{4}-\d{2}-\d{2}\/\d{6}-\d{3}-news-internal-information-recommendations-\d{6}\.json$/);
+    assert.match(second!, /^\d{4}-\d{2}-\d{2}\/\d{6}-\d{3}-main-information-recommendations-\d{6}\.json$/);
     assert.ok(!files.some((name) => name.includes(":")));
 
     const parsed = JSON.parse(await readFile(join(dir, first!), "utf8")) as ModelTraceRecord;
     assert.equal(parsed.meta.kind, "chat");
-    assert.equal(parsed.meta.agentId, "local-main");
+    assert.equal(parsed.meta.sessionId, "main");
     assert.equal(parsed.meta.upstreamOrigin, "https://model.example.com");
     assert.equal(parsed.request?.system, "system prompt 1");
     assert.deepEqual(parsed.request?.sampling, { model: "test-model", stream: true });
@@ -100,7 +100,7 @@ test("store evicts oldest files first once total bytes exceed the limit", async 
     const store = createModelTraceStore({ dir, maxTotalBytes: 6 * 1024 });
     const names: string[] = [];
     for (let index = 0; index < 8; index++) {
-      store.write(record(index, { agentId: `agent-${index}` }));
+      store.write(record(index, { sessionId: `agent-${index}` }));
       await store.close();
       const files = await traceFiles(dir);
       names.push(files.at(-1)!);

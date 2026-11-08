@@ -1,7 +1,7 @@
 import type { ConversationInput, ConversationRecords, HistoryMessage, ValidatedUserMessage } from "./types.js";
 import { normalizeConversationAttachments, sameAttachmentList } from "./attachments.js";
 import { rejectConversation } from "./errors.js";
-import { isAgentId } from "./agent-id.js";
+import { isSessionId } from "./session-id.js";
 
 /**
  * 幂等身份先于版本判断：同一成功 run 的原请求可在刷新/重启后重放，不能重做工具。
@@ -14,11 +14,11 @@ export const validateConversationInput = (
   records: ConversationRecords,
   revision: string,
 ) => {
-  const target = input.agentId ?? "local-main";
-  if (!isAgentId(target)) {
-    rejectConversation("UNSUPPORTED_AGENT", "Invalid agentId");
+  const target = input.sessionId ?? "main";
+  if (!isSessionId(target)) {
+    rejectConversation("UNSUPPORTED_SESSION", "Invalid sessionId");
   }
-  input.agentId = target;
+  input.sessionId = target;
   if (!input.runId || input.runId.length > 200 ||
       typeof input.expectedRevision !== "string" || !input.expectedRevision ||
       !input.message || typeof input.message.id !== "string" || !input.message.id.trim() || input.message.id.length > 200 ||

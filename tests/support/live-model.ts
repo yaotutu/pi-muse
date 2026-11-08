@@ -82,7 +82,7 @@ export const createLiveModel = async (model: { baseUrl: string; apiKey?: string 
             globalIdentitySentinel: normalizedSystemText.includes("LIVE_AGENT_PROMPT_IDENTITY_SENTINEL"),
             activeGoalSentinel: normalizedSystemText.includes("LIVE_AGENT_PROMPT_GOAL_SENTINEL"),
             longTermMemory: normalizedSystemText.includes("## Long-term memory"),
-            write: normalizedSystemText.includes("write/edit can change"),
+            write: normalizedSystemText.includes("write/edit change"),
             instructions: normalizedSystemText.includes("instructions reads or replaces"),
             skills: normalizedSystemText.includes("use the skills tool"),
             schedule: normalizedSystemText.includes("Use schedule to create"),

@@ -59,8 +59,8 @@ test("goals REST API: CRUD lifecycle, query parameters, sorting, status transiti
   const snapshot = await snapshotRes.json();
   assert.equal(Object.hasOwn(snapshot, "goals"), false);
 
-  // 4. 旧接口废弃验证：POST /api/agent/goals 返回 501
-  assert.equal((await request("/api/agent/goals", { method: "POST", body: JSON.stringify({ title: "a" }) })).status, 501);
+  // 4. 旧接口废弃验证：POST /api/agent/goals 返回 404
+  assert.equal((await request("/api/agent/goals", { method: "POST", body: JSON.stringify({ title: "a" }) })).status, 404);
 
   // 5. POST /api/goals 新增目标
   const addRes1 = await request("/api/goals", {

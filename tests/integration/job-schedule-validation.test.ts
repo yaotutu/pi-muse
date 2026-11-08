@@ -85,10 +85,10 @@ const fixture = async (t: TestContext) => {
   });
 
   const listed = async (id: string) => {
-    const response = await request("/api/agents");
+    const response = await request("/api/sessions");
     assert.equal(response.status, 200);
-    const body = (await response.json()) as { agents?: { id: string }[] };
-    return (body.agents || []).some((agent) => agent.id === id);
+    const body = (await response.json()) as { sessions?: { id: string }[] };
+    return (body.sessions || []).some((agent) => agent.id === id);
   };
 
   return { dir, model, service: () => service!, request, listed, releaseGates };
@@ -102,7 +102,7 @@ test("projectExecutionEvent preserves controlled rejection message across tool_e
   t.after(() => rm(dir, { recursive: true, force: true }));
   const repo = createJobRepository(join(dir, "jobs.json"));
   const jobs = createJobService(repo);
-  const tool = scheduleTool(jobs, "local-main");
+  const tool = scheduleTool(jobs, "main");
 
   const rawResult = await tool.execute(
     "call-1",
@@ -150,7 +150,7 @@ test("HTTP PATCH enforces strict schedule validation, boundary recalculation, an
 
   // 记录本轮操作前的参考时刻，不用未注入服务时钟的固定未来日期。
   const reference = new Date();
-  const initialJob = await h.service().jobs.add("initial prompt", true, "10:00", "local-main");
+  const initialJob = await h.service().jobs.add("initial prompt", true, "10:00", "main");
 
   // 1. 非法 HH:mm（含空串）逐次 400 INVALID_SCHEDULE_FORMAT，且每次原始文件字节不变
   for (const badAt of ["09:99", "24:00", "9:00", "invalid", ""]) {
@@ -213,12 +213,12 @@ test("HTTP PATCH enforces strict schedule validation, boundary recalculation, an
   assert.equal(job2359.at, "23:59");
   assertLocalNextRun(job2359.nextRunAt, reference, 23, 59);
 
-  // 6. 非法时刻带新 originAgentId：绝不建立目标智能体、sessions/workspace 目录与智能体列表均不出现
+  // 6. 非法时刻带新 originSessionId：绝不建立目标智能体、sessions/workspace 目录与智能体列表均不出现
   const nonExistentAgent = "never-created-bad-sched-agent";
   const bytesBefore = await readFile(jobsFile, "utf8");
   const badAgentPatch = await h.request(`/api/jobs/${initialJob.id}`, "PATCH", {
     at: "24:00",
-    originAgentId: nonExistentAgent,
+    originSessionId: nonExistentAgent,
   });
   assert.equal(badAgentPatch.status, 400);
   assert.equal(await readFile(jobsFile, "utf8"), bytesBefore);
@@ -234,7 +234,7 @@ test("HTTP PATCH enforces strict schedule validation, boundary recalculation, an
 test("deterministic concurrency gate: PATCH at '12:00' meets concurrent daily flip and returns 400 INVALID_SCHEDULE_FORMAT", async (t) => {
   const h = await fixture(t);
   // 初始 daily 任务：PATCH { at: "12:00" } 在路由预检时合法
-  const job = await h.service().jobs.add("race daily to once", true, "10:00", "local-main");
+  const job = await h.service().jobs.add("race daily to once", true, "10:00", "main");
   const jobsFile = join(h.dir, "jobs.json");
 
   const updateEntered = deferred();
@@ -402,14 +402,14 @@ test("pi schedule tool over real HTTP rejects invalid daily time with preserved 
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const snapshot = async () => {
-    const response = await request("/api/conversation?agentId=local-main");
+    const response = await request("/api/conversation?sessionId=main");
     assert.equal(response.status, 200);
     return response.json() as Promise<{ messages: HistoryMessage[]; revision: string }>;
   };
   const run = async (content: string) => {
     const before = await snapshot();
     const response = await request("/api/conversation/run", "POST", {
-      agentId: "local-main",
+      sessionId: "main",
       runId: randomUUID(),
       expectedRevision: before.revision,
       message: { id: randomUUID(), content },
@@ -471,7 +471,7 @@ test("pi schedule tool over real HTTP rejects invalid daily time with preserved 
       (message): message is Extract<HistoryMessage, { role: "tool" }> => message.role === "tool",
     );
     assert.equal(toolHistory.find((message) => message.toolCallId === toolCallId)?.content, "工具执行失败");
-    const sessionDir = join(dir, "sessions", "local-main");
+    const sessionDir = join(dir, "sessions", "main");
     const sources = await Promise.all((await readdir(sessionDir))
       .filter((name) => name.endsWith(".jsonl"))
       .map((name) => readFile(join(sessionDir, name), "utf8")));

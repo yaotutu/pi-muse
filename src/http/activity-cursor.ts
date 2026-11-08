@@ -8,7 +8,7 @@ export const encodeActivityCursor = (cursor: ActivityCursor): string =>
     JSON.stringify({
       createdAt: cursor.createdAt,
       id: cursor.id,
-      ...(cursor.agentId !== undefined ? { agentId: cursor.agentId } : {}),
+      ...(cursor.sessionId !== undefined ? { sessionId: cursor.sessionId } : {}),
       ...(cursor.status !== undefined ? { status: cursor.status } : {}),
     }),
     "utf8",

@@ -20,9 +20,9 @@ export type ActivityToolObservation = ActivityApprovalObservation;
 const aborted = () => deniedResult("Operation aborted; nothing was written.");
 
 /** 新文件可缺失，已有祖先和根目录仍逐段拒绝链接；审批后用同一规则重查。 */
-const safeTarget = async (root: string, path: string, sharedDir?: string, boundaryDir?: string): Promise<string> => {
+const safeTarget = async (root: string, path: string, boundaryDir?: string): Promise<string> => {
   if (!path.trim()) throw new Error("Unsafe path");
-  const selected = resolveWorkspacePath(root, path, sharedDir);
+  const selected = resolveWorkspacePath(root, path);
   if (!selected || selected.path === selected.base) throw new Error("Unsafe path");
   return safeWorkspacePath(selected.base, selected.path, { allowMissing: true, boundaryDir });
 };
@@ -33,7 +33,6 @@ export const createWritableFileTools = (
   actions: ApprovalActions,
   timeoutMs: number,
   context?: ApprovalContext,
-  sharedDir?: string,
   boundaryDir?: string,
   observation?: ActivityToolObservation,
   commitQueue?: WorkspaceCommitQueue,
@@ -42,7 +41,7 @@ export const createWritableFileTools = (
     name: "write", label: "Write file",
     description: "Create or overwrite a text file inside the documents directory. Every write requires explicit user approval. Relative paths only, no symlinks or ..; max 100KB. Concurrent changes require new approval.",
     parameters: Type.Object({
-      path: Type.String({ description: "File path relative to the documents directory (or shared/... for global shared files)." }),
+      path: Type.String({ description: "File path relative to the documents directory." }),
       content: Type.String({ description: "Full file content to write." }),
     }, { additionalProperties: false }),
     async execute(_id, params, signal) {
@@ -52,7 +51,7 @@ export const createWritableFileTools = (
       let target: string;
       let original: FileSnapshot | undefined;
       try {
-        target = await safeTarget(root, params.path, sharedDir, boundaryDir);
+        target = await safeTarget(root, params.path, boundaryDir);
         original = await readFileSnapshot(target);
       } catch {
         return deniedResult("Access denied: unsafe or unreadable file path.");
@@ -87,7 +86,7 @@ export const createWritableFileTools = (
         actions,
         signal,
         commitQueue,
-        validateTarget: async (candidate) => await safeTarget(root, params.path, sharedDir, boundaryDir) === candidate,
+        validateTarget: async (candidate) => await safeTarget(root, params.path, boundaryDir) === candidate,
       });
     },
   }),
@@ -95,7 +94,7 @@ export const createWritableFileTools = (
     name: "edit", label: "Edit file",
     description: "Replace one exact nonempty text occurrence in an existing file. Requires explicit user approval; oldText must appear exactly once; resulting file max 100KB. Concurrent changes require new approval.",
     parameters: Type.Object({
-      path: Type.String({ description: "File path relative to the documents directory (or shared/... for global shared files)." }),
+      path: Type.String({ description: "File path relative to the documents directory." }),
       oldText: Type.String({ minLength: 1, description: "Nonempty exact existing text to replace." }),
       newText: Type.String({ description: "Replacement text." }),
     }, { additionalProperties: false }),
@@ -104,7 +103,7 @@ export const createWritableFileTools = (
       let target: string;
       let original: FileSnapshot | undefined;
       try {
-        target = await safeTarget(root, params.path, sharedDir, boundaryDir);
+        target = await safeTarget(root, params.path, boundaryDir);
         original = await readFileSnapshot(target);
       } catch {
         return deniedResult("Access denied: unsafe or unreadable file path.");
@@ -149,7 +148,7 @@ export const createWritableFileTools = (
         actions,
         signal,
         commitQueue,
-        validateTarget: async (candidate) => await safeTarget(root, params.path, sharedDir, boundaryDir) === candidate,
+        validateTarget: async (candidate) => await safeTarget(root, params.path, boundaryDir) === candidate,
       });
     },
   }),

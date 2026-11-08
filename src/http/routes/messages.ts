@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
 import { ConversationError } from "../../features/conversation/errors.js";
-import { isAgentId } from "../../features/conversation/agent-id.js";
+import { isSessionId } from "../../features/conversation/session-id.js";
 import { MessageFeedbackDomainError, type MessageFeedbackSession } from "../../features/messages/service.js";
 import {
   createCommentRequestSchema,
@@ -32,7 +32,7 @@ const invalidCommentId = (value: string): boolean =>
 
 /**
  * 消息反馈 HTTP 适配。消息事实和业务规则都在 messages feature；
- * 这里只做协议校验、智能体查找和领域错误到状态码的映射。
+ * 这里只做协议校验、会话查找和领域错误到状态码的映射。
  */
 export const createMessageRoutes = (
   dependencies: Pick<HttpDependencies, "conversationHub">,
@@ -41,7 +41,7 @@ export const createMessageRoutes = (
   const app = new Hono();
 
   const domainFailure = (error: unknown): Failure | undefined => {
-    if (error instanceof ConversationError && error.code === "AGENT_DELETING")
+    if (error instanceof ConversationError && error.code === "SESSION_DELETING")
       return { status: 409, body: { error: error.message, code: error.code } };
     if (error instanceof ConversationError && error.code === "SHUTDOWN")
       return { status: 503, body: { error: error.message, code: error.code } };
@@ -61,18 +61,18 @@ export const createMessageRoutes = (
     messageId: string,
     action: (messages: MessageFeedbackSession) => Promise<unknown>,
   ): Promise<Response> => {
-    const agentId = c.req.param("agentId");
-    if (!isAgentId(agentId))
-      return c.json({ error: "Invalid agentId", code: "INVALID_AGENT_ID" }, 400);
+    const sessionId = c.req.param("sessionId");
+    if (!isSessionId(sessionId))
+      return c.json({ error: "Invalid sessionId", code: "INVALID_SESSION_ID" }, 400);
     if (invalidMessageId(messageId))
       return c.json({ error: "Invalid messageId", code: "INVALID_REQUEST" }, 400);
     try {
-      const result = await conversationHub.withExistingAgent(
-        agentId,
+      const result = await conversationHub.withExistingSession(
+        sessionId,
         (conversation) => action(conversation.messages),
       );
       if (result === undefined)
-        return c.json({ error: "Agent not found", code: "AGENT_NOT_FOUND" }, 404);
+        return c.json({ error: "Agent not found", code: "SESSION_NOT_FOUND" }, 404);
       return c.json(result);
     } catch (error) {
       const failure = domainFailure(error);
@@ -81,38 +81,38 @@ export const createMessageRoutes = (
     }
   };
 
-  app.get("/:agentId/messages/:messageId/feedback", async (c) => {
-    const sessionId = sessionQuery(c);
-    if (!sessionId) return c.json({ error: "Invalid message feedback query", code: "INVALID_REQUEST" }, 400);
+  app.get("/:sessionId/messages/:messageId/feedback", async (c) => {
+    const piSessionId = sessionQuery(c);
+    if (!piSessionId) return c.json({ error: "Invalid message feedback query", code: "INVALID_REQUEST" }, 400);
     return execute(c, c.req.param("messageId"), (messages) =>
-      messages.get(c.req.param("messageId"), sessionId.sessionId));
+      messages.get(c.req.param("messageId"), piSessionId.piSessionId));
   });
 
-  app.get("/:agentId/messages/:messageId/feedback/events", async (c) => {
-    const sessionId = sessionQuery(c);
-    if (!sessionId) return c.json({ error: "Invalid message feedback query", code: "INVALID_REQUEST" }, 400);
+  app.get("/:sessionId/messages/:messageId/feedback/events", async (c) => {
+    const piSessionId = sessionQuery(c);
+    if (!piSessionId) return c.json({ error: "Invalid message feedback query", code: "INVALID_REQUEST" }, 400);
     return execute(c, c.req.param("messageId"), async (messages) => ({
-      events: await messages.events(c.req.param("messageId"), sessionId.sessionId),
+      events: await messages.events(c.req.param("messageId"), piSessionId.piSessionId),
     }));
   });
 
-  app.put("/:agentId/messages/:messageId/feedback/reaction", async (c) => {
+  app.put("/:sessionId/messages/:messageId/feedback/reaction", async (c) => {
     const parsed = reactionRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid reaction request", code: "INVALID_REQUEST" }, 400);
     const body = parsed.data;
     return execute(c, c.req.param("messageId"), (messages) =>
-      messages.setReaction(body.sessionId, c.req.param("messageId"), body.reaction));
+      messages.setReaction(body.piSessionId, c.req.param("messageId"), body.reaction));
   });
 
-  app.post("/:agentId/messages/:messageId/feedback/comments", async (c) => {
+  app.post("/:sessionId/messages/:messageId/feedback/comments", async (c) => {
     const parsed = createCommentRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid comment request", code: "INVALID_REQUEST" }, 400);
     const body = parsed.data;
     return execute(c, c.req.param("messageId"), (messages) =>
-      messages.addComment(body.sessionId, c.req.param("messageId"), body.text));
+      messages.addComment(body.piSessionId, c.req.param("messageId"), body.text));
   });
 
-  app.patch("/:agentId/messages/:messageId/feedback/comments/:commentId", async (c) => {
+  app.patch("/:sessionId/messages/:messageId/feedback/comments/:commentId", async (c) => {
     const commentId = c.req.param("commentId");
     if (invalidCommentId(commentId))
       return c.json({ error: "Invalid commentId", code: "INVALID_REQUEST" }, 400);
@@ -120,17 +120,17 @@ export const createMessageRoutes = (
     if (!parsed.success) return c.json({ error: "Invalid comment request", code: "INVALID_REQUEST" }, 400);
     const body = parsed.data;
     return execute(c, c.req.param("messageId"), (messages) =>
-      messages.editComment(body.sessionId, c.req.param("messageId"), commentId, body.text));
+      messages.editComment(body.piSessionId, c.req.param("messageId"), commentId, body.text));
   });
 
-  app.delete("/:agentId/messages/:messageId/feedback/comments/:commentId", async (c) => {
+  app.delete("/:sessionId/messages/:messageId/feedback/comments/:commentId", async (c) => {
     const commentId = c.req.param("commentId");
     if (invalidCommentId(commentId))
       return c.json({ error: "Invalid commentId", code: "INVALID_REQUEST" }, 400);
-    const sessionId = sessionQuery(c);
-    if (!sessionId) return c.json({ error: "Invalid message feedback query", code: "INVALID_REQUEST" }, 400);
+    const piSessionId = sessionQuery(c);
+    if (!piSessionId) return c.json({ error: "Invalid message feedback query", code: "INVALID_REQUEST" }, 400);
     return execute(c, c.req.param("messageId"), (messages) =>
-      messages.deleteComment(sessionId.sessionId, c.req.param("messageId"), commentId));
+      messages.deleteComment(piSessionId.piSessionId, c.req.param("messageId"), commentId));
   });
 
   return app;

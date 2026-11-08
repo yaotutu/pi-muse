@@ -9,8 +9,8 @@ import { endpoints } from "../../src/http/contracts/endpoints.js";
 import { traceDetailResponse, tracesResponse } from "../../src/http/contracts/traces.js";
 import type { ModelTraceRecord } from "../../src/adapters/model-trace/store.js";
 
-const record = (startedAt: string, agentId = "alpha", kind: ModelTraceRecord["meta"]["kind"] = "chat"): ModelTraceRecord => ({
-  meta: { startedAt, endedAt: "2026-10-02T13:00:00.000Z", durationMs: 200, agentId, kind,
+const record = (startedAt: string, sessionId = "alpha", kind: ModelTraceRecord["meta"]["kind"] = "chat"): ModelTraceRecord => ({
+  meta: { startedAt, endedAt: "2026-10-02T13:00:00.000Z", durationMs: 200, sessionId, kind,
     extra: { runId: "diagnostic-run" }, upstreamOrigin: "https://example.invalid", httpStatus: 200 },
   request: { system: "system\n全文", messages: [{ role: "user", content: "question" }, { role: "tool", name: "read", content: "result" }],
     tools: [{ type: "function", function: { name: "read", description: "读取", parameters: { type: "object" } } }], sampling: { temperature: 0.2, model: "test" } },
@@ -77,13 +77,13 @@ test("traces: authenticated read-only contracts, pagination, filters, corruption
   const next = await getPage(`?limit=2&cursor=${page.nextCursor}`);
   assert.deepEqual(next.traces.map((entry) => entry.fileName), entries.slice(2).map((entry) => `${entry.day}.${entry.name}`));
   assert.equal(next.hasMore, false); assert.equal(next.nextCursor, null);
-  assert.equal((await getPage("?agentId=alpha&kind=chat")).traces.length, 3);
-  assert.equal((await getPage("?agentId=alph")).traces.length, 0);
+  assert.equal((await getPage("?sessionId=alpha&kind=chat")).traces.length, 3);
+  assert.equal((await getPage("?sessionId=alph")).traces.length, 0);
   assert.equal((await getPage("?kind=dream")).traces.length, 1);
   assert.equal((await getPage("?since=2026-10-02&until=2026-10-02T11%3A00%3A00Z")).traces.length, 2);
   assert.equal((await getPage(`?since=${Date.parse("2026-10-02T11:00:00Z")}&until=${Date.parse("2026-10-02T11:00:00Z")}`)).traces.length, 1);
   assert.equal((await getPage("?limit=100")).traces.length, 4);
-  for (const query of ["limit=0", "limit=101", "limit=-1", "limit=1.5", "limit=1e1", "limit=", "limit=1&limit=2", "unknown=x", "kind=unknown", "since=invalid", "since=2026-02-30", "since=2026-10-03&until=2026-10-01", "cursor=oops", `cursor=${page.nextCursor}&agentId=beta`]) {
+  for (const query of ["limit=0", "limit=101", "limit=-1", "limit=1.5", "limit=1e1", "limit=", "limit=1&limit=2", "unknown=x", "kind=unknown", "since=invalid", "since=2026-02-30", "since=2026-10-03&until=2026-10-01", "cursor=oops", `cursor=${page.nextCursor}&sessionId=beta`]) {
     assert.equal((await app.request(`/api/traces?${query}`, { headers })).status, 400, query);
   }
   // 无 request/response 的合法旁路记录也可查看，统计为 0/false。
@@ -121,7 +121,7 @@ test("traces: authenticated read-only contracts, pagination, filters, corruption
     assert.ok(operation.responses["200"]);
     assert.deepEqual(Object.keys(spec.paths[path]!), ["get"]);
   }
-  assert.deepEqual(spec.paths["/api/traces"]!.get!.parameters!.map((entry) => entry.name).sort(), ["agentId", "cursor", "kind", "limit", "since", "until"]);
+  assert.deepEqual(spec.paths["/api/traces"]!.get!.parameters!.map((entry) => entry.name).sort(), ["sessionId", "cursor", "kind", "limit", "since", "until"].sort());
   assert.match(spec.paths["/api/traces"]!.get!.description, /badCount/);
   assert.match(spec.paths["/api/traces/{fileName}"]!.get!.description, /符号链接/);
 });

@@ -11,8 +11,8 @@ import type { ConversationInput } from "../../src/features/conversation/types.js
 import { randomUUID } from "node:crypto";
 import type { ActivitiesPageDto, ActivityDetailDto } from "../../src/http/contracts/activities.js";
 
-const input = (text: string, agentId = "local-main", runId = `run-${Date.now()}`): ConversationInput => ({
-  agentId: agentId,
+const input = (text: string, sessionId = "main", runId = `run-${Date.now()}`): ConversationInput => ({
+  sessionId: sessionId,
   runId,
   expectedRevision: "empty",
   message: { id: `user-${randomUUID()}`, content: text },
@@ -188,7 +188,7 @@ test("activity-integration: stop marks activity stopped and resume continues und
   const runPromise = service.app.request("/api/conversation/run", {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify(input("活动交办 活动停止", "local-main", runId)),
+    body: JSON.stringify(input("活动交办 活动停止", "main", runId)),
   });
 
   // 只在登记已落盘且模型进入挂起请求后 Stop，不用固定延迟猜执行阶段。
@@ -202,7 +202,7 @@ test("activity-integration: stop marks activity stopped and resume continues und
   const stopRes = await service.app.request("/api/conversation/stop", {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ agentId: "local-main", runId }),
+    body: JSON.stringify({ sessionId: "main", runId }),
   });
   assert.equal(stopRes.status, 200);
 
@@ -218,10 +218,10 @@ test("activity-integration: stop marks activity stopped and resume continues und
   assert.ok(act.finishedAt);
 
   // 2. 第二轮继续原活动
-  const convRes = await service.app.request("/api/conversation?agentId=local-main", { headers });
+  const convRes = await service.app.request("/api/conversation?sessionId=main", { headers });
   const conv = (await convRes.json()) as { revision: string };
   const secondInput = {
-    ...input(`活动继续 ${act.id}`, "local-main", "run-resume-test"),
+    ...input(`活动继续 ${act.id}`, "main", "run-resume-test"),
     expectedRevision: conv.revision,
   };
   const resumeRes = await service.app.request("/api/conversation/run", {
@@ -270,7 +270,7 @@ test("activity-integration: agent deletion cascade deletes its activities", asyn
   const token = service.auth.login();
   const headers = { Authorization: `Bearer ${token}` };
 
-  const customAgent = "custom-agent-1";
+  const customAgent = (await service.sessions.create("activity-topic")).id;
   const runRes = await service.app.request("/api/conversation/run", {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
@@ -279,20 +279,20 @@ test("activity-integration: agent deletion cascade deletes its activities", asyn
   assert.equal(runRes.status, 200);
   await runRes.text();
 
-  const listRes = await service.app.request(`/api/activities?agentId=${customAgent}`, { headers });
+  const listRes = await service.app.request(`/api/activities?sessionId=${customAgent}`, { headers });
   const list = (await listRes.json()) as ActivitiesPageDto;
   assert.equal(list.activities.length, 1);
   const actId = list.activities[0]!.id;
 
   // 删除该会话
-  const delRes = await service.app.request(`/api/agents/${customAgent}`, {
+  const delRes = await service.app.request(`/api/sessions/${customAgent}`, {
     method: "DELETE",
     headers,
   });
   assert.equal(delRes.status, 200);
 
   // 删除后，该会话的活动必须立刻消失
-  const afterListRes = await service.app.request(`/api/activities?agentId=${customAgent}`, { headers });
+  const afterListRes = await service.app.request(`/api/activities?sessionId=${customAgent}`, { headers });
   const afterList = (await afterListRes.json()) as ActivitiesPageDto;
   assert.equal(afterList.activities.length, 0);
 

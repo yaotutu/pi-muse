@@ -12,13 +12,13 @@ A goal itself does not execute a plan, create scheduled jobs, monitor pages, or 
 
 - The phone is connected to the real server as described in [Quick Start](getting-started.md#connect-mobile-client).
 - The current mobile client has no standalone goal-management entry: the primary navigation is only 「消息 / 新闻 / 设置」 (Messages / News / Settings). There is no goals page, and goals were not moved into Settings. Existing goal data and server-side goal capabilities are retained and are not deleted by the navigation change.
-- To let the model create, list, toggle milestones, or change goal status in chat, keep the current agent's `goal` skill enabled. Built-in skills are enabled by default.
+- To let the model create, list, toggle milestones, or change goal status in chat, keep the current session's `goal` skill enabled. Built-in skills are enabled by default.
 
 ## Manage Goals in Chat {#manage-goals-in-chat}
 
-1. In any agent's private chat or the group chat, explicitly ask the model to act on goals, for example “Create a goal: clear the inbox weekly, with two milestones” or “Change goal ×× to paused”.
+1. In any session chat, explicitly ask the model to act on goals, for example “Create a goal: clear the inbox weekly, with two milestones” or “Change goal ×× to paused”.
 2. The model executes through the `goal` tool; the tool result is authoritative. A verbal promise is not proof of creation or change — ask the model to list goals again to verify.
-3. Goals are global records: creating or changing one in any agent affects all agents. Switching agents does not lose or duplicate goals.
+3. Goals are global records: creating or changing one in any agent affects all sessions. Switching agents does not lose or duplicate goals.
 
 Using the `goal` tool in chat is model execution and incurs model-call costs. When a write result is unknown, ask for a read-back of the list and verify before issuing the instruction again; do not repeat the same command in a loop.
 
@@ -38,4 +38,4 @@ Using the `goal` tool in chat is model execution and incurs model-call costs. Wh
 | You want to change goal details | Whether the goal already exists | Current source cannot edit an existing goal's title, description, category, or milestone text, nor add or remove individual milestones. Create the corrected goal, verify it, then handle the old one through whatever entry your installed version actually provides. |
 | All milestones are checked but the goal is not completed | The goal status | Milestones never complete the goal automatically. Explicitly change its status to 「已完成」. |
 | The model claims creation but nothing changed | Tool receipts and read-back | Trust the goal list read back from the server. For an unknown result, verify first; do not resend automatically. |
-| Goals remain visible after switching agents | Whether the goal is global | This is expected. Global goals affect all agents, and deleting an agent does not delete goals. |
+| Goals remain visible after switching agents | Whether the goal is global | This is expected. Global goals affect all sessions, and deleting an agent does not delete goals. |

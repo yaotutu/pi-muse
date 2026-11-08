@@ -9,7 +9,7 @@ import {
 
 const overview = (overrides: Partial<ActivityOverview> = {}): ActivityOverview => ({
   id: "activity-1",
-  agentId: "agent-1",
+  sessionId: "agent-1",
   title: "Research",
   goal: "Compare options",
   deliverable: "A short report",

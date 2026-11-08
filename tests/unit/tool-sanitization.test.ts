@@ -84,7 +84,7 @@ test("guardTool still refuses unsafe paths and validates readOnly skill paths", 
       return { content: [{ type: "text", text: "skill body" }], details: undefined };
     },
   };
-  const guarded = guardTool(definition, root, undefined, {
+  const guarded = guardTool(definition, root, {
     readOnlyFiles: [{ path: skillFile, root: dirname(skillFile), boundaryDir: dirname(dirname(skillFile)) }],
   });
   const allowed = await guarded.execute("call", { path: skillFile }, undefined, undefined, {} as never);

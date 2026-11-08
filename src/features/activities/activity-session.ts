@@ -33,7 +33,7 @@ export const projectActivities = (entries: readonly ActivityEntry[], isRunning: 
   });
 };
 
-export const createActivitySession = (agentId: string, history: ActivityHistory) => {
+export const createActivitySession = (sessionId: string, history: ActivityHistory) => {
   const activeRuns = new Set<string>();
   const details = () => projectActivities(history.read(), (id) => activeRuns.has(id));
   return {
@@ -88,7 +88,7 @@ export const createActivitySession = (agentId: string, history: ActivityHistory)
           writable();
           if (boundId) return record().activity;
           const now = new Date().toISOString();
-          return bind({ id: randomUUID(), agentId, ...input, status: "running", progress: "Work started", result: null, runIds: [], currentRunId: null, createdAt: now, updatedAt: now, finishedAt: null });
+          return bind({ id: randomUUID(), sessionId, ...input, status: "running", progress: "Work started", result: null, runIds: [], currentRunId: null, createdAt: now, updatedAt: now, finishedAt: null });
         },
         resume: (id) => {
           writable();
@@ -97,8 +97,8 @@ export const createActivitySession = (agentId: string, history: ActivityHistory)
             return record().activity;
           }
           const existing = details().find((detail) => detail.activity.id === id)?.activity;
-          const target = existing ? existing.agentId : undefined;
-          if (!existing || target !== agentId) throw new ActivityError("Activity not found in this conversation");
+          const target = existing ? existing.sessionId : undefined;
+          if (!existing || target !== sessionId) throw new ActivityError("Activity not found in this conversation");
           if (existing.status === "completed" || existing.currentRunId) throw new ActivityError("Activity cannot be resumed in its current state");
           return bind(existing);
         },

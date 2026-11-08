@@ -1,5 +1,4 @@
-import { FEATURE_AGENTS } from "../agent-extensions/types.js";
-export const NEWS_INTERNAL_AGENT_ID = FEATURE_AGENTS.news;
+import { defaultInformationState, type InformationState } from "../information/types.js";
 
 export type NewsSource = {
   id: string;
@@ -11,6 +10,7 @@ export type NewsSource = {
 };
 
 export type NewsState = {
+  processing: InformationState;
   schemaVersion: 1;
   sources: NewsSource[];
   lastRefreshedAt: string | null;
@@ -18,6 +18,7 @@ export type NewsState = {
 };
 
 export const defaultNewsState = (): NewsState => ({
+  processing: defaultInformationState(),
   schemaVersion: 1,
   sources: [],
   lastRefreshedAt: null,
@@ -26,7 +27,7 @@ export const defaultNewsState = (): NewsState => ({
 
 export type NewsRepository = {
   read: () => Promise<NewsState>;
-  update: <T>(change: (state: NewsState) => { state?: NewsState; result: T }) => Promise<T>;
+  update: <T>(change: (state: NewsState) => { state?: NewsState; result: T } | Promise<{ state?: NewsState; result: T }>) => Promise<T>;
   validate: () => Promise<void>;
 };
 

@@ -34,23 +34,19 @@ Deploy the server, install the app, then enter your server address and AccessKey
 Many personal-agent projects live inside an existing chat platform or a basic web chat window. For an assistant that handles ongoing personal work, that layout quickly becomes limiting:
 
 1. **A chat log is not a control room.** Conversation streams are good for immediate exchanges, but poor for managing recurring jobs, reviewing sub-agent progress, or checking milestones in a long-term plan.
-2. **Each capability has its own surface.** Pi Muse gives conversations, agents, scheduled jobs, web monitors, goals, and approval workflows dedicated screens and action flows instead of burying them in scrollback.
+2. **Each capability has its own surface.** Pi Muse gives sessions, scheduled jobs, web monitors, goals, and approval workflows dedicated screens and action flows instead of burying them in scrollback.
 3. **The client is treated as the product.** The mobile interface includes purposeful navigation, gesture support, an animated companion, and light and dark themes tuned for phone use.
 
 ---
 
 ## Core Features
 
-### Chat and Isolated Agents
-
-<p align="center">
-  <img src="docs/assets/chat-preview.png" width="88%" alt="Chat preview from an earlier version">
-</p>
+### One Assistant, Multiple Sessions
 
 - **Streaming conversation and structured rendering.** Chat runs over AG-UI SSE and renders Markdown, copyable code blocks, nested lists, and inline tool-status cards in the client.
 - **Persistent message feedback.** Like, dislike, or comment on saved user and assistant messages. Pi Muse keeps reaction changes and original comment edits/deletions separately from PI's execution history, without triggering a model run or automatically changing your preferences.
-- **Isolated agents.** Create contexts such as Work, Life, or Study. Each agent has its own conversation tree, agent instructions, and tool switches.
-- **Messages, News, and Settings.** Current mobile source has only 「消息 / 新闻 / 设置」 (Messages / News / Settings) as primary tabs and opens the Messages group by default. Its 「成员」 (Members) panel separates 「在群里 @」 (mention in group) from 「单独聊」 (private chat); message avatars also open private chats. Configure Agents through 「设置」 → 「智能体管理」 (Agent Management). Group display does not share model contexts. Source does not imply a released APK; see [Conversations and agents](docs/manual/en/conversations-and-agents.md).
+- **Isolated conversation contexts.** Permanent main and explicitly created topic sessions have separate histories, instructions and skill overrides. Reset preserves the public session id while rotating the pi history identity. All sessions share one flat workspace; file changes still require version-bound approval.
+- **Messages, News, and Settings.** Messages is a session list, News is a global background reading service, and important SMS notifications go directly to main. There are no separate news/SMS chat identities or delivery bindings. Client adaptation and installed release must match the server; see [Conversations and sessions](docs/manual/en/conversations-and-agents.md).
 
 ---
 
@@ -78,15 +74,11 @@ Many personal-agent projects live inside an existing chat platform or a basic we
 
 ---
 
-### Session Center, Agent Rules, and Human Approval
-
-<p align="center">
-  <img src="docs/assets/session-preview.png" width="88%" alt="Activity center and agent-rule settings">
-</p>
+### Session Center, Instructions, and Human Approval
 
 - **Activity center.** Open it from the chat screen to follow current agent activity, tool calls, and sub-agent collaboration. It shows activity events, not hidden model reasoning.
 - **Explicit file-change approval.** The agent has no shell tool. File `write` and `edit` operations are restricted to the current workspace and require a full before/after diff approval for every operation; stale or changed-file approvals cannot be committed.
-- **Per-agent rules and tools.** Add instructions for the current agent and enable or disable capabilities such as browser tools for that context.
+- **Per-session instructions and tools.** Add instructions for the current session and enable or disable capabilities such as browser tools for that context.
 
 ---
 
@@ -182,7 +174,7 @@ Pi Muse uses HTTP for requests and management, plus one-way SSE streams for serv
 
 1. **Agent execution stream.** A chat request starts an AG-UI SSE response that carries tokens, tool events, and result updates from server to client.
 2. **Workspace notification stream.** `/api/events` is a shared SSE stream for status updates, pending file approvals, and activity events.
-3. **REST management.** Agents, history reads, memory search, jobs, monitors, goals, approvals, and other controls use documented HTTP requests.
+3. **REST management.** Sessions, history reads, memory search, jobs, monitors, goals, approvals, and other controls use documented HTTP requests.
 
 ---
 

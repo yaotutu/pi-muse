@@ -1,9 +1,9 @@
 import { mkdir, readdir } from "node:fs/promises";
 import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
-import { ensureAgentLayout, ensureAgentWorkspace, agentSessionsDir, agentWorkspaceDir, type DataLayout } from "../storage/data-layout.js";
+import { ensureLayout, sessionDir, type DataLayout } from "../storage/data-layout.js";
 import type { ConversationHistoryPort } from "../../features/conversation/ports.js";
 import { AGENT_STATUS_ENTRY_TYPE, RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../../features/conversation/types.js";
-import type { AgentStatus } from "../../features/workspace/agent-status.js";
+import type { SessionStatus } from "../../features/workspace/session-status.js";
 import { createNotificationMessage, notificationIdOf } from "./notification-message.js";
 import { collectConversationRecords, projectConversationHistory, projectDreamTranscript, projectMessageFacts } from "./history-projection.js";
 import type { ToolPresentation } from "../ag-ui/tool-presentation.js";
@@ -31,25 +31,24 @@ const hasSessionFile = async (dir: string): Promise<boolean> => {
  */
 export const createSessionHistory = async (
   layout: DataLayout,
-  agentId: string,
+  sessionId: string,
   presentation?: ToolPresentation,
-  initialSessionId?: string,
+  initialPiSessionId?: string,
 ) => {
-  const sessionsDir = agentSessionsDir(layout, agentId);
-  const cwd = agentWorkspaceDir(layout, agentId);
-  await ensureAgentLayout(layout);
-  await ensureAgentWorkspace(layout, agentId);
+  const sessionsDir = sessionDir(layout, sessionId);
+  const cwd = layout.workspaceDir;
+  await ensureLayout(layout);
   await Promise.all(
     [sessionsDir, layout.agentDir].map((path) =>
       mkdir(path, { recursive: true, mode: 0o700 }),
     ),
   );
-  // 已有 JSONL 时按 cwd 继续最近会话；无 JSONL 时使用给定 sessionId 初始化。
+  // 已有 JSONL 时按 cwd 继续最近会话；无 JSONL 时使用给定 piSessionId 初始化。
   const manager = (await hasSessionFile(sessionsDir))
     ? SessionManager.continueRecent(cwd, sessionsDir)
-    : SessionManager.create(cwd, sessionsDir, initialSessionId ? { id: initialSessionId } : undefined);
+    : SessionManager.create(cwd, sessionsDir, initialPiSessionId ? { id: initialPiSessionId } : undefined);
   const history: ConversationHistoryPort = {
-    sessionId: () => manager.getSessionId(),
+    piSessionId: () => manager.getSessionId(),
     history: () => {
       const projected = projectConversationHistory(manager.getBranch());
       return presentation ? presentation.presentHistory(projected) : projected;
@@ -57,8 +56,8 @@ export const createSessionHistory = async (
     messageFacts: () => projectMessageFacts(manager.getBranch()),
     records: () => collectConversationRecords(manager.getBranch()),
     appendAgentStatus: (status) => { manager.appendCustomEntry(AGENT_STATUS_ENTRY_TYPE, status); },
-    agentStatuses: () => manager.getBranch().filter((entry) => entry.type === "custom" && entry.customType === AGENT_STATUS_ENTRY_TYPE)
-      .map((entry) => (entry as { data: AgentStatus }).data),
+    sessionStatuses: () => manager.getBranch().filter((entry) => entry.type === "custom" && entry.customType === AGENT_STATUS_ENTRY_TYPE)
+      .map((entry) => (entry as { data: SessionStatus }).data),
     checkpoint: () => manager.getLeafId(),
     appendTurn: (turn) => { manager.appendCustomEntry(TURN_ENTRY_TYPE, turn); },
     appendNotification: (notification) => {
@@ -94,20 +93,20 @@ export const createSessionHistory = async (
     },
   };
   const activityHistory = createActivityHistory(manager);
-  const activities = createActivitySession(agentId, activityHistory);
+  const activities = createActivitySession(sessionId, activityHistory);
   // manager 只提供给同一 pi adapter 的执行装配，不暴露到 feature 或协议层。
   return { manager, history, activities };
 };
 
 /**
- * 只读读取指定智能体的 pi 权威历史供 Dream 整理使用：
- * 若智能体目录不存在或尚无 JSONL 文件，直接返回空结果，绝不创建目录或复活已删智能体。
+ * 只读读取指定会话的 pi 权威历史供 Dream 整理使用：
+ * 若会话目录不存在或尚无 JSONL 文件，直接返回空结果，绝不创建目录或复活已删会话。
  */
 export const readDreamTranscript = async (
   layout: DataLayout,
-  agentId: string,
+  sessionId: string,
 ) => {
-  const sessionsDir = agentSessionsDir(layout, agentId);
+  const sessionsDir = sessionDir(layout, sessionId);
   let files: string[];
   try {
     files = (await readdir(sessionsDir)).filter((name) => name.endsWith(".jsonl"));
@@ -119,7 +118,7 @@ export const readDreamTranscript = async (
   }
   if (!files.length) return { messages: [] };
   const manager = SessionManager.continueRecent(
-    agentWorkspaceDir(layout, agentId),
+    layout.workspaceDir,
     sessionsDir,
   );
   return projectDreamTranscript(manager.getBranch());

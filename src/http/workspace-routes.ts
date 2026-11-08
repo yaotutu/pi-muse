@@ -10,7 +10,7 @@ import { createMonitorsRoutes } from "./routes/monitors.js";
 import { createApprovalsRoutes } from "./routes/approvals.js";
 import { createActivitiesRoutes } from "./routes/activities.js";
 import { createConversationRoutes } from "./routes/conversation.js";
-import { createAgentStatusRoutes } from "./routes/agent-status.js";
+import { createSessionStatusRoutes } from "./routes/session-status.js";
 import { createProfileRoutes } from "./routes/profile.js";
 import { createWorkspaceFileRoutes } from "./routes/workspace-files.js";
 
@@ -20,7 +20,7 @@ import { createWorkspaceFileRoutes } from "./routes/workspace-files.js";
  */
 export const createWorkspaceRoutes = (dependencies: HttpDependencies) => {
   const app = new Hono();
-  app.route("/", createAgentStatusRoutes(dependencies));
+  app.route("/", createSessionStatusRoutes(dependencies));
   app.route("/", createSnapshotRoute(dependencies));
   app.route("/", createJobsRoutes(dependencies));
   app.route("/", createGoalsRoutes(dependencies));

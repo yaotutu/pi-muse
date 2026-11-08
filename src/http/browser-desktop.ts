@@ -227,8 +227,8 @@ export const createBrowserDesktop = (input: {
         return errorResponse(405, "Method not allowed");
       const url = new URL(request.url);
       if (!isSafeDesktopPath(url.pathname)) return errorResponse(404, "Not found");
-      const sessionId = readCookie(request.headers.get("cookie"), DESKTOP_COOKIE);
-      if (!validSession(sessionId)) return errorResponse(401, "Desktop session required");
+      const piSessionId = readCookie(request.headers.get("cookie"), DESKTOP_COOKIE);
+      if (!validSession(piSessionId)) return errorResponse(401, "Desktop session required");
       // 固定 upstream：只连配置的桌面流地址（默认回环）；请求头不带 Cookie/Authorization。
       const upstreamPath = url.pathname.slice(DESKTOP_PREFIX.length - 1);
       const upstream = await fetch(

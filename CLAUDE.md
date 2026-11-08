@@ -40,13 +40,13 @@ runner 建立隔离实例；专项场景与不同 runner 的参数见 [testing.m
 
 ## 架构与状态所有权
 
-这是单进程、单用户、单业务模型、多独立 Agent 的模块化单体，不是 Claude API 应用或 Claude Agent SDK 包装层。不要因为用 Claude Code 开发，就更换产品业务模型、SDK 或提示词。
+这是单进程、单用户、单业务模型、单一助手与多会话的模块化单体，不是 Claude API 应用或 Claude Agent SDK 包装层。不要因为用 Claude Code 开发，就更换产品业务模型、SDK 或提示词。
 
 - **组装与执行**：`src/index.ts` 负责配置、监听和信号退出；`src/bootstrap/create-service.ts` 创建唯一服务容器、repository、共享模型 runtime 和调度器。HTTP 和工具复用已注入实例，不能各开一份 writer 或 scheduler。
 - **依赖方向**：`features/` 持有业务规则与最小 ports；`adapters/` 实现 pi、存储、安全网络、浏览器与 AG-UI；`http/` 是薄路由/鉴权/契约/presenter。feature 不依赖 Hono、pi SDK 或具体文件系统 adapter，依赖测试在 `tests/unit/dependencies.test.ts`。
 - **执行与历史**：pi `createAgentSession` 负责 agent loop，`SessionManager`/JSONL 是正文、附件与工具事实权威。`adapters/pi/session-factory.ts` 装配工具和资源，`execution.ts` 处理事件/取消/错误脱敏；不自造循环或另一份聊天历史。
-- **Agent 与 Group**：Agent 私有规则、文件和会话隔离；全局身份、长期记忆、目标与 Chrome 共享。`agent-communication` 运行目标 Agent 的独立持久讨论；`group-chat` 只索引投递并投影讨论，不把整个群时间线注入模型。默认组薄路由只读，候选确认前不执行目标。
-- **业务事实**：反馈、信息处理、新闻源、任务等由各自 storage repository 管理；这些不是另一份聊天历史。新闻/短信是完整 Agent 的扩展，专用 facade 固定数据 owner，通知绑定不迁移数据。
+- **助手与会话**：`features/sessions` 管理永久 `main` 与专题会话，`features/conversation` 按公开 `sessionId` 协调运行；`piSessionId` 随重置变化。每会话指令与历史分开，文件使用唯一 `workspace/`。subagent 只是继承父轮实际工具上限的内存执行工具，无独立业务身份、历史或目录。
+- **业务事实**：反馈、信息处理、新闻源、任务等由各自 storage repository 管理；这些不是另一份聊天历史。新闻与短信是全局后台管线，重要短信只向默认会话追加通知，不额外启动主聊天模型轮；新闻引用由用户带入选定会话。Dream 为全局整理状态。
 - **文件与审批**：文件路径统一由 `adapters/storage/data-layout.ts` 声明。模型 write/edit 走版本绑定审批，手动 HTTP 文件管理走完整预览确认；共享提交队列，但不能互相绕过授权。
 - **生命周期**：关闭先停止执行源、拒绝新工作，再取消运行并等待副作用和资源清理。取消不回滚已有副作用，不恢复未完成模型轮，不自动重试业务写入。
 - **客户端协议**：`src/http/contracts/` 是 HTTP/SSE 的唯一来源，`openapi.ts` 生成 `/openapi.json`，Scalar `/docs` 展示。聊天 AG-UI 流与 `/api/events` 通知流独立；`web/` 只作联调，不是移动产品。

@@ -128,11 +128,10 @@ export const readActionsDocument = (
       item.revision >= 1 &&
       actionTime(item.createdAt) &&
       actionTime(item.expiresAt) &&
-      Object.hasOwn(item, "agentId") && nullableContext(item.agentId) &&
+      Object.hasOwn(item, "sessionId") && nullableContext(item.sessionId) &&
       nullableContext(item.runId) &&
       nullableContext(item.toolCallId) &&
       nullableContext(item.subagentId) &&
-      (Object.hasOwn(item, "workspaceAgentId") ? nullableContext(item.workspaceAgentId) : (Object.hasOwn(item, "workspaceAgentId") && nullableContext(item.workspaceAgentId))) &&
       nullableContext(item.activityId) &&
       isStateConsistent(item) && validExecution(item),
   );
@@ -165,7 +164,7 @@ export const readMonitorsDocument = (
 };
 
 /**
- * 会话级 Dream 状态文档（sessions/<agentId>/dream.json）。
+ * 会话级 Dream 状态文档（sessions/<sessionId>/dream.json）。
  * 仅缺失文件由 repository 给出默认值；坏条目、schemaVersion 或未知字段一律拒绝。
  */
 export const readDreamDocument = (
@@ -174,14 +173,13 @@ export const readDreamDocument = (
   const targets = ["user", "soul", "instructions", "memory"];
   const runStatuses = ["running", "completed", "failed", "partial"];
   const reasons = ["ambiguous", "global_from_session", "no_purpose"];
-  const allowedRoot = new Set(["enabled", "inheritGlobalPrompt", "cursor", "lastRun", "pending"]);
+  const allowedRoot = new Set(["enabled", "cursors", "lastRun", "pending"]);
   if (
     !isObject(value) ||
     "schemaVersion" in value ||
     Object.keys(value).some((key) => !allowedRoot.has(key)) ||
     typeof value.enabled !== "boolean" ||
-    typeof value.inheritGlobalPrompt !== "boolean" ||
-    !(value.cursor === undefined || (typeof value.cursor === "string" && value.cursor.length > 0)) ||
+    !isObject(value.cursors) || !Object.entries(value.cursors).every(([id, cursor]) => (id === "main" || /^[a-f0-9-]{36}$/.test(id)) && typeof cursor === "string" && cursor.length > 0) ||
     !Array.isArray(value.pending)
   ) {
     throw new InvalidDocumentError("dream");
@@ -205,7 +203,7 @@ export const readDreamDocument = (
       throw new InvalidDocumentError("dream");
     }
   }
-  const allowedPending = new Set(["id", "text", "suggestedTarget", "reason", "createdAt"]);
+  const allowedPending = new Set(["id", "text", "suggestedTarget", "reason", "createdAt", "sourceSessionId"]);
   if (
     !value.pending.every(
       (item) =>

@@ -1,3 +1,4 @@
+import { createSubmitInformationResultTool } from "../../src/adapters/pi/information-runner.js";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,7 +10,6 @@ import { createDataLayout } from "../../src/adapters/storage/data-layout.js";
 import { cleanRssText, parseRss2 } from "../../src/adapters/news/rss.js";
 import { createInformationService } from "../../src/features/information/service.js";
 import { createNewsService } from "../../src/features/news/service.js";
-import { NEWS_INTERNAL_AGENT_ID } from "../../src/features/news/types.js";
 
 const rss = (items: string) => `<?xml version="1.0"?>
 <rss version="2.0"><channel><title>Example Feed</title>${items}</channel></rss>`;
@@ -68,12 +68,13 @@ test("recommendation processing projects decisions without retaining or notifyin
   const informationRepository = createInformationRepository(layout);
   const newsRepository = createNewsRepository(layout.newsFile);
   let retained = false;
+  let mainInstructions = "";
   let failNext = false;
   let modelInput: Parameters<Parameters<typeof createInformationService>[0]["runModel"]>[0] | undefined;
   const information = createInformationService({
     repository: informationRepository,
-    agentExists: async () => true,
-    retainAgent: async () => {
+
+    retainMain: async () => {
       retained = true;
       return undefined;
     },
@@ -94,7 +95,8 @@ test("recommendation processing projects decisions without retaining or notifyin
         },
       };
     },
-    readInstructions: async () => "",
+    readInstructions: async () => mainInstructions,
+    writeInstructions: async (text) => { mainInstructions = text; },
     enabledSkillTexts: async () => [],
   });
   let feed = rss(
@@ -104,8 +106,7 @@ test("recommendation processing projects decisions without retaining or notifyin
   const news = createNewsService({
     repository: newsRepository,
     information,
-    ensureInternalAgent: async () => undefined,
-    fetchFeed: async () => parseRss2(feed),
+      fetchFeed: async () => parseRss2(feed),
   });
   await news.initialize();
   await news.savePreferences("Prefer primary sources and substantive engineering detail.");
@@ -121,7 +122,7 @@ test("recommendation processing projects decisions without retaining or notifyin
   const all = await news.listArticles({ view: "all", savedOnly: false, limit: 20 });
   assert.deepEqual(all.articles.map((article) => article.title), ["Newer", "Older"]);
   assert.ok(all.articles.every((article) => article.content === "Details"));
-  await information.runNow(NEWS_INTERNAL_AGENT_ID);
+  await information.runNow();
   assert.equal(retained, false, "recommendation mode must not retain or notify a chat");
   assert.deepEqual(modelInput?.articleFeedback, []);
   assert.equal(modelInput?.preferences.notes, "Prefer primary sources and substantive engineering detail.");
@@ -145,14 +146,14 @@ test("recommendation processing projects decisions without retaining or notifyin
   await news.addComment(older.id, "  useful context  ");
   const learnedBeforeFailure = await news.preferences();
   failNext = true;
-  await information.ingestNews(NEWS_INTERNAL_AGENT_ID, [{
+  await information.ingestNews([{
     source: "newssource_test",
     externalId: "after-success",
     title: "Failure must not overwrite preferences",
     content: "Content",
     metadata: { sourceId: "newssource_test", sourceTitle: "Feed", url: null },
   }]);
-  await information.runNow(NEWS_INTERNAL_AGENT_ID);
+  await information.runNow();
   assert.deepEqual(await news.preferences(), learnedBeforeFailure);
   await news.deleteSource(source.id);
   const retainedArticle = await news.getArticle(older.id);
@@ -168,8 +169,8 @@ test("touching an old article makes its feedback recent for the next model input
   let captured: Parameters<Parameters<typeof createInformationService>[0]["runModel"]>[0] | undefined;
   const information = createInformationService({
     repository,
-    agentExists: async () => true,
-    retainAgent: async () => undefined,
+
+    retainMain: async () => undefined,
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async (input) => {
       captured = input;
@@ -190,10 +191,10 @@ test("touching an old article makes its feedback recent for the next model input
     enabledSkillTexts: async () => [],
   });
   try {
-    await information.configureAgent(NEWS_INTERNAL_AGENT_ID, {
+    await information.configure({
       enabled: true, batchWindowSeconds: 0, mode: "recommendations",
     });
-    const inserted = await information.ingestNews(NEWS_INTERNAL_AGENT_ID, Array.from({ length: 22 }, (_, index) => ({
+    const inserted = await information.ingestNews(Array.from({ length: 22 }, (_, index) => ({
       source: "newssource_test",
       externalId: `guid-${index}`,
       title: `Article ${index}`,
@@ -201,10 +202,10 @@ test("touching an old article makes its feedback recent for the next model input
       metadata: { sourceId: "newssource_test", sourceTitle: "Feed", url: null },
     })));
     for (const article of inserted.slice(0, 21)) {
-      await information.setArticleReaction(NEWS_INTERNAL_AGENT_ID, article.id, "like");
+      await information.setArticleReaction(article.id, "like");
     }
-    await information.setArticleReaction(NEWS_INTERNAL_AGENT_ID, inserted[0]!.id, "dislike");
-    await information.runNow(NEWS_INTERNAL_AGENT_ID);
+    await information.setArticleReaction(inserted[0]!.id, "dislike");
+    await information.runNow();
     assert.equal(captured?.articleFeedback[0]?.id, inserted[0]!.id);
     assert.equal(captured?.articleFeedback[0]?.reaction, "dislike");
   } finally {
@@ -218,8 +219,8 @@ test("news pagination returns null nextCursor for an exact full page", async (t)
   const layout = createDataLayout(dataDir);
   const information = createInformationService({
     repository: createInformationRepository(layout),
-    agentExists: async () => true,
-    retainAgent: async () => undefined,
+
+    retainMain: async () => undefined,
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
     readInstructions: async () => "",
@@ -228,13 +229,12 @@ test("news pagination returns null nextCursor for an exact full page", async (t)
   const news = createNewsService({
     repository: createNewsRepository(layout.newsFile),
     information,
-    ensureInternalAgent: async () => undefined,
-    fetchFeed: async () => {
+      fetchFeed: async () => {
       throw new Error("not used");
     },
   });
   await news.initialize();
-  await information.ingestNews(NEWS_INTERNAL_AGENT_ID, Array.from({ length: 20 }, (_, index) => ({
+  await information.ingestNews(Array.from({ length: 20 }, (_, index) => ({
     source: "newssource_test",
     externalId: `guid-${index}`,
     title: `Article ${index}`,
@@ -265,8 +265,8 @@ test("background refresh keeps failed articles failed while explicit refresh req
   const layout = createDataLayout(dataDir);
   const information = createInformationService({
     repository: createInformationRepository(layout),
-    agentExists: async () => true,
-    retainAgent: async () => undefined,
+
+    retainMain: async () => undefined,
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
     readInstructions: async () => "",
@@ -276,27 +276,26 @@ test("background refresh keeps failed articles failed while explicit refresh req
   const news = createNewsService({
     repository: createNewsRepository(layout.newsFile),
     information,
-    ensureInternalAgent: async () => undefined,
-    fetchFeed: async () => feed,
+      fetchFeed: async () => feed,
   });
   await news.initialize();
   await news.addSource({ url: "https://example.com/feed.xml" });
   await news.refresh({ retryFailed: true });
-  await information.runNow(NEWS_INTERNAL_AGENT_ID);
-  assert.deepEqual(await information.getNewsCounts(NEWS_INTERNAL_AGENT_ID), {
+  await information.runNow();
+  assert.deepEqual(await information.getNewsCounts(), {
     processing: false,
     pendingCount: 0,
     failedCount: 1,
   });
 
   await news.refresh({ retryFailed: false });
-  assert.deepEqual(await information.getNewsCounts(NEWS_INTERNAL_AGENT_ID), {
+  assert.deepEqual(await information.getNewsCounts(), {
     processing: false,
     pendingCount: 0,
     failedCount: 1,
   });
   await news.refresh({ retryFailed: true });
-  assert.deepEqual(await information.getNewsCounts(NEWS_INTERNAL_AGENT_ID), {
+  assert.deepEqual(await information.getNewsCounts(), {
     processing: false,
     pendingCount: 1,
     failedCount: 0,
@@ -309,8 +308,8 @@ test("concurrent news refresh is rejected without queueing", async (t) => {
   const layout = createDataLayout(dataDir);
   const information = createInformationService({
     repository: createInformationRepository(layout),
-    agentExists: async () => true,
-    retainAgent: async () => undefined,
+
+    retainMain: async () => undefined,
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
     readInstructions: async () => "",
@@ -325,8 +324,7 @@ test("concurrent news refresh is rejected without queueing", async (t) => {
   const news = createNewsService({
     repository: createNewsRepository(layout.newsFile),
     information,
-    ensureInternalAgent: async () => undefined,
-    fetchFeed: async () => {
+      fetchFeed: async () => {
       calls++;
       if (calls === 1) return feed;
       markRefreshStarted();
@@ -350,8 +348,8 @@ test("one broken RSS source does not block another and its error stays controlle
   const layout = createDataLayout(dataDir);
   const information = createInformationService({
     repository: createInformationRepository(layout),
-    agentExists: async () => true,
-    retainAgent: async () => undefined,
+
+    retainMain: async () => undefined,
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
     readInstructions: async () => "",
@@ -363,8 +361,7 @@ test("one broken RSS source does not block another and its error stays controlle
   const news = createNewsService({
     repository: createNewsRepository(layout.newsFile),
     information,
-    ensureInternalAgent: async () => undefined,
-    fetchFeed: async (url) => {
+      fetchFeed: async (url) => {
       if (url.includes("bad") && failBad) throw new Error("upstream-marker-4wrqxe7u");
       return url.includes("bad") ? badFeed : goodFeed;
     },
@@ -384,4 +381,25 @@ test("one broken RSS source does not block another and its error stays controlle
     "RSS source fetch or parse failed",
   );
   assert.ok(!JSON.stringify(sources).includes("upstream-marker-4wrqxe7u"));
+});
+
+test("recommendation tool schema omits notifications, permits empty learned notes and rejects object notifications", async () => {
+  const submissions: unknown[]=[];
+  const tool=createSubmitInformationResultTool(["item"],(value)=>{submissions.push(value);},"recommendations");
+  assert.deepEqual(Object.keys(tool.parameters.properties).sort(),["decisions","learnedNotes"]);
+  assert.deepEqual([...tool.parameters.required!].sort(),["decisions","learnedNotes"]);
+  assert.equal(tool.parameters.additionalProperties,false);
+  const invoke=(input:unknown)=>tool.execute("news",input as never,undefined,undefined,{} as never);
+  const valid={decisions:[{itemId:"item",decision:"notify",reason:"useful"}],learnedNotes:""};
+  const accepted=await invoke(valid);
+  assert.equal(accepted.isError,undefined);
+  assert.deepEqual(submissions,[{...valid,notifications:[]}]);
+  for(const input of [{...valid,notifications:{}},{...valid,notifications:[]},{...valid,decisions:[]},{...valid,learnedNotes:undefined}]) {
+    assert.equal((await invoke(input)).isError,true);
+  }
+  assert.equal(submissions.length,1,"invalid model input must never be normalized into a valid submission");
+  const sms=createSubmitInformationResultTool(["item"],()=>assert.fail("object is not an array"));
+  assert.equal(sms.parameters.properties.notifications?.type,"array");
+  assert.ok(sms.parameters.required?.includes("notifications"));
+  assert.equal((await sms.execute("sms",{...valid,notifications:{}} as never,undefined,undefined,{} as never)).isError,true);
 });

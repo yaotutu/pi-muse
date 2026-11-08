@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { readFile, rm, writeFile, mkdir, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
@@ -49,7 +50,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
   let baseUrl = "";
   let serviceVersion: unknown;
   let sessionToken: string | undefined;
-  const createdAgentIds: string[] = [];
+  const createdSessionIds: string[] = [];
   const createdJobIds = new Set<string>();
 
   const stopService = async () => {
@@ -122,7 +123,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     // -------------------------------------------------------------------------
     type PromptSpec = {
       scenario: string;
-      agentId: string;
+      sessionId: string;
       at: string;
       promptText: string;
       expectValid: boolean;
@@ -135,17 +136,18 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       `这是参数异常/边界测试用例，请务必把 at 原样传给工具验证，绝对不要自行纠正或改写时刻，不要重试，不要使用其它工具。调用完毕后请简短回复结果。`;
 
     const specs: PromptSpec[] = [
-      { scenario: "invalid-09-99", agentId: "live-agent-bad-0999", at: "09:99", promptText: makePrompt("09:99"), expectValid: false },
-      { scenario: "invalid-24-00", agentId: "live-agent-bad-2400", at: "24:00", promptText: makePrompt("24:00"), expectValid: false },
-      { scenario: "invalid-9-00", agentId: "live-agent-bad-900", at: "9:00", promptText: makePrompt("9:00"), expectValid: false },
-      { scenario: "valid-boundary-00-00", agentId: "live-agent-good-0000", at: "00:00", promptText: makePrompt("00:00"), expectValid: true, expectedHour: 0, expectedMinute: 0 },
-      { scenario: "valid-boundary-23-59", agentId: "live-agent-good-2359", at: "23:59", promptText: makePrompt("23:59"), expectValid: true, expectedHour: 23, expectedMinute: 59 },
+      { scenario: "invalid-09-99", sessionId: "live-agent-bad-0999", at: "09:99", promptText: makePrompt("09:99"), expectValid: false },
+      { scenario: "invalid-24-00", sessionId: "live-agent-bad-2400", at: "24:00", promptText: makePrompt("24:00"), expectValid: false },
+      { scenario: "invalid-9-00", sessionId: "live-agent-bad-900", at: "9:00", promptText: makePrompt("9:00"), expectValid: false },
+      { scenario: "valid-boundary-00-00", sessionId: "live-agent-good-0000", at: "00:00", promptText: makePrompt("00:00"), expectValid: true, expectedHour: 0, expectedMinute: 0 },
+      { scenario: "valid-boundary-23-59", sessionId: "live-agent-good-2359", at: "23:59", promptText: makePrompt("23:59"), expectValid: true, expectedHour: 23, expectedMinute: 59 },
     ];
 
     const capturedValidJobIds: Record<string, string> = {};
 
     for (const spec of specs) {
-      if (!createdAgentIds.includes(spec.agentId)) createdAgentIds.push(spec.agentId);
+      spec.sessionId = (await client.createSession(spec.scenario)).id;
+      if (!createdSessionIds.includes(spec.sessionId)) createdSessionIds.push(spec.sessionId);
       const baseline = proxy.traces.length;
       let outcome: ScenarioOutcome = {
         name: spec.scenario,
@@ -157,7 +159,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
       try {
         const referenceTime = new Date();
-        const runResult = await client.startRun(spec.promptText, spec.agentId);
+        const runResult = await client.startRun(spec.promptText, spec.sessionId);
         const events = await runResult.done;
         assert.equal(events.at(-1)?.type, "RUN_FINISHED");
 
@@ -200,10 +202,10 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
           );
           assert.ok(returnedTip, "受控拒绝提示必须回到模型上下文（tool result 包含 strict HH:mm between 00:00 and 23:59）");
 
-          // 2. 检查 jobs 列表：不能产生属于此 agentId 的任务
-          const currentJobs = (await client.json("/api/jobs")).jobs as { id: string; originAgentId: string }[];
+          // 2. 检查 jobs 列表：不能产生属于此 sessionId 的任务
+          const currentJobs = (await client.json("/api/jobs")).jobs as { id: string; originSessionId: string }[];
           assert.equal(
-            currentJobs.some((j) => j.originAgentId === spec.agentId),
+            currentJobs.some((j) => j.originSessionId === spec.sessionId),
             false,
             `非法排期 ${spec.at} 不得在 jobs 中创建任务`,
           );
@@ -222,11 +224,11 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
             id: string;
             at: string;
             daily: boolean;
-            originAgentId: string;
+            originSessionId: string;
             nextRunAt: string;
             status: string;
           }[];
-          const found = currentJobs.find((j) => j.originAgentId === spec.agentId && j.at === spec.at);
+          const found = currentJobs.find((j) => j.originSessionId === spec.sessionId && j.at === spec.at);
           assert.ok(found, `合法排期 ${spec.at} 必须在 jobs 中创建成功`);
           createdJobIds.add(found.id);
           capturedValidJobIds[spec.at] = found.id;
@@ -242,7 +244,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
           outcome.evidence = {
             jobId: found.id,
             at: found.at,
-            originAgentId: found.originAgentId,
+            originSessionId: found.originSessionId,
             nextRunAt: found.nextRunAt,
             pausedImmediately: true,
           };
@@ -292,17 +294,17 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
           assert.equal(bytesAfter, bytesBefore, `PATCH at='${badAt}' 失败时 jobs.json 字节不得变化`);
         }
 
-        // 2. 非法带新 originAgentId：不建立智能体、文件不落盘
-        const nonExistentAgent = "never-created-live-patch-agent";
+        // 2. 非法带新 originSessionId：不建立智能体、文件不落盘
+        const nonExistentAgent = randomUUID();
         const bytesBeforeAgent = await readFile(jobsFile, "utf8");
         const badAgentPatch = await client.request(
           `/api/jobs/${targetJobId}`,
-          { at: "24:00", originAgentId: nonExistentAgent },
+          { at: "24:00", originSessionId: nonExistentAgent },
           "PATCH",
         );
         assert.equal(badAgentPatch.status, 400);
         assert.equal(await readFile(jobsFile, "utf8"), bytesBeforeAgent);
-        const agentsList = (await client.json("/api/agents")).agents as { id: string }[];
+        const agentsList = (await client.json("/api/sessions")).sessions as { id: string }[];
         assert.equal(agentsList.some((s) => s.id === nonExistentAgent), false, "非法 PATCH 不得创建新智能体");
 
         // 3. 暂停状态修改为合法边界 23:59，再恢复后重算时间
@@ -369,27 +371,27 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         }
       }
       // 清理本次测试创建的独立测试智能体
-      for (const agentId of createdAgentIds) {
+      for (const sessionId of createdSessionIds) {
         try {
-          const res = await fetch(`${baseUrl}/api/agents/${agentId}`, {
+          const res = await fetch(`${baseUrl}/api/sessions/${sessionId}`, {
             method: "DELETE",
             headers: { Authorization: `Bearer ${authToken}` },
           });
           if (res.ok || res.status === 404) {
             // 确认智能体已被删除
-            const verifyRes = await fetch(`${baseUrl}/api/agents`, {
+            const verifyRes = await fetch(`${baseUrl}/api/sessions`, {
               headers: { Authorization: `Bearer ${authToken}` },
             });
             if (verifyRes.ok) {
-              const currentAgents = (await verifyRes.json()) as { agents: { id: string }[] };
-              if (currentAgents.agents.some((s) => s.id === agentId)) {
+              const currentAgents = (await verifyRes.json()) as { sessions: { id: string }[] };
+              if (currentAgents.sessions.some((s) => s.id === sessionId)) {
                 cleanupFailed = true;
-                process.stderr.write(`Cleanup verification failed: agent ${agentId} still exists\n`);
+                process.stderr.write(`Cleanup verification failed: agent ${sessionId} still exists\n`);
               }
             }
           } else {
             cleanupFailed = true;
-            process.stderr.write(`Cleanup agent ${agentId} failed with HTTP ${res.status}\n`);
+            process.stderr.write(`Cleanup agent ${sessionId} failed with HTTP ${res.status}\n`);
           }
         } catch {
           cleanupFailed = true;

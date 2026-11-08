@@ -231,7 +231,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
       "protected and unsupported API routes require a valid token",
       async () => {
         for (const path of [
-          "/api/agents",
+          "/api/sessions",
           "/api/profile",
           "/api/identity",
           "/api/conversation",
@@ -254,7 +254,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
       async () => {
         // 兼容层已移除：/api/workspace 不再返回 OpenMuse 形状的快照。
         const response = await authorized("/api/workspace");
-        assert.equal(response.status, 501);
+        assert.equal(response.status, 404);
       },
     );
 
@@ -284,14 +284,14 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         assert.deepEqual(await jobsResponse.json(), { jobs: [] });
         const history = await authorized("/api/conversation");
         assert.equal(history.status, 200);
-        const initial = await history.json() as { sessionId: string; messages: unknown[]; revision: string };
-        assert.match(initial.sessionId, /^[0-9a-f-]{36}$/);
+        const initial = await history.json() as { piSessionId: string; messages: unknown[]; revision: string };
+        assert.match(initial.piSessionId, /^[0-9a-f-]{36}$/);
         assert.deepEqual({ messages: initial.messages, revision: initial.revision }, { messages: [], revision: "empty" });
       },
     );
 
     await t.test(
-      "unsupported features and runtime operations return JSON 501",
+      "unsupported features and runtime operations return JSON 404",
       async () => {
         for (const [path, method] of [
           ["/api/files", "GET"],
@@ -303,7 +303,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           ["/api/copilotkit/agents", "GET"],
           ["/api/copilotkit/agent/default/connect", "POST"],
         ] as const) {
-          await jsonError(await authorized(path, { method }), 501);
+          await jsonError(await authorized(path, { method }), 404);
         }
         await jsonError(await app.request("/not-an-api-route"), 404);
       },
@@ -388,7 +388,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           "{",
           "null",
           "{}",
-          JSON.stringify({ agentId: "local-main", messages: "invalid" }),
+          JSON.stringify({ sessionId: "main", messages: "invalid" }),
         ]) {
           await jsonError(
             await authorized("/api/conversation/run", {
@@ -405,7 +405,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
     await t.test(
       "conversation history is read-only (PUT removed with compat layer)",
       async () => {
-        // PUT 回写端点已删除：任何 PUT 都落到未知 API 的 501，历史只能 GET。
+        // PUT 回写端点已删除：任何 PUT 都落到未知 API 的 404，历史只能 GET。
         const response = await authorized("/api/conversation", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -415,9 +415,9 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
             ],
           }),
         });
-        assert.equal(response.status, 501);
-        const after = await (await authorized("/api/conversation")).json() as { sessionId: string; messages: unknown[]; revision: string };
-        assert.match(after.sessionId, /^[0-9a-f-]{36}$/);
+        assert.equal(response.status, 404);
+        const after = await (await authorized("/api/conversation")).json() as { piSessionId: string; messages: unknown[]; revision: string };
+        assert.match(after.piSessionId, /^[0-9a-f-]{36}$/);
         assert.deepEqual({ messages: after.messages, revision: after.revision }, { messages: [], revision: "empty" });
       },
     );

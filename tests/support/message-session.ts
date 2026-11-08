@@ -8,14 +8,14 @@ import type { MessageExecutionFact } from "../../src/features/messages/types.js"
 
 /** 单元测试使用真实消息服务与文件 repository，只替换 PI facts 来源。 */
 export const createMessageFeedbackFixture = async (input: {
-  agentId: string;
   sessionId: string;
+  piSessionId: string;
   facts: () => readonly MessageExecutionFact[];
 }): Promise<{ messages: MessageFeedbackSession; cleanup: () => Promise<void> }> => {
   const root = await mkdtemp(join(tmpdir(), "pi-muse-message-unit-"));
   const messages = createMessageFeedbackSession({
-    agentId: input.agentId,
-    sessionId: () => input.sessionId,
+    sessionId: input.sessionId,
+    piSessionId: () => input.piSessionId,
     facts: input.facts,
     repository: createMessageFeedbackRepository(createDataLayout(root)),
   });

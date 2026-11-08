@@ -21,7 +21,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
   const cleanup: { memoryDeleted: boolean; agentDeleted: boolean } = { memoryDeleted: false, agentDeleted: false };
   let serviceVersion: unknown = null;
   let createdMemoryId = "";
-  const agentId = `cors-live-${randomUUID().slice(0, 8)}`;
+  let sessionId = "";
   const marker = `A05-CORS-LIVE-${randomUUID().slice(0, 8)}`;
   let token = "";
 
@@ -37,6 +37,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     token = ((await loginRes.json()) as { token: string }).token;
 
     const client = createTestClient(() => baseUrl, token, 120_000);
+    sessionId = (await client.createSession("CORS live acceptance")).id;
     serviceVersion = (await client.json("/api/health")).serviceVersion;
 
     // 2. OPTIONS 预检 /api/memories/:id，校验三项 CORS 头与 204
@@ -59,7 +60,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
     // 3. 真实模型只完成一轮对话；CORS 验收不依赖模型是否选择工具。
     const prompt = `系统测试。请直接且仅回复：${marker}`;
-    const runResult = await client.startRun(prompt, agentId);
+    const runResult = await client.startRun(prompt, sessionId);
     const events = await runResult.done;
     assert.equal(events.at(-1)?.type, "RUN_FINISHED", "Run must end with RUN_FINISHED");
     // 该专项只需要证明真实模型链路可用；不把 CORS 结果绑定在模型输出措辞上。
@@ -130,8 +131,8 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         }).catch(() => null);
         cleanup.memoryDeleted = cleanup.memoryDeleted && delMem?.status === 200;
       }
-      if (agentId) {
-        const delAgent = await fetch(`${baseUrl}/api/agents/${agentId}`, {
+      if (sessionId) {
+        const delAgent = await fetch(`${baseUrl}/api/sessions/${sessionId}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
           signal: AbortSignal.timeout(10_000),

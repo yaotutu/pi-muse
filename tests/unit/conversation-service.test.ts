@@ -12,7 +12,7 @@ const fixture = async (t: TestContext) => {
   let listener: (event: ExecutionEvent) => void = () => {};
   const history: ConversationHistoryPort = {
     history: () => [], records: () => ({ turns: [], results: new Map() }), checkpoint: () => "leaf",
-    sessionId: () => "unit-session", messageFacts: () => [],
+    piSessionId: () => "unit-session", messageFacts: () => [],
     omitTurn: () => { calls.push("omit"); }, appendTurn: (turn) => { calls.push("turn:" + JSON.stringify(turn)); },
     appendNotification: (notification) => { calls.push("notification:" + notification.text); },
     appendResult: (result) => { calls.push(result.status); }, restoreIfNoUser: () => { calls.push("restore"); },
@@ -24,13 +24,13 @@ const fixture = async (t: TestContext) => {
     subscribe: (next) => { listener = next; return () => { calls.push("unsubscribe"); }; },
   };
   const messageFeedback = await createMessageFeedbackFixture({
-    agentId: "local-main", sessionId: "unit-session", facts: history.messageFacts,
+    sessionId: "main", piSessionId: "unit-session", facts: history.messageFacts,
   });
   t.after(messageFeedback.cleanup);
   const dependencies: ConversationDependencies = { history, messages: messageFeedback.messages, openSession: async () => session };
   return { calls, session, dependencies };
 };
-const input = { agentId: "local-main", runId: "run", expectedRevision: "leaf", message: { id: "user", content: "hello" } };
+const input = { sessionId: "main", runId: "run", expectedRevision: "leaf", message: { id: "user", content: "hello" } };
 
 test("coordinator finishes only after pi idle and persisted result and then releases its sole lock", async (t) => {
   const { calls, dependencies } = await fixture(t);
@@ -82,7 +82,7 @@ test("coordinator records attachment metadata and passes images in the same SDK 
     Buffer.from("ok"),
   ]);
   await conversation.run({
-    agentId: "local-main", runId: "image-run", expectedRevision: "leaf",
+    sessionId: "main", runId: "image-run", expectedRevision: "leaf",
     message: {
       id: "user", content: "",
       attachments: [{
@@ -111,7 +111,7 @@ test("trigger has an explicit timeout only when requested and shares the lock wi
   const pending = conversation.trigger("scheduled", "job");
   t.mock.timers.tick(1000);
   assert.equal(conversation.isRunning(), true);
-  await assert.rejects(conversation.run(input, () => {}), { code: "agent_locked" });
+  await assert.rejects(conversation.run(input, () => {}), { code: "session_locked" });
   assert.deepEqual(await conversation.trigger("other", "other-job"), { status: "failed", text: "busy" });
   assert.equal(await conversation.cancel("STOPPED", "not-owner"), false);
   release();

@@ -6,15 +6,13 @@ export const presentApproval = (action: PendingAction) => {
   const resourceScope = action.payload.resourceScope;
   if (resourceScope === "skill") {
     const { payload: _payload, ...summary } = action;
-    const agentId = action.agentId ?? null;
+    const sessionId = action.sessionId ?? null;
     return {
       ...summary,
-      agentId,
-      workspaceAgentId: null,
+      sessionId,
       execution: action.execution ?? null,
       preview: {
         scope: "skill" as const,
-        ownerAgentId: null,
         path,
         before: action.payload.originalContent,
         after: action.payload.content,
@@ -22,18 +20,14 @@ export const presentApproval = (action: PendingAction) => {
       },
     };
   }
-  const shared = path === "shared" || path.startsWith("shared/");
   const { payload: _payload, ...summary } = action;
-  const agentId = action.agentId ?? null;
-  const workspaceAgentId = action.workspaceAgentId ?? null;
+  const sessionId = action.sessionId ?? null;
   return {
     ...summary,
-    agentId,
-    workspaceAgentId,
+    sessionId,
     execution: action.execution ?? null,
     preview: {
-      scope: shared ? ("shared" as const) : ("agent" as const),
-      ownerAgentId: shared ? null : workspaceAgentId,
+      scope: "workspace" as const,
       path,
       before: action.payload.originalContent,
       after: action.payload.content,
@@ -43,16 +37,14 @@ export const presentApproval = (action: PendingAction) => {
 };
 
 export const presentApprovalResolution = (action: PendingAction) => {
-  const agentId = action.agentId ?? null;
-  const workspaceAgentId = action.workspaceAgentId ?? null;
+  const sessionId = action.sessionId ?? null;
   return {
     id: action.id,
     revision: action.revision,
-    agentId,
+    sessionId,
     runId: action.runId,
     toolCallId: action.toolCallId,
     subagentId: action.subagentId,
-    workspaceAgentId,
     activityId: action.activityId,
     status: action.status,
     createdAt: action.createdAt,

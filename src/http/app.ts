@@ -1,9 +1,8 @@
-import { FeatureError } from "../features/agent-extensions/types.js";
-import { createFeatureRoutes } from "./routes/features.js";
-import { createAgentCommunicationRoutes } from "./routes/agent-communication.js";
+import { UnknownSkillError } from "../features/skills/service.js";
+import { SessionError } from "../features/sessions/types.js";
+import { createSessionRoutes } from "./routes/sessions.js";
 import { ConversationError } from "../features/conversation/errors.js";
 import { Hono } from "hono";
-import { createGroupChatRoutes } from "./routes/group-chat.js";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import type { HttpDependencies } from "../bootstrap/types.js";
@@ -12,14 +11,12 @@ import { sessionRequestSchema } from "./contracts/rest.js";
 import { buildOpenApiDocument } from "./openapi.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { createMessageRoutes } from "./routes/messages.js";
-import { createAgentRoutes } from "./routes/agents.js";
 import { createInformationRoutes } from "./routes/information.js";
 import { createNewsRoutes } from "./routes/news.js";
 import { createWorkspaceEventRoutes } from "./routes/events.js";
 import { createTracesRoutes } from "./routes/traces.js";
 import { createBrowserRoutes } from "./routes/browser.js";
 import { serviceVersion } from "../bootstrap/service-version.js";
-import { isFeatureAgent } from "../features/agent-extensions/types.js";
 
 // 只挂载 HTTP/协议适配：使用已组装的服务，不创建 store，也不启动或关闭调度器。
 export async function createHttpApp(dependencies: HttpDependencies) {
@@ -65,8 +62,13 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     },
   );
   app.onError((error, c) => {
-    if (error instanceof FeatureError) return c.json({ error: error.message, code: error.code }, error.code === "INVALID_INPUT" ? 400 : error.code === "NOT_FOUND" ? 404 : 409);
-    if (error instanceof ConversationError && (error.code === "AGENT_DELETING" || error.code === "THREAD_DELETING"))
+    if (error instanceof UnknownSkillError) return c.json({ error: error.message, code: "UNKNOWN_SKILL" }, 400);
+    if (error instanceof SessionError) return c.json({ error: error.message, code: error.code }, error.status);
+    if (error instanceof ConversationError && error.code === "SESSION_NOT_FOUND")
+      return c.json({ error: error.message, code: error.code }, 404);
+    if (error instanceof ConversationError && error.code === "UNSUPPORTED_SESSION")
+      return c.json({ error: error.message, code: error.code }, 400);
+    if (error instanceof ConversationError && error.code === "SESSION_DELETING")
       return c.json({ error: error.message, code: error.code }, 409);
     if (error instanceof ConversationError && error.code === "SHUTDOWN")
       return c.json({ error: error.message, code: error.code }, 503);
@@ -103,26 +105,15 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.use("/api/*", async (c, next) => {
     if (!auth.authorized(c.req.header("Authorization")))
       return c.json({ error: "Unauthorized: open a new session" }, 401);
-    // 私聊、文件与规则现在对成员开放；后台采集仍走 Feature facade，
-    // 避免通用信息接口把新闻或短信配置成另一种来源/通知投递方式。
-    const url = new URL(c.req.url);
-    const segments = url.pathname.split("/").map((segment) => {
-      try { return decodeURIComponent(segment); } catch { return segment; }
-    });
-    const featureSettings = segments[2] === "agents" && isFeatureAgent(segments[3]) && segments[4] === "information";
-    if (featureSettings) return c.json({ error: "Use this agent's dedicated ingestion settings" }, 404);
     await next();
   });
   // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
   app.route("/", createWorkspaceEventRoutes(dependencies.workspaceEvents));
   app.route("/", createBrowserRoutes(dependencies.browser, dependencies.browserDesktop));
-  app.route("/api/agents", createMessageRoutes(dependencies));
-  app.route("/api/agents", createInformationRoutes(dependencies));
-  app.route("/api/agents", createAgentRoutes(dependencies));
-  app.route("/api/group", createGroupChatRoutes(dependencies));
+  app.route("/api/sessions", createMessageRoutes(dependencies));
+  app.route("/api/information", createInformationRoutes(dependencies));
+  app.route("/api/sessions", createSessionRoutes(dependencies));
   app.route("/api/news", createNewsRoutes(dependencies));
-  app.route("/api/features", createFeatureRoutes(dependencies));
-  app.route("/api/agent-communication", createAgentCommunicationRoutes(dependencies));
   app.route("/", createTracesRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);
@@ -132,7 +123,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
         error:
           "This feature is not implemented",
       },
-      501,
+      404,
     ),
   );
   app.notFound((c) => c.json({ error: "Not found" }, 404));

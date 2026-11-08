@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-const agentIdSchema = z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
-const scopeSchema = z.enum(["agent", "shared"]).describe("文件根选择器：agent=指定智能体私有区；shared=全局共享区");
 const readPathSchema = z.string().min(1).max(2048).describe(
   "相对所选根的路径。列表可传 `.` 表示根目录；读取现存文件时允许历史遗留的非 ASCII 名称，但拒绝绝对路径、反斜杠、空段、`.`/`..` 与 NUL。",
 );
@@ -9,57 +7,32 @@ const writePathSchema = z.string().min(1).max(2048).regex(/^[A-Za-z0-9._-]+(?:\/
   "新建/更新/删除的相对文件路径；每段只允许 ASCII 字母、数字、`.`、`-`、`_`，且拒绝 `.`、`..`、绝对路径、反斜杠与目录路径。",
 );
 
-const selectorRules = (
-  value: { scope: "agent" | "shared"; agentId?: string },
-  ctx: z.RefinementCtx,
-) => {
-    if (value.scope === "agent" && !value.agentId)
-      ctx.addIssue({ code: "custom", path: ["agentId"], message: "scope=agent 时 agentId 必填" });
-    if (value.scope === "shared" && value.agentId)
-      ctx.addIssue({ code: "custom", path: ["agentId"], message: "scope=shared 时必须省略 agentId" });
-};
-
-const selectorCheck = <S extends z.ZodRawShape>(shape: S) =>
-  z.strictObject(shape).superRefine((value, ctx) => {
-    selectorRules(value as { scope: "agent" | "shared"; agentId?: string }, ctx);
-  });
-
-export const workspaceListQuerySchema = selectorCheck({
-  scope: scopeSchema,
-  agentId: agentIdSchema.optional().describe("智能体 ID；仅 scope=agent 时必填，且智能体必须已存在"),
+export const workspaceListQuerySchema = z.strictObject({
   path: readPathSchema.default(".").describe("要列出的目录路径；默认 `.` 表示所选根目录"),
 });
 
-export const workspaceContentQuerySchema = selectorCheck({
-  scope: scopeSchema,
-  agentId: agentIdSchema.optional().describe("智能体 ID；仅 scope=agent 时必填，且智能体必须已存在"),
+export const workspaceContentQuerySchema = z.strictObject({
   path: readPathSchema.describe("要完整打开/下载的现存普通文件路径"),
 });
 
-export const workspaceDeleteQuerySchema = selectorCheck({
-  scope: scopeSchema,
-  agentId: agentIdSchema.optional().describe("智能体 ID；仅 scope=agent 时必填，且智能体必须已存在"),
+export const workspaceDeleteQuerySchema = z.strictObject({
   path: writePathSchema.describe("要删除的普通文件路径；目录与符号链接拒绝"),
 });
 
 const writeRequestShape = {
-  scope: scopeSchema,
-  agentId: agentIdSchema.optional().describe("智能体 ID；仅 scope=agent 时必填，且智能体必须已存在；GET 或写入都不会隐式创建智能体"),
   path: writePathSchema,
   content: z.string().describe("完整 UTF-8 文本内容；最大 100000 字节，禁止 NUL，不用于任意二进制"),
   confirmed: z.literal(true).describe("客户端必须已向用户展示完整 before/after 并获得明确确认；false/省略返回 400"),
 };
 
-export const workspaceCreateTextSchema = selectorCheck(writeRequestShape).describe(
+export const workspaceCreateTextSchema = z.strictObject(writeRequestShape).describe(
   "仅新建文本文件；目标已存在返回 409，不覆盖。",
 );
-export const workspaceUpdateTextSchema = selectorCheck(writeRequestShape).describe(
+export const workspaceUpdateTextSchema = z.strictObject(writeRequestShape).describe(
   "仅更新已存在文本文件；目标缺失返回 404，不截断旧文件，成功后返回实际写入内容。",
 );
 
 const selectorFields = {
-  scope: scopeSchema,
-  agentId: z.string().nullable().describe("scope=agent 时为智能体 ID；scope=shared 时固定为 null"),
 };
 
 export const workspaceListEntry = z.object({

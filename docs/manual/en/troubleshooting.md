@@ -31,7 +31,7 @@ If the chat page shows「重新同步」, tap it to restore authoritative histor
 
 Stopping cancels the current chat run and unresolved approvals, but completed tool operations are not rolled back. After stopping, leaving the chat view, or disconnecting, the client may show「执行结果待同步」or「消息保存状态待确认」.
 
-For an ordinary chat stop, disconnect, or unknown message-save state, tap 「重新同步」 and wait for history and status synchronization before sending again. 「核对重置结果」 appears only when a reset is awaiting confirmation; do not treat it as the ordinary synchronization entry point. If the state remains unclear, see [Conversations and agents](conversations-and-agents.md#send-and-stop-conversations). For possible file writes, read the target file first.
+For an ordinary chat stop, disconnect, or unknown message-save state, tap 「重新同步」 and wait for history and status synchronization before sending again. 「核对重置结果」 appears only when a reset is awaiting confirmation; do not treat it as the ordinary synchronization entry point. If the state remains unclear, see [Conversations and sessions](conversations-and-agents.md#send-and-stop-conversations). For possible file writes, read the target file first.
 
 ## Attachment Rejected {#attachment-rejected}
 
@@ -43,17 +43,17 @@ For complete type and size limits, see [Attachments, files, and approvals](files
 
 Each model `write` or `edit` requires separate human approval. Rejection, expiry, a file change while waiting, run cancellation, unread approval details, or execution failure can prevent that commit. Approval also does not guarantee execution success. Check the complete preview and execution receipt under「审批」.
 
-Manual workspace edits are confirmed in the save preview on the「智能体」 → 「文件」 page and do not create model approval records. If the result is unknown, read and verify it as described in [Attachments, files, and approvals](files-and-approvals.md#approve-model-file-writes); do not automatically resend the write.
+Manual workspace edits are confirmed in the save preview on the「会话」 → 「文件」 page and do not create model approval records. If the result is unknown, read and verify it as described in [Attachments, files, and approvals](files-and-approvals.md#approve-model-file-writes); do not automatically resend the write.
 
 ## Reset or Delete Result Is Unknown {#reset-or-delete-result-unknown}
 
-Reset and delete are destructive requests. A network error does not prove that the server did not execute them. The client keeps an unconfirmed notice and does not retry automatically. Refresh the agent list and check the new session ID or whether the agent disappeared before continuing.
+Reset and delete are destructive requests. A network error does not prove that the server did not execute them. The client keeps an unconfirmed notice and does not retry automatically. Refresh the session list and check the new session ID or whether the session disappeared before continuing.
 
-Reset clears chat history and cancels unresolved approvals. Deleting an agent also removes its workspace files, rules, skills, jobs, and monitors. Neither operation can be recovered. For the complete impact, see [Conversations and agents](conversations-and-agents.md#reset-and-delete-agents).
+Reset clears chat history and cancels unresolved approvals. Deleting an agent also removes its workspace files, rules, skills, jobs, and monitors. Neither operation can be recovered. For the complete impact, see [Conversations and sessions](conversations-and-agents.md#reset-and-delete-sessions).
 
 ## Tasks, Monitors, or Goals Are Missing {#missing-tasks-monitors-or-goals}
 
-Check the current agent and the page's agent and status filters, then refresh the list. A failed read of an old list does not mean its items were deleted. An assistant promising to create an item is not proof of success; verify the list and details read back from the server. For task and monitor creation and control, see [Tasks and webpage monitors](tasks-and-monitors.md); for goals and milestones, see [Goals and milestones](goals.md). Check an unknown result before creating duplicates.
+Check the current session and the page's agent and status filters, then refresh the list. A failed read of an old list does not mean its items were deleted. An assistant promising to create an item is not proof of success; verify the list and details read back from the server. For task and monitor creation and control, see [Tasks and webpage monitors](tasks-and-monitors.md); for goals and milestones, see [Goals and milestones](goals.md). Check an unknown result before creating duplicates.
 
 ## Memory or Dream Did Not Change as Expected {#memory-or-dream-not-updated}
 

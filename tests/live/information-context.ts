@@ -90,24 +90,24 @@ const execute = async (options: { configPath: string }) => {
       assert.equal(result.status, 200, `${path} returned ${result.status}`);
       return result;
     };
-    const saveSettings = (agentId: string, enabled: boolean) =>
-      expectApi(`/api/agents/${agentId}/information/settings`, {
+    const saveSettings = (enabled: boolean) =>
+      expectApi("/api/information/settings", {
         method: "PUT",
         body: JSON.stringify({ enabled, batchWindowSeconds: 3600 }),
       });
-    const establishAgent = (agentId: string) =>
-      expectApi(`/api/agents/${agentId}/instructions`, {
+    const establishAgent = (sessionId: string) =>
+      expectApi(`/api/sessions/${sessionId}/instructions`, {
         method: "PUT",
         body: JSON.stringify({ instructions: "Information context live test agent." }),
       });
-    const history = async (agentId: string) =>
-      conversationResponse.parse((await expectApi(`/api/conversation?agentId=${agentId}`)).body);
-    const startChat = async (agentId: string, marker: string) => {
-      const before = await history(agentId);
+    const history = async (sessionId: string) =>
+      conversationResponse.parse((await expectApi(`/api/conversation?sessionId=${sessionId}`)).body);
+    const startChat = async (sessionId: string, marker: string) => {
+      const before = await history(sessionId);
       const result = await api("/api/conversation/run", {
         method: "POST",
         body: JSON.stringify({
-          agentId,
+          sessionId,
           runId: `live-info-context-${randomUUID()}`,
           expectedRevision: before.revision,
           message: {
@@ -119,9 +119,9 @@ const execute = async (options: { configPath: string }) => {
       assert.equal(result.status, 200, `chat HTTP ${result.status}`);
       assert.ok(sseFinished(result.text), `chat ${marker} did not finish successfully`);
     };
-    const checkCapability = async (label: string, agentId: string, enabled: boolean, marker: string) => {
+    const checkCapability = async (label: string, sessionId: string, enabled: boolean, marker: string) => {
       const baseline = proxy!.traces.length;
-      await startChat(agentId, marker);
+      await startChat(sessionId, marker);
       const requests = proxy!.traces.slice(baseline);
       assert.ok(requests.length > 0, `${label}: no real model request`);
       for (const request of requests) {
@@ -136,24 +136,23 @@ const execute = async (options: { configPath: string }) => {
       })}\n`);
     };
 
-    const main = "local-main";
-    const other = "live-information-context-closed";
+    const main = "main";
+    const other = ((await expectApi("/api/sessions",{method:"POST",body:JSON.stringify({title:"Information context topic"})})).body as {session:{id:string}}).session.id;
     await establishAgent(main);
-    const initialSettings = (await expectApi(`/api/agents/${main}/information/settings`)).body as { enabled: boolean };
+    const initialSettings = (await expectApi("/api/information/settings")).body as { enabled: boolean };
     assert.equal(initialSettings.enabled, false, "new main agent must default to information disabled");
     await checkCapability("default-disabled-agent", main, false, "LIVE_INFORMATION_CONTEXT_CLOSED");
 
-    await saveSettings(main, true);
+    await saveSettings(true);
     await checkCapability("enabled-agent", main, true, "LIVE_INFORMATION_CONTEXT_ENABLED");
 
     await establishAgent(other);
-    await saveSettings(other, false);
-    await checkCapability("other-disabled-agent", other, false, "LIVE_INFORMATION_CONTEXT_OTHER_CLOSED");
+    await checkCapability("topic-inherits-global-information", other, true, "LIVE_INFORMATION_CONTEXT_OTHER_CLOSED");
 
-    await saveSettings(main, false);
+    await saveSettings(false);
     await checkCapability("disabled-after-enable", main, false, "LIVE_INFORMATION_CONTEXT_DISABLED");
 
-    await saveSettings(main, true);
+    await saveSettings(true);
     await checkCapability("reenabled-agent", main, true, "LIVE_INFORMATION_CONTEXT_REENABLED");
   } catch (error) {
     executionError = error;

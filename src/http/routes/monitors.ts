@@ -19,10 +19,10 @@ export const createMonitorsRoutes = (
     const query = monitorsQuerySchema.safeParse(c.req.query());
     if (!query.success) return c.json({ error: "Invalid query parameters", code: "INVALID_REQUEST" }, 400);
 
-    const targetAgent = query.data.agentId;
+    const targetAgent = query.data.sessionId;
     let all = await monitors.list();
     if (targetAgent) {
-      all = all.filter((m) => (m.originAgentId ?? "local-main") === targetAgent);
+      all = all.filter((m) => (m.originSessionId ?? "main") === targetAgent);
     }
 
     const sortField = query.data.sort ?? "createdAt";
@@ -59,16 +59,16 @@ export const createMonitorsRoutes = (
     if (!parsed.success) return c.json({ error: "Invalid monitor request", code: "INVALID_REQUEST" }, 400);
     if (parsed.data.condition === "contains" && !parsed.data.value?.trim())
       return c.json({ error: "contains condition needs a keyword", code: "KEYWORD_REQUIRED" }, 400);
-    const targetAgent = parsed.data.originAgentId;
+    const targetAgent = parsed.data.originSessionId;
     const create = async () => {
       const monitor = await monitors.create({
         ...parsed.data,
-        originAgentId: targetAgent,
+        originSessionId: targetAgent,
       });
       return c.json(presentMonitor(monitor));
     };
     return targetAgent
-      ? conversationHub.withAgent(targetAgent, create)
+      ? conversationHub.withSession(targetAgent, create)
       : create();
   });
 
@@ -94,7 +94,7 @@ export const createMonitorsRoutes = (
       return c.json({ error: "contains condition needs a keyword", code: "KEYWORD_REQUIRED" }, 400);
     }
 
-    const targetAgent = parsed.data.originAgentId;
+    const targetAgent = parsed.data.originSessionId;
     const update = async () => {
       const updated = await monitors.update(c.req.param("id"), {
         title: parsed.data.title,
@@ -102,14 +102,14 @@ export const createMonitorsRoutes = (
         condition: parsed.data.condition,
         value: parsed.data.value,
         intervalMinutes: parsed.data.intervalMinutes,
-        originAgentId: targetAgent,
+        originSessionId: targetAgent,
       });
       if (!updated) return c.json({ error: "Monitor not found", code: "MONITOR_NOT_FOUND" }, 404);
       return c.json(presentMonitor(updated));
     };
 
     return targetAgent
-      ? conversationHub.withAgent(targetAgent, update)
+      ? conversationHub.withSession(targetAgent, update)
       : update();
   });
 

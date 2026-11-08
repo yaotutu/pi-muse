@@ -27,6 +27,6 @@ export type Job = {
   /** 显式页面控制状态；未发生人工控制时由调度状态和执行结果展示。 */
   controlState?: "paused" | "cancelled" | "retry_pending";
   lastControl?: { action: JobControlAction; at: string };
-  /** 创建该任务的智能体 ID；触发时将消息写入此智能体当前绑定的会话。 */
-  originAgentId?: string;
+  /** 创建该任务的会话 ID；触发时将消息写入此会话当前绑定的会话。 */
+  originSessionId?: string;
 };

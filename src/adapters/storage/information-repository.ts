@@ -2,14 +2,14 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { isAgentId } from "../../features/conversation/agent-id.js";
+import { isSessionId } from "../../features/conversation/session-id.js";
 import {
   defaultInformationState,
   type InformationRepository,
   type InformationState,
 } from "../../features/information/types.js";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
-import { agentInformationFile, type DataLayout } from "./data-layout.js";
+import { informationFile, type DataLayout } from "./data-layout.js";
 import { writeJsonDocument } from "./json-document.js";
 
 const isoTime = z.string().datetime();
@@ -20,7 +20,6 @@ const publicArticleUrl = z.string().url().max(2048).regex(/^https?:\/\//).refine
 }, "URL must not contain credentials");
 const itemSchema = z.strictObject({
   id: z.string().min(1).max(128),
-  agentId: z.string().min(1).max(64),
   source: z.string().min(1).max(128),
   externalId: z.string().min(1).max(256),
   title: z.string().min(1).max(500).optional(),
@@ -42,7 +41,7 @@ const decisionSchema = z.strictObject({
 });
 const receiptSchema = z.strictObject({
   notificationId: z.string().min(1).max(200),
-  sessionId: z.string().min(1).max(128),
+  piSessionId: z.string().min(1).max(128),
   messageId: z.string().min(1).max(200),
 });
 const publicationSchema = z.strictObject({
@@ -55,7 +54,6 @@ const publicationSchema = z.strictObject({
 });
 const runSchema = z.strictObject({
   id: z.string().min(1).max(128),
-  agentId: z.string().min(1).max(64),
   itemIds: z.array(z.string().min(1).max(128)).min(1),
   status: z.enum(["running", "completed", "failed", "cancelled"]),
   createdAt: isoTime,
@@ -69,7 +67,7 @@ const runSchema = z.strictObject({
   decisions: z.array(decisionSchema).optional(),
   publications: z.array(publicationSchema),
 });
-const stateSchema = z.strictObject({
+export const informationStateSchema = z.strictObject({
   schemaVersion: z.literal(1),
   settings: z.strictObject({
     enabled: z.boolean(),
@@ -97,7 +95,7 @@ const stateSchema = z.strictObject({
 });
 
 const parseState = (value: unknown, logicalFile: string): InformationState => {
-  const parsed = stateSchema.safeParse(value);
+  const parsed = informationStateSchema.safeParse(value);
   if (!parsed.success) throw new Error(`Invalid information document: ${logicalFile}`);
   return parsed.data;
 };
@@ -117,57 +115,23 @@ const readState = async (file: string, logicalFile: string): Promise<Information
   }
 };
 
-/** 信息域使用每智能体一个文档和一条串行写队列；损坏文件必须阻止启动。 */
+/** 全局短信文档；所有读改写和启动校准共用同一条队列。 */
 export const createInformationRepository = (layout: DataLayout): InformationRepository => {
   const serialized = createSerializedWriter();
-  const fileFor = (agentId: string) => agentInformationFile(layout, agentId);
-  const logicalFor = (agentId: string) => `information/${agentId}.json`;
-
+  const file = informationFile(layout);
   const repository: InformationRepository = {
-    read: (agentId) => serialized(() => {
-      if (!isAgentId(agentId)) throw new Error("Invalid agentId");
-      return readState(fileFor(agentId), logicalFor(agentId));
-    }),
-    update: (agentId, change, options) => serialized(async () => {
-      if (!isAgentId(agentId)) throw new Error("Invalid agentId");
-      const file = fileFor(agentId);
-      const mayCreate = options?.allowCreate === true;
-      if (!mayCreate && !existsSync(file)) {
-        // 后台 claim/结果写入不得重建缺失文档；显式初始化只由已验智能体入口完成。
-        throw new Error(`Information document not found: ${logicalFor(agentId)}`);
-      }
-      const state = await readState(file, logicalFor(agentId));
-      const changed = await change(state);
+    read: () => serialized(() => readState(file, "information/sms.json")),
+    update: (change) => serialized(async () => {
+      const changed = await change(await readState(file, "information/sms.json"));
       if (changed.state) {
-        const validated = parseState(changed.state, logicalFor(agentId));
         await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-        await writeJsonDocument(file, validated);
+        await writeJsonDocument(file, parseState(changed.state, "information/sms.json"));
       }
       return changed.result;
     }),
-    listAgentIds: async () => {
-      let entries;
-      try {
-        entries = await readdir(layout.informationDir, { withFileTypes: true });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-        throw error;
-      }
-      return entries
-        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-        .map((entry) => entry.name.replace(/\.json$/, ""))
-        .filter(isAgentId)
-        .sort();
-    },
-    removeAgent: (agentId) => serialized(async () => {
-      if (!isAgentId(agentId)) throw new Error("Invalid agentId");
-      await rm(fileFor(agentId), { force: true });
-    }),
     reconcileOnStart: async () => {
-      const agentIds = await repository.listAgentIds();
       const now = new Date().toISOString();
-      for (const agentId of agentIds) {
-        await repository.update(agentId, (state) => {
+      await repository.update((state) => {
           let changed = false;
           const runs = state.runs.map((run) => {
             if (run.status !== "running") return run;
@@ -204,14 +168,10 @@ export const createInformationRepository = (layout: DataLayout): InformationRepo
           });
           if (!changed) return { result: undefined };
           return { state: { ...state, items, runs: completedRuns }, result: undefined };
-        });
-      }
+
+      });
     },
-    validateAll: async () => {
-      for (const agentId of await repository.listAgentIds()) {
-        await readState(fileFor(agentId), logicalFor(agentId));
-      }
-    },
+    validateAll: async () => { await repository.read(); },
   };
   return repository;
 };

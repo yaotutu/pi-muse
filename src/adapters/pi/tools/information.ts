@@ -21,7 +21,6 @@ const rejected = (text: string) => ({
 
 export const createInformationTool = (
   information: Pick<InformationService, "query">,
-  agentId: string,
 ) =>
   defineTool({
     name: INFORMATION_TOOL_NAME,
@@ -52,7 +51,6 @@ export const createInformationTool = (
           return rejected("limit must be an integer from 1 to 100.");
         }
         const result = await information.query({
-          agentId,
           action: params.action,
           status: params.status,
           limit,

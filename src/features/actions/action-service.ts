@@ -135,11 +135,10 @@ export const createActionService = (
           expiresAt: new Date(createdAt + timeoutMs).toISOString(),
           resolvedAt: null,
           decidedAt: null,
-          agentId: options.agentId ?? null,
+          sessionId: options.sessionId ?? null,
           runId: options.runId ?? null,
           toolCallId: options.toolCallId ?? null,
           subagentId: options.subagentId ?? null,
-          workspaceAgentId: options.workspaceAgentId ?? null,
           activityId: options.activityId ?? null,
         };
         const bytes = utf8Bytes(JSON.stringify(next));
@@ -180,16 +179,14 @@ export const createActionService = (
       if (changed) notify([changed]);
     },
 
-    /** 智能体重置或删除时批量取消归属该智能体的待审批项，返回实际被取消的审批 ID 列表。 */
-    cancelByAgentId: async (agentId: string): Promise<string[]> => {
+    /** 会话重置或删除时批量取消归属该会话的待审批项，返回实际被取消的审批 ID 列表。 */
+    cancelBySessionId: async (sessionId: string): Promise<string[]> => {
       const changed = await repository.update((items) => {
         const updated: PendingAction[] = [];
         for (const action of items) {
-          const actionAgentId = action.agentId;
-          const workspaceAgentId = action.workspaceAgentId;
+          const actionSessionId = action.sessionId;
           if (
-            action.status === "pending" &&
-            (actionAgentId === agentId || workspaceAgentId === agentId)
+            action.status === "pending" && actionSessionId === sessionId
           ) {
             settle(action, "cancelled");
             updated.push(action);
@@ -270,7 +267,7 @@ export const createActionService = (
       });
       const sorted = records.filter((action) =>
         (!query.status || action.status === query.status) &&
-        (!query.agentId || action.agentId === query.agentId) &&
+        (!query.sessionId || action.sessionId === query.sessionId) &&
         (!query.activityId || action.activityId === query.activityId))
         .sort((a, b) => b.resolvedAt.localeCompare(a.resolvedAt) || b.id.localeCompare(a.id));
       const { cursor } = query;

@@ -206,14 +206,12 @@ const execute = async (options: NewsLiveOptions) => {
     const coldPreferences = newsPreferencesResponseSchema.parse(
       await expect("cold preferences", "/api/news/preferences", 200),
     );
-    assert.deepEqual(coldPreferences, { notes: "", learnedNotes: "" });
-    const agents = (await expect("agents", "/api/agents", 200)) as { agents: Array<{ id: string }> };
-    // REQ-014 起新闻智能体随启动初始化并进入目录（bootstrap 调 news.initialize）；
-    // 冷启动核对它在场且默认指令已写入，主聊天零污染仍由下方 revision 断言保证。
-    assert.ok(agents.agents.some((agent) => agent.id === "news-internal"));
-    const newsInstructions = (await expect("news default instructions", "/api/agents/news-internal/instructions", 200)) as { instructions: string };
-    assert.ok(newsInstructions.instructions.trim().length > 0);
-    const mainHistoryBefore = await expect("main history", "/api/conversation?agentId=local-main", 200);
+    assert.equal(coldPreferences.learnedNotes, "");
+    const sessions = (await expect("sessions", "/api/sessions", 200)) as { sessions: Array<{ id: string }> };
+    assert.deepEqual(sessions.sessions.map((session)=>session.id),["main"]);
+    const instructions = (await expect("main instructions", "/api/sessions/main/instructions", 200)) as { instructions:string };
+    assert.equal(coldPreferences.notes,instructions.instructions);
+    const mainHistoryBefore = await expect("main history", "/api/conversation?sessionId=main", 200);
 
     const firstSource = (await expect("add first source", "/api/news/sources", 200, {
       method: "POST", body: JSON.stringify({ url: FIRST_FEED }),
@@ -335,9 +333,9 @@ const execute = async (options: NewsLiveOptions) => {
     assert.ok(sourcesAfterDelete.sources.some((source) => source.id === secondSource.id));
     record("source-delete-retains-articles", { articleId: firstArticle.id });
 
-    const mainHistoryAfter = await expect("main history after news", "/api/conversation?agentId=local-main", 200);
+    const mainHistoryAfter = await expect("main history after news", "/api/conversation?sessionId=main", 200);
     assert.deepEqual(mainHistoryAfter, mainHistoryBefore, "news collection must not mutate the main chat");
-    assert.ok(!(await allArticles()).articles.some((article) => article.content.includes("news-internal")));
+    assert.ok(!(await allArticles()).articles.some((article) => article.content.includes("main")));
     record("hidden-agent-and-chat-isolation", { articleCount: (await allArticles()).articles.length });
 
     const articleCountBeforeRestart = (await allArticles()).articles.length;
@@ -364,9 +362,9 @@ const execute = async (options: NewsLiveOptions) => {
     assert.equal(restartedArticle.feedback.saved, true);
     assert.equal(restartedPreferences.learnedNotes, learned.learnedNotes);
     // 重启后内置新闻智能体仍在目录中（与冷启动同一契约）。
-    assert.ok(((await expect("restarted agents", "/api/agents", 200)) as {
-      agents: Array<{ id: string }>;
-    }).agents.some((agent) => agent.id === "news-internal"));
+    assert.ok(((await expect("restarted sessions", "/api/sessions", 200)) as {
+      sessions: Array<{ id: string }>;
+    }).sessions.some((agent) => agent.id === "main"));
     record("restart-persistence", {
       articles: restartedArticles.articles.length,
       learnedNotesLength: restartedPreferences.learnedNotes.length,

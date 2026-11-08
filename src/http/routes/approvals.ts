@@ -38,10 +38,10 @@ export const createApprovalsRoutes = (
     if (!raw) return c.json({ error: "Invalid approval query", code: "INVALID_REQUEST" }, 400);
     const parsed = approvalListQuery.safeParse(raw);
     if (!parsed.success) return c.json({ error: "Invalid approval query", code: "INVALID_REQUEST" }, 400);
-    const { limit, cursor: encodedCursor, agentId, activityId, status } = parsed.data;
-    const effectiveAgentId = agentId;
+    const { limit, cursor: encodedCursor, sessionId, activityId, status } = parsed.data;
+    const effectiveSessionId = sessionId;
     const filter: ApprovalFilter = {
-      ...(effectiveAgentId !== undefined ? { agentId: effectiveAgentId } : {}),
+      ...(effectiveSessionId !== undefined ? { sessionId: effectiveSessionId } : {}),
       ...(activityId !== undefined ? { activityId } : {}),
       ...(status !== undefined ? { status } : {}),
     };

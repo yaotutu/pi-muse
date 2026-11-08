@@ -11,16 +11,15 @@
 
 ## 当前复用清单
 
-智能体通信同样复用 `openPi` 与持久化 `SessionManager`：每个讨论的 pi JSONL 放在目标智能体 `sessions/<agentId>/discussions/<discussionId>/`，不使用 subagent 临时上下文冒充持续讨论，不另写执行循环或第二份历史。上下文和工具装配归目标智能体；返回原工具调用，不依赖来源主会话的通知写入锁。具体职责与取消见 [智能体通信](architecture.md#智能体通信与独立讨论)。
 
 | 能力 | 实际复用 | 本项目负责的边界 |
 | --- | --- | --- |
 | 模型配置与流解析 | `ModelRuntime`、SDK 模型调用与 pi-ai 流解析 | 单 endpoint/model，bootstrap 注册 provider 与内存 key，不把凭据写进历史 |
-| 执行循环 | `createAgentSession`、`session.prompt` | 对话接纳、run/agent 标识、互斥锁、超时和产品提示词；不手写第二套 loop |
+| 执行循环 | `createAgentSession`、`session.prompt` | 对话接纳、run/session 标识、互斥锁、超时和产品提示词；不手写第二套 loop |
 | 取消与收尾 | `session.abort`、`waitForIdle`、`dispose` | Stop/断流传播至工具与子会话，等待执行收尾才释放锁，不提前报告成功 |
-| 会话历史 | `SessionManager`、JSONL、branch/custom entry/context edit | agent 与私有 cwd 映射、revision、展示投影及通知去重，不维护另一份聊天历史 |
+| 会话历史 | `SessionManager`、JSONL、branch/custom entry/context edit | 公开会话与同一 workspace cwd 映射、revision、展示投影及通知去重，不维护另一份聊天历史 |
 | 上下文压缩 | SDK compaction 与 `SettingsManager` | 压缩参数按模型窗口收缩；展示读完整 branch，不拿压缩摘要替代长期记忆或完整 UI 历史 |
-| 只读文件工具 | `createReadToolDefinition`、`createGrepToolDefinition`、`createFindToolDefinition`、`createLsToolDefinition` | 入口 guard 和 operations 路径复核，私有/shared 边界、符号链接拒绝、技能精确读取例外 |
+| 只读文件工具 | `createReadToolDefinition`、`createGrepToolDefinition`、`createFindToolDefinition`、`createLsToolDefinition` | 入口 guard 和 operations 路径复核，单根工作区边界、符号链接拒绝、技能精确读取例外 |
 | 写入工具接入 | SDK `defineTool` 与工具执行机制 | write/edit 是本项目实现，不直接开放 SDK 默认 write/edit；完整预览、版本绑定、逐次审批与提交检查由项目控制 |
 | 技能解析与加载 | `parseFrontmatter`、`loadSkillsFromDir`，将生效技能传给 ResourceLoader | 内置 assets 与实例 skills 发现、会话开关与诊断；authoring 精确校验 frontmatter name 后复用 loader，不另写 YAML 解析器 |
 | Extension 宿主 | SDK 扩展加载与运行机制、内联 extension factory | 仅装配已启用技能的显式 extension 路径和受控 subagent factory，不自造通用插件框架 |
@@ -28,13 +27,11 @@
 
 自动压缩已开启，模型/工具自动重试关闭（`retry.enabled: false`）。显式用户重试与 pi context edit 不是自动重试，也不恢复未完成执行；具体规则见架构与生成契约。
 
-组内薄路由使用 `createAgentSession` 与内存 `SessionManager`，仅开放 `submit_group_route` 结构化提交工具，不发现私有资源或执行成员业务工具；沿用单业务模型，不编写额外执行循环。无目标时先判断，成功投递仍复用成员讨论，模糊建议不创建讨论。
 
-默认群聊同样复用上述独立讨论和 SDK 流事件，不新建 agent loop；每个成员的群讨论与私聊隔离。业务 JSON 只索引投递关系，群消息正文和工具事实仍以对应 pi JSONL 为准，整个群的展示历史不注入任何成员上下文。
 
 ## 主要源码落点
 
-- `src/bootstrap/create-service.ts`：唯一 `ModelRuntime`、provider 与内存凭据的初始化；不同 agent 共享 runtime，不共享执行锁和上下文。
+- `src/bootstrap/create-service.ts`：唯一 `ModelRuntime`、provider 与内存凭据的初始化；不同会话共享 runtime，不共享执行锁和上下文。
 - `src/adapters/pi/session-factory.ts`：每轮会话装配、模型选择、技能/工具裁剪、压缩设置、subagent child runner。
 - `src/adapters/pi/resource-loader.ts`：向 SDK 提供明确的 system prompt、已启用技能和扩展，不发现个人 CLI 的 context files、prompt templates 或 themes。
 - `src/adapters/pi/session-history.ts`、`history-projection.ts`：权威 JSONL 读取、custom entry/context edit、revision 与展示历史投影。
@@ -68,7 +65,7 @@
 1. 先核对 `package.json`、lockfile 和本地安装包的 SDK 文档/声明/源码，确认当前版本实际支持的 API；升级同步依赖版本，不直接修改 node_modules、SDK 底层或借升级扩大工具权限。
 2. 核对 prompt/abort/idle/事件顺序，特别是有工具执行、压缩、子会话或取消时的收尾；不能只凭一次 agent_end 或文本输出发出成功终态。
 3. 核对历史 branch/context edit、SessionManager 的 cwd 选择和 JSONL 持久化时序；错误脱敏必须早于模型接收和落盘，不能退化为仅清洗 SSE。
-4. 核对只读工具参数/结果、路径解析与 operations 钩子，重跑越界/符号链接/私有与 shared/技能精确读取回归；write/edit 保留逐次审批，不换回无限制默认工具。
+4. 核对只读工具参数/结果、路径解析与 operations 钩子，重跑越界/符号链接/单根工作区与技能精确读取回归；write/edit 保留逐次审批，不换回无限制默认工具。
 5. 核对资源发现、扩展钩子和子会话 allowlist；对照官方 subagent 示例更新本地差异，不能悄悄恢复 CLI spawning、个人资源发现或子代理递归权限。
 6. 按 [测试规范](testing.md)补本次回归并运行 `pnpm check`；真实模型适配、子代理、工具、审批与取消关键链路需经费用授权 live 验收，工具展示/API 文档另做适用页面检查。历史报告不是新版本通过证明。
 

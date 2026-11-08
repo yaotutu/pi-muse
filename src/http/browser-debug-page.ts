@@ -370,7 +370,7 @@ export const browserDebugPage = `<!doctype html>
       const ackFrame = () => {
         if (acknowledged || !current() || socket.readyState !== WebSocket.OPEN) return;
         acknowledged = true;
-        socket.send(JSON.stringify({ type: "frame_ack", frameId: metadata.frameId, sessionId: metadata.sessionId }));
+        socket.send(JSON.stringify({ type: "frame_ack", frameId: metadata.frameId, piSessionId: metadata.piSessionId }));
       };
       // 当前 socket 的有效帧即使不绘制，也必须释放服务端 pendingFrame。
       if (!state.connected || metadata.tabId !== state.activeTabId) { ackFrame(); return; }

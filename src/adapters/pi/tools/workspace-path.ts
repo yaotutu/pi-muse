@@ -5,14 +5,12 @@ export class UnsafeFilePathError extends Error {}
 
 const inside = (root: string, target: string) => target === root || target.startsWith(root + sep);
 
-/** shared/ 是逻辑入口，先选根再解析；绝对路径、父目录跳转和反斜杠不交给 SDK 二次解释。 */
-export const resolveWorkspacePath = (root: string, raw: unknown, sharedDir?: string) => {
+/** 只有一个工作区根；绝对路径、父目录跳转和反斜杠不交给 SDK 再解释。 */
+export const resolveWorkspacePath = (root: string, raw: unknown) => {
   const input = typeof raw === "string" && raw.trim() ? raw.trim() : ".";
   if (isAbsolute(input) || input.includes("\\") || input.split("/").includes("..")) return null;
-  const parts = input.split("/").filter((part) => part && part !== ".");
-  const shared = sharedDir !== undefined && parts[0] === "shared";
-  const base = resolve(shared ? sharedDir! : root);
-  const path = resolve(base, ...(shared ? parts.slice(1) : parts));
+  const base = resolve(root);
+  const path = resolve(base, input);
   return inside(base, path) ? { base, path } : null;
 };
 

@@ -1,13 +1,13 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import { agentInstructionsFile, type DataLayout } from "../../storage/data-layout.js";
-import { readAgentInstructions, writeAgentInstructions } from "../../storage/agent-instructions.js";
+import { sessionInstructionsFile, type DataLayout } from "../../storage/data-layout.js";
+import { readSessionInstructions, writeSessionInstructions } from "../../storage/session-instructions.js";
 
 /**
  * 会话专属指令工具：允许助手在对话中读取或修改当前会话的指令/规则（INSTRUCTIONS.md）。
  * 修改后在下一轮对话开始时自动注入 System Prompt 生效。
  */
-export const instructionsTool = (layout: DataLayout, agentId = "local-main") =>
+export const instructionsTool = (layout: DataLayout, sessionId = "main") =>
   defineTool({
     name: "instructions",
     label: "Conversation instructions",
@@ -22,9 +22,9 @@ export const instructionsTool = (layout: DataLayout, agentId = "local-main") =>
       ),
     }, { additionalProperties: false }),
     async execute(_id, params) {
-      const file = agentInstructionsFile(layout, agentId);
+      const file = sessionInstructionsFile(layout, sessionId);
       if (params.action === "get") {
-        const text = await readAgentInstructions(file);
+        const text = await readSessionInstructions(file);
         return {
           content: [
             {
@@ -42,7 +42,7 @@ export const instructionsTool = (layout: DataLayout, agentId = "local-main") =>
           details: { denied: true }, isError: true,
         };
         const content = params.content;
-        await writeAgentInstructions(file, content);
+        await writeSessionInstructions(file, content);
         return {
           content: [
             {

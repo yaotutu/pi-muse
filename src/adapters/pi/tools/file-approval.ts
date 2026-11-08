@@ -12,11 +12,10 @@ const POLL_INTERVAL_MS = 2_000;
 const strictUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 export type ApprovalContext = {
-  agentId?: string;
+  sessionId?: string;
   runId?: string;
   toolCallId?: string;
   subagentId?: string;
-  workspaceAgentId?: string | null;
   activityId?: (() => string | null) | string;
 };
 export type ApprovalActions = Pick<ActionService, "submit" | "poll" | "cancel" | "markExecuting" | "finishExecution">;

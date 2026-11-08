@@ -19,11 +19,11 @@ export const createTracesRoutes = ({ traces }: Pick<HttpDependencies, "traces">)
     }
     const parsed = tracesQuerySchema.safeParse(raw);
     if (!parsed.success) return c.json({ error: "Invalid trace query", code: "INVALID_REQUEST" }, 400);
-    const { agentId, kind, since, until, limit, cursor } = parsed.data;
+    const { sessionId, kind, since, until, limit, cursor } = parsed.data;
     const from = since === undefined ? null : traceTimeMs(since);
     const to = until === undefined ? null : traceTimeMs(until);
     if (from !== null && to !== null && from > to) return c.json({ error: "Invalid trace time range", code: "INVALID_REQUEST" }, 400);
-    const filter = JSON.stringify([agentId ?? null, kind ?? null, from, to]);
+    const filter = JSON.stringify([sessionId ?? null, kind ?? null, from, to]);
     let anchor: string | undefined;
     if (cursor) {
       try {
@@ -38,7 +38,7 @@ export const createTracesRoutes = ({ traces }: Pick<HttpDependencies, "traces">)
     const { records, badCount } = await traces.list();
     const matching = records.filter(({ record: { meta } }) => {
       const startedAt = Date.parse(meta.startedAt);
-      return (agentId === undefined || meta.agentId === agentId) && (kind === undefined || meta.kind === kind)
+      return (sessionId === undefined || meta.sessionId === sessionId) && (kind === undefined || meta.kind === kind)
         && (from === null || startedAt >= from) && (to === null || startedAt <= to);
     }).sort((a, b) => Date.parse(b.record.meta.startedAt) - Date.parse(a.record.meta.startedAt) || b.fileName.localeCompare(a.fileName));
     const anchorIndex = anchor === undefined ? -1 : matching.findIndex((entry) => entry.fileName === anchor);

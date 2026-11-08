@@ -96,14 +96,14 @@ Restarting the service does not rerun expired one-off reminders, and failed jobs
 
 While testing or verifying before a save, close the panel to cancel without saving the draft. A test can also be canceled with「取消测试」. Actual configuration writes or local cache cleanup must finish before closing. If you change to a different server address, the client first asks you to confirm clearing local business cache and old credentials; that action does not delete data on the remote server.
 
-## Send a Message and Receive a Reply {#send-first-real-reply}
+## Send a message and receive a reply {#send-first-real-reply}
 
-1. After connecting, the app opens 「消息」 (Messages, the default group chat), showing 「有什么想聊的？」 when empty. Ordinary chat uses the group default, initially Muse/main. Choose a member with `@` to the left of the input for the highest-priority explicit target. See [directed messages](conversations-and-agents.md#group-chat) for thin routing without a target and its pending native acceptance.
-2. In the input field with the「消息」placeholder, enter a short, verifiable request, such as a question whose answer you already know.
-3. Tap the send arrow. Your message appears and the button becomes Stop; replies show the actual Agent avatar. The only primary tabs are 「消息 / 新闻 / 设置」 (Messages / News / Settings). Open 「成员」 (Members) at the top of the group to choose 「在群里 @」 (mention in group) or 「单独聊」 (private chat); mentioning sends nothing. Open specific configuration through 「设置」 → 「智能体管理」 → the corresponding Agent’s settings. File operations awaiting approval show a pending-approval entry.
-4. Wait for the assistant reply. A real reply streams into the chat page; if the model calls tools, their status appears in tool cards or the session panel's activity view.
+1. Open main from the Messages session list, or explicitly create a topic session.
+2. Enter text and optionally attach images/text with that message. The model configuration and client must match the new server contract.
+3. Responses stream. File changes wait for complete preview and human approval; Stop binds the current session and run.
+4. Synchronize authoritative history after unknown results rather than resending automatically. Messages, News and Settings are separate primary entries; check native adaptation and acceptance against the installed release.
 
-If the chat page reports that the model is not configured, the connection is offline, or reauthentication is required, diagnose it with the [FAQ](troubleshooting.md) instead of repeatedly resending the same message. The Messages group currently sends text only. Open 「成员」 → 「单独聊」 for a secondary private-chat page without a bottom bar to send attachments; see [Attachments, files, and approvals](files-and-approvals.md#send-attachments). For stopping a run, resynchronizing, and unknown-result handling, see [Conversations and agents](conversations-and-agents.md#send-and-stop-conversations).
+See [Files and approvals](files-and-approvals.md) and [Conversations](conversations-and-agents.md).
 
 ## Network Security Boundaries {#network-security-boundaries}
 

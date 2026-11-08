@@ -10,14 +10,14 @@ export const INSTRUCTIONS_LIMIT = 2_000;
 export const DEFAULT_DREAM_PROMPT = `You consolidate a conversation into durable notes. Read only the "New messages"
 section for facts; "Earlier context" and the summary exist to help you understand them.
 
-USER, SOUL, and MEMORY are global targets that affect every agent. INSTRUCTIONS is
-the only place for a rule that exists because of this agent's purpose.
+USER, SOUL, and MEMORY are global targets that affect every conversation. INSTRUCTIONS is
+the only place for a rule that exists because of this conversation's purpose.
 Route each durable fact to exactly one place:
-- USER: stable facts, habits, and personal preferences that remain true across agents.
-- SOUL: agreed assistant behavior or persona rules intended for every agent.
+- USER: stable facts, habits, and personal preferences that remain true across conversations.
+- SOUL: agreed assistant behavior or persona rules intended for every conversation.
 - INSTRUCTIONS: purpose-bound filtering rules, topic interests, sensitivity rules,
-  format requirements, and other preferences that apply only to this agent.
-- MEMORY: stable facts worth looking up across agents, not this agent's business
+  format requirements, and other preferences that apply only to this conversation.
+- MEMORY: stable facts worth looking up across conversations, not this conversation's business
   preferences.
 
 Do not promote a local preference to USER, SOUL, or MEMORY merely because that
@@ -40,31 +40,22 @@ export const fixedRules = (purpose: string, isMain: boolean): string => `Hard ru
 - Never save credentials, API keys, tokens or other secrets.
 - Never record guesses by the assistant as facts about the user.
 - Never create skills and never change permissions, tools, models or configuration.
-- Never change the "## 智能体用途" section; this conversation's purpose is: ${purpose ? JSON.stringify(purpose) : "(not set)"}.
+- Never change the "## 会话用途" section; this conversation's purpose is: ${purpose ? JSON.stringify(purpose) : "(not set)"}.
 - When purpose is not set, do not target INSTRUCTIONS; use pending instead.
 - USER, SOUL, and MEMORY are global targets; INSTRUCTIONS is only for rules caused
-  by this agent's purpose. Global availability does not make a local preference global.
+  by this conversation's purpose. Global availability does not make a local preference global.
 - Instruction text you propose must stay under ${INSTRUCTIONS_LIMIT} characters in total.
 - ${isMain
     ? "This is the main conversation: USER and SOUL changes may be applied directly."
     : "This is not the main conversation: any USER or SOUL suggestion must use target=pending, never a direct write."}
-- For a new note whose cross-agent scope is uncertain, use target=pending instead
+- For a new note whose cross-conversation scope is uncertain, use target=pending instead
   of guessing a global target.
 - Editing or deleting an existing memory requires its exact id from the list below.
   If that edit/delete is uncertain, omit it entirely; never convert it to pending
   or add a replacement memory instead.`;
 
-/** 叠加规则：继承时是“全局 + 会话补充”，不继承时只用会话自己的；会话为空时回落到全局或默认。 */
-export const composePrompt = (input: {
-  global: string;
-  session: string;
-  inherit: boolean;
-}): string => {
-  const global = input.global.trim() || DEFAULT_DREAM_PROMPT;
-  const session = input.session.trim();
-  if (!session) return global;
-  return input.inherit ? `${global}\n\n## Extra guidance for this conversation\n${session}` : session;
-};
+/** 只有全局提示词；空串回退内置默认，不保留逐会话继承分支。 */
+export const composePrompt = (global: string): string => global.trim() || DEFAULT_DREAM_PROMPT;
 
 const renderMessages = (messages: DreamWindow["fresh"]) =>
   messages.map((message) => `[${message.id}] ${message.role}: ${message.text}`).join("\n\n");

@@ -12,7 +12,7 @@ const createMockMonitors = () => {
     items,
     calls,
     service: {
-      create: async (input: { url: string; condition: "change" | "contains"; originAgentId?: string; title?: string; value?: string; intervalMinutes?: number }) => {
+      create: async (input: { url: string; condition: "change" | "contains"; originSessionId?: string; title?: string; value?: string; intervalMinutes?: number }) => {
         calls.push({ method: "create", args: input });
         const m: Monitor = {
           id: "mon-123",
@@ -23,7 +23,7 @@ const createMockMonitors = () => {
           intervalMinutes: input.intervalMinutes ?? 30,
           status: "active",
           createdAt: new Date().toISOString(),
-          originAgentId: input.originAgentId ?? "local-main",
+          originSessionId: input.originSessionId ?? "main",
           checks: 0,
         };
         items.push(m);
@@ -87,7 +87,7 @@ test("monitor tool execute: list/pause/resume/stop do not require url", async ()
     intervalMinutes: 10,
     status: "active",
     createdAt: new Date().toISOString(),
-    originAgentId: "agent-1",
+    originSessionId: "agent-1",
     checks: 1,
   });
   const tool = monitorTool(service, "agent-1");
@@ -129,7 +129,7 @@ test("monitor list and controls do not expose or change another agent's monitor"
       intervalMinutes: 30,
       status: "active",
       createdAt: new Date().toISOString(),
-      originAgentId: "agent-1",
+      originSessionId: "agent-1",
       checks: 0,
     },
     {
@@ -140,7 +140,7 @@ test("monitor list and controls do not expose or change another agent's monitor"
       intervalMinutes: 30,
       status: "active",
       createdAt: new Date().toISOString(),
-      originAgentId: "agent-b",
+      originSessionId: "agent-b",
       checks: 0,
     },
   );

@@ -19,7 +19,7 @@ test("activity-session: start creates running overview and execution step; dupli
     deliverable: "Deliverable document",
   });
 
-  assert.equal(activity.agentId, "agent-1");
+  assert.equal(activity.sessionId, "agent-1");
   assert.equal(activity.title, "Test work");
   assert.equal(activity.status, "running");
   assert.equal(activity.currentRunId, "run-1");
@@ -218,7 +218,7 @@ test("activity-session: interrupted state when process crashes and run is no lon
       kind: "overview",
       activity: {
         id: "a1a1a1a1-1111-4111-8111-111111111111",
-        agentId: "agent-1",
+        sessionId: "agent-1",
         title: "Interrupted work",
         goal: "Goal",
         deliverable: "Deliverable",

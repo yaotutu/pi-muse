@@ -26,7 +26,6 @@ export type InformationItemStatus = "pending" | "processing" | "processed" | "fa
 
 export type InformationItem = {
   id: string;
-  agentId: string;
   source: string;
   externalId: string;
   title?: string;
@@ -64,7 +63,7 @@ export type InformationDecision = {
 
 export type NotificationReceipt = {
   notificationId: string;
-  sessionId: string;
+  piSessionId: string;
   messageId: string;
 };
 
@@ -83,7 +82,6 @@ export type InformationAnalysisKind = "initial_summary" | "incremental";
 
 export type InformationRun = {
   id: string;
-  agentId: string;
   itemIds: string[];
   status: InformationRunStatus;
   createdAt: string;
@@ -119,14 +117,11 @@ export const defaultInformationState = (): InformationState => ({
 });
 
 export type InformationRepository = {
-  read: (agentId: string) => Promise<InformationState>;
+  read: () => Promise<InformationState>;
   update: <T>(
-    agentId: string,
     change: (state: InformationState) => MaybePromise<{ state?: InformationState; result: T }>,
     options?: { allowCreate?: boolean },
   ) => Promise<T>;
-  listAgentIds: () => Promise<string[]>;
-  removeAgent: (agentId: string) => Promise<void>;
   reconcileOnStart: () => Promise<void>;
   validateAll: () => Promise<void>;
 };
@@ -134,7 +129,6 @@ export type InformationRepository = {
 type MaybePromise<T> = T | Promise<T>;
 
 export type InformationModelInput = {
-  agentId: string;
   runId: string;
   mode: "notifications" | "recommendations";
   analysisKind: InformationAnalysisKind;

@@ -5,18 +5,9 @@ This page explains the mobile client's assistant and user profiles, common appea
 ## Prerequisites {#prerequisites}
 
 - Complete the first connection as described in [Quick Start](getting-started.md#connect-mobile-client). Themes and app updates still work without a server connection, but profiles, memories, and Dream are unavailable.
-- Assistant and user profiles are stored on the server and shared by all agents. Theme preference is stored only on this device.
+- Assistant and user profiles are stored on the server and shared by all sessions. Theme preference is stored only on this device.
 
-Profile, long-term memory, and Dream management pages share a fixed header: the title and 「返回设置」 (Back to Settings) stay visible while the form scrolls. Secondary pages have no bottom bar. The top-left arrow and Android Back return to the settings home; tap the bottom 「消息」 (Messages) tab to return to group chat. Android Back dismisses an open keyboard first. Leaving a page does not save or discard its drafts, nor does it unlock a write with an unknown result.
-
-## Default Group Collaboration {#group-collaboration}
-
-1. Tap the bottom 「设置」 (Settings) tab → 「默认组协作」. Currently this manages one default group, not multiple-group creation or switching.
-2. Edit the name, purpose, and collaboration guidance. Select existing Agents to add or remove them. The default responder must remain a member; choose another default before removing it. Removal does not delete history, private chat, instructions, or files.
-3. Tap Save. The server rejects configuration changes while sending or routing; check again and save later. The last successful save wins without automatic merging. Initially membership comes from the current directory; after the first membership save, newly created Agents must be added manually.
-4. Edit public capabilities in each Agent's own 「公开能力」 page. Group guidance applies only to routing and replies in this group, not permanent member instructions, and cannot bypass file approvals or tool boundaries.
-
-Group and capability drafts survive navigation within this connection, without autosave or device persistence. Failed reads preserve existing values and drafts. An unknown save result requires explicit 「刷新核对」 (Refresh and Check); nothing is automatically resent. Reopening or automatic reads do not unlock an uncertain save. Changing servers or restarting the client discards unsaved drafts and unconfirmed routing suggestions.
+Profile, long-term memory, and Dream management pages share a fixed header: the title and 「返回设置」 (Back to Settings) stay visible while the form scrolls. Secondary pages have no bottom bar. The top-left arrow and Android Back return to the settings home; tap the bottom 「消息」 (Messages) tab to return to the session list. Android Back dismisses an open keyboard first. Leaving a page does not save or discard its drafts, nor does it unlock a write with an unknown result.
 
 ## Assistant and User Profile {#assistant-and-user-profile}
 
@@ -29,7 +20,7 @@ Group and capability drafts survive navigation within this connection, without a
 2. Choose one of the 「温暖」 (warm), 「简洁」 (concise), or 「周到」 (thoughtful) tones. If the server returns a legacy tone unknown to this client, the page shows that value and asks you to choose a supported one.
 3. Tap 「保存助手设置」. Success shows 「身份已保存」, and the change marker disappears.
 
-The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The assistant name does not change Agent identity or navigation. Open specific Agent configuration through 「设置」 → 「智能体管理」 → the corresponding Agent’s settings; titles and avatars are not configuration shortcuts.
+The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The assistant name does not change Agent identity or navigation. Open specific Agent configuration through 「设置」 → 「会话管理」 → the corresponding Agent’s settings; titles and avatars are not configuration shortcuts.
 
 ### Save SOUL and USER {#save-soul-and-user}
 

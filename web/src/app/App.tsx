@@ -1,3 +1,4 @@
+import { NewsView } from "../news/NewsView";
 import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { ChatView } from "../chat/ChatView";
 import { JobsView } from "../jobs/JobsView";
@@ -6,17 +7,19 @@ import { TracesView } from "../traces/TracesView";
 import { SettingsView } from "../settings/SettingsView";
 import {
   ApiError,
-  createAgent,
+  createSession,
+  renameSession,
+  deleteSession,
   decideApproval,
   subscribeAuth,
   isLoggedIn,
-  listAgents,
+  listSessions,
   login,
   subscribeWorkspaceEvents,
   type ActivityUpdatedEventDto,
-  type AgentStatusDto,
+  type SessionStatusDto,
   type ApprovalViewDto,
-  type AgentDto,
+  type SessionDto,
   type ConversationUpdatedEventDto,
   type WorkspaceEvent,
 } from "../lib/api";
@@ -39,12 +42,8 @@ const ActionApproval = ({
 
   const { preview } = action;
   const expired = Date.parse(action.expiresAt) <= Date.now();
-  // 技能库是实例共享内容；发起智能体不是文件归属，未知作用域不能显示成技能库。
-  const scopeText = preview.scope === "skill"
-    ? "技能库"
-    : preview.scope === "shared"
-      ? "共享区 shared/..."
-      : `智能体私有工作区 · 归属智能体 ${preview.ownerAgentId ?? "未知"}`;
+  // 技能库是实例共享内容；发起会话不是文件归属，未知作用域不能显示成技能库。
+  const scopeText = preview.scope === "skill" ? "技能库" : "工作区";
   const beforeLabel = action.kind === "file_edit"
     ? "替换前内容"
     : preview.beforeExists ? "写入前内容" : "写入前内容（文件不存在）";
@@ -79,7 +78,7 @@ const ActionApproval = ({
       <div className="mt-1 space-y-0.5 break-all text-xs text-amber-800">
         <p>操作：{action.kind === "file_write" ? "写入文件" : "编辑文件"} · 审批 ID：{action.id} · 版本：r{action.revision}</p>
         <p>作用域：{scopeText}</p>
-        {action.agentId && <p>发起智能体：{action.agentId}</p>}
+        {action.sessionId && <p>发起会话：{action.sessionId}</p>}
         {action.runId && <p>运行：{action.runId}</p>}
         <p>过期时间：{action.expiresAt}</p>
       </div>
@@ -129,7 +128,7 @@ const ActionApproval = ({
  * 工作区实时状态：只保留服务端推送的当前集合，不另建活动/审批历史。
  *
  * 版本规则（与服务端契约一致）：
- * - 运行以 (agentId, runId) 为身份，只应用更高 revision；终态帧移除并留下版本墓碑，
+ * - 运行以 (sessionId, runId) 为身份，只应用更高 revision；终态帧移除并留下版本墓碑，
  *   迟到的旧 running 帧不能复活。instanceId 变化时清空运行与运行版本缓存。
  * - 审批以 id 为身份；revision 跨进程持久，ready 重建 pending 集合时不能让版本倒退，
  *   终态移除后保留 tombstone，迟到的 approval_pending 不能重新显示已处理审批。
@@ -139,7 +138,7 @@ type WorkspaceState = {
   approvals: ApprovalViewDto[];
   approvalRevisions: Record<string, number>;
   approvalTombstones: Record<string, number>;
-  statuses: AgentStatusDto[];
+  statuses: SessionStatusDto[];
   statusRevisions: Record<string, number>;
   // 进行中的活动概览（含 waiting_* / awaiting_continuation）；终态活动进入 notices 供通知展示。
   activities: ActivityUpdatedEventDto[];
@@ -168,20 +167,20 @@ const initialWorkspaceState: WorkspaceState = {
   conversationUpdates: [],
 };
 
-const runKey = (agentId: string, runId: string) => JSON.stringify([agentId, runId]);
+const runKey = (sessionId: string, runId: string) => JSON.stringify([sessionId, runId]);
 
 const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): WorkspaceState => {
   switch (action.type) {
     case "reset":
       return initialWorkspaceState;
     case "ready": {
-      const { instanceId, agentStatuses, pendingApprovals, activities } = action.data;
+      const { instanceId, sessionStatuses, pendingApprovals, activities } = action.data;
       // ready 是进行中集合的完整替换值：运行版本缓存也随之重建，不保留已结束运行的旧版本。
       // 运行 revision 只在同一实例内有效；新实例本来就必须清空缓存。
       const statusRevisions: Record<string, number> = {};
-      const statuses: AgentStatusDto[] = [];
-      for (const status of agentStatuses) {
-        const key = runKey(status.agentId, status.runId);
+      const statuses: SessionStatusDto[] = [];
+      for (const status of sessionStatuses) {
+        const key = runKey(status.sessionId, status.runId);
         const known = statusRevisions[key] ?? 0;
         if (status.revision < known) continue;
         statusRevisions[key] = status.revision;
@@ -225,17 +224,17 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
         conversationUpdates: [],
       };
     }
-    case "agent_status_updated": {
+    case "session_status_updated": {
       const status = action.data;
       // ready 是每条连接唯一实例边界，且保证先于增量帧；其他实例的迟到帧直接忽略。
       if (state.instanceId !== status.instanceId) return state;
       const statusRevisions = { ...state.statusRevisions };
-      const key = runKey(status.agentId, status.runId);
+      const key = runKey(status.sessionId, status.runId);
       const known = statusRevisions[key] ?? 0;
       if (status.revision <= known) return state;
       statusRevisions[key] = status.revision;
       const rest = state.statuses.filter(
-        (item) => runKey(item.agentId, item.runId) !== key,
+        (item) => runKey(item.sessionId, item.runId) !== key,
       );
       return {
         ...state,
@@ -281,7 +280,7 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
       const activities = terminal
         ? state.activities.filter((item) => item.id !== activity.id)
         : [...state.activities.filter((item) => item.id !== activity.id), activity];
-      // 终态活动转成一条通知：用户在别的智能体时也能看到“调研 X 已完成/失败”。
+      // 终态活动转成一条通知：用户在别的会话时也能看到“调研 X 已完成/失败”。
       const notices = terminal
         ? [...state.notices.filter((item) => item.id !== activity.id), activity].slice(-8)
         : state.notices;
@@ -320,12 +319,12 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
 
 export const App = () => {
   const authed = useSyncExternalStore(subscribeAuth, isLoggedIn);
-  const [agents, setAgents] = useState<AgentDto[]>([]);
-  const [active, setActive] = useState("local-main");
-  const [newAgent, setNewAgent] = useState("");
+  const [sessions, setSessions] = useState<SessionDto[]>([]);
+  const [active, setActive] = useState("main");
+  const [newTitle, setNewTitle] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [error, setError] = useState("");
-  type View = "chat" | "jobs" | "goals" | "traces" | "settings";
+  type View = "news" | "chat" | "jobs" | "goals" | "traces" | "settings";
   const [view, setView] = useState<View>("chat");
   // 小屏（<768px）侧栏变为抽屉；默认开抽屉选会话，选完自动收起。
   const [drawer, setDrawer] = useState(false);
@@ -370,18 +369,18 @@ export const App = () => {
     };
   }, [authed]);
 
-  const refreshAgents = () => {
+  const refreshSessions = () => {
     if (!authed) return;
-    void listAgents()
+    void listSessions()
       .then((list) => {
-        setAgents(list);
+        setSessions(list);
         if (list.length && !list.some((x) => x.id === active)) setActive(list[0]!.id);
       })
       .catch((e: Error) => setError(e.message));
   };
 
   useEffect(() => {
-    refreshAgents();
+    refreshSessions();
   }, [authed]);
 
   const signIn = async () => {
@@ -419,7 +418,8 @@ export const App = () => {
   }
 
   const navItems: { key: View; label: string }[] = [
-    { key: "chat", label: "聊天" },
+    { key: "chat", label: "消息" },
+    { key: "news", label: "新闻" },
     { key: "jobs", label: "任务" },
     { key: "goals", label: "目标" },
     { key: "traces", label: "模型追踪" },
@@ -428,9 +428,9 @@ export const App = () => {
 
   // 只展示一行当前运行状态；优先当前会话，其次任意进行中的运行，不构造活动列表。
   const currentStatus =
-    workspace.statuses.find((status) => status.agentId === active) ?? workspace.statuses[0];
+    workspace.statuses.find((status) => status.sessionId === active) ?? workspace.statuses[0];
   const activeConversationUpdate = workspace.conversationUpdates.findLast(
-    (update) => update.data.agentId === active,
+    (update) => update.data.sessionId === active,
   );
   const conversationRefreshKey =
     `${workspace.conversationSyncVersion}:${activeConversationUpdate?.sequence ?? 0}`;
@@ -471,7 +471,7 @@ export const App = () => {
           ))}
         </div>
         <div className={`flex-1 space-y-0.5 overflow-y-auto px-2 ${view === "chat" ? "" : "hidden"}`}>
-          {agents.map((agent) => (
+          {sessions.map((agent) => (
             <button
               key={agent.id}
               onClick={() => {
@@ -485,35 +485,34 @@ export const App = () => {
                   : "text-stone-600 hover:bg-stone-100"
               }`}
             >
-              {agent.id}
+              {agent.title}
             </button>
           ))}
         </div>
+        {active !== "main" && view === "chat" && <button onClick={() => {
+          if (window.confirm("删除该会话及其历史、反馈、任务与监控？此操作不可恢复，工作区文件保留。")) void deleteSession(active).then(() => { setActive("main"); refreshSessions(); }, (e: Error) => setError(e.message));
+        }}>删除会话</button>}
+        {active !== "main" && view === "chat" && <button onClick={() => {
+          const title = window.prompt("会话新标题", sessions.find((s) => s.id === active)?.title);
+          if (title) void renameSession(active, title).then(refreshSessions, (e: Error) => setError(e.message));
+        }}>改名</button>}
         <div className={`border-t border-stone-200 p-2 ${view === "chat" ? "" : "hidden"}`}>
           <input
-            value={newAgent}
-            onChange={(e) => setNewAgent(e.target.value)}
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
             onKeyDown={async (e) => {
-              if (e.key !== "Enter" || !newAgent.trim()) return;
-              const id = newAgent.trim();
-              if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id)) {
-                setError("智能体名：字母或数字开头，可含 _ -");
-                return;
-              }
+              if (e.key !== "Enter" || !newTitle.trim()) return;
               try {
-                if (!agents.some((x) => x.id === id)) {
-                  // 目录项由服务端创建并返回，不在客户端伪造会话和扩展信息。
-                  const agent = await createAgent(id);
-                  setAgents((current) => [...current.filter((item) => item.id !== agent.id), agent]);
-                }
-                setActive(id);
-                setNewAgent("");
+                const session = await createSession(newTitle.trim());
+                setSessions((current) => [...current, session]);
+                setActive(session.id);
+                setNewTitle("");
                 setError("");
               } catch (error) {
                 setError(error instanceof Error ? error.message : String(error));
               }
             }}
-            placeholder="新智能体名称…"
+            placeholder="新会话名称…"
             className="w-full rounded-lg border border-stone-300 px-2.5 py-1.5 text-sm outline-none focus:border-stone-500"
           />
           {error && <p role="alert" className="mt-2 text-xs text-red-600">{error}</p>}
@@ -541,7 +540,7 @@ export const App = () => {
               {currentStatus.title} · {currentStatus.label}
             </span>
             <span className="ml-auto shrink-0 text-stone-400">
-              {currentStatus.source === "job" ? "定时任务" : currentStatus.agentId}
+              {currentStatus.source === "job" ? "定时任务" : currentStatus.sessionId}
             </span>
           </div>
         )}
@@ -558,7 +557,7 @@ export const App = () => {
                   {notice.result && (
                     <p className="mt-0.5 truncate text-stone-500">{notice.result}</p>
                   )}
-                  <span className="ml-1.5 text-stone-400">{notice.agentId}</span>
+                  <span className="ml-1.5 text-stone-400">{notice.sessionId}</span>
                 </div>
                 <button
                   onClick={() => dispatch({ type: "dismiss_notice", id: notice.id })}
@@ -586,17 +585,17 @@ export const App = () => {
         {view === "chat" && (
           <ChatView
             key={active}
-            agentId={active}
-            sessionId={agents.find((s) => s.id === active)?.sessionId}
-            conversationRefreshKey={conversationRefreshKey}
+            sessionId={active}
+                        conversationRefreshKey={conversationRefreshKey}
             conversationUpdates={workspace.conversationUpdates.map((update) => update.data)}
-            onReset={refreshAgents}
+            onReset={refreshSessions}
           />
         )}
+        {view === "news" && <NewsView />}
         {view === "jobs" && <JobsView />}
         {view === "goals" && <GoalsView />}
         {view === "traces" && <TracesView />}
-        {view === "settings" && <SettingsView agentId={active} />}
+        {view === "settings" && <SettingsView sessionId={active} />}
         </div>
       </main>
     </div>

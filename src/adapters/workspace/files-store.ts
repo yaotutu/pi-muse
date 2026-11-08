@@ -2,13 +2,7 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, mkdir, open, readdir, rename, unlink } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
-import {
-  ensureAgentWorkspace,
-  ensureAgentLayout,
-  sharedWorkspaceDir,
-  agentWorkspaceDir,
-  type DataLayout,
-} from "../storage/data-layout.js";
+import { ensureLayout, type DataLayout } from "../storage/data-layout.js";
 import { safeWorkspacePath, UnsafeFilePathError } from "../pi/tools/workspace-path.js";
 import {
   MAX_WORKSPACE_DIRECTORY_ENTRIES,
@@ -27,10 +21,7 @@ const isMissing = (error: unknown) =>
   (error as NodeJS.ErrnoException).code === "ENOENT" ||
   (error as NodeJS.ErrnoException).code === "ENOTDIR";
 
-const rootOf = (layout: DataLayout, selector: WorkspaceFileSelector) =>
-  selector.scope === "agent"
-    ? agentWorkspaceDir(layout, selector.agentId!)
-    : sharedWorkspaceDir(layout);
+const rootOf = (layout: DataLayout) => layout.workspaceDir;
 
 const targetOf = (root: string, path: string) =>
   path === "." ? root : join(root, ...path.split("/"));
@@ -142,10 +133,9 @@ const checkedTarget = async (
   selector: WorkspaceFileSelector,
   options: { createDirectories?: boolean } = {},
 ) => {
-  const root = rootOf(layout, selector);
+  const root = rootOf(layout);
   if (options.createDirectories) {
-    if (selector.scope === "agent") await ensureAgentWorkspace(layout, selector.agentId!);
-    else await ensureAgentLayout(layout);
+    await ensureLayout(layout);
   }
   const lexical = targetOf(root, selector.path);
   try {
@@ -172,7 +162,7 @@ const writeTemporary = async (target: string, content: string) => {
 };
 
 /**
- * HTTP 手动文件适配器。读操作不创建目录；写操作在确认智能体已存在后只创建
+ * HTTP 手动文件适配器。读操作不创建目录；写操作在确认会话已存在后只创建
  * 工作区内部目录。所有错误使用受控文案，不透出服务端绝对路径或 fs 诊断。
  */
 export const createWorkspaceFileStore = (layout: DataLayout, commitQueue: WorkspaceCommitQueue) => {
