@@ -1,6 +1,6 @@
 # News reading
 
-News is a global RSS collection and recommendation service, not a separate chat identity. Reading, sources and article feedback survive session reset/deletion. This page describes server semantics; native pages and real-model paths still require coordinated acceptance. Check the installed version.
+News is a global RSS collection and recommendation service, not a separate chat identity. Reading, sources and article feedback survive main chat reset. This page describes the current source; check the installed version for the actual controls.
 
 ## Reading and filtering {#reading}
 
@@ -10,7 +10,7 @@ Details show sanitized text, source and recommendation reason. Titles, content a
 
 ## Discuss in chat {#discuss-in-chat}
 
-Use the existing current session by explicitly submitting an article reference and your question. No news-specific chat or separate discussion is created. Reading does not start chat or inject every article.
+Tap Discuss to return directly to main chat in Messages, appending an explicitly untrusted article reference to the existing draft. It is editable, is not sent automatically, and does not open a session picker. You can return to the original article. No news-specific chat or separate discussion is created; reading alone neither starts chat nor injects all articles into main.
 
 Synchronize current history before resending a reference with an unknown outcome. Article feedback is not an execution instruction; explicitly request actions in chat.
 
