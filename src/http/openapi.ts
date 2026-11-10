@@ -227,10 +227,10 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
             }
           : {
               description: "成功",
-              ...(contentType === "image/png" ? { headers: {
-                ETag: { description: "带双引号的 PNG 字节 SHA-256", schema: { type: "string" } },
-                "Cache-Control": { description: "private, max-age=300", schema: { type: "string" } },
-              } } : {}),
+              // 响应头语义由端点声明（缓存/摘要策略不属于媒体类型的共同性质）。
+              ...(endpoint.responseHeaders ? { headers: Object.fromEntries(
+                Object.entries(endpoint.responseHeaders).map(([name, description]) => [name, { description, schema: { type: "string" as const } }]),
+              ) } : {}),
               content: { [contentType]: { schema: contentType === "image/png"
                 ? { ...toSchema(endpoint.response, "output"), format: "binary", contentMediaType: "image/png" }
                 : toSchema(endpoint.response, "output") } },

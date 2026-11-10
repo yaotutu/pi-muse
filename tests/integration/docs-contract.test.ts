@@ -83,6 +83,7 @@ type OpenApiOperation = {
     {
       description?: string;
       content?: Record<string, { schema?: JsonSchema }>;
+      headers?: Record<string, { description?: string; schema?: JsonSchema }>;
       "x-sse-events"?: Record<string, unknown>;
     }
   >;
@@ -193,6 +194,9 @@ test("docs: companions expose authenticated tagged JSON and PNG contracts", () =
   const asset = paths["/api/companions/{packId}/assets/{state}"]!.get!;
   assert.deepEqual(Object.keys(asset.responses["200"]!.content!), ["image/png"]);
   assert.equal(asset.responses["200"]!.content!["image/png"]!.schema!.type, "string");
+  // 响应头由端点声明，不是生成器按媒体类型猜测。
+  assert.equal(asset.responses["200"]!.headers!.ETag!.description, "带双引号的 PNG 字节 SHA-256");
+  assert.equal(asset.responses["200"]!.headers!["Cache-Control"]!.description, "private, max-age=300");
   assert.match(asset.description ?? "", /ETag/);
   assert.match(asset.description ?? "", /private, max-age=300/);
   assert.equal(asset.parameters!.find((parameter) => parameter.name === "packId")!.schema.pattern, "^[a-z0-9][a-z0-9_-]{0,63}$");

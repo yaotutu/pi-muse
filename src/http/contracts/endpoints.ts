@@ -48,6 +48,11 @@ export type EndpointSpec = {
   /** 非 JSON 响应；默认 application/json */
   responseContentType?: "application/json" | "text/html" | "image/png";
   /**
+   * 200 响应头声明（名称 → 说明）。缓存策略、摘要等响应头语义由端点自己声明，
+   * 生成器不按媒体类型猜测；schema 一律为 string。
+   */
+  responseHeaders?: Readonly<Record<string, string>>;
+  /**
    * 成功响应为非 200 状态码（如 303 重定向）：生成器用该状态码替代默认 200，
    * response schema 仍描述响应形态（重定向目标说明）。
    */
@@ -70,7 +75,8 @@ export const endpoints: EndpointSpec[] = [
     hint: "只读、不创建目录。仅列出八状态 PNG 全部有效的包；不完整、损坏 manifest/PNG、非法 ID 或符号链接记入 diagnostics 并跳过，绝不删除或覆盖原件。manifest.json 可选，缺失时 name=id、description 为空。形象只影响展示，不新增助手身份或模型工具；不新增 SSE 事件。" },
   { operationId: "getCompanion", method: "get", path: "/api/companions/:packId", tag: "助手形象", summary: "读取助手形象包", auth: true, response: companion.companionResponse, errorResponses: companion.companionErrors,
     hint: "只读。packId 必须匹配 ^[a-z0-9][a-z0-9_-]{0,63}$，非法返回 400 INVALID_COMPANION_ID；不存在、损坏或未凑齐八状态返回 404 COMPANION_NOT_FOUND。version 是规范化 manifest 与全部状态字节的 SHA-256，重新读取以发现修改。" },
-  { operationId: "getCompanionAsset", method: "get", path: "/api/companions/:packId/assets/:state", tag: "助手形象", summary: "读取助手形象 PNG", auth: true, response: companion.companionPngResponse, responseContentType: "image/png", errorResponses: companion.companionErrors,
+  { operationId: "getCompanionAsset", method: "get", path: "/api/companions/:packId/assets/:state", tag: "助手形象", summary: "读取助手形象 PNG", auth: true, response: companion.companionPngResponse, responseContentType: "image/png",
+    responseHeaders: { ETag: "带双引号的 PNG 字节 SHA-256", "Cache-Control": "private, max-age=300" }, errorResponses: companion.companionErrors,
     hint: "仅完整包可读取；缺失、损坏或不完整返回 404 COMPANION_NOT_FOUND。非法 ID/state 返回 400 INVALID_COMPANION_ID / INVALID_COMPANION_STATE。state 仅允许 idle、thinking、responding、working、waiting-approval、success、error、stopped。返回原始 image/png 字节，ETag 为带双引号的图片 SHA-256，Cache-Control: private, max-age=300；必须携带 Bearer 鉴权，不能把 token 放 URL。" },
   { operationId: "saveCompanion", method: "put", path: "/api/companions/:packId", tag: "助手形象", summary: "保存助手形象元数据", auth: true, request: companion.companionMetadataRequest, response: companion.saveCompanionResponse, errorResponses: companion.companionErrors,
     hint: "创建或整份替换 manifest.json（schemaVersion=1），最后成功保存生效。name trim 后 1–80 字符，description 最多 200 字符，省略为空。允许分步保存，complete/missingStates 反映缺失 PNG；八状态全部有效后才进入可用列表。已有坏 manifest/PNG 或符号链接拒绝写入且保留原件；先修复原文件。不调用模型；写入结果未明先读取状态，不自动重发。" },
