@@ -1,3 +1,5 @@
+import { createCompanionRoutes } from "./routes/companions.js";
+import { CompanionError } from "../features/companions/types.js";
 import { UnknownSkillError } from "../features/skills/service.js";
 import { SessionError } from "../features/sessions/types.js";
 import { createSessionRoutes } from "./routes/sessions.js";
@@ -45,6 +47,12 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     async (c, next) => {
       // 聊天附件路由有自己的 12MiB 上限；浏览器上传只对精确 POST 路径放宽，
       // 且 schema 与 feature 仍会分别约束单文件、文件数和 8MiB 原始字节总量。
+      if (c.req.method === "PUT" && /^\/api\/companions\/[^/]+\/assets\/[^/]+$/.test(c.req.path)) {
+        return bodyLimit({
+          maxSize: 2 * 1024 * 1024,
+          onError: (context) => context.json({ error: "Companion upload request body exceeds 2 MiB", code: "REQUEST_TOO_LARGE" }, 413),
+        })(c, next);
+      }
       if (c.req.method === "POST" && c.req.path === "/api/conversation/run") return next();
       if (c.req.method === "POST" && /^\/api\/browser\/uploads\/[^/]+$/.test(c.req.path)) {
         return bodyLimit({
@@ -62,6 +70,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     },
   );
   app.onError((error, c) => {
+    if (error instanceof CompanionError) return c.json({ error: error.message, code: error.code }, error.status);
     if (error instanceof UnknownSkillError) return c.json({ error: error.message, code: "UNKNOWN_SKILL" }, 400);
     if (error instanceof SessionError) return c.json({ error: error.message, code: error.code }, error.status);
     if (error instanceof ConversationError && error.code === "SESSION_NOT_FOUND")
@@ -113,6 +122,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/api/sessions", createMessageRoutes(dependencies));
   app.route("/api/information", createInformationRoutes(dependencies));
   app.route("/api/sessions", createSessionRoutes(dependencies));
+  app.route("/api/companions", createCompanionRoutes(dependencies.companions));
   app.route("/api/news", createNewsRoutes(dependencies));
   app.route("/", createTracesRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));

@@ -9,6 +9,7 @@ import * as files from "./workspace-files.js";
 import * as browser from "./browser.js";
 import * as message from "./messages.js";
 import * as information from "./information.js";
+import * as companion from "./companions.js";
 import * as news from "./news.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
 import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
@@ -44,8 +45,8 @@ export type EndpointSpec = {
   query?: z.ZodType;
   /** 200 响应 schema（生成 io=output；契约测试对真实响应 safeParse） */
   response: z.ZodType;
-  /** 非 JSON 响应（当前仅调试页 HTML）；默认 application/json */
-  responseContentType?: "application/json" | "text/html";
+  /** 非 JSON 响应；默认 application/json */
+  responseContentType?: "application/json" | "text/html" | "image/png";
   /**
    * 成功响应为非 200 状态码（如 303 重定向）：生成器用该状态码替代默认 200，
    * response schema 仍描述响应形态（重定向目标说明）。
@@ -65,6 +66,18 @@ export type EndpointSpec = {
 };
 
 export const endpoints: EndpointSpec[] = [
+  { operationId: "listCompanions", method: "get", path: "/api/companions", tag: "助手形象", summary: "列出自定义助手形象包", auth: true, response: companion.companionsResponse, errorResponses: companion.companionErrors,
+    hint: "只读、不创建目录。仅列出八状态 PNG 全部有效的包；不完整、损坏 manifest/PNG、非法 ID 或符号链接记入 diagnostics 并跳过，绝不删除或覆盖原件。manifest.json 可选，缺失时 name=id、description 为空。形象只影响展示，不新增助手身份或模型工具；不新增 SSE 事件。" },
+  { operationId: "getCompanion", method: "get", path: "/api/companions/:packId", tag: "助手形象", summary: "读取助手形象包", auth: true, response: companion.companionResponse, errorResponses: companion.companionErrors,
+    hint: "只读。packId 必须匹配 ^[a-z0-9][a-z0-9_-]{0,63}$，非法返回 400 INVALID_COMPANION_ID；不存在、损坏或未凑齐八状态返回 404 COMPANION_NOT_FOUND。version 是规范化 manifest 与全部状态字节的 SHA-256，重新读取以发现修改。" },
+  { operationId: "getCompanionAsset", method: "get", path: "/api/companions/:packId/assets/:state", tag: "助手形象", summary: "读取助手形象 PNG", auth: true, response: companion.companionPngResponse, responseContentType: "image/png", errorResponses: companion.companionErrors,
+    hint: "仅完整包可读取；缺失、损坏或不完整返回 404 COMPANION_NOT_FOUND。非法 ID/state 返回 400 INVALID_COMPANION_ID / INVALID_COMPANION_STATE。state 仅允许 idle、thinking、responding、working、waiting-approval、success、error、stopped。返回原始 image/png 字节，ETag 为带双引号的图片 SHA-256，Cache-Control: private, max-age=300；必须携带 Bearer 鉴权，不能把 token 放 URL。" },
+  { operationId: "saveCompanion", method: "put", path: "/api/companions/:packId", tag: "助手形象", summary: "保存助手形象元数据", auth: true, request: companion.companionMetadataRequest, response: companion.saveCompanionResponse, errorResponses: companion.companionErrors,
+    hint: "创建或整份替换 manifest.json（schemaVersion=1），最后成功保存生效。name trim 后 1–80 字符，description 最多 200 字符，省略为空。允许分步保存，complete/missingStates 反映缺失 PNG；八状态全部有效后才进入可用列表。已有坏 manifest/PNG 或符号链接拒绝写入且保留原件；先修复原文件。不调用模型；写入结果未明先读取状态，不自动重发。" },
+  { operationId: "saveCompanionAsset", method: "put", path: "/api/companions/:packId/assets/:state", tag: "助手形象", summary: "保存助手形象状态 PNG", auth: true, request: companion.companionAssetRequest, response: companion.saveCompanionAssetResponse, errorResponses: companion.companionErrors,
+    hint: "允许分步上传八个状态；缺省 manifest 的名称为 packId，说明为空。只接受严格规范 base64，不含 data: 前缀或非法字符；解码后 1–786432 字节且匹配 PNG 魔数。非 PNG 返回 400 INVALID_PNG，图片超过 768 KiB 或 JSON body 超过 2 MiB 返回 413 REQUEST_TOO_LARGE；其他路由仍为 1 MiB。拒绝目录穿越、非法 ID/state 与符号链接。已有损坏文件拒绝覆盖，原件保留。成功返回未带引号的图片 SHA-256 etag；完成后重读列表/详情取得 version。写入结果未明先读取，不自动重发。" },
+  { operationId: "deleteCompanion", method: "delete", path: "/api/companions/:packId", tag: "助手形象", summary: "删除助手形象包", auth: true, response: companion.deleteCompanionResponse, errorResponses: companion.companionErrors,
+    hint: "显式删除整个 pack 目录，包括未完成包；不可恢复，需用户主动操作。不存在返回 404 COMPANION_NOT_FOUND，非法 ID 返回 400 INVALID_COMPANION_ID；遇到任意符号链接拒绝，不跟随链接。删除结果未明先读取列表核对，不自动重发。不调用模型。" },
   { operationId: "listSessions", method: "get", path: "/api/sessions", tag: "会话", summary: "列出会话", auth: true, response: resp.sessionsResponse,
     hint: "main 永远存在且排第一；专题会话按 updatedAt 倒序。元数据与 pi 会话 id 独立；GET 不创建会话。" },
   { operationId: "createConversationSession", method: "post", path: "/api/sessions", tag: "会话", summary: "创建专题会话", auth: true, request: req.createSessionSchema, response: resp.sessionRecordResponse,

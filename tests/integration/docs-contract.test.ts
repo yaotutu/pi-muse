@@ -168,6 +168,39 @@ test("docs: generated OpenAPI document is structurally complete", () => {
   }
 });
 
+test("docs: companions expose authenticated tagged JSON and PNG contracts", () => {
+  const doc = buildOpenApiDocument();
+  const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;
+  const registrations = endpoints.filter((endpoint) => endpoint.path.startsWith("/api/companions"));
+  assert.equal(registrations.length, 6);
+  for (const endpoint of registrations) {
+    const path = endpoint.path.replace(/:([a-zA-Z]+)/g, "{$1}");
+    const operation = paths[path]![endpoint.method]!;
+    assert.deepEqual(operation.security, [{ bearerAuth: [] }]);
+    assert.deepEqual(operation.tags, ["助手形象"]);
+    assert.ok(operation.responses["400"]);
+    assert.ok(operation.responses["404"]);
+    assert.ok(operation.responses["409"]);
+    assert.ok(operation.responses["413"]);
+  }
+  const list = paths["/api/companions"]!.get!;
+  const listSchema = responseSchema(list);
+  assert.deepEqual(listSchema.required, ["companions", "diagnostics"]);
+  assert.deepEqual(Object.keys(listSchema.properties!.companions!.items!.properties!), ["id", "name", "description", "states", "version", "updatedAt"]);
+  assert.match(list.description ?? "", /不创建目录/);
+  assert.match(list.description ?? "", /diagnostics/);
+  assert.match(list.description ?? "", /不新增 SSE/);
+  const asset = paths["/api/companions/{packId}/assets/{state}"]!.get!;
+  assert.deepEqual(Object.keys(asset.responses["200"]!.content!), ["image/png"]);
+  assert.equal(asset.responses["200"]!.content!["image/png"]!.schema!.type, "string");
+  assert.match(asset.description ?? "", /ETag/);
+  assert.match(asset.description ?? "", /private, max-age=300/);
+  assert.equal(asset.parameters!.find((parameter) => parameter.name === "packId")!.schema.pattern, "^[a-z0-9][a-z0-9_-]{0,63}$");
+  assert.deepEqual(asset.parameters!.find((parameter) => parameter.name === "state")!.schema.enum, ["idle", "thinking", "responding", "working", "waiting-approval", "success", "error", "stopped"]);
+  const upload = paths["/api/companions/{packId}/assets/{state}"]!.put!;
+  for (const pattern of [/786432/, /2 MiB/, /INVALID_PNG/, /REQUEST_TOO_LARGE/, /符号链接/, /原件保留/]) assert.match(upload.description ?? "", pattern);
+});
+
 test("docs: browser file endpoints document chooser, limits, persistence and error semantics", () => {
   const doc = buildOpenApiDocument();
   const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;

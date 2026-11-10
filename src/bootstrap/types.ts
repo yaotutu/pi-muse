@@ -1,3 +1,4 @@
+import type { CompanionService } from "../features/companions/service.js";
 import type { Config } from "../config/load-config.js";
 import type { SessionHub } from "../features/conversation/conversation-hub.js";
 import type { MessageFeedbackRepository } from "../features/messages/types.js";
@@ -28,6 +29,7 @@ import type { NewsService } from "../features/news/service.js";
 type Auth = Awaited<ReturnType<typeof createAuth>>;
 
 export type ServiceContainer = {
+  companions: CompanionService;
   sessions: import("../features/sessions/service.js").SessionService;
   lifecycle?: { isClosing: () => boolean; enter: () => () => void };
   config: Config;
@@ -61,5 +63,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "information" | "news" | "sessions" | "browser" | "browserDesktop" | "messageFeedbackRepository"
+  "companions" | "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "information" | "news" | "sessions" | "browser" | "browserDesktop" | "messageFeedbackRepository"
 >;

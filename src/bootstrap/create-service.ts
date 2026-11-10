@@ -1,3 +1,5 @@
+import { createCompanionService } from "../features/companions/service.js";
+import { createCompanionStore } from "../adapters/storage/companions-store.js";
 import { createSessionRepository, createSessionStorage, initializeMainSession } from "../adapters/storage/session-repository.js";
 import { createSessionService } from "../features/sessions/service.js";
 import { createNewsProcessingRepository } from "../adapters/storage/news-processing-repository.js";
@@ -381,6 +383,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     propose: createDreamProposer({ config, layout, modelRuntime }),
   });
   const dreamScheduler = createDreamScheduler(dream);
+  const companions = createCompanionService(createCompanionStore(layout));
   const workspaceFiles = createWorkspaceFileService(createWorkspaceFileStore(layout, workspaceCommits));
   // 同源桌面网关单例：无论 browser.enabled 与否都创建，/api/browser/status 总是可答；
   // 关闭时仅清内存 ticket/session 与 WS 代理，不参与 feature/pi 生命周期。
@@ -393,7 +396,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     jobs, monitors, actions, feedback: messageFeedbackRepository, pauseMain: () => information!.pause(), forgetPresence: workspaceEvents.presence.forget });
   // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
   const traces = createModelTraceReader(layout.tracesDir);
-  const dependencies = { traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, sessions, browser, browserDesktop, messageFeedbackRepository };
+  const dependencies = { companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, sessions, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。

@@ -37,6 +37,20 @@ Assistant settings and SOUL/USER use different save actions; saving one does not
 
 Each profile section follows its own last successful save. The client does not automatically merge different drafts or provide version-conflict protection. SOUL/USER enters subsequent global model context and is sent to the external model service configured on the server; do not enter credentials or content you do not want to provide to that service. These custom instructions cannot expand tool permissions or file access or bypass file approvals.
 
+## Assistant companions {#assistant-companions}
+
+「助手形象」 (Assistant companions) supplies appearance packs for the same assistant; it does not create assistant identities, sessions, or model tools. Manage server packs through the 「助手形象」 group in the current instance's `/docs`, using an authenticated Bearer Token. Mobile selection controls depend on your installed version; this server capability does not mean the APK has been updated.
+
+You can also prepare `DATA_DIR/companions/<id>/` on the server. Use 1–64 lowercase letters, digits, underscores, or hyphens for `<id>`, starting with a letter or digit. Each pack needs eight PNGs: `idle.png`, `thinking.png`, `responding.png`, `working.png`, `waiting-approval.png`, `success.png`, `error.png`, and `stopped.png`. Each image must have a PNG signature and be at most 768 KiB (786,432 bytes). Neither directories nor files may be symbolic links.
+
+`manifest.json` is optional. Without it, the display name is the directory ID and the description is empty. If provided, use the following structure: the trimmed name must contain 1–80 characters, and the optional description may contain at most 200 characters. Do not add other fields.
+
+```json
+{ "schemaVersion": 1, "name": "My companion", "description": "A custom appearance" }
+```
+
+You may save metadata first and upload images one at a time. A pack appears in the available list only when all eight state images are valid. Missing images and damaged manifests or images produce diagnostics; the server never automatically deletes or repairs them. Preserve and manually repair damaged originals rather than relying on uploads to overwrite them. After image or metadata content changes, re-reading the pack yields a changed version. Explicit deletion removes the entire pack and cannot be undone. For an unknown write result, re-read before deciding to retry; do not automatically resend. Consult the current instance's `/docs` for exact requests and errors, and never put the Token in image URLs.
+
 ## Appearance {#appearance}
 
 1. Tap Settings, then 「外观主题」 (Appearance) under 「应用」 (App) to open its separate page.

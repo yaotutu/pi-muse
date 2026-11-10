@@ -42,6 +42,7 @@ test("DataLayout describes the current paths without migrating legacy data", () 
   const profileDir = join(root, "profile");
   assert.deepEqual(createDataLayout("./.personal-bot-test"), {
     root,
+    companionsDir: join(root, "companions"),
     profileDir,
     workspaceDir: join(root, "workspace"),
     sessionsDir: join(root, "sessions"),

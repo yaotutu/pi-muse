@@ -1,3 +1,4 @@
+import { COMPANION_STATES, COMPANION_PACK_ID_PATTERN } from "../features/companions/types.js";
 import { SESSION_ID_PATTERN } from "../features/conversation/session-id.js";
 import { z } from "zod";
 import { endpoints } from "./contracts/endpoints.js";
@@ -17,6 +18,10 @@ const toSchema = (schema: z.ZodType, io: "input" | "output") =>
   z.toJSONSchema(schema, { io }) as Record<string, unknown>;
 
 const describePathParam = (path: string, name: string): string => {
+  if (path.startsWith("/api/companions/")) {
+    if (name === "packId") return "助手形象包 ID：1–64 字符，小写字母或数字开头，后续仅小写字母、数字、下划线或连字符";
+    if (name === "state") return "八个固定形象状态之一，顺序为 idle、thinking、responding、working、waiting-approval、success、error、stopped";
+  }
   if (name === "sessionId") {
     return "公开会话唯一标识：main 或规范小写 UUID；重置后保持不变";
   }
@@ -72,7 +77,11 @@ const pathParams = (path: string) => {
   return names.map((name) => {
     const description = describePathParam(path, name);
     const schema =
-      name === "sessionId"
+      path.startsWith("/api/companions/") && name === "packId"
+        ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: COMPANION_PACK_ID_PATTERN.source, description }
+        : path.startsWith("/api/companions/") && name === "state"
+          ? { type: "string" as const, enum: [...COMPANION_STATES], description }
+        : name === "sessionId"
         ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: SESSION_ID_PATTERN.source, description }
         : path.startsWith("/api/news/") && ["articleId", "sourceId", "commentId"].includes(name)
           ? { type: "string" as const, minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$", description }
@@ -218,7 +227,13 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
             }
           : {
               description: "成功",
-              content: { [contentType]: { schema: toSchema(endpoint.response, "output") } },
+              ...(contentType === "image/png" ? { headers: {
+                ETag: { description: "带双引号的 PNG 字节 SHA-256", schema: { type: "string" } },
+                "Cache-Control": { description: "private, max-age=300", schema: { type: "string" } },
+              } } : {}),
+              content: { [contentType]: { schema: contentType === "image/png"
+                ? { ...toSchema(endpoint.response, "output"), format: "binary", contentMediaType: "image/png" }
+                : toSchema(endpoint.response, "output") } },
             },
         ...errorResponses(endpoint),
       };
