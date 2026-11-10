@@ -12,6 +12,8 @@ Messages directly uses the permanent `main` session, showing messages and a comp
 
 Main cannot be deleted, but can be reset. Profile, long-term memory and the workspace remain global. Memory is retrieved on demand rather than loaded in full each turn.
 
+The companion floats at the top center of the chat content area in a compact island with a solid background and shadow, showing the current status without reserving a full-width header row. Messages can scroll to the top and behind the island; you can still swipe the chat on either side. Tap the companion to open main-chat actions for execution, approvals, history, reset, instructions and skills. The island appears only in Messages; switching to News or Settings does not recreate the chat.
+
 ## Send and stop conversations {#send-and-stop-conversations}
 
 Enter text directly in Messages, or attach images/text with that message as explained in [Attachments](files-and-approvals.md#send-attachments). Responses stream; tool and approval views show actual execution facts.
