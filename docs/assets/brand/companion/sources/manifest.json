@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "identity": "brand-penguin-b",
+  "approval": "User accepted the eight-state static artwork before local transparent preparation.",
+  "canonicalReference": "../../previews/neutral-icon-master.png",
+  "canonicalReferenceSha256": "53182c9e203f7dfb5d6af30202862e851fabc2a565a276b62f79a79e96850245",
+  "generationProject": "projects/17208297457678978765",
+  "images": [
+    {
+      "state": "idle",
+      "file": "../../mascot/transparent.png",
+      "format": "PNG",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "sha256": "2b6133f0056caa29dc6f89c67b2524407588f537ba5bef7ece6534362e149e3b",
+      "role": "exact-approved-B-transparent-master"
+    },
+    {
+      "state": "thinking",
+      "file": "thinking.jpg",
+      "format": "JPEG",
+      "size": [
+        1024,
+        1024
+      ],
+      "mode": "RGB",
+      "sha256": "3862f8b356d073f7a9b592a6025c497a0dadf4502dd2577f345d9e98e7b105db",
+      "role": "user-approved-generated-state-original"
+    },
+    {
+      "state": "responding",
+      "file": "responding.jpg",
+      "format": "JPEG",
+      "size": [
+        512,
+        512
+      ],
+      "mode": "RGB",
+      "sha256": "330acebe8e74cbbbe2bd74966da936e6fc5bf5a20e089fe135425b514d86d661",
+      "role": "user-approved-generated-state-original"
+    },
+    {
+      "state": "working",
+      "file": "working.jpg",
+      "format": "JPEG",
+      "size": [
+        512,
+        512
+      ],
+      "mode": "RGB",
+      "sha256": "7abe2a6b75cb5b207ac3fdb214f9ced0df452180dca4fc146456b3e4edb91262",
+      "role": "user-approved-generated-state-original"
+    },
+    {
+      "state": "waiting-approval",
+      "file": "waiting-approval.jpg",
+      "format": "JPEG",
+      "size": [
+        1024,
+        1024
+      ],
+      "mode": "RGB",
+      "sha256": "4f6cee9e28035e4e0affab9991e09cf8fdc977b97ecdec48228893fe3a03fbb8",
+      "role": "user-approved-generated-state-original"
+    },
+    {
+      "state": "success",
+      "file": "success.jpg",
+      "format": "JPEG",
+      "size": [
+        1024,
+        1024
+      ],
+      "mode": "RGB",
+      "sha256": "6e658975b2b9cedddfc35071606814baceb7dc4e9e049f0ebd60f64349e0f46d",
+      "role": "user-approved-generated-state-original"
+    },
+    {
+      "state": "error",
+      "file": "error.jpg",
+      "format": "JPEG",
+      "size": [
+        512,
+        512
+      ],
+      "mode": "RGB",
+      "sha256": "f7fd8fa3e74dc44f1b6cee24913aea164f30d4bad836956232104813f4de5ecd",
+      "role": "user-approved-generated-state-original"
+    },
+    {
+      "state": "stopped",
+      "file": "stopped.jpg",
+      "format": "JPEG",
+      "size": [
+        512,
+        512
+      ],
+      "mode": "RGB",
+      "sha256": "bf8da1da53be2682e4f3747cbb99251befb6a0e36578188a22e24b760e8090fd",
+      "role": "user-approved-generated-state-original"
+    }
+  ],
+  "note": "JPEG originals are opaque source art, not transparent runtime PNGs. Idle reuses the existing approved transparent B master; no alternate identity master is created."
+}

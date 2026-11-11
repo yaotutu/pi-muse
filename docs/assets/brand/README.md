@@ -10,10 +10,10 @@
 | --- | --- | --- |
 | 角色母版 | `previews/neutral-icon-master.png`；透明派生为 `mascot/transparent.png` | 已确认，不重新选型 |
 | App / README 品牌图标 | `client/icon.png` 与 Android 三层、favicon | 客户端已接入；服务端 README 直接引用同一张图 |
-| 默认八状态形象包 | 必须以 B 母版重做，`idle/thinking/responding/working/waiting-approval/success/error/stopped` 同一身份 | 制作待验收，尚未整包替换客户端现有 C 图 |
-| 水管工等自定义形象 | 可选的外观包；不成为品牌或内置默认 | 独立保留，不修改真实实例 |
-| 耳机玩偶 A | [历史原图](../../archive/visual-explorations/headphone-plush.png) | 用户仍喜欢，保留原文件；不再充当品牌或默认形象 |
-| 毛绒企鹅 C 与旧视频 | [历史素材导航](../../avatar.md) | 不作为 B 的状态图来源，也不与新 B 包混装 |
+| 默认八状态形象包 | [`companion/`](companion/README.md)：`idle/thinking/responding/working/waiting-approval/success/error/stopped`，统一为 B | 已完成透明准备并整包接入当前客户端源码；安装版本需核对 Release |
+| 超级玛丽水管工 | 仅作为服务端可选外观包；不成为品牌或内置默认 | 独立保留，不修改真实实例 |
+| 耳机玩偶 A | [历史原图](../../archive/visual-explorations/headphone-plush.png) | 用户仍喜欢，保留收藏；不进入新 B 包 |
+| 毛绒企鹅 C | [原八态归档](../../archive/visual-explorations/companion-c/README.md)与[旧动作素材导航](../../avatar.md) | 原图和历史视频保留，不作为 B 的状态图来源，也不与新 B 包混装 |
 
 **整包切换规则：** 新 B 八态全部完成身份、状态辨识、透明边缘与 64dp 可读性检查后，再整体替换客户端默认图。不能只换待机图，把其他七态仍留作 C；制作中不得把新包写成已交付。视频不在本次范围。
 
@@ -38,7 +38,13 @@ B 企鹅（历史编号 T1）是项目吉祥物和默认角色的唯一视觉基
 
 用户已认可图稿中的浅瓷白背景，以实际图片为准，不把生成提示中的色值当作经过测量的品牌色标准。历史预览中的圆角、圆形仅用于观察裁切效果，不是 iOS 或 Android 原生验收。
 
-## 客户端静态素材与交接包
+## 默认八态静态包
+
+用户已确认 B 八态静态稿；正式产物统一放在 [`companion/`](companion/README.md)，八张均为 512 × 512 RGBA PNG，已整包接入当前客户端源码。`idle` 复用现有 `mascot/transparent.png` 派生，不另立待机母版；其余七态的已批准 JPEG 原图保留在 `companion/sources/`，由包内确定性脚本处理。尺寸、来源与校验和见 [`companion/manifest.json`](companion/manifest.json)，浅深底透明检查见包内预览。文件回归与 Android 真实资源显示已核对；这不等于用户手机已更新到此源码版本。
+
+这是内置默认八态的独立交付，不是下方旧 ZIP 的扩充，也不是视频。移动端只复制完成验收的八张 PNG 到自身 `assets/images/avatar/`；运行时不依赖本仓库路径。A 收藏与 C 归档均不进入新包，服务端可选水管工也不随本次默认图替换而修改。
+
+## 历史图标与单张静态图交接快照
 
 ![T1 客户端图标模拟预览](previews/client-icon-sheet.png)
 
@@ -48,12 +54,12 @@ B 企鹅（历史编号 T1）是项目吉祥物和默认角色的唯一视觉基
 - `client/favicon.png`：48 × 48；`client/web/icon-{16,32,192,512}.png`：相应像素尺寸，均是不透明 RGB 图。
 - `client/images/muse-companion.png`：512 × 512 真 RGBA 的 B 静态派生图，不是运行时默认八态包；由透明母版机械缩放并居中留白，不包含动作状态。
 - `client/splash-icon.png`：1024 × 1024 真 RGBA，与 Android 前景**字节相同**，复用其中央安全圆构图。供后续启动页接入；当前 `app.json` 尚未启用启动页插件。
-- [移动端交接指南](client-handoff.md)和[便携 ZIP](delivery/pi-muse-client-assets.zip)：列出目标路径、实际引用状态与接入边界；ZIP 仅含正式 PNG、指南副本及包内校验和。
+- [移动端交接指南](client-handoff.md)区分当前八态与历史图标交付；[便携 ZIP](delivery/pi-muse-client-assets.zip)仅是过去图标与单张静态形象的交付快照，包含当时的 PNG、指南副本及包内校验和，不含新 B 八态，不重建或新增 ZIP。
 - [预览排版源](client-icon-sheet.svg)、[可复现脚本](build-client-icons.py)：预览模拟 iOS 圆角、Android 圆形和圆角遮罩、主题单色、多尺寸、透明形象、圆形头像和启动图构图。Android 预览将完整 108dp 图层放在居中的 72dp 可见视口后裁切；整张图都是 asset mock，不是原生验收。
 
-在仓库根目录运行 `python3 docs/assets/brand/build-client-icons.py` 可重建本批 PNG、预览与 ZIP；需本机有 ImageMagick 7 和 librsvg 的 `rsvg-convert`。Python 只编排命令、复制相同字节的启动图及制作确定性 ZIP，像素操作均由 ImageMagick 完成。临时文件只在本目录创建并自动清理。脚本读取唯一已确认母版，不读取历史桃色来源，不调用生图服务，不修改原图。Android 纯色背景 `#F1F6FA` 是与图稿浅底协调的派生色，不替代原图背景或建立新的标准品牌色。
+`build-client-icons.py` 是过去这批图标 PNG、预览与 ZIP 的可复现脚本，不是新 B 八态构建入口；本次保留脚本和 ZIP 快照，不运行它重建旧包。脚本需本机有 ImageMagick 7 和 librsvg 的 `rsvg-convert`，Python 只编排命令、复制相同字节的启动图及制作确定性 ZIP，像素操作均由 ImageMagick 完成。它读取唯一已确认母版，不读取历史桃色来源，不调用生图服务，不修改原图。Android 纯色背景 `#F1F6FA` 是与图稿浅底协调的派生色，不替代原图背景或建立新的标准品牌色。
 
-文件尺寸、模式、SHA-256 和静态安全区结果见 [manifest.json](manifest.json)。该清单包含历史制作阶段的记录；企鹅图标已完成客户端接入与正式 Android 包启动器检查，启动页插件仍未启用，新的 B 八态包仍待制作验收。
+文件尺寸、模式、SHA-256 和静态安全区结果见 [manifest.json](manifest.json)。该清单是图标与单张静态图制作记录，不是新 B 八态清单；企鹅图标已完成客户端接入与正式 Android 包启动器检查，启动页插件仍未启用，新 B 八态的透明处理、客户端整包替换与原生显示另行验收。
 
 图层尺寸与安全区按 [Android adaptive icon 规范](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive) 制作；PNG、iOS 源图和 Android 三层命名参考 [Expo 图标说明](https://docs.expo.dev/develop/user-interface/splash-screen-and-app-icon/)。
 
@@ -85,6 +91,6 @@ B 企鹅（历史编号 T1）是项目吉祥物和默认角色的唯一视觉基
 
 ## 旧素材边界
 
-原 [avatar 动作素材](../avatar/)是另一套毛绒企鹅的历史探索，不是 T1 的动作扩展。保留已有图片、提示词和视频，不删除、不自动重做，也不声称已经符合新形象。移动端旧 A13 图标包同样仅供归档。
+原 [avatar 动作素材](../avatar/)是 C 毛绒企鹅的历史探索，不是 B / T1 的动作扩展；移动端原有的八张 C 运行时 PNG 已[按原字节归档](../../archive/visual-explorations/companion-c/README.md)。保留已有图片、提示词和视频，不删除、不自动重做，也不声称已经符合 B 形象。移动端旧 A13 图标包同样仅供归档。
 
-本目录不提供运行时资源端点，不改变默认头像、App 图标或播放器；角色选定不等于全项目已替换。后续各端接入和动画扩展分别验收。
+本目录不提供运行时资源端点。品牌图标与 README 顶图已经使用 B，本次不再改动；内置默认八态按上方整包切换规则交付与验收，不把角色选定、静态生成或旧图标验收等同于新八态已完成原生接入。

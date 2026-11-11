@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "identity": "brand-penguin-b",
+  "builtinKey": "builtin:penguin",
+  "displayName": "冰蓝企鹅",
+  "canonicalReference": {
+    "repository": "yaotutu/pi-muse",
+    "path": "docs/assets/brand/previews/neutral-icon-master.png",
+    "sha256": "53182c9e203f7dfb5d6af30202862e851fabc2a565a276b62f79a79e96850245"
+  },
+  "artworkApproval": "user-approved-static-poses",
+  "size": [
+    512,
+    512
+  ],
+  "format": "PNG",
+  "mode": "RGBA",
+  "preparation": "local neutral-background removal, edge unmatting and aspect-preserving framing; no model calls",
+  "states": [
+    {
+      "state": "idle",
+      "file": "idle.png",
+      "sha256": "faabeb2535ac1560257c213d4d4b3172579c04af80dfb95aa5223b1f8dc1d1a8",
+      "bytes": 173780,
+      "alphaBounds": [
+        32,
+        74,
+        480,
+        480
+      ]
+    },
+    {
+      "state": "thinking",
+      "file": "thinking.png",
+      "sha256": "ff6ca1983a0ff2068e69a2682cc84145daceae1d14c1a7ea9bd57b6730888be4",
+      "bytes": 229297,
+      "alphaBounds": [
+        32,
+        38,
+        480,
+        480
+      ]
+    },
+    {
+      "state": "responding",
+      "file": "responding.png",
+      "sha256": "43e200af0ca0579a24927658f6b472cc5df9770de2d2d9d1e81cbf40d840e15e",
+      "bytes": 116862,
+      "alphaBounds": [
+        32,
+        89,
+        480,
+        480
+      ]
+    },
+    {
+      "state": "working",
+      "file": "working.png",
+      "sha256": "525877bcb5bcc05aa5143a294804cb2bce21366e75470e358ac72db6c6be0024",
+      "bytes": 141754,
+      "alphaBounds": [
+        32,
+        46,
+        480,
+        480
+      ]
+    },
+    {
+      "state": "waiting-approval",
+      "file": "waiting-approval.png",
+      "sha256": "bf46d8bfa2e4972fdfe34a6889e5e0110e393e364772f0893f98789a54b9af14",
+      "bytes": 227168,
+      "alphaBounds": [
+        50,
+        32,
+        461,
+        480
+      ]
+    },
+    {
+      "state": "success",
+      "file": "success.png",
+      "sha256": "26826fec9d79af732b6acc1e311e88625374ac0b7977cda63c7532de3229d718",
+      "bytes": 231398,
+      "alphaBounds": [
+        32,
+        37,
+        480,
+        480
+      ]
+    },
+    {
+      "state": "error",
+      "file": "error.png",
+      "sha256": "6ec32eb1cec88e0d2e559bc73129731a2d87924dfca4c19355af017b480df166",
+      "bytes": 156709,
+      "alphaBounds": [
+        32,
+        51,
+        480,
+        480
+      ]
+    },
+    {
+      "state": "stopped",
+      "file": "stopped.png",
+      "sha256": "a2d214cdd3171b64dfa7d2d89916e45ff26ef534d76bb9dce80589bb06bb8a55",
+      "bytes": 145835,
+      "alphaBounds": [
+        41,
+        32,
+        471,
+        480
+      ]
+    }
+  ]
+}
