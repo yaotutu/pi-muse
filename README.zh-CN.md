@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/muse.png" width="112" alt="Pi Muse">
+<img src="docs/assets/brand/client/icon.png" width="112" alt="Pi Muse 品牌企鹅">
 
 # Pi Muse
 

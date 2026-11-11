@@ -2,9 +2,24 @@
 
 这里是整个 Pi Muse 项目的形象资产源，不是服务端专属素材。文件暂随主仓库管理，因为工作区根目录不在 Git 中；不另建资源服务、npm 包或第三个仓库。
 
+## 唯一正式角色：B 企鹅
+
+用户最终确认：**B 企鹅同时是品牌 LOGO 和默认虚拟形象。** 本目录历史设计编号为 T1；B 与 T1 在这里指同一张已确认母版，不是两套新角色。固定脸型、比例与蓝白配色，App 图标、两端 README 顶部及默认状态图统一从它派生。
+
+| 用途 | 唯一基准或边界 | 当前状态 |
+| --- | --- | --- |
+| 角色母版 | `previews/neutral-icon-master.png`；透明派生为 `mascot/transparent.png` | 已确认，不重新选型 |
+| App / README 品牌图标 | `client/icon.png` 与 Android 三层、favicon | 客户端已接入；服务端 README 直接引用同一张图 |
+| 默认八状态形象包 | 必须以 B 母版重做，`idle/thinking/responding/working/waiting-approval/success/error/stopped` 同一身份 | 制作待验收，尚未整包替换客户端现有 C 图 |
+| 水管工等自定义形象 | 可选的外观包；不成为品牌或内置默认 | 独立保留，不修改真实实例 |
+| 耳机玩偶 A | [历史原图](../../archive/visual-explorations/headphone-plush.png) | 用户仍喜欢，保留原文件；不再充当品牌或默认形象 |
+| 毛绒企鹅 C 与旧视频 | [历史素材导航](../../avatar.md) | 不作为 B 的状态图来源，也不与新 B 包混装 |
+
+**整包切换规则：** 新 B 八态全部完成身份、状态辨识、透明边缘与 64dp 可读性检查后，再整体替换客户端默认图。不能只换待机图，把其他七态仍留作 C；制作中不得把新包写成已交付。视频不在本次范围。
+
 ## 当前基准
 
-用户选定的 T1 蓝白小企鹅是项目吉祥物，也是默认角色的视觉基准，供客户端、网站、README、文档、宣传图及后续动作和视频共同使用。T1 是设计稿编号，不是正式角色名字，也不是业务模型或人设配置。
+B 企鹅（历史编号 T1）是项目吉祥物和默认角色的唯一视觉基准，供客户端、网站、README、文档、宣传图及后续动作共同使用。
 
 - [neutral-icon-master.png](previews/neutral-icon-master.png)：用户已确认满意的当前完整视觉基准，1254 × 1254、不透明 RGB PNG。后续角色与图标派生默认使用这张蓝白企鹅、浅瓷白底的图片，不再重新选形象或背景；文件保留原路径，避免不必要的改名。
 - [reference.png](mascot/reference.png)：早期独立形象来源，1254 × 1254、不透明 RGB PNG。从移动端已有独立图原样复制，保留选型和生成溯源。桃色背景已被用户拒绝，不再作为当前完整视觉基准。
@@ -31,14 +46,14 @@
 - `client/icon.png`：1024 × 1024 RGB，不透明、无预烘焙圆角；作为 iOS 通用源图，不另存同内容副本。
 - `client/android-icon-foreground.png`、`client/android-icon-background.png`、`client/android-icon-monochrome.png`：各 1024 × 1024；前景与单色层为 RGBA，背景为 RGB。单色层白色主体的 alpha 留出了眼睛与嘴部。前景和单色层的所有非零 alpha 像素均落在中央 66/108 直径安全圆内。
 - `client/favicon.png`：48 × 48；`client/web/icon-{16,32,192,512}.png`：相应像素尺寸，均是不透明 RGB 图。
-- `client/images/muse-companion.png`：512 × 512 真 RGBA 静态默认形象，从透明母版机械缩放并居中留白，可完整落入圆形头像遮罩；不包含动画状态。
+- `client/images/muse-companion.png`：512 × 512 真 RGBA 的 B 静态派生图，不是运行时默认八态包；由透明母版机械缩放并居中留白，不包含动作状态。
 - `client/splash-icon.png`：1024 × 1024 真 RGBA，与 Android 前景**字节相同**，复用其中央安全圆构图。供后续启动页接入；当前 `app.json` 尚未启用启动页插件。
 - [移动端交接指南](client-handoff.md)和[便携 ZIP](delivery/pi-muse-client-assets.zip)：列出目标路径、实际引用状态与接入边界；ZIP 仅含正式 PNG、指南副本及包内校验和。
 - [预览排版源](client-icon-sheet.svg)、[可复现脚本](build-client-icons.py)：预览模拟 iOS 圆角、Android 圆形和圆角遮罩、主题单色、多尺寸、透明形象、圆形头像和启动图构图。Android 预览将完整 108dp 图层放在居中的 72dp 可见视口后裁切；整张图都是 asset mock，不是原生验收。
 
 在仓库根目录运行 `python3 docs/assets/brand/build-client-icons.py` 可重建本批 PNG、预览与 ZIP；需本机有 ImageMagick 7 和 librsvg 的 `rsvg-convert`。Python 只编排命令、复制相同字节的启动图及制作确定性 ZIP，像素操作均由 ImageMagick 完成。临时文件只在本目录创建并自动清理。脚本读取唯一已确认母版，不读取历史桃色来源，不调用生图服务，不修改原图。Android 纯色背景 `#F1F6FA` 是与图稿浅底协调的派生色，不替代原图背景或建立新的标准品牌色。
 
-文件尺寸、模式、SHA-256 和静态安全区结果见 [manifest.json](manifest.json)。本批素材仅做静态检查与模拟预览，未在 iOS/Android 原生启动器或启动页中测试。
+文件尺寸、模式、SHA-256 和静态安全区结果见 [manifest.json](manifest.json)。该清单包含历史制作阶段的记录；企鹅图标已完成客户端接入与正式 Android 包启动器检查，启动页插件仍未启用，新的 B 八态包仍待制作验收。
 
 图层尺寸与安全区按 [Android adaptive icon 规范](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive) 制作；PNG、iOS 源图和 Android 三层命名参考 [Expo 图标说明](https://docs.expo.dev/develop/user-interface/splash-screen-and-app-icon/)。
 
