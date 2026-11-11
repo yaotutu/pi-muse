@@ -6,6 +6,8 @@
 
 用户选定的 T1 蓝白小企鹅是项目吉祥物，也是默认角色的视觉基准，供客户端、网站、README、文档、宣传图及后续动作和视频共同使用。T1 是设计稿编号，不是正式角色名字，也不是业务模型或人设配置。
 
+2026-11-11 起客户端图标基准变更：用户确认 3D 水管工作为 App 图标与客户端品牌视觉（原图见 [mascot/plumber-idle.png](mascot/plumber-idle.png)，512 × 512 RGBA，即八姿态包中的 idle 抱臂站姿，字节一致归档）。图标派生使用 [build-plumber-icons.py](build-plumber-icons.py)：纯 PIL 确定性生成，自适应前景与单色层的全部不透明像素按 66/108 安全区实测校验，启动图与前景字节一致，纯色背景沿用 `app.json` 的 `#E6F4FE`。T1 企鹅仍是应用内默认形象包与文档吉祥物；两者是不同用途的基准，不互相替换。
+
 - [neutral-icon-master.png](previews/neutral-icon-master.png)：用户已确认满意的当前完整视觉基准，1254 × 1254、不透明 RGB PNG。后续角色与图标派生默认使用这张蓝白企鹅、浅瓷白底的图片，不再重新选形象或背景；文件保留原路径，避免不必要的改名。
 - [reference.png](mascot/reference.png)：早期独立形象来源，1254 × 1254、不透明 RGB PNG。从移动端已有独立图原样复制，保留选型和生成溯源。桃色背景已被用户拒绝，不再作为当前完整视觉基准。
 - [selected-concept-board.png](mascot/selected-concept-board.png)：用户选型的原始对照图，仅左上角 T1 被选定。它保留最初选型证据，不是第二份可自行修改的母版。
