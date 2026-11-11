@@ -12,7 +12,7 @@ Messages directly uses the permanent `main` session, showing messages and a comp
 
 Main cannot be deleted, but can be reset. Profile, long-term memory and the workspace remain global. Memory is retrieved on demand rather than loaded in full each turn.
 
-The companion floats directly at the top center of the chat content area with no backing card or border, and no longer reserves a full-width header row. Poses convey the status, and the exact status is kept in the companion screen-reader label. Messages can scroll to the top and behind the companion; you can still swipe the chat on either side. Tap the companion to open main-chat actions for execution, approvals, history, reset, instructions and skills. The companion appears only in Messages; switching to News or Settings does not recreate the chat.
+The companion floats directly at the top center of the chat content area with no backing card, only a very faint outline that keeps it separate from the content, and no longer reserves a full-width header row. Poses convey the status, and the exact status is kept in the companion screen-reader label. Messages can scroll to the top and behind the companion; you can still swipe the chat on either side. Tap the companion to open main-chat actions for execution, approvals, history, reset, instructions and skills. The companion appears only in Messages; switching to News or Settings does not recreate the chat.
 
 ## Send and stop conversations {#send-and-stop-conversations}
 
