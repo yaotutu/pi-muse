@@ -4,8 +4,8 @@ This page explains the mobile client's assistant and user profiles, common appea
 
 ## Prerequisites {#prerequisites}
 
-- Complete the first connection as described in [Quick Start](getting-started.md#connect-mobile-client). Themes and app updates still work without a server connection, but profiles, memories, and Dream are unavailable.
-- Assistant and user profiles are stored on the server and shared by all sessions. Theme preference is stored only on this device.
+- Complete the first connection as described in [Quick Start](getting-started.md#connect-mobile-client). Themes, the built-in companion, and app updates still work without a server connection, but profiles, memories, and Dream are unavailable.
+- Assistant and user profiles are stored on the server and shared by all sessions. Theme and companion selection preferences are stored only on this device.
 
 Profile, long-term memory, and Dream management pages share a fixed header: the title and 「返回设置」 (Back to Settings) stay visible while the form scrolls. Secondary pages have no bottom bar. The top-left arrow and Android Back return to Settings; tapping Messages returns directly to main chat. Android Back dismisses an open keyboard first. Forms remain scrollable so you can reach save controls below the focused field. Leaving a page does not save or discard drafts, nor unlock a write with an unknown result.
 
@@ -39,7 +39,20 @@ Each profile section follows its own last successful save. The client does not a
 
 ## Assistant companions {#assistant-companions}
 
-「助手形象」 (Assistant companions) supplies appearance packs for the same assistant; it does not create assistant identities, sessions, or model tools. Manage server packs through the 「助手形象」 group in the current instance's `/docs`, using an authenticated Bearer Token. Mobile selection controls depend on your installed version; this server capability does not mean the APK has been updated.
+「助手形象」 (Assistant companions) supplies appearance packs for the same assistant; it does not create assistant identities, sessions, or model tools. Current source provides local selection controls. When using a release, first check that the installed APK has this page: installing or uploading a server pack does not mean the APK has been updated.
+
+### Choose on the phone {#choose-companion}
+
+1. Open Settings → App → 「助手形象」 (Companion). The built-in ice-blue penguin is always available. Once connected, tap 「刷新列表」 (Refresh list) to read complete installed server packs. Incomplete or damaged packs show diagnostics and are not selectable.
+2. Select a server pack. The app uses the current authenticated connection to download all eight state images and replaces the current character only after every image succeeds. A failed download retains the currently usable character and shows an error rather than mixing images from different packs.
+3. The choice is local to this device: it does not reset main, reconnect the chat stream, or change another device's choice. A complete same-server cache can remain visible offline. If the selected pack is missing, deleted, or its local cache is incomplete, the app shows a notice and falls back to the built-in penguin.
+4. After you confirm and save a server change through the connection flow, the app clears the old server's companion cache and choice and returns to the built-in penguin. It does not delete server packs.
+
+The character floats transparently over Messages, with only a faint silhouette outline separating it from the background. Eight static poses with finite, subtle animations represent idle, thinking, responding, working, waiting for approval, success, error, and stopped states. These are not companion videos; reduced-motion settings keep the pose static. Tap the character for main-chat actions, including execution, approvals, and history.
+
+### Prepare a pack on the server {#prepare-companion-pack}
+
+Manage server packs through the 「助手形象」 group in the current instance's `/docs`, using an authenticated Bearer Token.
 
 You can also prepare `DATA_DIR/companions/<id>/` on the server. Use 1–64 lowercase letters, digits, underscores, or hyphens for `<id>`, starting with a letter or digit. Each pack needs eight PNGs: `idle.png`, `thinking.png`, `responding.png`, `working.png`, `waiting-approval.png`, `success.png`, `error.png`, and `stopped.png`. Each image must have a PNG signature and be at most 768 KiB (786,432 bytes). Neither directories nor files may be symbolic links.
 
@@ -54,7 +67,7 @@ You may save metadata first and upload images one at a time. A pack appears in t
 ## Appearance {#appearance}
 
 1. Tap Settings, then 「外观主题」 (Appearance) under 「应用」 (App) to open its separate page.
-2. Choose one of 「经典蓝白」 (Classic Blue), 「晨光白」 (Morning White), or 「深夜黑」 (Midnight Black). The interface switches immediately and tries to save the preference on this device.
+2. Choose one of 「经典蓝白」 (Classic Blue), 「晨光白」 (Morning Light), or 「深夜黑」 (Midnight Black). The interface switches immediately and tries to save the preference on this device.
 3. If saving fails, the new theme remains visible but the page reports that the local preference was not saved. Choose a theme again to retry.
 
 Theme preference is stored separately from the server connection, AccessKey, Token, and business data. Changing servers or reauthenticating does not clear it. The setting affects only this device's interface.

@@ -2,9 +2,9 @@
 
 This page keeps only capability entry points. Detailed procedures live in their dedicated guides so the same workflow is not maintained twice.
 
-## Conversations and Agents {#conversations-and-agents}
+## Conversations and Sessions {#conversations-and-agents}
 
-The new contract provides a session list, chat, news and settings. Histories, instructions and skill overrides are session-specific; the workspace is global. Streaming, Stop, reset and topic deletion are supported by the server; native paths still require coordinated acceptance. See [Conversations](conversations-and-agents.md).
+The mobile app has three primary tabs: Messages, News, and Settings. Messages opens the permanent main chat directly, without a session picker. The server retains topic-session foundations with separate histories, instructions, and skill overrides, but the app currently exposes only main. All sessions share one flat workspace. Main supports streaming replies, Stop, and reset; see [Conversations](conversations-and-agents.md). Current source capabilities do not mean the installed APK has been updated; check its Release.
 
 ## Attachments, Files, and Approvals {#files-and-approvals}
 
@@ -13,17 +13,17 @@ Message attachments enter model context with chat history; workspace files are p
 ## Tasks, Goals, and Memory {#tasks-goals-and-memory}
 
 - [News reading](news.md): RSS source management, recommended and all timelines, per-article feedback, and saves.
-- [Tasks and webpage monitors](tasks-and-monitors.md): manage scheduled execution and webpage change checks through chat tools, and review current-agent activity records.
-- [Goals and milestones](goals.md): the concept of long-term goals, context injection, and chat-based management, not scheduled task execution.
+- [Tasks and webpage monitors](tasks-and-monitors.md): create jobs and monitors through chat and manage them in Settings; main-chat actions provide activity history.
+- [Goals and milestones](goals.md): manage long-term goals and milestones in Settings → Goals or through chat, separately from scheduled task execution.
 - [Memory and Dream](memory-and-dream.md): long-term memory search and management, plus separately configured consolidation.
 
 ## Profile and Settings {#profile-and-settings}
 
-For editing assistant identity, persona, and user profile, as well as themes, connection maintenance, browser access, and Android app updates, see [Profile and settings](profile-and-settings.md).
+For editing assistant identity, persona, and user profile, as well as local theme and companion selection, connection maintenance, browser access, and Android app updates, see [Profile and settings](profile-and-settings.md).
 
 ## Browser {#browser}
 
-The server provides a real graphical browser capability, with enabling and access scope controlled by configuration. For Docker and noVNC deployment, see [the browser guide](browser-docker.md). The mobile app opens the configured noVNC address in the system browser; see [Profile and settings](profile-and-settings.md) for the entry point.
+The server provides a real graphical browser capability, with enabling and access scope controlled by configuration. For Docker and noVNC deployment, see [the browser guide](browser-docker.md). Settings → Browser opens the same server-side Chrome in a native WebView, using a one-time same-origin ticket obtained through the current connection rather than a separate desktop address or password. See [Profile and settings](profile-and-settings.md) for the entry point.
 
 ## Data and Network {#data-and-network}
 

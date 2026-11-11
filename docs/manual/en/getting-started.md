@@ -8,7 +8,7 @@ This manual was checked against the current repository source; source capabiliti
 
 - **Node.js**: `>= 24`
 - **pnpm**: `12.10.1`
-- **Large model service**: any API compatible with the OpenAI Chat Completions protocol, with a usable `baseUrl`, model `id`, and provider `apiKey`. If you want the model to understand images, the configured model must itself support image input.
+- **Large model service**: a usable `baseUrl`, model `id`, and provider `apiKey` compatible with Pi Muse's current pi `openai-completions` adapter. An OpenAI-compatible label does not guarantee support for every model or feature; see [Configuration](configuration.md). Image understanding also requires the configured model itself to accept images.
 - **Mobile client**: Android is the priority platform. The mobile steps in this manual were verified by source inspection, not as a test of a released APK.
 
 ## Install and Configure {#install-and-configure}
@@ -87,7 +87,7 @@ Restarting the service does not rerun expired one-off reminders, and failed jobs
    - The phone may connect directly over HTTP to a LAN or remote server. A domain, certificate, or HTTPS reverse proxy is not required.
    - Do not enter `localhost` or `127.0.0.1` on the phone. `localhost` refers to the phone itself, not the computer running the server.
    - On a LAN, enter the computer's actual address, such as `http://192.168.1.100:12330`, and allow inbound port `12330` through the computer firewall.
-3. Open Pi Muse and tap 「服务器连接」 on the disconnected home screen. When connected, tap the bottom 「设置」 (Settings) tab → 「连接与设备」 → 「服务器连接」 (Server Connection).
+3. Open Pi Muse and tap 「服务器连接」 on the disconnected home screen. When connected, tap the bottom 「设置」 (Settings) tab, then 「服务器连接」 (Server Connection) in the 「应用」 group.
 4. On the「服务器连接」page, enter:
    - 「服务器地址」: the server base address, without `/api`, `/docs`, or a trailing path slash.
    - 「访问密钥」: the `server.accessKey` from the configuration file, not `model.apiKey`.
