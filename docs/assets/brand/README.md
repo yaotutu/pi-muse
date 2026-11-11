@@ -42,7 +42,9 @@
 
 图层尺寸与安全区按 [Android adaptive icon 规范](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive) 制作；PNG、iOS 源图和 Android 三层命名参考 [Expo 图标说明](https://docs.expo.dev/develop/user-interface/splash-screen-and-app-icon/)。
 
-本批素材已合入主仓库 `main`，统一从 `docs/assets/brand/` 读取，不再依赖独立素材工作树。此次合并未改动应用配置、替换客户端运行资源或发布；后续由各消费端复制需要的派生文件并分别接入。
+本批素材已合入主仓库 `main`，统一从 `docs/assets/brand/` 读取，不再依赖独立素材工作树。
+
+2026-11-11 起，移动端已实际接入本包：客户端仓库把 `client/` 下的通用图标、Android 三层、启动图与 favicon 复制进 `assets/`，`app.json` 沿用同名路径并把 adaptive 背景兜底色改为 `#F1F6FA`；此前客户端一直沿用 Expo 默认启动图标，未替换过任何品牌资源。接入后的静态资源与本包字节一致，启动页插件仍未启用。
 
 ## 主线资产与后续接入
 

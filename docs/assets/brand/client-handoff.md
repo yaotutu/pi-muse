@@ -2,7 +2,7 @@
 
 本包从已确认的 T1 浅底图稿 `previews/neutral-icon-master.png` 及其确定性透明抠图派生。`delivery/pi-muse-client-assets.zip` 内的 `assets/` 与下表 `client/` 保持同名目录结构；`asset-guide.md` 是本页副本。复制所需 PNG 到移动端的 `assets/` 后，按现有配置逐项接入。本包不修改移动端仓库。
 
-项目级来源为 `docs/assets/brand/`，确认稿 SHA-256 为 `53182c9e203f7dfb5d6af30202862e851fabc2a565a276b62f79a79e96850245`。表中的“已引用”只表示客户端已经使用同名目标路径，不表示本包的新 T1 图片已复制到应用；本轮没有替换任何手机运行资源。
+项目级来源为 `docs/assets/brand/`，确认稿 SHA-256 为 `53182c9e203f7dfb5d6af30202862e851fabc2a565a276b62f79a79e96850245`。2026-11-11 起，表中的图标、adaptive 三层、启动图与 favicon 已实际复制到客户端 `assets/` 并随客户端发布；`client/images/muse-companion.png` 与 `client/web/` 各尺寸仍未接入，客户端沿用自身的形象包与 Web 资源。
 
 | 本目录源文件 | 移动端目标 | 用途与当前引用 |
 | --- | --- | --- |
