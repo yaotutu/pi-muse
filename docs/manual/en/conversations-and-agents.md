@@ -16,6 +16,16 @@ The companion and a compact status label float together at the top center of the
 
 Tap the character or its status to expand main-chat information around the same character's original position, rather than opening a separate bottom sheet. The expanded view is a full page: the character stays centered at the top without moving, followed directly by Activity/Approvals/History. Close is the ✕ in the top-right corner. History shows all registered activities as a timeline without status filter chips. Reset, instructions, and skills live in the Settings assistant group. Close it with the close button or Android Back; reduced-motion settings switch the view immediately. Expanding, collapsing, and switching pages do not recreate the chat or clear its draft. The floating character does not appear over News or Settings.
 
+## Local history and background synchronization {#local-history-and-sync}
+
+The Android app keeps a display copy of recent saved chat messages, the composer's plain-text draft, and the reading position in app-private storage. When reopened, it shows local content first and checks the server in the background; unchanged content does not replace the message list. A first connection or a missing local copy still requires an initial history fetch. This describes the current source capability; the installed APK must include the corresponding change.
+
+The local copy is neither a complete backup nor a second authority for server data. It retains at most 200 recent messages per session and at most eight sessions in a local document of up to 4 MiB in total; oversized message or tool content carries a local-cache truncation notice. It does not retain full historical image payloads, attachment drafts, in-progress replies, or unconfirmed submissions. Offline, you can read cached content and edit a text draft, but sending, message feedback, and approvals still require a connection and their respective state checks. The app does not queue offline messages for automatic sending.
+
+While you are reading earlier messages, background synchronization does not force you to the latest message. Tapping the latest-message control, scrolling to the bottom, or sending a message resumes following. Reading positions use a message anchor; if that message is no longer in the recent cache or server history, the app falls back to available content. Switching to News or Settings still preserves the current chat.
+
+Copies are isolated by server and session. Changing servers clears old local business data. A successful reset, or synchronization that discovers a different internal chat identity on the server, invalidates the old history copy and reading position. Cached content only provides an early display; it cannot authorize sending or approving against an outdated chat version. If synchronization fails, readable content stays visible with a synchronization error rather than being treated as current server state.
+
 ## Send and stop conversations {#send-and-stop-conversations}
 
 Enter text directly in Messages, or attach images/text with that message as explained in [Attachments](files-and-approvals.md#send-attachments). Responses stream; tool and approval views show actual execution facts.
