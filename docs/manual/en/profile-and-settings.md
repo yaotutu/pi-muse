@@ -41,7 +41,7 @@ Each profile section follows its own last successful save. The client does not a
 
 「助手形象」 (Assistant companions) supplies appearance packs for the same assistant; it does not create assistant identities, sessions, or model tools. Current source provides local selection controls. When using a release, first check that the installed APK has this page: installing or uploading a server pack does not mean the APK has been updated.
 
-The built-in default uses penguin B: a simple, rounded blue-and-white character without a head tuft or blush, matching the App's brand icon. Replacement of the full eight-state B pack is in progress; transparency and Android native display still await validation. Approval of the draft does not mean the phone has been updated. The Super Mario plumber is only an optional server appearance pack. Headphone plush A and the former plush penguin C remain historical collectibles, not part of the new built-in default pack.
+The built-in default uses penguin B: a simple, rounded blue-and-white character without a head tuft or blush, matching the App's brand icon. Current source ships the fully transparent eight-state pack; check the installed release before assuming a phone has been updated. The Super Mario plumber is only an optional server appearance pack. Headphone plush A and the former plush penguin C remain historical collectibles, not part of the new built-in default pack.
 
 ### Choose on the phone {#choose-companion}
 

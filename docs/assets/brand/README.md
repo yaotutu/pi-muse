@@ -59,7 +59,7 @@ B 企鹅（历史编号 T1）是项目吉祥物和默认角色的唯一视觉基
 
 `build-client-icons.py` 是过去这批图标 PNG、预览与 ZIP 的可复现脚本，不是新 B 八态构建入口；本次保留脚本和 ZIP 快照，不运行它重建旧包。脚本需本机有 ImageMagick 7 和 librsvg 的 `rsvg-convert`，Python 只编排命令、复制相同字节的启动图及制作确定性 ZIP，像素操作均由 ImageMagick 完成。它读取唯一已确认母版，不读取历史桃色来源，不调用生图服务，不修改原图。Android 纯色背景 `#F1F6FA` 是与图稿浅底协调的派生色，不替代原图背景或建立新的标准品牌色。
 
-文件尺寸、模式、SHA-256 和静态安全区结果见 [manifest.json](manifest.json)。该清单是图标与单张静态图制作记录，不是新 B 八态清单；企鹅图标已完成客户端接入与正式 Android 包启动器检查，启动页插件仍未启用，新 B 八态的透明处理、客户端整包替换与原生显示另行验收。
+文件尺寸、模式、SHA-256 和静态安全区结果见 [manifest.json](manifest.json)。该清单是图标与单张静态图制作记录，不是新 B 八态清单；企鹅图标已完成客户端接入与正式 Android 包启动器检查，启动页插件仍未启用，八态包的构建与检查说明见[包内 README](companion/README.md)。
 
 图层尺寸与安全区按 [Android adaptive icon 规范](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive) 制作；PNG、iOS 源图和 Android 三层命名参考 [Expo 图标说明](https://docs.expo.dev/develop/user-interface/splash-screen-and-app-icon/)。
 
