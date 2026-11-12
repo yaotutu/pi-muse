@@ -99,10 +99,10 @@ See [Browser Docker and noVNC](browser-docker.md) for deployment. Never expose t
 ## Android App Updates {#android-updates}
 
 1. Tap Settings, then 「应用更新」 (App update) under App. The app checks automatically when it starts in the foreground and once per hour while foregrounded. You can also tap 「立即检查更新」 or 「再次检查」.
-2. Checking reads only the official GitHub repository's stable Release and accepts only a unique `app-release.apk`. Prereleases, drafts, and other assets are not used as update packages.
+2. Checking reads only the official GitHub repository's stable Release. The app picks the per-architecture package matching the device's CPU (for example `app-arm64-v8a-release.apk`) and falls back to the universal `app-release.apk` when that split package is missing or the architecture cannot be identified. Prereleases, drafts, and other assets are not used as update packages, and duplicate assets with the same name are rejected rather than guessed.
 3. When a higher version is found, the app shows the current version, target version, and size, then starts downloading. You can cancel or retry the download and continue using the app; downloading may consume mobile data.
 4. After the download finishes, the client opens the Android system installer. The first attempt may require allowing Pi Muse to install unknown apps, and the final installation must still be confirmed in the system UI. Opening the installer does not mean the upgrade completed.
-5. If the check fails, the page shows the official APK URL and 「重新检查」. You can also open [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases) to download manually and follow the system prompts.
+5. If the check fails, the page shows the official APK URL (also preferring the device architecture's split package) and 「重新检查」. You can also open [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases) to download manually and follow the system prompts.
 
 The current update path supports only a standalone Android APK and is not Expo OTA. iOS, web previews, and Expo Go show that APK updates are unsupported; if the installed package version cannot be read, the app also directs you to use a formal APK manually. If you cancel installation while the system still retains the cached package, tap 「继续安装」. If Android clears the cache, download it again.
 

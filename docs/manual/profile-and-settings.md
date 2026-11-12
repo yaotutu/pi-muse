@@ -99,10 +99,10 @@
 ## Android 应用更新 {#android-updates}
 
 1. 点击底部「设置」，在「应用」分组中点「应用更新」。应用在前台启动时和每小时会自动检查一次；也可点击「立即检查更新」或「再次检查」。
-2. 检查只读取官方 GitHub 仓库的正式 Release，且只接受唯一的 `app-release.apk`；预发布、draft 和其他文件不会作为更新包。
+2. 检查只读取官方 GitHub 仓库的正式 Release；应用按设备 CPU 架构选择对应的拆分安装包（如 `app-arm64-v8a-release.apk`），拆分包缺失或架构无法识别时回退通用包 `app-release.apk`。预发布、draft 和其他文件不会作为更新包，同名安装包出现多份时也不会猜测下载目标。
 3. 发现更高版本后应用会显示当前版本、目标版本和大小，并开始下载。下载可取消、可重试，过程中可继续使用应用；下载可能消耗移动流量。
 4. 下载完成后客户端会打开 Android 系统安装器。首次可能需要按系统提示允许 Pi Muse 安装未知应用，最后仍需在系统界面确认安装；打开安装器不代表升级已完成。
-5. 如果检查失败，页面提供官方 APK 地址和「重新检查」。可打开 [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases) 手动下载并按系统提示安装。
+5. 如果检查失败，页面提供官方 APK 地址（同样优先设备架构的拆分包）和「重新检查」。可打开 [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases) 手动下载并按系统提示安装。
 
 当前更新路径只支持 Android 独立安装包，不是 Expo OTA。iOS、Web 预览和 Expo Go 会显示当前环境不支持 APK 更新；无法读取当前安装包版本时也会提示改用正式 APK 手动处理。用户取消安装后，若系统仍保留缓存包，可点击「继续安装」；缓存被系统清理后需要重新下载。
 
