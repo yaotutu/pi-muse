@@ -11,7 +11,7 @@ import { scheduleTool } from "../../src/adapters/pi/tools/schedule.js";
 import { monitorTool } from "../../src/adapters/pi/tools/monitor.js";
 
 const execute = async (options: { configPath: string }) => {
-  const { createService } = await import("../../src/bootstrap/create-service.js");
+  const { createService } = await import("../support/test-service.js");
   const { createConfig } = await import("../../src/config/load-config.js");
   const { createLiveModel } = await import("../support/live-model.js");
   const { createTestClient } = await import("../support/http-client.js");
@@ -74,7 +74,7 @@ const execute = async (options: { configPath: string }) => {
     const token = ((await login.json()) as { token: string }).token;
     const client = createTestClient(() => baseUrl, token, 240_000);
 
-    const agentA = (await client.createSession("live-agent-tool-a")).id;
+    const agentA = (await client.createSession("live-agent-tool-a", ["cron", "monitor"])).id;
     const agentB = (await client.createSession("live-agent-tool-b")).id;
     for (const sessionId of [agentA, agentB]) {
       await client.json(`/api/sessions/${sessionId}/instructions`, {

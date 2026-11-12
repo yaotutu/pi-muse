@@ -11,7 +11,7 @@ import { parseLiveOptions } from "./options.js";
 type Result = { name: string; passed: boolean; evidence?: unknown };
 const execute = async (options: { configPath: string; keepArtifacts: boolean }) => {
   // 只有显式授权后才加载SDK与配置；不接受原配置的runtime或其他业务设置。
-  const { createService } = await import("../../src/bootstrap/create-service.js");
+  const { createService } = await import("../support/test-service.js");
   const { createConfig } = await import("../../src/config/load-config.js");
   const { createLiveModel, redactApiKey } = await import("../support/live-model.js");
   const { createTestClient, waitForTest } = await import("../support/http-client.js");
@@ -78,7 +78,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     version = (await client.json("/api/health")).serviceVersion;
     const wait = <T>(check: () => T | Promise<T>, label: string, timeoutMs = 90_000) => waitForTest(check, label, timeoutMs);
     const begin = async (name: string, prompt: string, sessionId?: string) => {
-      sessionId ??= (await client.createSession("live-" + name)).id;
+      sessionId ??= (await client.createSession("live-" + name, ["task", "write", "web"])).id;
       scenario = name;
       const baseline = proxy!.traces.length;
       const running = await client.startRun(prompt, sessionId);
@@ -148,7 +148,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     record(scenario, { naturalChainMode: naturalArgs.mode, previousSubstituted: true, chainResultReturned: true });
 
     scenario = "isolation";
-    const isolated = await client.createSession("live-isolation");
+    const isolated = await client.createSession("live-isolation", ["task"]);
     await client.json(`/api/sessions/${isolated.id}/instructions`,{instructions:"PARENT-RULE-NOT-COPIED-582c"},"PUT");
     await writeFile(join(dataDir,"workspace","parent.txt"),"COMMON-WORKSPACE-421e",{mode:0o600});
     await writeFile(join(dataDir,"workspace","live-common.txt"),"LIVE-COMMON-OK-a7cd",{mode:0o600});

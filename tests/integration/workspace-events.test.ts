@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import test, { type TestContext } from "node:test";
 import { serve } from "@hono/node-server";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService, enableBuiltinSkills } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
 
@@ -202,6 +202,7 @@ test("a persisted conversation notification pushes one identity-only invalidatio
 
 test("model conversation run pushes session_status_updated events and disconnecting events does not cancel a chat", async (t) => {
   const { service, headers, model } = await fixture(t, true);
+  await enableBuiltinSkills(service, "main", ["memory"]);
   const events = await connect(t, service, headers);
 
   const runPromise = post(service, headers, "/api/conversation/run", {

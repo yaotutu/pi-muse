@@ -3,7 +3,7 @@ import { test, type TestContext } from "node:test";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { COMPANION_STATES, MAX_COMPANION_PNG_BYTES } from "../../src/features/companions/types.js";
 import { companionPackDir } from "../../src/adapters/storage/data-layout.js";

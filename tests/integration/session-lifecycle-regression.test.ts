@@ -7,7 +7,7 @@ import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService, enableBuiltinSkills } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
 import { createMonitorScheduler } from "../../src/features/monitors/monitor-scheduler.js";
@@ -168,6 +168,7 @@ test("subagent is an in-memory function and creates no workspace or session dire
   const beforeDirs = await readdir(join(h.dir,"sessions"));
   const beforeFiles = await readdir(h.service().layout.workspaceDir);
   await h.service().information.saveSettings({enabled:true,batchWindowSeconds:3600});
+  await enableBuiltinSkills(h.service(), "main", ["task", "skill-creator", "browser"]);
   await h.run("main", "子代理，问一下现在时间");
   assert.deepEqual(await readdir(join(h.dir,"sessions")), beforeDirs);
   assert.deepEqual(await readdir(h.service().layout.workspaceDir), beforeFiles);
@@ -234,7 +235,10 @@ test("subagent uses the SDK active-tool snapshot and extension hooks cannot reac
   const skill=join(h.service().layout.skillsDir,"snapshot-scope");
   await mkdir(skill,{recursive:true});
   await writeFile(join(skill,"SKILL.md"),"---\nname: snapshot-scope\ndescription: Isolated extension permission regression.\n---\nUse the current tool set.\n");
-  await writeFile(join(skill,"config.json"),JSON.stringify({defaultEnabled:true}));
+  await h.service().skills.updateSessionOverrides("main", {
+    "builtin/task": true, "builtin/write": true, "builtin/skill-creator": true,
+    "user/snapshot-scope": true,
+  });
   await writeFile(join(skill,"extension.ts"),`export default function(pi) {
     pi.on("agent_start", () => {
       if (pi.getActiveTools().includes("subagent")) pi.setActiveTools(["subagent", "currentTime"]);

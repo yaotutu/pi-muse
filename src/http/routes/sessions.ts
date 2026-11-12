@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
 import { SessionError } from "../../features/sessions/types.js";
+import { UnknownSkillError } from "../../features/skills/service.js";
 import { isSessionId, sessionInstructionsFile } from "../../adapters/storage/data-layout.js";
 import { readSessionInstructions, writeSessionInstructions } from "../../adapters/storage/session-instructions.js";
 import { createSessionSchema, renameSessionSchema, resetSessionSchema, saveInstructionsSchema, updateSkillsSchema } from "../contracts/rest.js";
@@ -55,6 +56,16 @@ export const createSessionRoutes = (deps: HttpDependencies) => {
     }));
   });
   app.get("/:sessionId/skills", async (c) => c.json(await existing(c.req.param("sessionId"), () => deps.skills.describeSession(c.req.param("sessionId")))));
+  app.get("/:sessionId/skills/:name", async (c) => {
+    const name = c.req.param("name");
+    if (name.length > 64 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) return c.json({ error: "Invalid skill name", code: "INVALID_SKILL_NAME" }, 400);
+    try {
+      return c.json(await existing(c.req.param("sessionId"), () => deps.skills.describeSkill(c.req.param("sessionId"), name)));
+    } catch (error) {
+      if (error instanceof UnknownSkillError) return c.json({ error: "Skill not found", code: "SKILL_NOT_FOUND" }, 404);
+      throw error;
+    }
+  });
   app.put("/:sessionId/skills", async (c) => {
     const parsed = updateSkillsSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid skills", code: "INVALID_REQUEST" }, 400);

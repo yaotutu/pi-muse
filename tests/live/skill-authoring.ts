@@ -42,7 +42,7 @@ const humanDecision = async (
 };
 
 const execute = async (options: { configPath: string; keepArtifacts: boolean }) => {
-  const { createService } = await import("../../src/bootstrap/create-service.js");
+  const { createService } = await import("../support/test-service.js");
   const { createConfig } = await import("../../src/config/load-config.js");
   const { createLiveModel, redactApiKey } = await import("../support/live-model.js");
   const { createTestClient, waitForTest } = await import("../support/http-client.js");
@@ -96,7 +96,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const { token } = await login.json() as { token: string };
     const client = createTestClient(() => baseUrl, token, 260_000);
     version = (await client.json("/api/health")).serviceVersion;
-    const sessionId = (await client.createSession("live-skill-authoring")).id;
+    const sessionId = (await client.createSession("live-skill-authoring", ["skill-creator"])).id;
 
     const begin = async (prompt: string) => {
       const baseline = proxy!.traces.length;
@@ -145,10 +145,12 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.ok(rows(traces).some((row) => row.calls.some((call) => call.name === "skills" && call.arguments.includes("seasoning.md"))));
     assert.equal(await readFile(join(dataDir, "skills", skillName, "SKILL.md"), "utf8"), firstSkill);
     assert.equal(await readFile(join(dataDir, "skills", skillName, "references", "seasoning.md"), "utf8"), resource);
-    assert.deepEqual(JSON.parse(await readFile(join(dataDir, "skills", skillName, "config.json"), "utf8")), { defaultEnabled: false });
+    await absent(join(dataDir, "skills", skillName, "config.json"));
     const beforeEnable = await client.json(`/api/sessions/${sessionId}/skills`) as { skills: { name: string; enabled: boolean }[] };
     assert.equal(beforeEnable.skills.find((skill) => skill.name === skillName)?.enabled, false);
-    await client.json(`/api/sessions/${sessionId}/skills`, { overrides: { [skillName]: true } }, "PUT");
+    await client.json(`/api/sessions/${sessionId}/skills`, { overrides: {
+      "builtin/skill-creator": true, [`user/${skillName}`]: true,
+    } }, "PUT");
     const afterEnable = await client.json(`/api/sessions/${sessionId}/skills`) as { skills: { name: string; enabled: boolean }[] };
     assert.equal(afterEnable.skills.find((skill) => skill.name === skillName)?.enabled, true);
     record("real-model-authoring-and-enable", { approvalScope: "skill", savedFiles: 2, defaultEnabled: false, enabled: true });

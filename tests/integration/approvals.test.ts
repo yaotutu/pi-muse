@@ -24,7 +24,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { endpoints } from "../../src/http/contracts/endpoints.js";
 import { buildOpenApiDocument } from "../../src/http/openapi.js";

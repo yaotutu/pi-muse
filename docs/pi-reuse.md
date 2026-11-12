@@ -41,9 +41,9 @@
 
 ## 资源、技能与扩展
 
-- 技能不再为空。会话装配通过 SDK 解析内置 `assets/skills/`（构建后 `dist/assets/skills/`）和实例 `DATA_DIR/skills/`，根据生效开关选择技能；同名实例技能优先。普通会话指令单独从本会话 `INSTRUCTIONS.md` 注入，不交给 SDK 默认目录发现。
+- 技能统一由 repository 调用 SDK `loadSkillsFromDir` 发现和解析，再由服务按会话选择装配；运行层不独立扫描另一份优先级。来源依次为实例 `DATA_DIR/skills/`、内置 `assets/skills/`（构建后 `dist/assets/skills/`）、运行用户 `~/.agents/skills/`；同名实例优先。所有默认关闭，手动选择保存为来源身份；旧按名称的自有选择只读兼容，不授权通用来源。标准技能无需私有 config.json，读取不初始化配置。普通会话指令仍从本会话 `INSTRUCTIONS.md` 显式注入，不交给 SDK 默认目录发现。
 - `skills` 只维护产品技能文本：实例保存仍由 pi 解析规则验收；允许的 references/assets 文本作为启用技能的 read-only 例外装配。资源必须依附合法实例 `SKILL.md`，不能创建/修改 `extension.ts`、脚本、config 或嵌套技能根。
-- 已启用技能目录中的 `extension.ts` 通过显式路径装配；保留名或重复工具不会靠加载覆盖已注册工具。全局可选能力、技能开关与子角色约束共同收窄工具，不因发现资源就扩大权限。
+- 仅已启用自有技能目录中的可信 `extension.ts` 通过显式路径装配；通用来源一律不执行扩展。保留名或重复工具不会靠加载覆盖已注册工具。全局可选能力、技能开关与子角色约束共同收窄工具，不因发现资源就扩大权限。
 - 技能正文属于模型可读资源，extension 则是可信服务端代码；路径 guard 不是执行 extension 的操作系统沙箱。不能把“复用了 SDK 加载器”表述为恶意代码隔离保证。
 - 子代理只接收父会话许可的资源/工具上限，不加载个人 `~/.pi`，不复制父历史或会话指令。精确例外与隔离细则见 [文件工具与审批](architecture.md#文件工具与审批)和 [子代理](architecture.md#子代理subagent)。
 

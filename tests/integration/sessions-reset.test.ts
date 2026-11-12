@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { serve } from "@hono/node-server";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 
 // 重置路由新增真实通信生命周期依赖；不再用缺字段的路由替身检查函数调用顺序。

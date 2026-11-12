@@ -51,6 +51,7 @@ pnpm test                      # unit + integration
 pnpm test:e2e                  # 自动先 build，再串行执行真实 dist 进程套件
 pnpm test:live --config <path> --allow-live [--keep-artifacts]  # 显式真实模型验收
 node --import tsx tests/live/skill-authoring.ts --config <path> --allow-live --keep-artifacts
+node --import tsx tests/live/shared-skills.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/information.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/news.ts --config <path> --allow-live [--keep-artifacts] [--allow-private-targets]
 node --import tsx tests/live/session-tool-scope.ts --config <path> --allow-live
@@ -88,6 +89,12 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 - 不由 `pnpm test`、`pnpm check`、CI 或远程定时隐式触发；主 Agent 按任务范围主动执行，使用用户已给出的长期费用授权，不重复请示。保留 `--config` 与 `--allow-live` 作为命令级防误触门禁；不做模型/工具自动 retry，不为验收修改 pi 底层。
 - 默认 finally 清理；`--keep-artifacts` 保留合成测试 data 与脱敏 summary.json/traces，包含逐项结果、调用轨迹及版本身份，不保存真实配置、供应商鉴权头或 key。trace 落盘前将 key 替换为 `[REDACTED]`，上游失败仅返回受控 502，不返回供应商错误正文，不承诺保留任意错误 stack。
 - 以透明代理记录的真实 tool call / result / 时序和 HTTP、文件系统、状态证据判断，不以自然语言自述通过。价格/速率限制不可控，任何 FAIL 单独记录，不凑 N/N。
+
+### `tests/live/shared-skills.ts`
+
+使用独立 DATA_DIR 和临时 `home/.agents/skills`，显式注入共享目录，仅读取受保护配置的 model；绝不创建或修改真实用户技能。透明代理连接外部真实模型，不返回合成模型响应。
+
+验证全部默认关闭与基础工具保留；用户显式启用后，真实模型读取共享 SKILL.md 及精确参考资料并返回唯一标记；共享 extension.ts 从不执行，也不生成私有 config。新增同名实例技能后自有优先且不继承共享选择，新会话需重新手动启用明确来源。场景逐项输出 PASS/FAIL，无自动重试，finally 正常关闭服务、HTTP 与代理；`--keep-artifacts` 只保留隔离数据和脱敏 summary。
 
 ### `tests/live/message-feedback.ts`
 

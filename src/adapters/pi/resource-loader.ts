@@ -1,6 +1,6 @@
 import { createExtensionRuntime, type ResourceLoader, type Skill } from "@earendil-works/pi-coding-agent";
 
-/** 显式资源隔离，不发现个人 CLI 的 skills、extensions 或父目录配置。 */
+/** 只接收技能目录服务选中的资源；不使用 SDK 的个人 CLI/父目录配置和扩展自动发现。 */
 export const createResourceLoader = (
   systemPrompt: string,
   skills: Skill[] = [],

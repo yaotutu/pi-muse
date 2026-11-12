@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import test, { type TestContext } from "node:test";
 import { createFakeModel, type ModelRequest } from "../support/fake-model.js";
 import { createConfig } from "../../src/config/load-config.js";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { conversationResponse } from "../../src/http/contracts/responses.js";
 import { waitForTest } from "../support/http-client.js";
 

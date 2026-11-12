@@ -73,7 +73,7 @@ import { withModelTraceExecution } from "../adapters/model-trace/context.js";
  * HTTP、调度器和 pi 都共享这里创建的 memory/jobs/conversation 实例，
  * 避免未来因重复创建 store 而出现两把写锁或两份会话状态。
  */
-export const createService = async (config: Config): Promise<ServiceContainer & {
+export const createService = async (config: Config, options: { sharedSkillsDir?: string } = {}): Promise<ServiceContainer & {
   app: Awaited<ReturnType<typeof createHttpApp>>;
   close: () => Promise<void>;
 }> => {
@@ -124,7 +124,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const goals = createGoalService(createGoalRepository(layout.goalsFile));
   const actions = createActionService(createActionRepository(layout.actionsFile), { onChange: (action) => workspaceEvents.approvalChanged(action) });
   const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
-  const skills = createSkillsService(createSkillRepository(layout));
+  const skills = createSkillsService(createSkillRepository(layout, options.sharedSkillsDir));
   const messageFeedbackRepository = createMessageFeedbackRepository(layout);
   const dreamRepository = createDreamRepository(layout);
   const informationRepository = createInformationRepository(layout);

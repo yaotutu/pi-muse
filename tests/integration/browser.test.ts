@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import WebSocket from "ws";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createBrowserUpgradeHandler } from "../../src/http/browser-websocket.js";
 import { attachUpgradeDispatcher } from "../../src/http/browser-desktop.js";

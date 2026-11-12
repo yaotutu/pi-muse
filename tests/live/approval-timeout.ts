@@ -29,7 +29,7 @@ const beforeDeadline = async <T>(promise: Promise<T>, deadline: number): Promise
 };
 
 const execute = async (options: { configPath: string; keepArtifacts: boolean; expectFixed: boolean }) => {
-  const { createService } = await import("../../src/bootstrap/create-service.js");
+  const { createService } = await import("../support/test-service.js");
   const { createConfig } = await import("../../src/config/load-config.js");
   const { createLiveModel, redactApiKey } = await import("../support/live-model.js");
   const { createTestClient } = await import("../support/http-client.js");
@@ -120,7 +120,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean; ex
     const client = createTestClient(() => baseUrl, token, 450_000);
     serviceVersion = (await client.json("/api/health")).serviceVersion;
 
-    const sessionId = (await client.createSession("live-agent-approval-timeout")).id;
+    const sessionId = (await client.createSession("live-agent-approval-timeout", ["write"])).id;
     createdSessionIds.push(sessionId);
 
     const outcome: ScenarioOutcome = {

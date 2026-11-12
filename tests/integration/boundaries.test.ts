@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { createAuth } from "../../src/adapters/auth/token-service.js";
 import { serviceVersion } from "../../src/bootstrap/service-version.js";
 import { createConfig, type ConfigFileInput } from "../../src/config/load-config.js";

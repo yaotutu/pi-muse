@@ -91,15 +91,6 @@ const readTargetText = async (target: string) => {
   return snapshot;
 };
 
-const validExistingSkillConfig = async (skillDir: string, boundaryDir: string) => {
-  const config = await safeWorkspacePath(skillDir, join(skillDir, "config.json"), { allowMissing: true, boundaryDir });
-  const snapshot = await readFileSnapshot(config, MAX_TEXT_FILE_BYTES);
-  if (!snapshot) return true;
-  const parsed: unknown = JSON.parse(snapshot.content);
-  return typeof (parsed as { defaultEnabled?: unknown }).defaultEnabled === "boolean" &&
-    Object.keys(parsed as Record<string, unknown>).length === 1;
-};
-
 export const createSkillsTool = ({
   layout,
   skills,
@@ -114,7 +105,7 @@ export const createSkillsTool = ({
   name: "skills",
   label: "Manage skills",
   description:
-    "List, read, or save Pi Muse instance skills. list returns the catalog plus the current agent's effective switches without physical paths. read accepts SKILL.md or supported text files under references/ or assets/. save writes one instance-level file after explicit human approval; a saved or overridden skill is loaded on the next model turn. Existing built-in skills are never modified. Use save only on an explicit user request.",
+    "List and read the available skill catalog with builtin/user/shared sources and the current session's manual selections, without physical paths. read accepts SKILL.md or supported text files under references/ or assets/. save writes one Pi Muse instance file after explicit human approval, creating an instance override when a skill has the same name. Shared and built-in files are never modified. New skills and new source overrides remain disabled until the user manually enables them; an existing enabled instance skill is reread next turn. Use save only on an explicit user request.",
   parameters: Type.Object({
     action: Type.Union([Type.Literal("list"), Type.Literal("read"), Type.Literal("save")]),
     name: Type.Optional(Type.String({
@@ -154,7 +145,7 @@ export const createSkillsTool = ({
           : false;
         return {
           content: [{ type: "text" as const, text: snapshot.content }],
-          details: { denied: false, name, file, source: skill.isBuiltin ? "builtin" : "user", enabled },
+          details: { denied: false, name, file, source: skill.source, enabled },
         };
       } catch {
         return deniedResult("Skill file not found or unsafe.");
@@ -172,16 +163,8 @@ export const createSkillsTool = ({
 
     if (file !== "SKILL.md") {
       const existing = await skills.findSkill(name);
-      if (!existing || existing.isBuiltin || existing.path !== join(layout.skillsDir, name))
+      if (!existing || existing.source !== "user" || existing.path !== join(layout.skillsDir, name))
         return deniedResult("Save SKILL.md as an instance override before saving skill resources.");
-    }
-
-    if (file === "SKILL.md") {
-      try {
-        if (!await validExistingSkillConfig(join(layout.skillsDir, name), layout.root)) throw new Error("Invalid config");
-      } catch {
-        return deniedResult("Skill config is invalid; restore it before saving SKILL.md.");
-      }
     }
 
     const skillDir = join(layout.skillsDir, name);
@@ -230,17 +213,7 @@ export const createSkillsTool = ({
         if (await resolveSkillTarget(skillDir, file, layout.root) !== candidate) return false;
         if (file === "SKILL.md") return true;
         const existing = await skills.findSkill(name);
-        return Boolean(existing && !existing.isBuiltin && existing.path === skillDir);
-      },
-      afterCommit: async () => {
-        if (file !== "SKILL.md") return;
-        const config = join(skillDir, "config.json");
-        try {
-          await writeFile(config, JSON.stringify({ defaultEnabled: false }, null, 2) + "\n", { flag: "wx", mode: 0o600 });
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "EEXIST" ||
-            !await validExistingSkillConfig(skillDir, layout.root)) throw error;
-        }
+        return Boolean(existing && existing.source === "user" && existing.path === skillDir);
       },
     }).then(async (result) => {
       if ((result as { isError?: boolean }).isError === true) return result;

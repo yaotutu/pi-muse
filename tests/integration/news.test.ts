@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { sessionInstructionsFile } from "../../src/adapters/storage/data-layout.js";
 import { readSessionInstructions } from "../../src/adapters/storage/session-instructions.js";

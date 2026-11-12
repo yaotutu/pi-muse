@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import test from "node:test";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService, enableBuiltinSkills } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import type { ModelRequest } from "../support/fake-model.js";
 
@@ -66,6 +66,7 @@ for (const delegated of [false, true]) {
       runtime: { dataDir, runTimeoutMs: 12_000, schedulerIntervalMs: 60_000, monitorScanIntervalMs: 60_000 },
       tools: { web: { allowPrivateTargets: true, timeoutMs: 30_000 } },
     }));
+    await enableBuiltinSkills(service, "main", delegated ? ["web", "task"] : ["web"]);
     const headers = { Authorization: `Bearer ${service.auth.login()}`, "content-type": "application/json" };
     const runId = randomUUID();
     const running = Promise.resolve(service.app.request("/api/conversation/run", {

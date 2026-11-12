@@ -18,7 +18,7 @@ type ScenarioOutcome = {
 };
 
 const execute = async (options: { configPath: string; keepArtifacts: boolean }) => {
-  const { createService } = await import("../../src/bootstrap/create-service.js");
+  const { createService } = await import("../support/test-service.js");
   const { createConfig } = await import("../../src/config/load-config.js");
   const { createLiveModel, redactApiKey } = await import("../support/live-model.js");
   const { createTestClient } = await import("../support/http-client.js");
@@ -104,7 +104,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const client = createTestClient(() => baseUrl, token, 120_000);
     serviceVersion = (await client.json("/api/health")).serviceVersion;
 
-    const initialSessionId = (await client.createSession("live-binding-origin-agent")).id;
+    const initialSessionId = (await client.createSession("live-binding-origin-agent", ["cron"])).id;
     const targetSessionId = (await client.createSession("live-binding-target-agent")).id;
     createdSessionIds.push(initialSessionId, targetSessionId);
 

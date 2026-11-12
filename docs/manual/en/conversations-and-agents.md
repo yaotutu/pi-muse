@@ -44,7 +44,7 @@ Feedback binds the public session, internal pi session and message id. Raw opera
 
 Use the instruction and skill controls in chat actions or Settings to configure main. Instructions are stored in main INSTRUCTIONS.md and reread next turn. The limit is 20,000 characters; an empty string explicitly clears them. The last successful save wins without merging. Instructions cannot add tools, expand paths or bypass approval.
 
-Skill texts are global assets; enablement overrides apply to main next turn. Main instructions also guide SMS filtering and news preferences, so inspect the complete content when saving.
+Skill texts are global assets, with selections saved per session and applied next turn. Every skill defaults to off. The catalog distinguishes instance-owned, built-in owned, and shared `~/.agents/skills/` sources. Instance-owned names take priority, with no fallback when disabled. Selections bind to sources instead of moving automatically to a namesake; reading instructions or approving creation does not enable a skill. See [Skill directories and default switches](configuration.md#skill-directories) for directories, read-only boundaries, and maintenance; consult the current server `/docs` for source fields and instruction-detail endpoints. Main instructions also guide SMS filtering and news preferences, so inspect the complete content when saving.
 
 ## News and SMS {#background-services}
 

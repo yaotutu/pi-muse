@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { test, type TestContext } from "node:test";
 import { createFakeModel } from "../support/fake-model.js";
 import { createConfig } from "../../src/config/load-config.js";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { conversationResponse } from "../../src/http/contracts/responses.js";
 import { messageFeedbackResponse } from "../../src/http/contracts/messages.js";
 

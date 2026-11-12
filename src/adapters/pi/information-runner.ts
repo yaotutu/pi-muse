@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import {
   createAgentSession,
   defineTool,
@@ -72,13 +72,13 @@ export const createSubmitInformationResultTool = (
 /** 后台轮只读取已启用技能的 SKILL.md 正文；不加载 extension 或其他资源。 */
 export const createInformationSkillTextReader = (skills: SkillsService) =>
   async (sessionId: string): Promise<string[]> => {
-    const effective = (await skills.getEffectiveSkills(sessionId)).filter((skill) => skill.enabled);
+    const effective = await skills.getEnabledSkillDefinitions(sessionId);
     const texts: string[] = [];
     for (const skill of effective) {
-      const found = await skills.findSkill(skill.name);
-      if (!found) continue;
-      const text = await readFile(found.path + "/SKILL.md", "utf8");
-      texts.push(`# Skill guidance: ${skill.name}\n${text}`);
+      const detail = await skills.describeSkill(sessionId, skill.name);
+      // 读取途中出现同名更高优先来源时失败关闭，不能把旧来源的选择套给新正文。
+      if (detail.id !== skill.id || !detail.enabled) throw new Error("Enabled information skill changed during loading");
+      texts.push(`# Skill guidance: ${skill.name}\n${detail.content}`);
     }
     return texts;
   };

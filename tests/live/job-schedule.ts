@@ -30,7 +30,7 @@ const assertLocalNextRun = (nextRunAt: string, after: Date, hour: number, minute
 };
 
 const execute = async (options: { configPath: string; keepArtifacts: boolean }) => {
-  const { createService } = await import("../../src/bootstrap/create-service.js");
+  const { createService } = await import("../support/test-service.js");
   const { createConfig } = await import("../../src/config/load-config.js");
   const { createLiveModel, redactApiKey } = await import("../support/live-model.js");
   const { createTestClient } = await import("../support/http-client.js");
@@ -146,7 +146,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const capturedValidJobIds: Record<string, string> = {};
 
     for (const spec of specs) {
-      spec.sessionId = (await client.createSession(spec.scenario)).id;
+      spec.sessionId = (await client.createSession(spec.scenario, ["cron"])).id;
       if (!createdSessionIds.includes(spec.sessionId)) createdSessionIds.push(spec.sessionId);
       const baseline = proxy.traces.length;
       let outcome: ScenarioOutcome = {

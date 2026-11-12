@@ -23,7 +23,9 @@ const fixture = async (t: TestContext) => {
   });
   assert.equal(response.status, 200);
   const { token } = await response.json();
-  return { service, model, token: token as string, client: createTestClient(() => service!.baseUrl, token, 45_000, t.signal) };
+  const client = createTestClient(() => service!.baseUrl, token, 45_000, t.signal);
+  await client.enableSkills("main", ["memory", "task", "write", "web"]);
+  return { service, model, token: token as string, client };
 };
 const terminalSuccess = (events: { type: string }[]) => assert.equal(events.at(-1)?.type, "RUN_FINISHED");
 const userText = (value: unknown) => typeof value === "string" ? value : Array.isArray(value) ? value.map((item) => item.text ?? "").join("") : "";

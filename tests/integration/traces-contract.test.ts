@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { endpoints } from "../../src/http/contracts/endpoints.js";
 import { traceDetailResponse, tracesResponse } from "../../src/http/contracts/traces.js";

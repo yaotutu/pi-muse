@@ -30,6 +30,7 @@ const fixture = async (t: TestContext, options: Partial<Omit<ServiceProcessOptio
   assert.equal(login.status, 200);
   const { token } = await login.json();
   const client = createTestClient(() => service!.baseUrl, token, 45_000, t.signal);
+  await client.enableSkills("main", ["task", "write"]);
   const list = async (query = "") => activitiesResponse.parse(await client.json("/api/activities" + query));
   const detail = async (id: string) => activityDetailResponse.parse(await client.json(`/api/activities/${id}`));
   const one = async (sessionId: string) => {

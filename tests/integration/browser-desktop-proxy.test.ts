@@ -164,7 +164,7 @@ test("desktop cookie never authorizes /api endpoints", async (t) => {
   const { cookie } = await mintCookie(desktop);
   // cookie 的作用域是 Path=/browser/desktop/，即便客户端错误地把它发到 /api，
   // 服务端也只在桌面代理里读取它；这里验证 cookie 不是 Bearer token 的替代。
-  const { createService } = await import("../../src/bootstrap/create-service.js");
+  const { createService } = await import("../support/test-service.js");
   const { createConfig } = await import("../../src/config/load-config.js");
   const { mkdtemp, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");

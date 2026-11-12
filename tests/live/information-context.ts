@@ -19,7 +19,7 @@ const sseFinished = (text: string) =>
   });
 
 const execute = async (options: { configPath: string }) => {
-  const { createService } = await import("../../src/bootstrap/create-service.js");
+  const { createService } = await import("../support/test-service.js");
   const { createConfig } = await import("../../src/config/load-config.js");
   const { createLiveModel } = await import("../support/live-model.js");
 

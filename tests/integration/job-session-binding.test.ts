@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
 import { createScheduler } from "../../src/features/jobs/scheduler.js";

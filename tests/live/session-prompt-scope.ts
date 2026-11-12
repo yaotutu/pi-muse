@@ -42,7 +42,7 @@ const terminalEvent = (events: SseEvent[]) =>
   assert.ok(events.at(-1)?.type === "RUN_FINISHED", "chat run did not finish successfully");
 
 const execute = async ({ configPath, scenario }: Options) => {
-  const { createService } = await import("../../src/bootstrap/create-service.js");
+  const { createService } = await import("../support/test-service.js");
   const { createConfig } = await import("../../src/config/load-config.js");
   const { createLiveModel } = await import("../support/live-model.js");
   const { createTestClient } = await import("../support/http-client.js");
@@ -105,7 +105,9 @@ const execute = async ({ configPath, scenario }: Options) => {
     const version = (await client.json("/api/health")).serviceVersion;
 
     if (scenario === "prompt") {
-      const openAgent = (await client.createSession("live-prompt-open")).id;
+      const openAgent = (await client.createSession("live-prompt-open", [
+        "cron", "monitor", "goal", "memory", "web", "write", "skill-creator", "task", "browser",
+      ])).id;
       const closedAgent = (await client.createSession("live-prompt-closed")).id;
       await client.json(`/api/sessions/${openAgent}/instructions`, {
         instructions: "Prompt scope open agent.",

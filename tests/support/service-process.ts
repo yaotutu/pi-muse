@@ -88,7 +88,11 @@ export const createServiceProcess = async (t: TestContext, options: ServiceProce
       },
     };
     await writeFile(join(cwd, ".pi-muse/config.json"), JSON.stringify(config), { mode: 0o600 });
-    const process = spawn(globalThis.process.execPath, [builtServiceEntry], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    // HOME 仅覆盖此隔离子进程，让共享技能扫描不触及用户目录；不写任何 HOME 文件。
+    const process = spawn(globalThis.process.execPath, [builtServiceEntry], {
+      cwd, env: { ...globalThis.process.env, HOME: join(cwd, "isolated-home") },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     child = process;
     const append = (chunk: Buffer) => { output = (output + chunk.toString()).slice(-16_384); };
     process.stdout!.on("data", append); process.stderr!.on("data", append);

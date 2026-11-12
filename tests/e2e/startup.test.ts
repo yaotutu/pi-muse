@@ -34,7 +34,10 @@ for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "i
       },
     ], null, 2) + "\n";
     if (failure === "illegal-job-schedule") await writeFile(join(directory, "jobs.json"), illegalJobRecord);
-    const process = spawn(globalThis.process.execPath, [builtServiceEntry], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const process = spawn(globalThis.process.execPath, [builtServiceEntry], {
+      cwd, env: { ...globalThis.process.env, HOME: join(cwd, "isolated-home") },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let forced = false;
     const timer = setTimeout(() => { forced = true; process.kill("SIGKILL"); }, 25_000);
     let output = "";

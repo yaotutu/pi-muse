@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService, enableBuiltinSkills } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
 import { waitForTest } from "../support/http-client.js";
@@ -138,6 +138,7 @@ test("activity-integration: activity with subagent step nesting", async (t) => {
       runtime: { dataDir, runTimeoutMs: 3000, schedulerIntervalMs: 60000, monitorScanIntervalMs: 60000 },
     }),
   );
+  await enableBuiltinSkills(service, "main", ["task"]);
   const token = service.auth.login();
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -321,6 +322,7 @@ test("activity-integration: activity with write approval records approval and fi
   const token = service.auth.login();
   const headers = { Authorization: `Bearer ${token}` };
 
+  await enableBuiltinSkills(service, "main", ["write"]);
   // 触发活动交办 + 写文件
   const runPromise = service.app.request("/api/conversation/run", {
     method: "POST",

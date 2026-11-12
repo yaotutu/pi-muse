@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { createConfig, type ConfigFileInput } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
 

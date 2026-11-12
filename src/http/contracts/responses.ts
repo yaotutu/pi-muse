@@ -290,15 +290,20 @@ export type SessionDto = z.infer<typeof sessionRecord>;
 
 // 技能 -----------------------------------------------------------------
 export const skillItem = z.object({
-  name: z.string().describe("技能名称（目录名）"),
+  id: z.string().describe("包含来源的技能身份，例如 user/example、builtin/web、shared/example；启用选择绑定该身份，不随同名来源替换转移"),
+  name: z.string().describe("技能名称（目录名），同名采用实例自有 > 内置自有 > 通用目录的优先级"),
   description: z.string().describe("技能描述"),
-  defaultEnabled: z.boolean().describe("技能默认开关状态"),
-  enabled: z.boolean().describe("当前会话的生效开关状态"),
+  source: z.enum(["user", "builtin", "shared"]).describe("来源：user=DATA_DIR/skills 实例自有；builtin=随服务端发布的内置自有；shared=服务端用户 ~/.agents/skills 通用技能。builtin/shared 只读"),
+  defaultEnabled: z.literal(false).describe("所有技能默认关闭，发现或创建不会自动启用"),
+  enabled: z.boolean().describe("当前会话由用户手动保存的启用状态；关闭技能不进入运行装配"),
+});
+export const skillDetailResponse = skillItem.extend({
+  content: z.string().describe("当前优先来源的完整 SKILL.md，UTF-8 文本、最多 100 KiB；不包含附件资源正文或服务端物理路径元数据"),
 });
 export const skillsResponse = z.object({
   skills: z.array(skillItem),
   diagnostics: z.array(z.object({
-    path: z.string().describe("诊断逻辑路径 builtin/<技能>/... 或 user/<技能>/...；不包含服务端绝对路径"),
+    path: z.string().describe("诊断逻辑路径 builtin/<技能>/...、user/<技能>/... 或 shared/<技能>/...；不包含服务端绝对路径"),
     message: z.string(),
   })).optional().describe("技能加载诊断信息"),
 });

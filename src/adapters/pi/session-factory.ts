@@ -7,7 +7,6 @@ import {
   createAgentSession,
   createExtensionRuntime,
   discoverAndLoadExtensions,
-  loadSkillsFromDir,
   DefaultResourceLoader,
   ModelRuntime,
   SessionManager,
@@ -18,7 +17,7 @@ import {
 import type { DataLayout } from "../storage/data-layout.js";
 import { sessionInstructionsFile } from "../storage/data-layout.js";
 import { readSessionInstructions } from "../storage/session-instructions.js";
-import { getBuiltinSkillsDir } from "../storage/builtin-skills.js";
+import { loadEnabledProductSkills } from "./enabled-skills.js";
 import type { Config } from "../../config/load-config.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
 import type { JobService } from "../../features/jobs/job-service.js";
@@ -61,7 +60,7 @@ export type PiDeps = {
   memory: MemoryService;
   jobs: JobService;
   /** 仅子会话使用：父会话技能/工具快照作为权限上限，角色只可收窄。 */
-  child?: { role: SubagentRole; enabledSkills: readonly string[]; allowedTools: readonly string[]; };
+  child?: { role: SubagentRole; enabledSkillIds: readonly string[]; allowedTools: readonly string[]; };
   sessionId: string;
   runId?: string;
   /** 当前轮次的用户输入文本，用于自动召回长会话记忆线索并注入提示词。 */
@@ -147,29 +146,17 @@ export async function openPi(deps: PiDeps) {
     ? child ? child.allowedTools.includes("information") : (await deps.information.getSettings()).enabled
     : false;
 
-  // 1. 加载技能并计算生效值
-  const effectiveSkills = !child && skills && deps.sessionId
-    ? await skills.getEffectiveSkills(deps.sessionId)
-    : [];
-  const enabledSkillNames = new Set(
-    child?.enabledSkills ?? effectiveSkills.filter(s => s.enabled).map(s => s.name)
-  );
-
-  // 2. 加载技能定义与 Extension
-  const builtinSkills = loadSkillsFromDir({ dir: getBuiltinSkillsDir(), source: "project" }).skills;
-  const userSkills = existsSync(layout.skillsDir)
-    ? loadSkillsFromDir({ dir: layout.skillsDir, source: "project" }).skills
-    : [];
-  const skillMap = new Map<string, Skill>();
-  for (const s of builtinSkills) skillMap.set(s.name, s);
-  for (const s of userSkills) skillMap.set(s.name, s);
-
-  const activeSkills = Array.from(skillMap.values()).filter((s) => enabledSkillNames.has(s.name) &&
+  // 1. 只装配用户已选择的来源身份；关闭、被覆盖以及同名新来源都不会自动加载。
+  const selectedSkills = await loadEnabledProductSkills(skills, deps.sessionId, child?.enabledSkillIds);
+  const enabledSkillNames = new Set(selectedSkills.map((skill) => skill.name));
+  const activeSkills = selectedSkills.filter((s) =>
     (!child || !["task", "cron", "monitor"].includes(s.name)) &&
     (s.name !== "browser" || Boolean(browser)));
 
   const extensionPaths: string[] = [];
   for (const skill of activeSkills) {
+    // 通用技能仅作为标准文本资源使用；用户开启文本不等于授权运行共享目录里的服务端代码。
+    if (skill.catalogSource === "shared") continue;
     const extFile = join(skill.baseDir, "extension.ts");
     if (existsSync(extFile)) {
       extensionPaths.push(extFile);
@@ -289,7 +276,7 @@ export async function openPi(deps: PiDeps) {
       const manager = SessionManager.inMemory(layout.workspaceDir);
       const session = await openPi({
         ...deps, sessionManager: manager,
-        child: { role, enabledSkills: [...enabledSkillNames], allowedTools: parentTools ?? [] },
+        child: { role, enabledSkillIds: selectedSkills.map((skill) => skill.catalogId), allowedTools: parentTools ?? [] },
         activity: deps.activity,
         activityPrefix: childId,
         activityParentId: childId,

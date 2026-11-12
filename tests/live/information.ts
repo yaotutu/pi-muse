@@ -6,7 +6,7 @@ import { once } from "node:events";
 import { serve } from "@hono/node-server";
 import { parseLiveOptions } from "./options.js";
 import { createConfig } from "../../src/config/load-config.js";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { createLiveModel, redactApiKey } from "../support/live-model.js";
 import { createTestClient, waitForTest } from "../support/http-client.js";
 import { informationRunDetailResponse, informationRunsResponse, informationItemsResponse } from "../../src/http/contracts/information.js";
@@ -134,6 +134,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     pass(current);
 
     // 用实际文件审批占住 main，而非用 fake provider 或伪造模型返回值制造队列。
+    await client.enableSkills("main", ["write"]);
     for (const boundary of ["disable", "reset"] as const) {
       current = `queued-publication-${boundary}`;
       await client.json("/api/information/settings", { enabled: true, batchWindowSeconds: 3600 }, "PUT");

@@ -114,9 +114,18 @@ export const createTestClient = (baseUrl: () => string, token: string, timeoutMs
     return { sessionId, runId, events, done, cancel: () => reader.cancel() };
   };
   const run = async (content: string, sessionId?: string) => (await startRun(content, sessionId)).done;
+  // 测试会话初始化：按真实 PUT 语义整份保存，不偷偷合并或替新会话继承 main。
+  const enableSkills = (sessionId: string, names: readonly string[]) => json(
+    `/api/sessions/${encodeURIComponent(sessionId)}/skills`,
+    { overrides: Object.fromEntries(names.map((name) => [`builtin/${name}`, true])) }, "PUT",
+  );
   return {
-    request, json, history, startRun, run,
-    createSession: async (title?: string) => sessionRecordResponse.parse(await json("/api/sessions", {title})).session,
+    request, json, history, startRun, run, enableSkills,
+    createSession: async (title?: string, enabledBuiltinSkills: readonly string[] = []) => {
+      const session = sessionRecordResponse.parse(await json("/api/sessions", {title})).session;
+      if (enabledBuiltinSkills.length) await enableSkills(session.id, enabledBuiltinSkills);
+      return session;
+    },
     // 通知流与审批新协议 helper；pending 保留“当前待审批集合”语义，内部走 ready。
     subscribeEvents, readReady, pending, approval, approvalPage, decideApproval,
   };

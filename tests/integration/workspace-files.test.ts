@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createWritableFileTools } from "../../src/adapters/pi/tools/files-writable.js";
 import type { WorkspaceFileSelector } from "../../src/features/workspace/files-service.js";

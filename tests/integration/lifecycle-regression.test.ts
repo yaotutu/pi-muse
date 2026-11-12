@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import test, { type TestContext } from "node:test";
 import type { ConversationInput } from "../../src/features/conversation/types.js";
 import { createDataLayout } from "../../src/adapters/storage/data-layout.js";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService, enableBuiltinSkills } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
 
@@ -84,6 +84,7 @@ const readOptional = async (file: string) => {
 test("Stop cancels a pending write approval without changing the existing file", async (t) => {
   const h = await createFixture(t);
   const service = await h.startService();
+  await enableBuiltinSkills(service, "main", ["write"]);
   const target = join(h.layout.workspaceDir, "draft.md");
   const original = "EXISTING-DRAFT must survive Stop\n";
   await mkdir(dirname(target), { recursive: true });
@@ -159,7 +160,7 @@ test("corrupt monitor document fails initialization without keeping a child proc
       // 或会话资源会阻止自然退出，execFile 的超时会让回归测试明确失败并回收子进程。
       const script = `
         import assert from "node:assert/strict";
-        import { createService } from ${JSON.stringify(new URL("../../src/bootstrap/create-service.ts", import.meta.url).href)};
+        import { createService } from ${JSON.stringify(new URL("../support/test-service.ts", import.meta.url).href)};
         import { createConfig } from ${JSON.stringify(new URL("../../src/config/load-config.ts", import.meta.url).href)};
         let service;
         try {

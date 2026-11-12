@@ -235,7 +235,7 @@ export const stopRequestSchema = z.strictObject({
 // 技能：会话级开关覆盖
 // ---------------------------------------------------------------------------
 export const updateSkillsSchema = z.object({
-  overrides: z.record(z.string(), z.boolean()).describe("技能开关覆盖表，整份替换；未知技能名返回 400"),
+  overrides: z.record(z.string(), z.boolean()).describe("用户手动选择的技能开关，整份替换。键优先使用清单中的来源身份 id，也接受当前优先技能的 name；保存后绑定来源，不随同名替代转移。所有技能缺省关闭；未知或被高优先级覆盖的身份返回 400"),
 });
 
 // 会话专属规则/指令：下一轮对话注入生效；空串等于清空。

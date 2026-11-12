@@ -71,7 +71,7 @@ const parseNewsLiveOptions = (argv: readonly string[]): NewsParseOutcome => {
   return { kind: "ok", options: { configPath, keepArtifacts, allowPrivateTargets } };
 };
 
-type Service = Awaited<ReturnType<typeof import("../../src/bootstrap/create-service.js").createService>>;
+type Service = Awaited<ReturnType<typeof import("../support/test-service.js").createService>>;
 type Http = ReturnType<typeof serve>;
 type Proxy = Awaited<ReturnType<typeof import("../support/live-model.js").createLiveModel>>;
 
@@ -99,7 +99,7 @@ const stopHttp = async (http: Http) => {
 };
 
 const execute = async (options: NewsLiveOptions) => {
-  const { createService } = await import("../../src/bootstrap/create-service.js");
+  const { createService } = await import("../support/test-service.js");
   const { createConfig } = await import("../../src/config/load-config.js");
   const { createLiveModel, redactApiKey } = await import("../support/live-model.js");
   const raw = JSON.parse(await readFile(options.configPath, "utf8")) as { model?: unknown };

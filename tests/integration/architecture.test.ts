@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createDataLayout } from "../../src/adapters/storage/data-layout.js";
-import { createService } from "../../src/bootstrap/create-service.js";
+import { createService, enableBuiltinSkills } from "../support/test-service.js";
 import { createHttpApp } from "../../src/http/app.js";
 import { createScheduler } from "../../src/features/jobs/scheduler.js";
 import type { Conversation } from "../../src/features/conversation/conversation-service.js";
@@ -500,6 +500,7 @@ test("HTTP and pi tools use the same composed stores; conversation exposes no st
       finally { await rm(dataDir, { recursive: true, force: true }); }
     }
   });
+  await enableBuiltinSkills(service, "main", ["memory", "cron"]);
   const main = await service.conversationHub.forSession("main");
   assert.equal("memory" in main, false);
   assert.equal("jobs" in main, false);
