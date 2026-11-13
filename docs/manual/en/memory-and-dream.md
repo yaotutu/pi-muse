@@ -10,6 +10,8 @@ Connect to an accessible matching server. Browsing/managing memory does not requ
 
 Use memory settings to browse, search by keyword, add, edit or delete. The limit is 500 records, each 1–2000 characters. A full store rejects additions rather than discarding records. Search is case-insensitive substring matching.
 
+Memories live as plain text in `profile/memory.md`, one record per line with a stable id, so you can read or edit them directly. Tool edits and deletes still match by id exactly. If the file format is damaged the server reports a clear error instead of treating it as an empty store or silently dropping records.
+
 Deletion is irreversible and affects all sessions without deleting chat. Never store passwords, keys, tokens or other secrets. Read the full store before retrying a write with an unknown outcome. A failed read is not an empty store.
 
 ## Memory and profile boundaries {#memory-and-profile-boundaries}

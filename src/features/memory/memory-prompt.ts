@@ -1,5 +1,5 @@
 import { defaultIdentity } from "../identity/types.js";
-import type { MemoryItem, MemoryState } from "./types.js";
+import type { MemoryItem, MemoryPromptState } from "./types.js";
 
 /**
  * 纯 prompt 渲染函数：不读文件、不改状态，只把已读取的业务数据格式化。
@@ -14,7 +14,7 @@ export type MemoryPromptOptions = {
 };
 
 export const renderMemoryPrompt = (
-  { memories, identity }: MemoryState,
+  { memories, identity }: MemoryPromptState,
   { includeMemory = true, recalledMemories }: MemoryPromptOptions = {},
 ): string => {
   let output = "";

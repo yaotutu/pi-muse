@@ -580,15 +580,19 @@ for (const tool of ["memory", "schedule"] as const) {
     false,
   );
     assert.equal(h.model.requests.length, 2, "one tool round and one failed final reply, without retries");
-    const file = join(h.dataDir, tool === "memory" ? join("profile", "memory.json") : "jobs.json");
-    const stored = JSON.parse(await readFile(file, "utf8"));
-    const items = tool === "memory" ? stored.memories : stored;
+    const readItems = async () => {
+      if (tool === "memory") {
+        return (await h.service().memory.list()).map((item) => ({ value: item.text }));
+      }
+      return (await h.service().jobs.list()).map((item) => ({ value: item.prompt }));
+    };
+    const items = await readItems();
     assert.equal(items.length, 1);
-    assert.match(tool === "memory" ? items[0].text : items[0].prompt, /工具后失败/);
+    assert.match(items[0]!.value, /工具后失败/);
     const history = await h.getHistory();
     assert.ok(history.some((message) => message.role === "tool"));
     await h.restart();
-    assert.deepEqual(JSON.parse(await readFile(file, "utf8")), stored);
+    assert.deepEqual(await readItems(), items);
     assert.deepEqual(await h.getHistory(), history);
     assert.equal((await h.events(input([...history, user("next turn")]))).at(-1)?.type, "RUN_FINISHED");
     assert.equal((tool === "memory" ? await h.service().memory.list() : await h.service().jobs.list()).length, 1);
@@ -787,7 +791,7 @@ for (const scenario of ["工具后失败", "工具后挂起", "工具后慢流"]
     const events = await running;
     assert.equal(events.at(-1)?.type, "RUN_ERROR");
     assert.equal(events.some((event) => event.type.startsWith("TOOL_CALL_")), false);
-    assert.equal(JSON.parse(await readFile(join(h.dataDir, "profile", "memory.json"), "utf8")).memories.length, 1);
+    assert.equal((await h.service().memory.list()).length, 1);
     const history = await h.getHistory();
     assert.ok(history.every((message) => message.role !== "tool"));
     await h.restart();
@@ -1229,20 +1233,14 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed one-sh
   tasks = (await h.request("/api/jobs").then((x) => x.json())).jobs as typeof tasks;
   assert.equal(tasks[0].status, "succeeded", "one-shot job completed and is no longer scheduled");
   // nanobot 启动时会重算任务：已过期的一次性任务不会在重启后补跑。
-  await writeFile(
-    join(h.dataDir, "jobs.json"),
-    JSON.stringify([
-      {
-        id: "expired-job",
-        prompt: "重启补跑",
-        daily: false,
-        at: new Date().toISOString(),
-        enabled: true,
-        createdAt: new Date().toISOString(),
-        nextRunAt: new Date(Date.now() - 60_000).toISOString(),
-      },
-    ]),
-  );
+  const expiredDb = new (await import("node:sqlite")).DatabaseSync(join(h.dataDir, "main.sqlite"));
+  try {
+    expiredDb.prepare(
+      "INSERT INTO jobs (id, position, prompt, daily, at, enabled, created_at, next_run_at) VALUES ('expired-job', 99, '重启补跑', 0, ?, 1, ?, ?)"
+    ).run(new Date().toISOString(), new Date().toISOString(), new Date(Date.now() - 60_000).toISOString());
+  } finally {
+    expiredDb.close();
+  }
   await h.restart();
   assert.equal((await h.service().jobs.list())[0].enabled, false);
   // 等待两个普通扫描周期，检查不是只有启动时的快照正确。

@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
-import { createActionRepository } from "../../src/adapters/storage/action-repository.js";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
+import { defaultIdentity } from "../../src/features/identity/types.js";
 import { createMemoryService } from "../../src/features/memory/memory-service.js";
 import { createJobService } from "../../src/features/jobs/job-service.js";
 import { createActionService } from "../../src/features/actions/action-service.js";
 import { createTools } from "../../src/adapters/pi/tools/index.js";
+import { openActionStore, type ActionStore } from "./actions-sqlite-fixture.js";
+import { jobsModule } from "../../src/adapters/storage/jobs-schema.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
 import type { MonitorService } from "../../src/features/monitors/monitor-service.js";
 
 /**
@@ -20,29 +21,25 @@ import type { MonitorService } from "../../src/features/monitors/monitor-service
  * 本测试只断言裁剪与不可逆集合，不依赖 schedule/monitor 服务的具体行为。
  */
 
-const depsWith = (dir: string, extra: Partial<Parameters<typeof createTools>[0]> = {}) => {
-  const memoryFile = join(dir, "memory.json");
-  const jobsFile = join(dir, "jobs.json");
-  const actionsFile = join(dir, "actions.json");
-  return {
-    root: dir,
-    memory: createMemoryService(createMemoryRepository(memoryFile)),
-    jobs: createJobService(createJobRepository(jobsFile)),
-    actions: createActionService(createActionRepository(actionsFile)),
-    // 此处只需进入装配；后续测试只比对工具名称，不调用它们。
-    monitors: {} as MonitorService,
-    ...extra,
-  };
-};
+const depsWith = (store: ActionStore, extra: Partial<Parameters<typeof createTools>[0]> = {}) => ({
+  root: store.directory,
+  memory: createMemoryService(createMemoryRepository(join(store.directory, "memory.md")), { get: async () => ({ ...defaultIdentity }) }),
+  jobs: createJobService(createJobRepository(store.managed)),
+  actions: createActionService(store.repository),
+  // 此处只需进入装配；后续测试只比对工具名称，不调用它们。
+  monitors: {} as MonitorService,
+  ...extra,
+});
 
 test("subagent assembly excludes subagent/schedule/monitor/instructions and exposes no bash", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "personal-bot-subagent-tools-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  const store = await openActionStore("personal-bot-subagent-tools-");
+  await store.managed.serialize(() => ensureSqliteModules(store.managed, [jobsModule]));
+  t.after(() => store.close());
   // 主代理父线程：拥有全部可裁剪能力，可与子代理注册结果做差集。
-  const foreground = createTools(depsWith(dir)).map((tool) => tool.name);
+  const foreground = createTools(depsWith(store)).map((tool) => tool.name);
   // 子代理装配：isSubagent=true 将 instructions/schedule/monitor 一并裁掉；
   // 写文件仍依赖 actions 形成的人工审批闸门（不能借此推断写路径扩大权限）。
-  const subagent = createTools(depsWith(dir, { isSubagent: true })).map((tool) => tool.name);
+  const subagent = createTools(depsWith(store, { isSubagent: true })).map((tool) => tool.name);
   // 子代理不暴露任何扩张副作用或会话专属能力；bash 从未进入注册表。
   for (const blocked of ["subagent", "schedule", "monitor", "instructions", "bash"]) {
     assert.ok(!subagent.includes(blocked), `subagent must not expose ${blocked}`);

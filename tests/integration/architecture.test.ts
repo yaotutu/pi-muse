@@ -48,13 +48,10 @@ test("DataLayout describes the current paths without migrating legacy data", () 
     sessionsDir: join(root, "sessions"),
     sessionIndexFile: join(root, "sessions.json"),
     messageFeedbackDir: join(root, "messages"),
-    informationDir: join(root, "information"),
     agentDir: join(root, "agent"),
     piAuthFile: join(root, "agent", "auth.json"),
-    memoryFile: join(profileDir, "memory.json"),
-    jobsFile: join(root, "jobs.json"),
-    goalsFile: join(root, "goals.json"),
-    actionsFile: join(root, "actions.json"),
+    memoryMarkdownFile: join(profileDir, "memory.md"),
+    identityFile: join(profileDir, "identity.json"),
     monitorsFile: join(root, "monitors.json"),
     mainDatabaseFile: join(root, "main.sqlite"),
     newsDatabaseFile: join(root, "news.sqlite"),
@@ -573,7 +570,12 @@ test("service close cancels a running scheduled pi turn before draining its stat
   await waitFor(() => closed);
   await closing;
   assert.equal(main.isRunning(), false);
-  const stored = (await service.jobs.list()).find((item) => item.id === job.id)!;
-  assert.equal(stored.lastStatus, "failed");
-  assert.equal(stored.enabled, false);
+  const archReader = new (await import("node:sqlite")).DatabaseSync(join(dataDir, "main.sqlite"), { readOnly: true });
+  try {
+    const row = archReader.prepare("SELECT last_status, enabled FROM jobs WHERE id = ?").get(job.id) as { last_status: string; enabled: number } | undefined;
+    assert.equal(row?.last_status, "failed");
+    assert.equal(row?.enabled, 0);
+  } finally {
+    archReader.close();
+  }
 });

@@ -7,7 +7,12 @@ import { Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createDataLayout, ensureLayout } from "../../src/adapters/storage/data-layout.js";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
+import { createIdentityRepository } from "../../src/adapters/storage/identity-repository.js";
+import { renderMemoryMarkdown } from "../../src/adapters/storage/memory-markdown.js";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
+import { jobsModule } from "../../src/adapters/storage/jobs-schema.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
 import { createMemoryService } from "../../src/features/memory/memory-service.js";
 import { createIdentityService } from "../../src/features/identity/identity-service.js";
 import { createJobService } from "../../src/features/jobs/job-service.js";
@@ -22,10 +27,15 @@ const setup = async (t: TestContext) => {
   const dir = await mkdtemp(join(tmpdir(), "personal-bot-pi-adapters-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const layout = createDataLayout(dir);
-  const repository = createMemoryRepository(layout.memoryFile);
-  const memory = createMemoryService(repository);
-  const identity = createIdentityService(repository);
-  const jobs = createJobService(createJobRepository(layout.jobsFile));
+  const repository = createMemoryRepository(join(layout.profileDir, "memory.md"));
+  const identityRepository = createIdentityRepository(join(layout.profileDir, "identity.json"));
+  const identity = createIdentityService(identityRepository);
+  const memory = createMemoryService(repository, identity);
+  // 定时任务事实在 main.sqlite；工具装配只依赖端口，不碰存储细节。
+  const jobsDatabase = await openSqliteDatabase(layout.mainDatabaseFile);
+  t.after(() => jobsDatabase.close());
+  await jobsDatabase.serialize(() => ensureSqliteModules(jobsDatabase, [jobsModule]));
+  const jobs = createJobService(createJobRepository(jobsDatabase));
   const web: WebService = {
     search: async (query, count) =>
       query ? { results: [{ title: query, url: "https://example.test", snippet: String(count ?? 5) }], warnings: [], truncated: false } : { error: "empty query" },
@@ -135,13 +145,10 @@ test("memory tools remember, search, edit and forget strictly by id and share se
 
 test("memory tool reports the memory limit as a controlled denial instead of dropping old items", async (t) => {
   const { execute, memory, layout } = await setup(t);
-  await writeFile(layout.memoryFile, JSON.stringify({
-    memories: Array.from({ length: 500 }, (_, i) => ({
-      id: `m${i}`, text: `fact ${i}`, source: "test",
-      createdAt: "2026-10-10T00:00:00.000Z", updatedAt: "2026-10-10T00:00:00.000Z",
-    })),
-    identity: { name: "Muse", tone: "warm", avatar: "sparkles", showChatUpdates: true },
-  }));
+  await writeFile(join(layout.profileDir, "memory.md"), renderMemoryMarkdown(Array.from({ length: 500 }, (_, i) => ({
+    id: `m${i}`, text: `fact ${i}`, source: "test",
+    createdAt: "2026-10-10T00:00:00.000Z", updatedAt: "2026-10-10T00:00:00.000Z",
+  }))));
   const result = await execute("memory", { action: "remember", text: "one too many" });
   assert.equal(result.isError, true);
   assert.deepEqual(result.details, { denied: true });

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import { builtServiceEntry } from "../support/service-process.js";
 
-for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "illegal-job-schedule", "corrupt-news-sqlite", "legacy-news-import-required"] as const) {
+for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "corrupt-main-sqlite", "corrupt-news-sqlite", "legacy-news-import-required"] as const) {
   test(`e2e: built entry ${failure} fails naturally without leaked processes or overwritten documents`, { timeout: 40_000 }, async (t) => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-muse-e2e-failure-"));
     t.after(() => rm(cwd, { recursive: true, force: true }));
@@ -26,18 +26,8 @@ for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "i
     await writeFile(join(directory, "config.json"), failure === "invalid-config" ? "{invalid-json" : JSON.stringify(config), { mode: 0o600 });
     const corrupt = "{invalid-monitors-must-survive";
     if (failure === "corrupt-document") await writeFile(join(directory, "monitors.json"), corrupt);
-    const illegalJobRecord = JSON.stringify([
-      {
-        id: "illegal-schedule-job",
-        prompt: "test invalid daily at",
-        daily: true,
-        at: "24:00",
-        enabled: false,
-        createdAt: "2026-10-22T00:00:00.000Z",
-        nextRunAt: "2026-10-22T00:00:00.000Z",
-      },
-    ], null, 2) + "\n";
-    if (failure === "illegal-job-schedule") await writeFile(join(directory, "jobs.json"), illegalJobRecord);
+        const corruptMainDatabase = "this is not a sqlite database at all........";
+    if (failure === "corrupt-main-sqlite") await writeFile(join(directory, "main.sqlite"), corruptMainDatabase);
     // news.sqlite 为垃圾字节时启动必须失败，且不能覆盖原文件。
     const corruptNewsDatabase = "this is not a sqlite database at all........";
     if (failure === "corrupt-news-sqlite") await writeFile(join(directory, "news.sqlite"), corruptNewsDatabase);
@@ -86,13 +76,11 @@ for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "i
       assert.match(output, /Invalid monitors document/);
       assert.equal(await readFile(join(directory, "monitors.json"), "utf8"), corrupt);
     }
-    if (failure === "illegal-job-schedule") {
-      // 存储 reader 与领域共用严格每日时间规则，坏记录在读阶段即被拦截，
-      // 准确异常是 Invalid jobs document，不是第二种可选错误。
-      assert.match(output, /Invalid jobs document/);
-      assert.equal(await readFile(join(directory, "jobs.json"), "utf8"), illegalJobRecord);
+        if (failure === "occupied-port") assert.match(output, /pi-muse cannot start|Port .* held|already in use/);
+    if (failure === "corrupt-main-sqlite") {
+      assert.match(output, /file is not a database/);
+      assert.equal(await readFile(join(directory, "main.sqlite"), "utf8"), corruptMainDatabase);
     }
-    if (failure === "occupied-port") assert.match(output, /pi-muse cannot start|Port .* held|already in use/);
     if (failure === "corrupt-news-sqlite") {
       assert.match(output, /file is not a database/);
       assert.equal(await readFile(join(directory, "news.sqlite"), "utf8"), corruptNewsDatabase);

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { renderMemoryPrompt, type MemoryPromptOptions } from "./memory-prompt.js";
-import type { MemoryItem, MemoryRepository } from "./types.js";
+import type { IdentityReader, MemoryItem, MemoryRepository } from "./types.js";
 
 /** 记忆条数上限。写满后拒绝新增，由用户或 Dream 先合并/删除旧条目，绝不静默丢弃最老的一条。 */
 export const MEMORY_LIMIT = 500;
@@ -16,9 +16,10 @@ export class MemoryLimitError extends Error {
 
 /**
  * 记忆业务层只处理条目规则和 prompt 渲染；文件格式与串行写入由 repository 负责。
- * 身份有独立的业务入口，但通过组合入口注入的同一个 repository 保存。
+ * 身份设置已拆成独立配置文档（identity.json），通过 identityReader 只读注入：
+ * 记忆写入永远不会改到身份文件，身份写入也不会改到记忆文件。
  */
-export const createMemoryService = (repository: MemoryRepository) => {
+export const createMemoryService = (repository: MemoryRepository, identityReader: IdentityReader) => {
   const now = () => new Date().toISOString();
 
   return {
@@ -115,7 +116,10 @@ export const createMemoryService = (repository: MemoryRepository) => {
         return { state: { ...state, memories }, result: true };
       }),
     renderForPrompt: async (options?: MemoryPromptOptions) =>
-      renderMemoryPrompt(await repository.read(), options),
+      renderMemoryPrompt(
+        { memories: (await repository.read()).memories, identity: await identityReader.get() },
+        options,
+      ),
   };
 };
 

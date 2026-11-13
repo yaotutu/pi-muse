@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { serve } from '@hono/node-server';
+import { DatabaseSync } from 'node:sqlite';
 import { createService } from '../../src/bootstrap/create-service.js';
 import { createConfig } from '../../src/config/load-config.js';
 import { createLiveModel, redactApiKey } from '../support/live-model.js';
@@ -21,7 +22,7 @@ if (!configPath || !process.argv.includes('--allow-live')) {
   const dataDir = join(root, 'data');
   await mkdir(dataDir, { mode: 0o700 });
   const proxy = await createLiveModel({ baseUrl: model.baseUrl, apiKey: model.apiKey });
-  const report = { passed: false, failure: null as string | null, modelRequests: 0, checks: [] as string[], observedStatuses: [] as string[] };
+  const report = { passed: false, failure: null as string | null, modelRequests: 0, checks: [] as string[], observedStatuses: [] as string[], upstreamStatuses: [] as (number | undefined)[] };
   try {
     const config = createConfig({
       server: { host: '127.0.0.1', accessKey: 'job-fire-access' },
@@ -67,16 +68,18 @@ if (!configPath || !process.argv.includes('--allow-live')) {
     assert.ok(messages.some((message) => message.role === 'assistant' && /JOB_FIRED/.test(message.content ?? '')), 'scheduled reply must reach the session');
     report.checks.push('scheduled model reply reached the session history');
 
-    const stored = JSON.parse(await readFile(join(dataDir, 'jobs.json'), 'utf8')) as Array<{ id: string; enabled: boolean; lastStatus?: string; lastRunAt?: string }>;
-    const storedJob = stored.find((item) => item.id === job.id);
-    // 存储字段是领域事实 lastStatus；API 才把它映射成 succeeded/failed。
-    assert.equal(storedJob?.lastStatus, 'completed');
-    assert.ok(storedJob?.lastRunAt);
-    assert.equal(storedJob?.enabled, false, 'a finished one-time job must not stay scheduled');
-    report.checks.push('job result persisted in jobs.json');
+    const database = new DatabaseSync(join(dataDir, 'main.sqlite'), { readOnly: true });
+    try {
+      const storedJob = database.prepare('SELECT last_status, last_run_at, enabled FROM jobs WHERE id = ?').get(job.id) as { last_status: string; last_run_at: string; enabled: number } | undefined;
+      // 存储字段是领域事实 last_status；API 才把它映射成 succeeded/failed。
+      assert.equal(storedJob?.last_status, 'completed');
+      assert.ok(storedJob?.last_run_at);
+      assert.equal(storedJob?.enabled, 0, 'a finished one-time job must not stay scheduled');
+    } finally { database.close(); }
+    report.checks.push('job result persisted in main.sqlite');
 
     await service.close();
-    http.closeAllConnections();
+    if ("closeAllConnections" in http) http.closeAllConnections();
     await new Promise<void>((resolve) => http.close(() => resolve()));
     const restarted = await createService(config, { sharedSkillsDir: join(dataDir, 'empty-shared-skills') });
     const http2 = serve({ fetch: restarted.app.fetch, hostname: '127.0.0.1', port: 0 });
@@ -96,7 +99,7 @@ if (!configPath || !process.argv.includes('--allow-live')) {
       report.passed = true;
     } finally {
       await restarted.close();
-      http2.closeAllConnections();
+      if ("closeAllConnections" in http2) http2.closeAllConnections();
       await new Promise<void>((resolve) => http2.close(() => resolve()));
     }
   } catch (error) {
@@ -104,6 +107,7 @@ if (!configPath || !process.argv.includes('--allow-live')) {
     process.exitCode = 1;
   } finally {
     report.modelRequests = proxy.traces.length;
+    report.upstreamStatuses = proxy.traces.map((t) => t.upstreamStatus);
     await writeFile(join(root, 'job-fire-summary.json'), redactApiKey(JSON.stringify(report, null, 2), model.apiKey) + '\n', { mode: 0o600 });
     await proxy.close();
     console.log(JSON.stringify({ ...report, artifactRoot: root }));

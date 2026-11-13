@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { test, type TestContext } from "node:test";
-import { createActionRepository } from "../../src/adapters/storage/action-repository.js";
+import test, { type TestContext } from "node:test";
 import { InvalidDocumentError, readActionsDocument } from "../../src/adapters/storage/document-schemas.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
 import {
   ApprovalCapacityError,
   MAX_APPROVAL_BYTES,
@@ -13,6 +9,7 @@ import {
   MAX_PENDING_APPROVAL_BYTES,
   createActionService,
 } from "../../src/features/actions/action-service.js";
+import { openActionStore } from "./actions-sqlite-fixture.js";
 import type { ActionRepository, PendingAction } from "../../src/features/actions/types.js";
 
 /**
@@ -37,19 +34,6 @@ const memoryRepository = (initial: PendingAction[] = []): ActionRepository => {
       return result;
     },
   };
-};
-
-const tempFile = async (t: TestContext) => {
-  const directory = await mkdtemp(join(tmpdir(), "approval-state-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  return { directory, file: join(directory, "actions.json") };
-};
-
-const fileBytes = async (file: string): Promise<string | null> => {
-  try { return await readFile(file, "utf8"); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
 };
 
 const utf8Bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8");
@@ -255,10 +239,11 @@ test("snapshotPending filters expired records without writing or notifying", asy
 test("capacity rejects oversized, over-count and over-accumulated submissions without changing the repository", async (t) => {
   // 单项超过 1.5MB：拒绝且不写任何内容。
   {
-    const { file } = await tempFile(t);
-    const actions = createActionService(createActionRepository(file));
+    const store = await openActionStore("approval-state-size-");
+    t.after(() => store.close());
+    const actions = createActionService(store.repository);
     const baseline = await actions.submit("file_write", "baseline", { path: "baseline" });
-    const before = await readFile(file, "utf8");
+    const before = JSON.stringify(await actions.history());
     await assert.rejects(
       actions.submit("file_write", "too large", { content: "x".repeat(MAX_APPROVAL_BYTES) }),
       (error: unknown) => {
@@ -270,20 +255,21 @@ test("capacity rejects oversized, over-count and over-accumulated submissions wi
         return true;
       },
     );
-    assert.equal(await readFile(file, "utf8"), before);
+    assert.equal(JSON.stringify(await actions.history()), before);
     assert.deepEqual((await actions.history()).map((action) => action.id), [baseline.id]);
   }
 
-  // pending 数量上限 32：第 33 项拒绝，已有 32 项和文件字节保持不变。
+  // pending 数量上限 32：第 33 项拒绝，已有 32 项和库内字节保持不变。
   {
-    const { file } = await tempFile(t);
-    const actions = createActionService(createActionRepository(file));
+    const store = await openActionStore("approval-state-count-");
+    t.after(() => store.close());
+    const actions = createActionService(store.repository);
     const accepted: PendingAction[] = [];
     for (let index = 0; index < MAX_PENDING_APPROVALS; index++)
       accepted.push(await actions.submit("file_write", `pending-${index}`, { index: String(index) }));
-    const before = await readFile(file, "utf8");
+    const before = JSON.stringify(await actions.history());
     await assert.rejects(actions.submit("file_write", "one too many", {}), ApprovalCapacityError);
-    assert.equal(await readFile(file, "utf8"), before);
+    assert.equal(JSON.stringify(await actions.history()), before);
     const history = await actions.history();
     assert.equal(history.length, MAX_PENDING_APPROVALS);
     assert.deepEqual(history.map((action) => action.id), accepted.map((action) => action.id));
@@ -291,8 +277,9 @@ test("capacity rejects oversized, over-count and over-accumulated submissions wi
 
   // pending 累计超过 6MB：4 项约 5.8MB 可接受，第 5 项拒绝且不写盘。
   {
-    const { file } = await tempFile(t);
-    const actions = createActionService(createActionRepository(file));
+    const store = await openActionStore("approval-state-total-");
+    t.after(() => store.close());
+    const actions = createActionService(store.repository);
     const payload = "x".repeat(1_450_000);
     const accepted: PendingAction[] = [];
     for (let index = 0; index < 4; index++) {
@@ -302,16 +289,17 @@ test("capacity rejects oversized, over-count and over-accumulated submissions wi
     }
     const acceptedBytes = accepted.reduce((total, action) => total + utf8Bytes(action), 0);
     assert.ok(acceptedBytes <= MAX_PENDING_APPROVAL_BYTES);
-    const before = await readFile(file, "utf8");
+    const before = JSON.stringify(await actions.history());
     await assert.rejects(actions.submit("file_write", "over total", { content: payload }), ApprovalCapacityError);
-    assert.equal(await readFile(file, "utf8"), before);
+    assert.equal(JSON.stringify(await actions.history()), before);
     assert.deepEqual((await actions.history()).map((action) => action.id), accepted.map((action) => action.id));
   }
 });
 
 test("terminal history is not trimmed after 100 records and remains in insertion order", async (t) => {
-  const { file } = await tempFile(t);
-  const actions = createActionService(createActionRepository(file));
+  const store = await openActionStore("approval-state-history-");
+  t.after(() => store.close());
+  const actions = createActionService(store.repository);
   const created: PendingAction[] = [];
   // 每登记一条立即撤销，避免触发 pending 数量上限，同时形成已处理历史。
   for (let index = 0; index < 105; index++) {
@@ -335,12 +323,15 @@ test("terminal history is not trimmed after 100 records and remains in insertion
 });
 
 test("onChange observes the already-committed document state and callback failures cannot change results", async (t) => {
-  const { file } = await tempFile(t);
+  const store = await openActionStore("approval-state-notify-");
+  t.after(() => store.close());
   const seen: Array<{ id: string; status: string; revision: number; disk: PendingAction[] }> = [];
-  const actions = createActionService(createActionRepository(file), {
+  const actions = createActionService(store.repository, {
     onChange: (action) => {
-      // 通知在 repository 落盘之后同步发出；回调内直接读文件即可看到同一状态。
-      const disk = JSON.parse(readFileSync(file, "utf8")) as PendingAction[];
+      // 通知在 repository 落盘之后同步发出；回调内直接读库即可看到同一状态。
+      const disk = store.managed.database.prepare(
+        "SELECT id, status, revision, decided_at AS decidedAt FROM actions ORDER BY position",
+      ).all() as unknown as PendingAction[];
       seen.push({ id: action.id, status: action.status, revision: action.revision, disk });
       // 修改收到的拷贝不能影响已持久化记录。
       action.status = "cancelled";
@@ -369,16 +360,18 @@ test("onChange observes the already-committed document state and callback failur
 });
 
 test("a failed repository commit does not notify or leave a document", async (t) => {
-  const { directory } = await tempFile(t);
+  const store = await openActionStore("approval-state-failure-");
   let notifications = 0;
-  const missingParent = join(directory, "missing", "actions.json");
-  const actions = createActionService(createActionRepository(missingParent), { onChange: () => { notifications++; } });
-  await assert.rejects(actions.submit("file_write", "cannot commit", {}), (error: unknown) => {
-    assert.equal((error as NodeJS.ErrnoException).code, "ENOENT");
-    return true;
-  });
+  const actions = createActionService(store.repository, { onChange: () => { notifications++; } });
+  // 关闭底层连接后再提交：写入必须失败且不产生任何通知。
+  await store.managed.close();
+  await assert.rejects(actions.submit("file_write", "cannot commit", {}), /Database is closed/);
   assert.equal(notifications, 0);
-  assert.equal(await fileBytes(missingParent), null);
+  // 失败不留下半条记录：重新打开同一个库仍是空集。
+  const reopened = await openSqliteDatabase(store.databaseFile);
+  t.after(() => reopened.close());
+  const rows = reopened.database.prepare("SELECT COUNT(*) AS count FROM actions").get() as { count: number };
+  assert.equal(rows.count, 0);
 });
 
 test("synchronous throws and rejected promises from onChange are isolated from committed state", async () => {
@@ -451,18 +444,20 @@ test("actions reader accepts only current records with required revision and con
   for (const record of invalid) assert.throws(() => readActionsDocument([record]), InvalidDocumentError);
 });
 
-test("actions repository rejects a legacy document without rewriting original bytes", async (t) => {
-  const { file } = await tempFile(t);
-  const { revision: _revision, resolvedAt: _resolvedAt, decidedAt: _decidedAt, ...legacy } = baseAction();
-  const source = JSON.stringify([legacy], null, 2) + "\n";
-  await writeFile(file, source);
-  const repository = createActionRepository(file);
-  await assert.rejects(repository.read(), InvalidDocumentError);
-  let called = false;
-  await assert.rejects(repository.update(() => {
-    called = true;
-    return { result: undefined };
-  }), InvalidDocumentError);
-  assert.equal(called, false);
-  assert.equal(await readFile(file, "utf8"), source);
+test("仓储拒绝非法状态组合的写入，且不破坏已存记录", async (t) => {
+  const store = await openActionStore("approval-state-invalid-");
+  t.after(() => store.close());
+  const valid = baseAction({ id: "valid-1" });
+  await store.repository.update((items) => ({ items: [...items, valid], result: undefined }));
+
+  // pending 却带 resolved_at：数据库约束直接拒绝整笔写入。
+  await assert.rejects(
+    store.repository.update((items) => ({
+      items: [...items, baseAction({ id: "invalid-1", resolvedAt: "2026-01-01T00:01:00.000Z" })],
+      result: undefined,
+    })),
+    /CHECK constraint failed/i,
+  );
+  // 已存记录原样保留，非法记录没有落库。
+  assert.deepEqual(await store.repository.read(), [valid]);
 });

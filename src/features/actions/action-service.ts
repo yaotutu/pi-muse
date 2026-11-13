@@ -45,6 +45,28 @@ export const createActionService = (
   const hasExpired = (action: PendingAction) =>
     !Number.isFinite(Date.parse(action.expiresAt)) || Date.now() >= Date.parse(action.expiresAt);
 
+  // 数据库可由 Agent 自主修改，但业务行不是人工授权凭证。只保留当前进程
+  // 登记的预览绑定与真实决定，消费后失效；重启不恢复任何执行授权。
+  const requests = new Map<string, PendingAction>();
+  const approved = new Map<string, PendingAction>();
+  const revoke = (id: string) => { requests.delete(id); approved.delete(id); };
+  const deepEquals = (left: unknown, right: unknown): boolean =>
+    JSON.stringify(left) === JSON.stringify(right);
+  const sameRequest = (left: PendingAction, right: PendingAction) =>
+    ["id", "kind", "title", "payload", "createdAt", "expiresAt", "sessionId", "runId", "toolCallId", "subagentId", "activityId"]
+      .every((key) => deepEquals(left[key as keyof PendingAction], right[key as keyof PendingAction]));
+  const readVerified = async () => {
+    const items = await repository.read();
+    for (const item of items) {
+      const original = requests.get(item.id);
+      if (original && (!sameRequest(item, original) || (item.status === "approved" && !approved.has(item.id)))) {
+        throw new Error("Approval request changed outside its decision flow; verify and request again");
+      }
+    }
+    return items;
+  };
+  const prune = () => { for (const [id, request] of requests) if (hasExpired(request)) revoke(id); };
+
   /**
    * 终态迁移只允许从 pending 发生：固定记录结束时间并推进 revision。
    * decidedAt 仅表示人的决定，expired/cancelled 不写入，避免伪装成人工操作。
@@ -86,6 +108,10 @@ export const createActionService = (
     const result = await repository.update((items): { items?: PendingAction[]; result: ActionResolution } => {
       const action = items.find((item) => item.id === id);
       if (!action) return { result: { ok: false, code: "not_found" } };
+      const original = requests.get(id);
+      if (original && !sameRequest(action, original)) {
+        throw new Error("Approval preview changed; request a new approval");
+      }
       if (action.status === "pending") {
         if (hasExpired(action)) {
           // 首次检查即过期：先持久化 expired，再以冲突返回；不能只返回内存中的过期判断。
@@ -103,7 +129,11 @@ export const createActionService = (
       if (same) return { result: { ok: true, action } };
       return { result: { ok: false, code: "conflict", action } };
     });
-    if (changed) notify([changed]);
+    if (changed) {
+      if (changed.status === "approved" && requests.has(id)) approved.set(id, cloneAction(changed));
+      else revoke(id);
+      notify([changed]);
+    }
     return result;
   };
 
@@ -155,6 +185,8 @@ export const createActionService = (
         // 历史不截断：pending 与全部终态记录长期保留，排序按创建顺序追加。
         return { items: [...items, next], result: next };
       });
+      prune();
+      requests.set(action.id, cloneAction(action));
       notify([action]);
       return action;
     },
@@ -170,6 +202,7 @@ export const createActionService = (
 
     /** 取消仅撤销尚未决定的授权；重复取消不改变终态，也不伪造人的批准/拒绝。 */
     cancel: async (id: string): Promise<void> => {
+      revoke(id);
       const changed = await repository.update((items) => {
         const action = items.find((item) => item.id === id);
         if (!action || action.status !== "pending") return { result: undefined };
@@ -181,6 +214,7 @@ export const createActionService = (
 
     /** 会话重置或删除时批量取消归属该会话的待审批项，返回实际被取消的审批 ID 列表。 */
     cancelBySessionId: async (sessionId: string): Promise<string[]> => {
+      for (const [id, request] of requests) if (request.sessionId === sessionId) revoke(id);
       const changed = await repository.update((items) => {
         const updated: PendingAction[] = [];
         for (const action of items) {
@@ -194,12 +228,15 @@ export const createActionService = (
         }
         return updated.length ? { items, result: updated } : { result: updated };
       });
+      changed.forEach((item) => revoke(item.id));
       notify(changed);
       return changed.map((item) => item.id);
     },
 
     /** 启动撤销旧 pending，并将遗留在途提交标记为 unknown；不补跑文件操作。 */
     cancelPending: async (): Promise<void> => {
+      requests.clear();
+      approved.clear();
       const changed = await repository.update((items) => {
         const updated: PendingAction[] = [];
         for (const action of items) {
@@ -222,6 +259,7 @@ export const createActionService = (
      * 读取路径（snapshotPending/get/history）保持纯查询，不在 read 中隐式写盘。
      */
     expirePending: async (): Promise<number> => {
+      prune();
       const changed = await repository.update((items) => {
         const expired = items.filter((action) => action.status === "pending" && hasExpired(action));
         if (!expired.length) return { result: [] as PendingAction[] };
@@ -238,6 +276,13 @@ export const createActionService = (
       const result = await repository.update((items): { items?: PendingAction[]; result: ActionDecision } => {
         const action = items.find((item) => item.id === id);
         if (!action) return { result: { status: "denied" } };
+        const original = requests.get(id);
+        if (original && !sameRequest(action, original)) return { result: { status: "denied" } };
+        if (action.status === "approved") {
+          const grant = approved.get(id);
+          if (!grant || !deepEquals(action, grant)) return { result: { status: "denied" } };
+          if (hasExpired(grant)) return { result: { status: "expired" } };
+        }
         if (action.status === "pending" && hasExpired(action)) {
           settle(action, "expired");
           changed = action;
@@ -245,22 +290,23 @@ export const createActionService = (
         }
         return { result: { status: action.status } };
       });
+      if (result.status !== "pending" && result.status !== "approved") revoke(id);
       if (changed) notify([changed]);
       return result;
     },
 
     /** 当前可审批集合：纯读取，过滤已过期项；过期持久化交给 expirePending。 */
     snapshotPending: async (): Promise<PendingAction[]> => {
-      const items = await repository.read();
+      const items = await readVerified();
       return items.filter((action) => action.status === "pending" && !hasExpired(action));
     },
 
     /** 单条读取（含终态），纯查询。 */
     get: async (id: string): Promise<PendingAction | undefined> =>
-      (await repository.read()).find((action) => action.id === id),
+      (await readVerified()).find((action) => action.id === id),
 
     page: async (query: ApprovalHistoryQuery): Promise<ApprovalHistoryPage> => {
-      const records = (await repository.read()).filter((action) => action.status !== "pending").map((action) => {
+      const records = (await readVerified()).filter((action) => action.status !== "pending").map((action) => {
         if (!action.resolvedAt || !Number.isFinite(Date.parse(action.resolvedAt)))
           throw new Error("Invalid approval resolution time");
         return { ...action, resolvedAt: action.resolvedAt };
@@ -288,7 +334,11 @@ export const createActionService = (
     markExecuting: async (id: string): Promise<boolean> => {
       const changed = await repository.update((items) => {
         const action = items.find((item) => item.id === id);
-        if (!action || action.status !== "approved" || action.execution || hasExpired(action)) return { result: undefined };
+        const grant = approved.get(id);
+        if (!action || !grant || action.status !== "approved" || action.execution ||
+            hasExpired(grant) || !deepEquals(action, grant)) return { result: undefined };
+        // 在同一认领回调里消费凭证，数据库提交失败也不能重新使用这次授权。
+        revoke(id);
         action.execution = { status: "running", startedAt: new Date().toISOString(), finishedAt: null, result: null };
         action.revision++;
         return { items, result: action };
@@ -310,10 +360,10 @@ export const createActionService = (
     },
 
     /** 完整历史，按落盘顺序返回；不截断、不修改。 */
-    history: (): Promise<PendingAction[]> => repository.read(),
+    history: (): Promise<PendingAction[]> => readVerified(),
 
     /** 兼容既有调用方；语义与 history 相同。 */
-    list: (): Promise<PendingAction[]> => repository.read(),
+    list: (): Promise<PendingAction[]> => readVerified(),
   };
 };
 

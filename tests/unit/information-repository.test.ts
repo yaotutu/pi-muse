@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createDataLayout } from "../../src/adapters/storage/data-layout.js";
-import { createInformationRepository } from "../../src/adapters/storage/information-repository.js";
+import { createInformationRepository, parseInformationState } from "../../src/adapters/storage/information-repository.js";
+import { smsModule } from "../../src/adapters/storage/sms-schema.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
 import { defaultInformationState, type InformationState } from "../../src/features/information/types.js";
+
+const openRepository = async (directory: string) => {
+  const managed = await openSqliteDatabase(join(directory, "main.sqlite"));
+  await managed.serialize(() => ensureSqliteModules(managed, [smsModule]));
+  return { managed, repository: createInformationRepository(managed) };
+};
 
 const deferred = () => {
   let finish!: () => void;
@@ -17,9 +24,10 @@ const deferred = () => {
 test("global information repository serializes updates without losing pending writes", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-information-repository-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const repository = createInformationRepository(createDataLayout(dataDir));
+  const { managed, repository } = await openRepository(dataDir);
+  t.after(() => managed.close());
+
   assert.deepEqual(await repository.read(), defaultInformationState());
-  assert.equal(existsSync(join(dataDir, "information", "sms.json")), false);
   const holding = deferred();
   const writing = repository.update(async (state) => {
     await holding.promise;
@@ -32,13 +40,13 @@ test("global information repository serializes updates without losing pending wr
   const persisted = await repository.read();
   assert.equal(persisted.settings.enabled, true);
   assert.equal(persisted.preferences.notes, "serialized");
-  assert.equal(existsSync(join(dataDir, "information", "sms.json")), true);
 });
 
 test("startup reconcile closes interrupted models and completed pending publications", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-information-repository-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const repository = createInformationRepository(createDataLayout(dataDir));
+  const { managed, repository } = await openRepository(dataDir);
+  t.after(() => managed.close());
   const at = new Date().toISOString();
   const state: InformationState = {
     ...defaultInformationState(),
@@ -66,22 +74,25 @@ test("startup reconcile closes interrupted models and completed pending publicat
   assert.equal(reconciled.runs[1]?.publications[0]?.status, "failed");
 });
 
-test("additive information fields default without discarding an existing valid document", async (t) => {
+test("additive information fields default without discarding an existing valid state", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-information-repository-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const { managed, repository } = await openRepository(dataDir);
+  t.after(() => managed.close());
   const at = new Date().toISOString();
-  await mkdir(join(dataDir, "information"), { recursive: true });
-  await writeFile(join(dataDir, "information", "sms.json"), JSON.stringify({
-    schemaVersion: 1,
-    settings: { enabled: true, batchWindowSeconds: 0 },
-    preferences: { notes: "keep me" },
-    items: [{
-      id: "item-1", source: "rss", externalId: "1",
-      content: "original", receivedAt: at, acceptedAt: at, status: "pending",
-    }],
-    runs: [],
-  }));
-  const repository = createInformationRepository(createDataLayout(dataDir));
+  await repository.update(() => ({
+    state: parseInformationState({
+      schemaVersion: 1,
+      settings: { enabled: true, batchWindowSeconds: 0 },
+      preferences: { notes: "keep me" },
+      items: [{
+        id: "item-1", source: "rss", externalId: "1",
+        content: "original", receivedAt: at, acceptedAt: at, status: "pending",
+      }],
+      runs: [],
+    }),
+    result: undefined,
+  }), { allowCreate: true });
   const state = await repository.read();
   assert.equal(state.settings.mode, "notifications");
   assert.equal(state.preferences.notes, "keep me");

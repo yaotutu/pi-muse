@@ -26,6 +26,8 @@ export type SqliteModule = {
 };
 
 export const SQLITE_MODULE_LEDGER_TABLE = "app_schema_migrations";
+// 数据库自身的标记在账本被删后仍存在，避免把已初始化但损坏的库误当作新库。
+export const MAIN_SQLITE_APPLICATION_ID = 0x504d5553; // PMUS
 
 const LEDGER_DDL = `CREATE TABLE IF NOT EXISTS ${SQLITE_MODULE_LEDGER_TABLE} (
   module TEXT PRIMARY KEY,
@@ -53,18 +55,25 @@ export const ensureSqliteModules = (
 ): void => {
   managed.transaction(() => {
     const database = managed.database;
+    const applicationId = Number(database.prepare("PRAGMA application_id").get()?.application_id);
+    if (applicationId !== 0 && applicationId !== MAIN_SQLITE_APPLICATION_ID) {
+      throw new Error("Invalid main database: unexpected application identity");
+    }
+    if (applicationId === MAIN_SQLITE_APPLICATION_ID && !tableExists(database, SQLITE_MODULE_LEDGER_TABLE)) {
+      throw new Error("Invalid main database: missing schema ledger");
+    }
     database.exec(LEDGER_DDL);
     const registered = readLedger(managed);
-    const declared = new Map(modules.map((module) => [module.id, module]));
-    for (const [id, version] of registered) {
-      const module = declared.get(id);
-      if (!module) throw new Error(`Invalid main database: unknown module ${id}`);
+    // 允许调用方只声明它负责的模块；其他已注册模块必须保留，而不是误判为未知。
+    for (const module of modules) {
+      const version = registered.get(module.id);
+      if (version === undefined) continue;
       if (version !== module.version) {
-        throw new Error(`Invalid main database: module ${id} has version ${version}, expected ${module.version}`);
+        throw new Error(`Invalid main database: module ${module.id} has version ${version}, expected ${module.version}`);
       }
       for (const table of module.tables) {
         if (!tableExists(database, table)) {
-          throw new Error(`Invalid main database: module ${id} is missing table ${table}`);
+          throw new Error(`Invalid main database: module ${module.id} is missing table ${table}`);
         }
       }
     }
@@ -80,5 +89,6 @@ export const ensureSqliteModules = (
       database.prepare(`INSERT INTO ${SQLITE_MODULE_LEDGER_TABLE} (module, version, applied_at) VALUES (?, ?, ?)`)
         .run(module.id, module.version, new Date().toISOString());
     }
+    if (applicationId === 0) database.exec(`PRAGMA application_id = ${MAIN_SQLITE_APPLICATION_ID}`);
   });
 };

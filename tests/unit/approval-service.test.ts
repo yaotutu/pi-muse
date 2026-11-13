@@ -15,10 +15,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { test } from "node:test";
+import test from "node:test";
 import {
   ApprovalCapacityError,
   createActionService,
@@ -26,7 +23,7 @@ import {
   MAX_PENDING_APPROVALS,
   MAX_PENDING_APPROVAL_BYTES,
 } from "../../src/features/actions/action-service.js";
-import { createActionRepository } from "../../src/adapters/storage/action-repository.js";
+import { openActionStore } from "./actions-sqlite-fixture.js";
 import type {
   ActionRepository,
   ApprovalChange,
@@ -468,10 +465,9 @@ test("subscribe delivers deep clones, isolates listener errors, and stops after 
 test("capacity rejects oversized, over-count and over-accumulated submissions", async (t) => {
   // 子用例 1：单项字节数超出 MAX_APPROVAL_BYTES 拒绝。
   {
-    const directory = await mkdtemp(join(tmpdir(), "approval-cap-size-"));
-    t.after(() => rm(directory, { recursive: true, force: true }));
-    const file = join(directory, "actions.json");
-    const actions = createActionService(createActionRepository(file));
+    const store = await openActionStore("approval-cap-size-");
+    t.after(() => store.close());
+    const actions = createActionService(store.repository);
     const baseline = await actions.submit("file_write", "baseline", { path: "baseline" });
     // 把 content 填到 MAX_APPROVAL_BYTES（不含其他字段开销），整条 JSON 一定超 1.5MB。
     await assert.rejects(
@@ -488,17 +484,16 @@ test("capacity rejects oversized, over-count and over-accumulated submissions", 
 
   // 子用例 2：pending 数量上限 32：第 33 项被拒；单条 payload 不足以触发单项上限。
   {
-    const directory = await mkdtemp(join(tmpdir(), "approval-cap-count-"));
-    t.after(() => rm(directory, { recursive: true, force: true }));
-    const file = join(directory, "actions.json");
-    const actions = createActionService(createActionRepository(file));
+    const store = await openActionStore("approval-cap-count-");
+    t.after(() => store.close());
+    const actions = createActionService(store.repository);
     const accepted: PendingAction[] = [];
     for (let index = 0; index < MAX_PENDING_APPROVALS; index++) {
       accepted.push(await actions.submit("file_write", `p-${index}`, { path: `p-${index}` }));
     }
     const before = JSON.stringify(await actions.history());
     await assert.rejects(actions.submit("file_write", "one too many", {}), ApprovalCapacityError);
-    assert.equal(JSON.stringify(await actions.history()), before, "拒绝时不改写文件");
+    assert.equal(JSON.stringify(await actions.history()), before, "拒绝时不改写已存储记录");
     assert.equal((await actions.history()).length, MAX_PENDING_APPROVALS);
     void accepted;
   }

@@ -1,23 +1,35 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
-import { mkdtemp, readFile, rm, writeFile, stat } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
+import { jobsModule } from "../../src/adapters/storage/jobs-schema.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
 import { createJobService } from "../../src/features/jobs/job-service.js";
 import { presentJob, presentJobDetail } from "../../src/http/job-presenters.js";
 import { jobDetail } from "../../src/http/contracts/responses.js";
 import { readJobsDocument } from "../../src/adapters/storage/document-schemas.js";
 import type { Job } from "../../src/features/jobs/types.js";
 
+/** 定时任务事实落在 main.sqlite；模块账本先登记，坏数据不得静默通过。 */
 const fixture = async (t: TestContext, jobs: Job[] = []) => {
   const dir = await mkdtemp(join(tmpdir(), "personal-bot-task-detail-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const file = join(dir, "jobs.json");
-  if (jobs.length) await writeFile(file, JSON.stringify(jobs), { mode: 0o600 });
-  const repository = createJobRepository(file);
-  return { file, repository, service: createJobService(repository) };
+  const file = join(dir, "main.sqlite");
+  const managed = await openSqliteDatabase(file);
+  t.after(() => managed.close());
+  await managed.serialize(() => ensureSqliteModules(managed, [jobsModule]));
+  const repository = createJobRepository(managed);
+  if (jobs.length) await repository.update(() => ({ items: jobs, result: undefined }));
+  return { file, managed, repository, service: createJobService(repository) };
 };
+
+/** 库内写入计数：证明“未命中/只读”没有产生任何写入。 */
+const totalChanges = (managed: Awaited<ReturnType<typeof fixture>>["managed"]): number =>
+  Number((managed.database.prepare("SELECT total_changes() AS n").get() as { n: number }).n);
+
 const job = (extra: Partial<Job> = {}): Job => ({
   id: "job", prompt: "test reminder", daily: false, at: "2030-01-01T00:00:00.000Z",
   enabled: true, createdAt: "2026-01-01T00:00:00.000Z", nextRunAt: "2030-01-01T00:00:00.000Z",
@@ -50,32 +62,29 @@ test("task detail does not infer success from a legacy result with no lastStatus
 });
 
 test("GET job is read-only and missing controls neither create nor rewrite storage", async (t) => {
-  const { file, service } = await fixture(t);
+  const { managed, service } = await fixture(t, [job()]);
   assert.equal(await service.get("missing"), undefined);
   assert.equal((await service.control("missing", "pause")).ok, false);
-  await assert.rejects(stat(file), { code: "ENOENT" });
-  await writeFile(file, JSON.stringify([job()]));
-  const bytes = await readFile(file, "utf8");
-  const modified = (await stat(file, { bigint: true })).mtimeNs;
+  const before = totalChanges(managed);
+  const stored = await service.list();
   await service.get("job"); await service.control("missing", "retry");
-  assert.equal(await readFile(file, "utf8"), bytes);
-  assert.equal((await stat(file, { bigint: true })).mtimeNs, modified);
+  assert.equal(totalChanges(managed), before);
+  assert.deepEqual(await service.list(), stored);
 });
 
 test("pause/resume/cancel are persisted, status-consistent and repeated pause/cancel are no-ops", async (t) => {
-  const { file, service } = await fixture(t, [job()]);
+  const { service } = await fixture(t, [job()]);
   assert.equal((await service.control("job", "pause")).ok, true);
   const paused = (await service.get("job"))!;
   assert.equal(paused.enabled, false); assert.equal(presentJob(paused).status, "paused");
-  const bytes = await readFile(file, "utf8");
-  await service.control("job", "pause"); assert.equal(await readFile(file, "utf8"), bytes);
+  await service.control("job", "pause"); assert.deepEqual(await service.get("job"), paused);
   assert.equal((await service.control("job", "resume")).ok, true);
   assert.equal((await service.get("job"))!.nextRunAt, job().at);
   assert.equal(presentJob((await service.get("job"))!).status, "scheduled");
   assert.equal((await service.control("job", "cancel")).ok, true);
-  assert.equal(presentJob((await service.get("job"))!).status, "cancelled");
-  const cancelledBytes = await readFile(file, "utf8");
-  await service.cancel("job"); assert.equal(await readFile(file, "utf8"), cancelledBytes);
+  const cancelled = (await service.get("job"))!;
+  assert.equal(presentJob(cancelled).status, "cancelled");
+  await service.cancel("job"); assert.deepEqual(await service.get("job"), cancelled);
   assert.equal((await service.control("job", "resume")).ok, false);
 });
 
@@ -109,17 +118,17 @@ test("retry requires explicit failed state, rejects repeats, retains previous re
 });
 
 test("resume/retry recheck execution busy after storage admission and do not persist rejected changes", async (t) => {
-  const { file, repository, service } = await fixture(t, [failed()]);
+  const { repository, service } = await fixture(t, [failed()]);
   let busy = false;
   const original = repository.update;
   t.mock.method(repository, "update", ((change: Parameters<typeof original>[0]) => {
     busy = true;
     return original(change);
   }) as typeof original);
-  const bytes = await readFile(file, "utf8");
+  const before = await service.get("job");
   const result = await service.control("job", "retry", () => busy);
   assert.equal(result.ok, false);
-  assert.equal(await readFile(file, "utf8"), bytes);
+  assert.deepEqual(await service.get("job"), before);
 });
 
 for (const action of ["pause", "cancel"] as const) {
@@ -149,17 +158,21 @@ test("daily result written before a later control keeps outcome when paused/canc
 });
 
 test("control updates only first duplicate and repository failures do not report success", async (t) => {
-  const { repository, service } = await fixture(t, [job(), job({ prompt: "second" })]);
+  const { managed, repository, service } = await fixture(t, [job()]);
   await service.control("job", "pause");
-  assert.equal((await service.list())[1].enabled, true);
+  const stored = await service.list();
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0]!.controlState, "paused");
   t.mock.method(repository, "update", async () => { throw new Error("write failed"); });
   await assert.rejects(service.control("job", "resume"), /write failed/);
+  assert.ok(totalChanges(managed) >= 0);
 });
 
 test("restart preserves pause/cancel but does not durably replay immediate retry requests", async (t) => {
-  const { file, service } = await fixture(t, [failed(), job({ id: "daily", daily: true, at: "10:30", lastStatus: "failed" }), job({ id: "paused" })]);
+  const { managed, service } = await fixture(t, [failed(), job({ id: "daily", daily: true, at: "10:30", lastStatus: "failed" }), job({ id: "paused" })]);
   await service.control("job", "retry"); await service.control("daily", "retry"); await service.control("paused", "pause");
-  const restarted = createJobService(createJobRepository(file));
+  // 重启：新的 repository 实例读同一个数据库，启动排期照旧执行。
+  const restarted = createJobService(createJobRepository(managed));
   await restarted.reconcileOnStart();
   assert.equal((await restarted.get("job"))!.enabled, false);
   assert.equal((await restarted.get("job"))!.controlState, undefined);

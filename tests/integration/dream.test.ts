@@ -173,18 +173,16 @@ test("Dream integration: non-main agent routes session rules via purpose, holds 
   assert.equal(failedState.cursors[id], prevCursor);
 
   // 6. 记忆满 500 条时 POST /api/agent/memories 返回 409，不丢弃旧条目。
+  const { renderMemoryMarkdown } = await import("../../src/adapters/storage/memory-markdown.js");
   await writeFile(
-    join(dataDir, "profile", "memory.json"),
-    JSON.stringify({
-      memories: Array.from({ length: 500 }, (_, i) => ({
-        id: `m-${i}`,
-        text: `fact-${i}`,
-        source: "seed",
-        createdAt: "2026-10-10T00:00:00.000Z",
-        updatedAt: "2026-10-10T00:00:00.000Z",
-      })),
-      identity: { name: "pi-muse", tone: "warm", avatar: "sparkles", showChatUpdates: true },
-    }),
+    join(dataDir, "profile", "memory.md"),
+    renderMemoryMarkdown(Array.from({ length: 500 }, (_, i) => ({
+      id: `m-${i}`,
+      text: `fact-${i}`,
+      source: "seed",
+      createdAt: "2026-10-10T00:00:00.000Z",
+      updatedAt: "2026-10-10T00:00:00.000Z",
+    }))),
   );
   const fullRes = await json("/api/memories", "POST", { text: "overflow" });
   assert.equal(fullRes.status, 409);

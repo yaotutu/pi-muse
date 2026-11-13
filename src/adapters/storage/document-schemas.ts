@@ -1,10 +1,10 @@
-import type { MemoryState } from "../../features/memory/types.js";
+import type { Identity } from "../../features/identity/types.js";
 import type { Job } from "../../features/jobs/types.js";
 import { isStrictDailyTime } from "../../features/jobs/schedule-calculator.js";
 
 /** 固定安全文案，不在错误里附带原文、文件路径或用户资料。 */
 export class InvalidDocumentError extends Error {
-  constructor(kind: "memory" | "jobs" | "goals" | "actions" | "monitors" | "skills-overrides" | "dream") {
+  constructor(kind: "memory-markdown" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "skills-overrides" | "dream") {
     super(`Invalid ${kind} document; restore a valid backup before writing`);
     this.name = "InvalidDocumentError";
   }
@@ -22,19 +22,13 @@ const optionalDate = (value: unknown) => value === undefined || isDate(value);
  * 已存在的 memory 文档必须完整满足当前域类型；缺省只由 repository 在文件不存在时生成。
  * 任一坏条目都拒绝整个文档，禁止读改写时静默过滤并丢失原始数据。
  */
-export const readMemoryDocument = (value: unknown): MemoryState => {
-  if (!isObject(value) || "schemaVersion" in value || !Array.isArray(value.memories))
-    throw new InvalidDocumentError("memory");
-  const identity = value.identity;
-  if (!isObject(identity) ||
-    ["name", "tone", "avatar"].some((key) => typeof identity[key] !== "string") ||
-    typeof identity.showChatUpdates !== "boolean")
-    throw new InvalidDocumentError("memory");
-  if (!value.memories.every((item) =>
-    isObject(item) && typeof item.id === "string" && typeof item.text === "string" &&
-    typeof item.source === "string" && isDate(item.createdAt) && isDate(item.updatedAt)))
-    throw new InvalidDocumentError("memory");
-  return value as unknown as MemoryState;
+export const readIdentityDocument = (value: unknown): Identity => {
+  if (!isObject(value) ||
+    Object.keys(value).some((key) => !["name", "tone", "avatar", "showChatUpdates"].includes(key)) ||
+    typeof value.name !== "string" || typeof value.tone !== "string" ||
+    typeof value.avatar !== "string" || typeof value.showChatUpdates !== "boolean")
+    throw new InvalidDocumentError("identity");
+  return value as unknown as Identity;
 };
 
 /** jobs 保持裸数组；不接纳缺字段记录，避免调度器读到非法时间或控制状态。 */

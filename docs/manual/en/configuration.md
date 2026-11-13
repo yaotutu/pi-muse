@@ -120,20 +120,19 @@ Public session ids and internal pi ids are distinct. Main is permanent, topic se
 
 ```text
 DATA_DIR/
-  profile/          SOUL.md USER.md DREAM.md memory.json dream.json
+  profile/          SOUL.md USER.md DREAM.md memory.md identity.json
   workspace/
   sessions.json
   sessions/<sessionId>/  pi JSONL, INSTRUCTIONS.md, skills.json
   messages/<sessionId>/<piSessionId>.json
-  information/sms.json
-  main.sqlite       default database and agent-created tables
+  main.sqlite       scheduled tasks, goals, approvals, SMS, Dream state and agent tables
   news.sqlite       relational news tables
-  jobs.json goals.json actions.json monitors.json
+  monitors.json     webpage monitors (not migrated yet)
   agent/            pi auth resources
   skills/ subagents/ traces/ browser/
 ```
 
-All sessions and child calls share one workspace root. Child calls use in-memory context and create no directories or persistent history. The new layout does not implicitly read, migrate or delete older instances. See [Database](database.md) for `main.sqlite` and `news.sqlite`; other feature files have not all migrated. Legacy `news.json` needs explicit import and is not a second runtime write destination. Live SQLite databases may also have `-wal`/`-shm` files, so the directory list is not a recipe for copying individual files during writes.
+All sessions and child calls share one workspace root. Child calls use in-memory context and create no directories or persistent history. The new layout does not implicitly read, migrate or delete older instances. See [Database](database.md) for `main.sqlite` and `news.sqlite`; sessions and chat history stay in JSON/JSONL and webpage monitors stay in a JSON file. Legacy `news.json` needs explicit import and is not a second runtime write destination. Live SQLite databases may also have `-wal`/`-shm` files, so the directory list is not a recipe for copying individual files during writes.
 
 ## Data Storage and Security Boundaries {#data-storage-and-security-boundaries}
 

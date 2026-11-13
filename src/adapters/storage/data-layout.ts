@@ -8,8 +8,11 @@ export { isSessionId } from "../../features/conversation/session-id.js";
 /** 路径唯一声明；新布局不读取、转换或删除旧实例数据。 */
 export type DataLayout = {
   root: string; companionsDir: string; profileDir: string; workspaceDir: string; sessionsDir: string; sessionIndexFile: string;
-  messageFeedbackDir: string; informationDir: string; agentDir: string; piAuthFile: string;
-  memoryFile: string; jobsFile: string; goalsFile: string; actionsFile: string; monitorsFile: string;
+  messageFeedbackDir: string; agentDir: string; piAuthFile: string;
+  /** 长期记忆是给人读写的纯文本；身份设置是配置 JSON。 */
+  memoryMarkdownFile: string; identityFile: string;
+  /** 网页监控本次保持 JSON 文件，不迁数据库。 */
+  monitorsFile: string;
   mainDatabaseFile: string; newsDatabaseFile: string; newsFile: string;
   soulFile: string; userFile: string; dreamFile: string; authKeyFile: string;
   browserProfileDir: string; browserDownloadsDir: string; skillsDir: string; subagentsDir: string; tracesDir: string;
@@ -20,9 +23,9 @@ export const createDataLayout = (dataDir: string): DataLayout => {
   return {
     root, companionsDir: join(root, "companions"), profileDir, workspaceDir: join(root, "workspace"), sessionsDir: join(root, "sessions"),
     sessionIndexFile: join(root, "sessions.json"), messageFeedbackDir: join(root, "messages"),
-    informationDir: join(root, "information"), agentDir: join(root, "agent"), piAuthFile: join(root, "agent", "auth.json"),
-    memoryFile: join(profileDir, "memory.json"), jobsFile: join(root, "jobs.json"), goalsFile: join(root, "goals.json"),
-    actionsFile: join(root, "actions.json"), monitorsFile: join(root, "monitors.json"),
+    agentDir: join(root, "agent"), piAuthFile: join(root, "agent", "auth.json"),
+    memoryMarkdownFile: join(profileDir, "memory.md"), identityFile: join(profileDir, "identity.json"),
+    monitorsFile: join(root, "monitors.json"),
     mainDatabaseFile: join(root, "main.sqlite"), newsDatabaseFile: join(root, "news.sqlite"),
     // 旧 JSON 路径只作为显式导入的来源检测，运行时不再写入。
     newsFile: join(root, "news.json"),
@@ -47,12 +50,10 @@ export const messageFeedbackFile = (layout: DataLayout, sessionId: string, piSes
   sessionDir(layout, sessionId);
   return join(layout.messageFeedbackDir, sessionId, `${piSessionId}.json`);
 };
-export const informationFile = (layout: DataLayout): string => join(layout.informationDir, "sms.json");
-
 /** 初始化也拒绝链接，不能让 mkdir 跟随替换后的边界根。 */
 export const ensureLayout = async (layout: DataLayout): Promise<void> => {
   await mkdir(layout.root, { recursive: true, mode: 0o700 });
-  for (const directory of [layout.root, layout.companionsDir, layout.profileDir, layout.workspaceDir, layout.sessionsDir, layout.messageFeedbackDir, layout.informationDir, layout.agentDir]) {
+  for (const directory of [layout.root, layout.companionsDir, layout.profileDir, layout.workspaceDir, layout.sessionsDir, layout.messageFeedbackDir, layout.agentDir]) {
     try {
       const entry = await lstat(directory);
       if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error("Unsafe data directory");

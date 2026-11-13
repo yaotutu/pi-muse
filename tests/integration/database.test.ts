@@ -74,9 +74,9 @@ test("database registration and SQL writes share the news repository and HTTP fa
   await assert.rejects(stat(service.layout.newsFile), (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT");
 });
 
-test("database opens one default main database lazily and service close rejects late SQL", async (t) => {
+test("database accesses main database and service close rejects late SQL", async (t) => {
   const { service } = await start(t);
-  await assert.rejects(stat(service.layout.mainDatabaseFile), (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT");
+  assert.ok((await stat(service.layout.mainDatabaseFile)).isFile());
   const tool = databaseTool(service.database);
   const written = await tool.execute("main-schema", {
     action: "execute", statements: [{ sql: "CREATE TABLE main_probe (id TEXT PRIMARY KEY)" }, { sql: "INSERT INTO main_probe VALUES (?)", params: ["one"] }],

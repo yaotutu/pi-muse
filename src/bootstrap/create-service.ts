@@ -23,6 +23,7 @@ import { createGoalRepository } from "../adapters/storage/goal-repository.js";
 import { createActionRepository } from "../adapters/storage/action-repository.js";
 import { createMonitorRepository } from "../adapters/storage/monitor-repository.js";
 import { createMemoryRepository } from "../adapters/storage/memory-repository.js";
+import { createIdentityRepository } from "../adapters/storage/identity-repository.js";
 import { createSkillRepository } from "../adapters/storage/skill-repository.js";
 import { createMessageFeedbackSession } from "../features/messages/service.js";
 import { createMessageFeedbackRepository } from "../adapters/storage/message-feedback-repository.js";
@@ -32,6 +33,8 @@ import { createInformationScheduler } from "../features/information/scheduler.js
 import { createInformationRunner, createInformationSkillTextReader } from "../adapters/pi/information-runner.js";
 import { openNewsRepository } from "../adapters/storage/news-repository.js";
 import { openSqliteDatabase, type ManagedSqliteDatabase } from "../adapters/storage/sqlite-database.js";
+import { ensureSqliteModules } from "../adapters/storage/sqlite-modules.js";
+import { mainSqliteModules } from "../adapters/storage/sqlite-registry.js";
 import { createDatabaseToolStore } from "../adapters/storage/database-tool-store.js";
 import { createDatabaseService } from "../features/database/database-service.js";
 import { parseRss2 } from "../adapters/news/rss.js";
@@ -60,7 +63,7 @@ import { createWorkspaceFileService } from "../features/workspace/files-service.
 import { createWorkspaceCommitQueue } from "../adapters/workspace/file-commit-queue.js";
 import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
 import { createActivityService } from "../features/activities/service.js";
-import { createDreamRepository } from "../adapters/storage/dream-repository.js";
+import { createDreamRepository, createDreamPromptPort } from "../adapters/storage/dream-repository.js";
 import { readSessionInstructions, writeSessionInstructions } from "../adapters/storage/session-instructions.js";
 import { createDreamService } from "../features/dream/service.js";
 import { createDreamScheduler } from "../features/dream/scheduler.js";
@@ -87,15 +90,22 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   const recency = await loadSessionRecency(join(layout.root, "session-recency.json"));
   const workspaceEvents = createWorkspaceEvents(recency);
   const workspaceCommits = createWorkspaceCommitQueue();
-  const memoryRepository = createMemoryRepository(layout.memoryFile);
-  const memory = createMemoryService(memoryRepository);
-  const identity = createIdentityService(memoryRepository, {
+
+  // main.sqlite 统一管理定时任务、目标、审批、短信与 Dream 机器状态
+  const mainDatabase = await openSqliteDatabase(layout.mainDatabaseFile);
+  await mainDatabase.serialize(() => ensureSqliteModules(mainDatabase, mainSqliteModules));
+
+  // 记忆与身份是两个独立文件
+  const memoryRepository = createMemoryRepository(layout.memoryMarkdownFile);
+  const identityRepository = createIdentityRepository(layout.identityFile);
+  const identity = createIdentityService(identityRepository, {
     // SOUL/USER 文件实现放 storage adapter；空内容写空文件（等于清空人设）。
     read: (which) => readProfileFile(which === "soul" ? layout.soulFile : layout.userFile),
     write: (which, content) =>
       writeProfileFile(which === "soul" ? layout.soulFile : layout.userFile, content),
   });
-  const jobs = createJobService(createJobRepository(layout.jobsFile));
+  const memory = createMemoryService(memoryRepository, identity);
+  const jobs = createJobService(createJobRepository(mainDatabase));
   await jobs.reconcileOnStart();
   const presentation = createToolPresentation(config.presentation);
   await ensureLayout(layout);
@@ -124,13 +134,15 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
       timeoutMs: config.browser.timeoutMs,
     }), browserDownloads);
   }
-  const goals = createGoalService(createGoalRepository(layout.goalsFile));
-  const actions = createActionService(createActionRepository(layout.actionsFile), { onChange: (action) => workspaceEvents.approvalChanged(action) });
+  const goals = createGoalService(createGoalRepository(mainDatabase));
+  const actions = createActionService(createActionRepository(mainDatabase), { onChange: (action) => workspaceEvents.approvalChanged(action) });
   const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
   const skills = createSkillsService(createSkillRepository(layout, options.sharedSkillsDir));
   const messageFeedbackRepository = createMessageFeedbackRepository(layout);
-  const dreamRepository = createDreamRepository(layout);
-  const informationRepository = createInformationRepository(layout);
+  const dreamStorage = createDreamRepository(mainDatabase);
+  const dreamPrompts = createDreamPromptPort(layout);
+  const dreamRepository = { ...dreamStorage, ...dreamPrompts };
+  const informationRepository = createInformationRepository(mainDatabase);
   const sessionRepository = createSessionRepository(layout.sessionIndexFile);
   const sessionStorage = createSessionStorage(layout);
   await initializeMainSession(sessionRepository, sessionStorage);
@@ -289,23 +301,19 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
       legacyJsonFile: layout.newsFile,
     });
   } catch (error) {
-    await Promise.allSettled([information.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
+    await Promise.allSettled([mainDatabase.close(), information.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
     throw error;
   }
   const newsRepository = newsStorage.repository;
-  let mainDatabase: Promise<ManagedSqliteDatabase> | undefined;
   let databasesClosing = false;
   const database = createDatabaseService(createDatabaseToolStore(async (name) => {
     if (databasesClosing) throw new Error("Managed databases are closing");
     if (name === "news") return newsStorage.database;
-    // main 尚无内置业务表，首次实际访问时才开库；所有会话复用同一 Promise/队列。
-    mainDatabase ??= openSqliteDatabase(layout.mainDatabaseFile);
     return mainDatabase;
   }));
   const closeDatabases = async () => {
     databasesClosing = true;
-    const pending = [newsStorage.database.close()];
-    if (mainDatabase) pending.push(mainDatabase.then((managed) => managed.close(), () => undefined));
+    const pending = [newsStorage.database.close(), mainDatabase.close()];
     return Promise.allSettled(pending);
   };
   // 新闻与短信复用处理规则，但各有全局事实存储；不借用会话充当数据 owner。

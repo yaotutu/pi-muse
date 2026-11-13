@@ -4,21 +4,26 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
+import { createIdentityRepository } from "../../src/adapters/storage/identity-repository.js";
+import { renderMemoryMarkdown } from "../../src/adapters/storage/memory-markdown.js";
 import { createIdentityService } from "../../src/features/identity/identity-service.js";
 import { defaultIdentity } from "../../src/features/identity/types.js";
 import { createMemoryService, MemoryLimitError } from "../../src/features/memory/memory-service.js";
 import { renderMemoryPrompt } from "../../src/features/memory/memory-prompt.js";
-import type { MemoryItem, MemoryState } from "../../src/features/memory/types.js";
+import type { MemoryItem, MemoryPromptState } from "../../src/features/memory/types.js";
 
 const setup = async (t: TestContext) => {
   const dir = await mkdtemp(join(tmpdir(), "personal-bot-memory-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const file = join(dir, "memory.json");
+  const file = join(dir, "memory.md");
+  const identityFile = join(dir, "identity.json");
   const repository = createMemoryRepository(file);
+  const identityRepository = createIdentityRepository(identityFile);
+  const identity = createIdentityService(identityRepository);
   return {
-    file, repository,
-    memory: createMemoryService(repository),
-    identity: createIdentityService(repository),
+    file, identityFile, repository, identityRepository,
+    memory: createMemoryService(repository, identity),
+    identity,
   };
 };
 const item = (id: string, text = id): MemoryItem => ({
@@ -27,8 +32,8 @@ const item = (id: string, text = id): MemoryItem => ({
   updatedAt: "2026-10-10T00:00:00.000Z",
 });
 
-test("memory and identity preserve the legacy file shape and survive repository recreation", async (t) => {
-  const { file, repository, memory, identity } = await setup(t);
+test("memory and identity live in separate documents and survive repository recreation", async (t) => {
+  const { file, identityFile, repository, identityRepository, memory, identity } = await setup(t);
   assert.deepEqual(await memory.list(), []);
   assert.deepEqual(await identity.get(), defaultIdentity);
   const added = await memory.add("  likes tea  ", "Apps UI");
@@ -38,17 +43,19 @@ test("memory and identity preserve the legacy file shape and survive repository 
   assert.ok(Number.isFinite(Date.parse(added.createdAt)));
   const saved = await identity.save({ name: "Tea Bot", tone: "concise" });
   assert.deepEqual(saved, { ...defaultIdentity, name: "Tea Bot", tone: "concise" });
-  const state = JSON.parse(await readFile(file, "utf8"));
-  assert.deepEqual(Object.keys(state).sort(), ["identity", "memories"]);
-  assert.deepEqual(state, await repository.read());
-  assert.deepEqual(await createMemoryRepository(file).read(), state);
+  // 记忆是纯文本清单，身份是配置 JSON：两个文件互不包含对方的字段。
+  assert.match(await readFile(file, "utf8"), /^- \[[0-9a-f-]{36}\] likes tea <!-- source=Apps UI created=/m);
+  assert.deepEqual(JSON.parse(await readFile(identityFile, "utf8")), { ...defaultIdentity, name: "Tea Bot", tone: "concise" });
+  assert.deepEqual(await repository.read(), { memories: [added] });
+  assert.deepEqual(await createMemoryRepository(file).read(), { memories: [added] });
+  assert.deepEqual(await createIdentityRepository(identityFile).read(), { ...defaultIdentity, name: "Tea Bot", tone: "concise" });
   assert.equal((await stat(file)).mode & 0o777, 0o600);
 });
 
 test("memory at the 500 item limit rejects new items instead of silently dropping the oldest", async (t) => {
   const { file, memory, identity } = await setup(t);
   const old = Array.from({ length: 500 }, (_, i) => item(`old-${i}`));
-  const source = JSON.stringify({ memories: old, identity: { ...defaultIdentity, name: "Existing" } });
+  const source = renderMemoryMarkdown(old);
   await writeFile(file, source);
   await assert.rejects(memory.add(" new memory ", "chat"), MemoryLimitError);
   assert.equal(await readFile(file, "utf8"), source, "a rejected add must not touch the file");
@@ -65,7 +72,7 @@ test("memory at the 500 item limit rejects new items instead of silently droppin
   const list = await memory.list();
   assert.equal(list.length, 500);
   assert.deepEqual(list.at(-1), added);
-  assert.equal((await identity.get()).name, "Existing");
+  assert.deepEqual(await identity.get(), defaultIdentity);
 });
 
 test("memory search is case-insensitive, newest-updated first, capped and ignores blank queries", async (t) => {
@@ -74,9 +81,7 @@ test("memory search is case-insensitive, newest-updated first, capped and ignore
     ...item(`tea-${i}`, `Likes TEA #${i}`),
     updatedAt: `2026-10-${String(10 + i).padStart(2, "0")}T00:00:00.000Z`,
   }));
-  await writeFile(file, JSON.stringify({
-    memories: [...many, item("other", "likes coffee")], identity: defaultIdentity,
-  }));
+  await writeFile(file, renderMemoryMarkdown([...many, item("other", "likes coffee")]));
   const hits = await memory.search("tea");
   assert.equal(hits.length, 10);
   assert.equal(hits[0].id, "tea-11");
@@ -88,9 +93,9 @@ test("memory search is case-insensitive, newest-updated first, capped and ignore
   assert.deepEqual(await memory.search("nothing"), []);
 });
 
-test("concurrent memory and identity writes share one complete read-modify-write queue", async (t) => {
-  const { repository, memory, identity } = await setup(t);
-  // 同一轮交错发出两个 feature 的修改；只串行 writeFile 本身仍会丢更新。
+test("concurrent memory and identity writes use independent queues without losing updates", async (t) => {
+  const { repository, identityRepository, memory, identity } = await setup(t);
+  // 同一轮交错发出两个 feature 的修改；两个文档各有自己的写队列，互不覆盖。
   await Promise.all([
     ...Array.from({ length: 30 }, (_, i) => memory.add(`fact-${i}`, "chat")),
     identity.save({ name: "Parallel" }),
@@ -100,7 +105,7 @@ test("concurrent memory and identity writes share one complete read-modify-write
   const state = await repository.read();
   assert.equal(state.memories.length, 30);
   assert.equal(new Set(state.memories.map((entry) => entry.id)).size, 30);
-  assert.deepEqual(state.identity, {
+  assert.deepEqual(await identityRepository.read(), {
     name: "Parallel", tone: "thoughtful", avatar: "tea", showChatUpdates: false,
   });
   await Promise.all([
@@ -113,18 +118,27 @@ test("concurrent memory and identity writes share one complete read-modify-write
   assert.equal((await identity.get()).name, "Renamed");
 });
 
-test("memory rejects partial entries and identity without rewriting original bytes", async (t) => {
-  const { file, repository } = await setup(t);
-  for (const value of [
-    { memories: [item("valid"), { id: "partial", text: "fact" }], identity: defaultIdentity },
-    { memories: [], identity: { name: "Partial" } },
-    { memories: [] },
+test("memory rejects malformed entries and identity without rewriting original bytes", async (t) => {
+  const { file, identityFile, repository, identityRepository } = await setup(t);
+  for (const source of [
+    "# 长期记忆\n\n- [ok] 正常 <!-- source=chat created=2026-10-10T00:00:00.000Z updated=2026-10-10T00:00:00.000Z -->\n- 坏行\n",
+    "- [bad id] 文本\n",
+    "- [ok]\n",
   ]) {
-    const source = JSON.stringify(value);
     await writeFile(file, source);
-    await assert.rejects(repository.read(), /Invalid memory document/);
-    await assert.rejects(repository.update(() => ({ result: undefined })), /Invalid memory document/);
+    await assert.rejects(repository.read(), /Invalid memory-markdown document/);
+    await assert.rejects(repository.update(() => ({ result: undefined })), /Invalid memory-markdown document/);
     assert.equal(await readFile(file, "utf8"), source);
+  }
+  for (const source of [
+    "{broken",
+    '{"memories":[],"identity":{"name":"x"}}',
+    '{"name":"x","tone":"warm","avatar":"sky"}',
+  ]) {
+    await writeFile(identityFile, source);
+    await assert.rejects(identityRepository.read(), /Invalid identity document/);
+    await assert.rejects(identityRepository.update(() => ({ result: undefined })), /Invalid identity document/);
+    assert.equal(await readFile(identityFile, "utf8"), source);
   }
 });
 
@@ -136,11 +150,9 @@ test("memory missing edit and missing forget both skip writing", async (t) => {
   await assert.rejects(stat(file), { code: "ENOENT" });
 });
 
-test("memory edit changes only the first match, even in a legacy file with duplicate IDs", async (t) => {
+test("memory edit changes only the first match, even in a file with duplicate ids", async (t) => {
   const { file, memory } = await setup(t);
-  await writeFile(file, JSON.stringify({
-    memories: [item("same", "first"), item("same", "second")], identity: defaultIdentity,
-  }));
+  await writeFile(file, renderMemoryMarkdown([item("same", "first"), item("same", "second")]));
   await memory.edit("same", "changed");
   assert.deepEqual((await memory.list()).map((entry) => entry.text), ["changed", "second"]);
 });
@@ -153,7 +165,7 @@ test("a rejected memory update leaves the writer usable for later calls", async 
 });
 
 test("memory prompt only announces the count, never the memory text, and rereads settings", async (t) => {
-  const state: MemoryState = {
+  const state: MemoryPromptState = {
     memories: [item("a", "  secret-fact-text  ")],
     identity: { ...defaultIdentity, name: "Tea Bot", tone: "concise" },
   };
@@ -208,7 +220,7 @@ test("memory recall automatically matches relevant memories by Chinese and Engli
 });
 
 test("renderMemoryPrompt formats recalledMemories when provided", async () => {
-  const state: MemoryState = {
+  const state: MemoryPromptState = {
     memories: [item("m1", "用户养了一只金毛犬叫皮皮")],
     identity: defaultIdentity,
   };

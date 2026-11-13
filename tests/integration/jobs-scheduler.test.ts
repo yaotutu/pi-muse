@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
+import { jobsModule } from "../../src/adapters/storage/jobs-schema.js";
 import { createJobService } from "../../src/features/jobs/job-service.js";
 import { createScheduler } from "../../src/features/jobs/scheduler.js";
 import type { Conversation } from "../../src/features/conversation/conversation-service.js";
@@ -18,14 +21,16 @@ const fixture = async (
 ) => {
   const directory = await mkdtemp(join(tmpdir(), "personal-bot-scheduler-"));
   t.mock.timers.enable({ apis: ["Date"], now: now.getTime() });
-  const file = join(directory, "jobs.json");
-  const jobs = createJobService(createJobRepository(file));
+  const dbFile = join(directory, "main.sqlite");
+  const managed = await openSqliteDatabase(dbFile);
+  await managed.serialize(() => ensureSqliteModules(managed, [jobsModule]));
+  const jobs = createJobService(createJobRepository(managed));
   const scheduler = createScheduler({ schedulerIntervalMs: 10 }, jobs, conversation);
   t.after(async () => {
-    try { await scheduler.close(); }
+    try { await scheduler.close(); await managed.close(); }
     finally { await rm(directory, { recursive: true, force: true }); }
   });
-  return { jobs, scheduler, file };
+  return { jobs, scheduler, file: dbFile, managed, directory };
 };
 
 const waitFor = async (predicate: () => Promise<boolean> | boolean) => {
@@ -182,7 +187,9 @@ test("restart rereads stored outcomes and schedules only future work", async (t)
   await scheduler.close();
   await jobs.add("missed while offline", false, new Date(2030, 0, 2, 9).toISOString());
   t.mock.timers.setTime(new Date(2030, 0, 5, 11).getTime());
-  const restartedJobs = createJobService(createJobRepository(file));
+  const reopenedManaged = await openSqliteDatabase(file);
+  t.after(() => reopenedManaged.close());
+  const restartedJobs = createJobService(createJobRepository(reopenedManaged));
   await restartedJobs.reconcileOnStart();
   const stored = await restartedJobs.list();
   assert.equal(stored.find((job) => job.id === once.id)?.enabled, false);
@@ -199,8 +206,14 @@ test("restart rereads stored outcomes and schedules only future work", async (t)
 
 test("scheduler dispatches to originSessionId and skips busy origin while letting other agents run", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "personal-bot-scheduler-multi-"));
-  const file = join(directory, "jobs.json");
-  const jobs = createJobService(createJobRepository(file));
+  const dbFile = join(directory, "main.sqlite");
+  const managed = await openSqliteDatabase(dbFile);
+  await managed.serialize(() => ensureSqliteModules(managed, [jobsModule]));
+  t.after(async () => {
+    try { await managed.close(); }
+    finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  const jobs = createJobService(createJobRepository(managed));
   const agentRuns: Record<string, number> = { "agent-a": 0, "agent-b": 0 };
   let agentABusy = true;
 

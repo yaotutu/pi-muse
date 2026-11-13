@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { once } from "node:events";
 import { serve } from "@hono/node-server";
+import { DatabaseSync } from "node:sqlite";
 import { parseLiveOptions } from "./options.js";
 
 type ScenarioOutcome = {
@@ -283,27 +284,30 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
       try {
         // 1. 非法 PATCH（空串、09:99、24:00、9:00、invalid）：返回 400 INVALID_SCHEDULE_FORMAT 且 jobs.json 字节不变
+        const readDbJob = () => {
+          const db = new DatabaseSync(join(dataDir, "main.sqlite"), { readOnly: true });
+          try { return db.prepare("SELECT * FROM jobs WHERE id = ?").get(targetJobId); } finally { db.close(); }
+        };
         for (const badAt of ["", "09:99", "24:00", "9:00", "invalid"]) {
-          const bytesBefore = await readFile(jobsFile, "utf8");
+          const stateBefore = JSON.stringify(readDbJob());
           const patchRes = await client.request(`/api/jobs/${targetJobId}`, { at: badAt }, "PATCH");
           assert.equal(patchRes.status, 400, `PATCH at='${badAt}' 必须返回 400`);
           const body = (await patchRes.json()) as { code?: string; error?: string };
           assert.equal(body.code, "INVALID_SCHEDULE_FORMAT");
           assert.match(body.error ?? "", /strict HH:mm/);
-          const bytesAfter = await readFile(jobsFile, "utf8");
-          assert.equal(bytesAfter, bytesBefore, `PATCH at='${badAt}' 失败时 jobs.json 字节不得变化`);
+          assert.equal(JSON.stringify(readDbJob()), stateBefore, `PATCH at='${badAt}' 失败时 jobs 表不得变化`);
         }
 
         // 2. 非法带新 originSessionId：不建立智能体、文件不落盘
         const nonExistentAgent = randomUUID();
-        const bytesBeforeAgent = await readFile(jobsFile, "utf8");
+        const stateBeforeAgent = JSON.stringify(readDbJob());
         const badAgentPatch = await client.request(
           `/api/jobs/${targetJobId}`,
           { at: "24:00", originSessionId: nonExistentAgent },
           "PATCH",
         );
         assert.equal(badAgentPatch.status, 400);
-        assert.equal(await readFile(jobsFile, "utf8"), bytesBeforeAgent);
+        assert.equal(JSON.stringify(readDbJob()), stateBeforeAgent);
         const agentsList = (await client.json("/api/sessions")).sessions as { id: string }[];
         assert.equal(agentsList.some((s) => s.id === nonExistentAgent), false, "非法 PATCH 不得创建新智能体");
 

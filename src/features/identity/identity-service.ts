@@ -1,4 +1,4 @@
-import type { MemoryRepository } from "../memory/types.js";
+import type { IdentityRepository } from "../memory/types.js";
 import type { Identity } from "./types.js";
 
 /** SOUL/USER 自由文本的读写 port；实现由 storage adapter 注入，feature 不碰 fs。 */
@@ -9,7 +9,8 @@ type ProfileFiles = {
 
 /**
  * 身份设置入口不读取 SOUL/USER 文件，也不自行创建 writer。
- * 两个 feature 接受同一个 memory repository，patch 只改变 identity 字段。
+ * 身份是独立配置文档（identity.json），由自己的 repository 与写队列保存，
+ * 和长期记忆互不覆盖。
  * SOUL/USER 自由文本经注入的 profileFiles 读写（下一轮 prompt 注入即生效）。
  */
 /** port 缺省时读为空串；port 自身的读取失败必须向上暴露，不得伪装成空内容。 */
@@ -17,14 +18,14 @@ const readProfile = async (files: ProfileFiles | undefined, which: "soul" | "use
   (await files?.read(which)) ?? "";
 
 export const createIdentityService = (
-  repository: MemoryRepository,
+  repository: IdentityRepository,
   profileFiles?: ProfileFiles,
 ) => ({
-  get: async (): Promise<Identity> => (await repository.read()).identity,
+  get: async (): Promise<Identity> => repository.read(),
   save: (patch: Partial<Identity>): Promise<Identity> =>
-    repository.update((state) => {
-      const identity = { ...state.identity, ...patch };
-      return { state: { ...state, identity }, result: identity };
+    repository.update((identity) => {
+      const next = { ...identity, ...patch };
+      return { state: next, result: next };
     }),
   getProfile: async (): Promise<{ soul: string; user: string }> => ({
     soul: await readProfile(profileFiles, "soul"),

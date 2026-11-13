@@ -175,9 +175,13 @@ test("message feedback persists full events, coordinates sessions, and never cha
     }),
   });
   // 等到 run_started 后用独立 HTTP 读当前快照并反馈旧消息。
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  const runningSnapshot = await h.get(sessionId);
-  const currentUser = runningSnapshot.messages.find((item) => item.id === freezeIds.message);
+  let runningSnapshot = await h.get(sessionId);
+  let currentUser = runningSnapshot.messages.find((item) => item.id === freezeIds.message);
+  for (let attempt = 0; !currentUser && attempt < 50; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    runningSnapshot = await h.get(sessionId);
+    currentUser = runningSnapshot.messages.find((item) => item.id === freezeIds.message);
+  }
   assert.equal(currentUser?.metadata?.feedbackAvailable, false);
   const currentReaction = await h.feedback(reactionPath(currentUser!.id), {
     method: "PUT", body: JSON.stringify({ piSessionId: runningSnapshot.piSessionId, reaction: "like" }),

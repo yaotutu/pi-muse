@@ -121,7 +121,9 @@ test("Stop cancels a pending write approval without changing the existing file",
   await until(async () => (await service.actions.list()).find((action) => action.id === pending[0].id)?.status === "cancelled",
     "Stop did not cancel the pending approval");
   // 同时核对落盘终态，防止仅内存撤销、进程重启后旧审批仍可批准。
-  const persisted: { id: string; status: string }[] = JSON.parse(await readFile(h.layout.actionsFile, "utf8"));
+  const reader = new (await import("node:sqlite")).DatabaseSync(h.layout.mainDatabaseFile, { readOnly: true });
+  let persisted: { id: string; status: string }[] = [];
+  try { persisted = reader.prepare("SELECT id, status FROM actions").all() as any; } finally { reader.close(); }
   assert.equal(persisted.find((action) => action.id === pending[0].id)?.status, "cancelled");
   assert.equal((await service.conversationHub.forSession("main")).isRunning(), false);
   assert.equal(await readFile(target, "utf8"), original);
@@ -133,7 +135,7 @@ test("closed service rejects task creation and memory writes through its origina
   const seed = await post(service, "/api/memories", { text: "LIFECYCLE-ORIGINAL-MEMORY" });
   assert.equal(seed.status, 200);
   const memoryId: string = (await seed.json()).id;
-  const before = await readOptional(h.layout.memoryFile);
+  const before = await readOptional(h.layout.memoryMarkdownFile);
   await service.close();
   const requestCount = h.model.requests.length;
   for (const [path, body] of [
@@ -145,7 +147,7 @@ test("closed service rejects task creation and memory writes through its origina
     assert.equal(response.status, 503, path);
     assert.deepEqual(await response.json(), { error: "Service is closing" });
   }
-  assert.equal(await readOptional(h.layout.memoryFile), before);
+  assert.equal(await readOptional(h.layout.memoryMarkdownFile), before);
   assert.equal(h.model.requests.length, requestCount);
 });
 

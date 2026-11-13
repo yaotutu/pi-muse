@@ -7,6 +7,10 @@ import { once } from "node:events";
 import { serve } from "@hono/node-server";
 import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
+import { mainSqliteModules } from "../../src/adapters/storage/sqlite-registry.js";
+import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
 
 // 重置路由新增真实通信生命周期依赖；不再用缺字段的路由替身检查函数调用顺序。
 test("agent reset clears pending monitor delivery, preserves schedules by default and deletes only explicit source schedules", async (t) => {
@@ -18,9 +22,16 @@ test("agent reset clears pending monitor delivery, preserves schedules by defaul
     id: `monitor-${originSessionId}`, title: "Reset fixture", url: "https://example.com/", condition: "change", intervalMinutes: 30,
     status: "paused", createdAt, originSessionId, checks: 1, pendingNotification: { id: `notification-${originSessionId}`, summary: "Old pending delivery" },
   }))));
-  await writeFile(join(root, "jobs.json"), JSON.stringify(["00000000-0000-4000-8000-000000000001", "main"].map((originSessionId) => ({
-    id: `job-${originSessionId}`, prompt: "Future reset fixture", daily: false, at, enabled: true, createdAt, nextRunAt: at, originSessionId,
-  }))));
+  const db = await openSqliteDatabase(join(root, "main.sqlite"));
+  await db.serialize(() => ensureSqliteModules(db, mainSqliteModules));
+  const jobRepo = createJobRepository(db);
+  await jobRepo.update(() => ({
+    items: ["00000000-0000-4000-8000-000000000001", "main"].map((originSessionId) => ({
+      id: `job-${originSessionId}`, prompt: "Future reset fixture", daily: false, at, enabled: true, createdAt, nextRunAt: at, originSessionId,
+    })),
+    result: undefined,
+  }));
+  await db.close();
   await writeFile(join(root,"sessions.json"),JSON.stringify([{id:"00000000-0000-4000-8000-000000000001",title:"Reset topic",createdAt,updatedAt:createdAt,isMain:false}]));
   const service = await createService(createConfig({ server: { host: "127.0.0.1", accessKey: "reset-isolated-access" }, runtime: { dataDir: root }, tools: { browser: { enabled: false } } }));
   const http = serve({ fetch: service.app.fetch, hostname: "127.0.0.1", port: 0 });

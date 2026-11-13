@@ -118,20 +118,19 @@ chmod 600 .pi-muse/config.json
 
 ```text
 DATA_DIR/
-  profile/          SOUL.md USER.md DREAM.md memory.json dream.json
+  profile/          SOUL.md USER.md DREAM.md memory.md identity.json
   workspace/
   sessions.json
   sessions/<sessionId>/  pi JSONL, INSTRUCTIONS.md, skills.json
   messages/<sessionId>/<piSessionId>.json
-  information/sms.json
-  main.sqlite       默认数据库与 Agent 自建表
+  main.sqlite       定时任务、目标、审批、短信、Dream 状态与 Agent 自建表
   news.sqlite       新闻关系表
-  jobs.json goals.json actions.json monitors.json
+  monitors.json     网页监控（暂未迁库）
   agent/            pi auth resources
   skills/ subagents/ traces/ browser/
 ```
 
-所有会话与子代理共用唯一 workspace 根；子代理使用内存上下文，不落盘或建目录。新布局不隐式读取、迁移或删除旧实例。`main.sqlite` 与 `news.sqlite` 的用途见[数据库](database.md)；其他业务文件尚未因此全部迁库。旧 `news.json` 需要明确导入，不是新闻运行时的第二份写入来源。运行中的 SQLite 还可能有 `-wal`/`-shm` 文件，备份不能只按上述文件列表逐个随意复制。
+所有会话与子代理共用唯一 workspace 根；子代理使用内存上下文，不落盘或建目录。新布局不隐式读取、迁移或删除旧实例。`main.sqlite` 与 `news.sqlite` 的用途见[数据库](database.md)；会话与聊天历史仍在 JSON/JSONL，网页监控仍在 JSON 文件。旧 `news.json` 需要明确导入，不是新闻运行时的第二份写入来源。运行中的 SQLite 还可能有 `-wal`/`-shm` 文件，备份不能只按上述文件列表逐个随意复制。
 
 ## 数据存储与安全边界 {#data-storage-and-security-boundaries}
 

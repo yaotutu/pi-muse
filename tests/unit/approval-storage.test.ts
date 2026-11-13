@@ -1,5 +1,5 @@
 /**
- * 审批存储 schema 与 repository 测试：只覆盖 storage 域自身（reader 与文件边界）。
+ * 审批存储 schema 与 repository 测试：只覆盖 storage 域自身（reader 与存储边界）。
  *
  * 不触碰 HTTP/服务/pi；不 mock 算法。验证事项：
  * - 必填关联字段（sessionId/runId/toolCallId/subagentId/activityId）
@@ -8,16 +8,13 @@
  * - execution 字段只在 status==='approved' 上合法；status 枚举合法；
  *   running/unknown 强制 finishedAt=null；其他终态 finishedAt 是合法日期；
  *   result 是字符串或 null；
- * - repository 在损坏文件上拒绝读、改、并发写都不能静默修复或截断文件。
+ * - repository 在非法记录上拒绝写入，不修复、不截断已存记录。
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import test from "node:test";
-import { createActionRepository } from "../../src/adapters/storage/action-repository.js";
 import { InvalidDocumentError, readActionsDocument } from "../../src/adapters/storage/document-schemas.js";
+import { openActionStore } from "./actions-sqlite-fixture.js";
 import type { PendingAction } from "../../src/features/actions/types.js";
 
 const at = "2026-10-19T00:00:00.000Z";
@@ -168,46 +165,34 @@ test("action document allows execution only on approved status with valid starte
   }
 });
 
-test("approval repository rejects an invalid record without truncating, rewriting or repairing its document", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "approval-storage-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const file = join(dir, "actions.json");
-  const repository = createActionRepository(file);
-  assert.deepEqual(await repository.read(), []);
-  await assert.rejects(stat(file), { code: "ENOENT" });
+test("approval repository rejects an invalid record without rewriting or repairing its stored rows", async (t) => {
+  const store = await openActionStore("approval-storage-invalid-");
+  t.after(() => store.close());
+  assert.deepEqual(await store.repository.read(), []);
 
-  // 任一种坏文件：read/update 都必须立刻报错且不修改文件。
-  const cases: string[] = [
-    "{broken-json",
-    JSON.stringify([record(), record({ id: "bad", status: "denied" })]),
-    JSON.stringify([record(), { ...record({ id: "bad" }), payload: { content: 123 } }]),
-    JSON.stringify([{ ...record({ status: "approved", decidedAt: at }), execution: { status: "succeeded" } }]),
-    JSON.stringify([{ ...record({ id: "exec-on-pending" }), execution: { status: "running", startedAt: at, finishedAt: null, result: null } }]),
+  // 状态机非法的记录被数据库约束拒绝：整笔写入回滚，已存记录原样保留。
+  await store.repository.update((items) => ({ items: [...items, record()], result: undefined }));
+  const cases: PendingAction[] = [
+    record({ id: "bad", status: "denied" }),
+    record({ id: "bad", payload: { content: 123 } as unknown as Record<string, string> }),
+    record({ id: "bad", status: "approved", decidedAt: at, execution: { status: "succeeded" } as never }),
+    record({ id: "bad", execution: { status: "running", startedAt: at, finishedAt: null, result: null } as never }),
   ];
-  for (const damaged of cases) {
-    await writeFile(file, damaged, { mode: 0o600 });
-    await assert.rejects(repository.read(), InvalidDocumentError, "damaged doc must throw on read");
+  for (const invalid of cases) {
     await assert.rejects(
-      repository.update((items) => ({ items: [...items, record()], result: undefined })),
-      InvalidDocumentError,
-      "damaged doc must throw on update",
+      store.repository.update((items) => ({ items: [...items, invalid], result: undefined })),
+      // 非法状态组合由数据库 CHECK 拒绝；payload 取值类型在写入前的仓储边界拒绝。
+      /CHECK constraint failed|Approval payload must be a string map/i,
+      `damaged record must be rejected: ${JSON.stringify(invalid)}`,
     );
-    // 文件保持原样：拒绝时不悄悄重写或截断损坏内容。
-    assert.equal(await readFile(file, "utf8"), damaged);
   }
-
-  // 修复后写队列仍然可用。
-  await writeFile(file, JSON.stringify([record()]), { mode: 0o600 });
-  await repository.update((items) => ({ items: [...items, record({ id: "next" })], result: undefined }));
-  assert.equal((await repository.read()).length, 2);
-  assert.equal((await stat(file)).mode & 0o777, 0o600);
+  // 已存的合法记录没有被修复、替换或截断。
+  assert.equal((await store.repository.read()).length, 1);
 });
 
 test("approval repository round-trips records with execution by parsing and preserving the execution block", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "approval-storage-exec-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const file = join(dir, "actions.json");
-  const repository = createActionRepository(file);
+  const store = await openActionStore("approval-storage-exec-");
+  t.after(() => store.close());
 
   const withExecution = record({
     id: "approved-executed",
@@ -218,12 +203,12 @@ test("approval repository round-trips records with execution by parsing and pres
     execution: { status: "succeeded", startedAt: at, finishedAt: at, result: "ok" },
   });
 
-  await repository.update((items) => ({ items: [withExecution], result: undefined }));
-  const read = await repository.read();
+  await store.repository.update((items) => ({ items: [withExecution], result: undefined }));
+  const read = await store.repository.read();
   assert.equal(read.length, 1);
   assert.deepEqual(read[0], withExecution);
-  // 多次读取不会改写文件内容（除时间戳/mtime 外）。
-  await repository.read();
-  assert.equal((await repository.read()).length, 1);
-  assert.deepEqual((await repository.read())[0].execution, withExecution.execution);
+  // 多次读取不产生额外写入：记录内容保持稳定。
+  await store.repository.read();
+  assert.equal((await store.repository.read()).length, 1);
+  assert.deepEqual((await store.repository.read())[0].execution, withExecution.execution);
 });

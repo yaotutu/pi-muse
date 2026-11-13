@@ -17,6 +17,9 @@ import type { HistoryMessage } from "../../src/features/conversation/types.js";
 import { scheduleTool } from "../../src/adapters/pi/tools/schedule.js";
 import { projectExecutionEvent } from "../../src/adapters/pi/execution.js";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
+import { jobsModule } from "../../src/adapters/storage/jobs-schema.js";
 import { createJobService } from "../../src/features/jobs/job-service.js";
 import type { Job } from "../../src/features/jobs/types.js";
 
@@ -101,7 +104,10 @@ const fixture = async (t: TestContext) => {
 test("projectExecutionEvent preserves controlled rejection message across tool_execution_end and message_end", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-muse-sched-proj-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const repo = createJobRepository(join(dir, "jobs.json"));
+  const managed = await openSqliteDatabase(join(dir, "main.sqlite"));
+  await managed.serialize(() => ensureSqliteModules(managed, [jobsModule]));
+  t.after(() => managed.close());
+  const repo = createJobRepository(managed);
   const jobs = createJobService(repo);
   const tool = scheduleTool(jobs, "main");
 
@@ -153,15 +159,15 @@ test("HTTP PATCH enforces strict schedule validation, boundary recalculation, an
   const reference = new Date();
   const initialJob = await h.service().jobs.add("initial prompt", true, "10:00", "main");
 
-  // 1. 非法 HH:mm（含空串）逐次 400 INVALID_SCHEDULE_FORMAT，且每次原始文件字节不变
+  // 1. 非法 HH:mm（含空串）逐次 400 INVALID_SCHEDULE_FORMAT，且每次数据库状态不变
   for (const badAt of ["09:99", "24:00", "9:00", "invalid", ""]) {
-    const bytesBefore = await readFile(jobsFile, "utf8");
+    const listBefore = JSON.stringify(await h.service().jobs.list());
     const res = await h.request(`/api/jobs/${initialJob.id}`, "PATCH", { at: badAt });
     assert.equal(res.status, 400);
     const body = (await res.json()) as { code?: string; error?: string };
     assert.equal(body.code, "INVALID_SCHEDULE_FORMAT");
     assert.match(body.error ?? "", /strict HH:mm/);
-    assert.equal(await readFile(jobsFile, "utf8"), bytesBefore);
+    assert.equal(JSON.stringify(await h.service().jobs.list()), listBefore);
   }
   assert.equal((await h.service().jobs.get(initialJob.id))?.at, "10:00");
 
@@ -216,13 +222,13 @@ test("HTTP PATCH enforces strict schedule validation, boundary recalculation, an
 
   // 6. 非法时刻带新 originSessionId：绝不建立目标智能体、sessions/workspace 目录与智能体列表均不出现
   const nonExistentAgent = "never-created-bad-sched-agent";
-  const bytesBefore = await readFile(jobsFile, "utf8");
+  const listBefore = JSON.stringify(await h.service().jobs.list());
   const badAgentPatch = await h.request(`/api/jobs/${initialJob.id}`, "PATCH", {
     at: "24:00",
     originSessionId: nonExistentAgent,
   });
   assert.equal(badAgentPatch.status, 400);
-  assert.equal(await readFile(jobsFile, "utf8"), bytesBefore);
+  assert.equal(JSON.stringify(await h.service().jobs.list()), listBefore);
   assert.equal(await h.listed(nonExistentAgent), false);
   await assertMissing(join(h.dir, "sessions", nonExistentAgent));
   await assertMissing(join(h.dir, "workspace", "agents", nonExistentAgent));
@@ -262,8 +268,8 @@ test("deterministic concurrency gate: PATCH at '12:00' meets concurrent daily fl
     // 并发合法更新：daily 翻转为 false（at 同步改为合法 ISO），绕过 gate 直接落盘
     gateActive = false;
     await originalUpdate(job.id, { daily: false, at: "2030-01-01T10:00:00+08:00" });
-    // 并发更新后的文件字节：慢请求被领域拒绝后必须保持这份字节不变
-    const bytesAfterConcurrent = await readFile(jobsFile, "utf8");
+    // 并发更新后的数据状态：慢请求被领域拒绝后必须保持这份状态不变
+    const listAfterConcurrent = JSON.stringify(await h.service().jobs.list());
 
     // 放行慢请求：合并结果 daily=false + at="12:00" 非法，repository 内 assertValidSchedule 拒绝
     updateProceed.resolve();
@@ -272,7 +278,7 @@ test("deterministic concurrency gate: PATCH at '12:00' meets concurrent daily fl
     const body = (await response.json()) as { code?: string; error?: string };
     assert.equal(body.code, "INVALID_SCHEDULE_FORMAT");
     assert.match(body.error ?? "", /ISO 8601 timestamp with timezone is required/);
-    assert.equal(await readFile(jobsFile, "utf8"), bytesAfterConcurrent);
+    assert.equal(JSON.stringify(await h.service().jobs.list()), listAfterConcurrent);
   } finally {
     gateActive = false;
     updateProceed.resolve();
@@ -447,7 +453,7 @@ test("pi schedule tool over real HTTP rejects invalid daily time with preserved 
 
   // 1. 非法输入不创建任务；模型与 pi 原始历史保留原因，公开出口仍遵守摘要策略。
   for (const marker of ["bad1", "bad2", "bad3"]) {
-    await assertMissing(jobsFile);
+    const jobsCountBefore: number = (await service!.jobs.list()).length;
     const events = await run(`A03SCHED-${marker}`);
     assert.ok(events.some((event) => event.type === "RUN_FINISHED"), `${marker} run must finish`);
 
@@ -486,8 +492,8 @@ test("pi schedule tool over real HTTP rejects invalid daily time with preserved 
     assert.equal(persisted?.isError, true);
     assert.match(flattenContent(persisted?.content), /strict HH:mm between 00:00 and 23:59/);
 
-    // 拒绝路径绝不创建 jobs 文件
-    await assertMissing(jobsFile);
+    // 拒绝路径绝不新增任务
+    assert.equal((await service!.jobs.list()).length, jobsCountBefore);
   }
 
   // 2. 合法边界 00:00 / 23:59：真实 pi 链路创建任务并按本地时区计算 nextRunAt

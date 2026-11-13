@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -9,9 +9,13 @@ import {
   sessionDir,
 } from "../../src/adapters/storage/data-layout.js";
 import { InvalidDocumentError } from "../../src/adapters/storage/document-schemas.js";
-import { createDreamRepository } from "../../src/adapters/storage/dream-repository.js";
+import { createDreamPromptPort, createDreamRepository } from "../../src/adapters/storage/dream-repository.js";
+import { dreamModule } from "../../src/adapters/storage/dream-schema.js";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
+import { createIdentityRepository } from "../../src/adapters/storage/identity-repository.js";
 import { readProfileFile, writeProfileFile } from "../../src/adapters/storage/profile-files.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
 import {
   readSessionInstructions,
   writeSessionInstructions,
@@ -40,15 +44,22 @@ const setup = async (t: TestContext) => {
   t.after(() => rm(dir, { recursive: true, force: true }));
   const layout = createDataLayout(dir);
   await mkdir(sessionDir(layout, "main"), { recursive: true, mode: 0o700 });
-  const memoryRepo = createMemoryRepository(layout.memoryFile);
-  const memory = createMemoryService(memoryRepo);
-  const identity = createIdentityService(memoryRepo, {
+  const memoryRepo = createMemoryRepository(join(layout.profileDir, "memory.md"));
+  const identity = createIdentityService(createIdentityRepository(join(layout.profileDir, "identity.json")), {
     read: (which) => readProfileFile(which === "soul" ? layout.soulFile : layout.userFile),
     write: (which, content, expected) =>
       writeProfileFile(which === "soul" ? layout.soulFile : layout.userFile, content, expected),
   });
-  const repository = createDreamRepository(layout);
-  return { dir, layout, memory, identity, repository };
+  const memory = createMemoryService(memoryRepo, identity);
+  // 机器状态在 main.sqlite 的 dream_* 表；提示文本仍是 profile/DREAM.md 文件事实。
+  const database = await openSqliteDatabase(join(dir, "main.sqlite"));
+  t.after(() => database.close());
+  await database.serialize(() => ensureSqliteModules(database, [dreamModule]));
+  const repository = Object.assign(
+    createDreamRepository(database),
+    createDreamPromptPort(layout),
+  );
+  return { dir, layout, database, memory, identity, repository };
 };
 
 test("sliceWindow and splitBatches keep 4k-token overlap across runs and batches", () => {
@@ -196,7 +207,7 @@ test("global Dream prompt falls back to defaults and fixed safety rules remain s
 });
 
 test("profile files and dream repository enforce strict validation, conditional writes and startup reconciliation", async (t) => {
-  const { layout, repository } = await setup(t);
+  const { layout, repository, database } = await setup(t);
   // 1. 仅缺失返回默认，目录当作文件读取必须抛 EISDIR，不伪装成空串。
   assert.equal(await readProfileFile(layout.userFile), "");
   await assert.rejects(readProfileFile(layout.sessionsDir), { code: "EISDIR" });
@@ -210,27 +221,32 @@ test("profile files and dream repository enforce strict validation, conditional 
   assert.equal(await writeSessionInstructions(instFile, "stale", ""), false);
   assert.equal(await readSessionInstructions(instFile), "inst-v1");
 
-  // 3. dream.json 默认值：main 默认开启，其余会话默认关闭，GET 不落盘。
-  assert.equal((await repository.read()).enabled, true);
+  // 3. 默认状态：默认开启，无游标与待决项；读取不产生额外数据行，也不写 dream.json。
+  assert.deepEqual(await repository.read(), { enabled: true, cursors: {}, pending: [] });
+  assert.equal((database.database.prepare("SELECT COUNT(*) AS total FROM dream_cursors").get() as { total: number }).total, 0);
+  assert.equal((database.database.prepare("SELECT COUNT(*) AS total FROM dream_pending").get() as { total: number }).total, 0);
   await assert.rejects(stat(join(layout.profileDir, "dream.json")), { code: "ENOENT" });
+  // 提示文本端口读写 profile/DREAM.md，不进数据库。
+  assert.equal(await repository.readGlobalPrompt(), "");
+  await repository.writeGlobalPrompt("# dream rules");
+  assert.equal(await readProfileFile(layout.dreamFile), "# dream rules");
 
-  // 4. 损坏或带 schemaVersion 的 dream.json 必须抛 InvalidDocumentError("dream")。
-  const dreamFile = join(layout.profileDir, "dream.json");
+  // 4. 损坏的行必须在读取时抛 InvalidDocumentError("dream")，不静默过滤。
+  const statement = database.database.prepare("UPDATE dream_state SET last_run_json = ?");
   for (const bad of [
     "{broken",
-    '{"enabled":true,"inheritGlobalPrompt":true,"pending":[],"schemaVersion":1}',
-    '{"enabled":true,"inheritGlobalPrompt":true,"pending":[],"extra":1}',
-    '{"enabled":"yes","inheritGlobalPrompt":true,"pending":[]}',
+    '{"at":"2026-10-20T00:00:00.000Z","status":"running","changed":[],"processed":2,"schemaVersion":1}',
+    '{"at":"2026-10-20T00:00:00.000Z","status":"running","changed":[],"processed":2,"extra":1}',
+    '{"at":"2026-10-20T00:00:00.000Z","status":"weird","changed":[],"processed":2}',
   ]) {
-    await writeFile(dreamFile, bad);
+    statement.run(bad);
     await assert.rejects(repository.read(), InvalidDocumentError);
-    assert.equal(await readFile(dreamFile, "utf8"), bad);
   }
+  statement.run(null);
 
   // 5. 启动校准：崩溃遗留的 running 诚实标记为 failed。
-  await writeFile(
-    dreamFile,
-    JSON.stringify({
+  await repository.update(() => ({
+    state: {
       enabled: true,
       cursors: {},
       lastRun: {
@@ -240,8 +256,9 @@ test("profile files and dream repository enforce strict validation, conditional 
         processed: 2,
       },
       pending: [],
-    }),
-  );
+    },
+    result: undefined,
+  }));
   await repository.reconcileOnStart();
   const reconciled = await repository.read();
   assert.equal(reconciled.lastRun?.status, "failed");

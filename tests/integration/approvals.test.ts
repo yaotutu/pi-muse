@@ -26,6 +26,10 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
+import { mainSqliteModules } from "../../src/adapters/storage/sqlite-registry.js";
+import { createActionRepository } from "../../src/adapters/storage/action-repository.js";
 import { endpoints } from "../../src/http/contracts/endpoints.js";
 import { buildOpenApiDocument } from "../../src/http/openapi.js";
 import {
@@ -82,7 +86,11 @@ const openServiceWithActions = async (
   });
   dataDir = await mkdtemp(join(tmpdir(), "pi-muse-approvals-"));
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
-  await writeFile(join(dataDir, "actions.json"), JSON.stringify(items, null, 2));
+  const db = await openSqliteDatabase(join(dataDir, "main.sqlite"));
+  await db.serialize(() => ensureSqliteModules(db, mainSqliteModules));
+  const repo = createActionRepository(db);
+  await repo.update(() => ({ items, result: undefined }));
+  await db.close();
   service = await createService(createConfig({
     runtime: { dataDir, runTimeoutMs: 3000, schedulerIntervalMs: 60000, monitorScanIntervalMs: 60000 },
   }));

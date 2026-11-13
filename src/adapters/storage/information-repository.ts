@@ -1,16 +1,10 @@
-import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import { z } from "zod";
-import { isSessionId } from "../../features/conversation/session-id.js";
 import {
-  defaultInformationState,
   type InformationRepository,
   type InformationState,
 } from "../../features/information/types.js";
-import { createSerializedWriter } from "../../shared/serialized-writer.js";
-import { informationFile, type DataLayout } from "./data-layout.js";
-import { writeJsonDocument } from "./json-document.js";
+import { applySmsState, ensureSmsModule, readSmsState } from "./sms-schema.js";
+import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 
 const isoTime = z.string().datetime();
 const publicArticleUrl = z.string().url().max(2048).regex(/^https?:\/\//).refine((value) => {
@@ -67,6 +61,10 @@ const runSchema = z.strictObject({
   decisions: z.array(decisionSchema).optional(),
   publications: z.array(publicationSchema),
 });
+/**
+ * 短信状态结构（新闻处理复用同一 processing 结构）。
+ * 该结构仍是唯一的字段事实来源：写入前与读出后执行同一规则，坏结构一律报错。
+ */
 export const informationStateSchema = z.strictObject({
   schemaVersion: z.literal(1),
   settings: z.strictObject({
@@ -94,81 +92,107 @@ export const informationStateSchema = z.strictObject({
   initialAnalysisCompleted: z.boolean().default(false).optional(),
 });
 
-const parseState = (value: unknown, logicalFile: string): InformationState => {
+/**
+ * 严格解析短信状态：字段规则之外还检查身份唯一性与引用关系，
+ * 避免库里出现重复 id、指向不存在条目的 run/反馈这类坏事实。
+ */
+export const parseInformationState = (value: unknown): InformationState => {
   const parsed = informationStateSchema.safeParse(value);
-  if (!parsed.success) throw new Error(`Invalid information document: ${logicalFile}`);
-  return parsed.data;
+  if (!parsed.success) throw new Error("Invalid information state");
+  const state = parsed.data;
+  const unique = (values: string[]): boolean => new Set(values).size === values.length;
+  const items = new Set(state.items.map((item) => item.id));
+  if (!unique(state.items.map((item) => item.id)) ||
+      !unique(state.items.map((item) => JSON.stringify([item.source, item.externalId]))) ||
+      !unique(state.runs.map((run) => run.id)) ||
+      !unique(state.articleFeedback.map((feedback) => feedback.itemId)) ||
+      !unique(state.articleFeedback.flatMap((feedback) => feedback.comments.map((comment) => comment.id))) ||
+      state.articleFeedback.some((feedback) => !items.has(feedback.itemId)) ||
+      state.runs.some((run) => run.itemIds.some((id) => !items.has(id)) ||
+        !unique(run.itemIds) ||
+        !unique((run.decisions ?? []).map((decision) => decision.itemId)) ||
+        run.decisions?.some((decision) => !run.itemIds.includes(decision.itemId)))) {
+    throw new Error("Invalid information state: duplicate identity or invalid relation");
+  }
+  return state;
 };
 
-const readState = async (file: string, logicalFile: string): Promise<InformationState> => {
-  let source: string;
-  try {
-    source = await readFile(file, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return defaultInformationState();
-    throw error;
-  }
-  try {
-    return parseState(JSON.parse(source), logicalFile);
-  } catch {
-    throw new Error(`Invalid information document: ${logicalFile}`);
-  }
-};
-
-/** 全局短信文档；所有读改写和启动校准共用同一条队列。 */
-export const createInformationRepository = (layout: DataLayout): InformationRepository => {
-  const serialized = createSerializedWriter();
-  const file = informationFile(layout);
+/**
+ * 短信仓储的 SQLite 实现：聚合 read/update 接口语义不变，事实落在 main.sqlite 的
+ * sms_* 表（见 sms-schema.ts），写入按行级 diff 提交。
+ *
+ * - read() 返回完整 InformationState；update(change, options) 把当前状态交给回调，
+ *   回调返回 state 时才落库（行级 diff），未返回 state 时绝不写库。
+ * - options.allowCreate 只为保持端口形状，与既有实现一致地不改变行为。
+ * - 写成功后调用 onCommitted（由组装层决定是否需要通知外部观察者）。
+ * - 校验在读出与写入两侧执行同一规则；损坏结构显式失败，不静默过滤或置空。
+ */
+export const createInformationRepository = (
+  managed: ManagedSqliteDatabase,
+  onCommitted?: () => void,
+): InformationRepository => {
+  let ready = false;
+  const ensureReady = (): void => {
+    if (ready) return;
+    ensureSmsModule(managed);
+    ready = true;
+  };
   const repository: InformationRepository = {
-    read: () => serialized(() => readState(file, "information/sms.json")),
-    update: (change) => serialized(async () => {
-      const changed = await change(await readState(file, "information/sms.json"));
+    read: () => managed.serialize(() => {
+      ensureReady();
+      return parseInformationState(readSmsState(managed));
+    }),
+    update: (change, _options) => managed.serialize(async () => {
+      ensureReady();
+      const current = parseInformationState(readSmsState(managed));
+      // 回调允许原位修改；diff 基线必须与回调持有的对象隔离。
+      const changed = await change(structuredClone(current));
       if (changed.state) {
-        await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-        await writeJsonDocument(file, parseState(changed.state, "information/sms.json"));
+        const next = parseInformationState(changed.state);
+        managed.transaction(() => applySmsState(managed, current, next));
+        onCommitted?.();
       }
       return changed.result;
     }),
     reconcileOnStart: async () => {
       const now = new Date().toISOString();
       await repository.update((state) => {
-          let changed = false;
-          const runs = state.runs.map((run) => {
-            if (run.status !== "running") return run;
-            changed = true;
-            return {
-              ...run,
-              status: "failed" as const,
-              finishedAt: now,
-              model: { status: "failed" as const, error: "Interrupted by service restart" },
-              publications: run.publications.map((publication) =>
-                publication.status === "pending"
-                  ? { ...publication, status: "failed" as const, error: "Interrupted by service restart" }
-                  : publication,
-              ),
-            };
-          });
-          const failedRunIds = new Set(runs.filter((run) => run.status === "failed").map((run) => run.id));
-          const items = state.items.map((item) => {
-            if (item.status !== "processing" || !item.runId || !failedRunIds.has(item.runId)) return item;
-            changed = true;
-            return { ...item, status: "failed" as const };
-          });
-          const completedRuns = runs.map((run) => {
-            if (run.status !== "completed" || !run.publications.some((publication) => publication.status === "pending")) return run;
-            changed = true;
-            return {
-              ...run,
-              publications: run.publications.map((publication) =>
-                publication.status === "pending"
-                  ? { ...publication, status: "failed" as const, error: "Interrupted by service restart" }
-                  : publication,
-              ),
-            };
-          });
-          if (!changed) return { result: undefined };
-          return { state: { ...state, items, runs: completedRuns }, result: undefined };
-
+        let changed = false;
+        const runs = state.runs.map((run) => {
+          if (run.status !== "running") return run;
+          changed = true;
+          return {
+            ...run,
+            status: "failed" as const,
+            finishedAt: now,
+            model: { status: "failed" as const, error: "Interrupted by service restart" },
+            publications: run.publications.map((publication) =>
+              publication.status === "pending"
+                ? { ...publication, status: "failed" as const, error: "Interrupted by service restart" }
+                : publication,
+            ),
+          };
+        });
+        const failedRunIds = new Set(runs.filter((run) => run.status === "failed").map((run) => run.id));
+        const items = state.items.map((item) => {
+          if (item.status !== "processing" || !item.runId || !failedRunIds.has(item.runId)) return item;
+          changed = true;
+          return { ...item, status: "failed" as const };
+        });
+        const completedRuns = runs.map((run) => {
+          if (run.status !== "completed" || !run.publications.some((publication) => publication.status === "pending")) return run;
+          changed = true;
+          return {
+            ...run,
+            publications: run.publications.map((publication) =>
+              publication.status === "pending"
+                ? { ...publication, status: "failed" as const, error: "Interrupted by service restart" }
+                : publication,
+            ),
+          };
+        });
+        if (!changed) return { result: undefined };
+        return { state: { ...state, items, runs: completedRuns }, result: undefined };
       });
     },
     validateAll: async () => { await repository.read(); },

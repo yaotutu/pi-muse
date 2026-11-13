@@ -476,19 +476,19 @@ test("automatic scheduler processes an immediate batch and restart preserves pen
   assert.equal(detail.publications?.[0]?.status, "published");
 
   // 模拟崩溃后遗留：running 与“模型已完成但发布未确认”都必须启动校准，且不重跑模型。
-  const file = join(h.dataDir, "information", "sms.json");
-  const state = JSON.parse(await readFile(file, "utf8")) as {
-    items: Array<{ status: string }>;
-    runs: RunDetail["run"][];
-  };
-  const interrupted = state.runs[0]!;
-  interrupted.status = "running";
-  state.items.forEach((item) => { item.status = "processing"; });
-  interrupted.publications?.forEach((publication) => {
-    publication.status = "pending";
-    delete publication.receipt;
-  });
-  await writeFile(file, JSON.stringify({ ...state, runs: [interrupted, ...state.runs.slice(1)] }, null, 2) + "\n");
+  const smsDb = new (await import("node:sqlite")).DatabaseSync(join(h.dataDir, "main.sqlite"));
+  try {
+    smsDb.prepare("UPDATE sms_runs SET status = 'running'").run();
+    smsDb.prepare("UPDATE sms_items SET status = 'processing'").run();
+    const rows = smsDb.prepare("SELECT id, publications_json FROM sms_runs").all() as Array<{ id: string; publications_json: string }>;
+    for (const row of rows) {
+      const pubs = JSON.parse(row.publications_json) as Array<{ status: string; receipt?: unknown }>;
+      pubs.forEach((p) => { p.status = "pending"; delete p.receipt; });
+      smsDb.prepare("UPDATE sms_runs SET publications_json = ? WHERE id = ?").run(JSON.stringify(pubs), row.id);
+    }
+  } finally {
+    smsDb.close();
+  }
   const before = h.model.requests.length;
   await h.restart();
   assert.equal(h.model.requests.length, before);

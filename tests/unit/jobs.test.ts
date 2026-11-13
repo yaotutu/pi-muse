@@ -1,18 +1,30 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
+import { jobsModule } from "../../src/adapters/storage/jobs-schema.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
 import { createJobService } from "../../src/features/jobs/job-service.js";
 import { nextRunAfter } from "../../src/features/jobs/schedule-calculator.js";
 import type { Job } from "../../src/features/jobs/types.js";
 
-const tempFile = async (t: { after: (cleanup: () => Promise<void>) => void }) => {
+/** 定时任务事实现在在 main.sqlite；每个用例独立库，模块账本先登记再使用。 */
+const tempDatabase = async (t: { after: (cleanup: () => Promise<void>) => void }) => {
   const directory = await mkdtemp(join(tmpdir(), "personal-bot-jobs-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  return join(directory, "jobs.json");
+  const file = join(directory, "main.sqlite");
+  const managed = await openSqliteDatabase(file);
+  t.after(() => managed.close());
+  await managed.serialize(() => ensureSqliteModules(managed, [jobsModule]));
+  return { file, managed, repository: createJobRepository(managed) };
 };
+
+/** 库内写入计数：用来证明“未命中/只读 update”没有产生任何写入。 */
+const totalChanges = (managed: Awaited<ReturnType<typeof tempDatabase>>["managed"]): number =>
+  Number((managed.database.prepare("SELECT total_changes() AS n").get() as { n: number }).n);
 
 const baseJob = (id: string): Job => ({
   id,
@@ -53,8 +65,8 @@ test("nextRunAfter keeps one-time and daily scheduling semantics", () => {
 });
 
 test("reconcileOnStart follows nanobot restart semantics", async (t) => {
-  const file = await tempFile(t);
-  const service = createJobService(createJobRepository(file));
+  const { managed, repository } = await tempDatabase(t);
+  const service = createJobService(repository);
   const now = new Date(2030, 0, 5, 10, 30);
   t.mock.timers.enable({ apis: ["Date"], now: now.getTime() });
   const daily: Job = {
@@ -72,7 +84,7 @@ test("reconcileOnStart follows nanobot restart semantics", async (t) => {
   const staleFuture = { ...future, id: "stale-future", nextRunAt: new Date(0).toISOString() };
   const disabled = { ...daily, id: "cancelled", enabled: false };
   const completed = { ...expired, id: "completed", enabled: false, lastStatus: "completed" as const };
-  await createJobRepository(file).update(() => ({
+  await repository.update(() => ({
     items: [daily, expired, future, staleFuture, disabled, completed], result: undefined,
   }));
   await service.reconcileOnStart();
@@ -85,25 +97,34 @@ test("reconcileOnStart follows nanobot restart semantics", async (t) => {
     disabled,
     completed,
   ]);
+  assert.ok(totalChanges(managed) > 0);
 });
 
-test("reconcileOnStart does not create a missing file or rewrite unchanged data", async (t) => {
-  const file = await tempFile(t);
-  const service = createJobService(createJobRepository(file));
+test("reconcileOnStart does not write when nothing changed", async (t) => {
+  const { managed, repository } = await tempDatabase(t);
+  const service = createJobService(repository);
   t.mock.timers.enable({ apis: ["Date"], now: new Date(2029, 0, 1).getTime() });
   await service.reconcileOnStart();
-  await assert.rejects(stat(file), { code: "ENOENT" });
-  const source = JSON.stringify([baseJob("future")], null, 2) + "\n";
-  await writeFile(file, source);
+  assert.deepEqual(await service.list(), []);
+  const before = totalChanges(managed);
+  await repository.update(() => ({ items: [baseJob("future")], result: undefined }));
   await service.reconcileOnStart();
-  assert.equal(await readFile(file, "utf8"), source);
+  // 存量任务本身合法且无需重排时，不得产生任何写入。
+  assert.equal(totalChanges(managed), before + 1);
+  assert.deepEqual((await service.list()).map((job) => job.id), ["future"]);
 });
 
-test("reconcileOnStart rejects damaged jobs without replacing the original file", async (t) => {
-  const file = await tempFile(t);
-  await writeFile(file, "broken original");
-  await assert.rejects(createJobService(createJobRepository(file)).reconcileOnStart());
-  assert.equal(await readFile(file, "utf8"), "broken original");
+test("reconcileOnStart rejects damaged jobs without replacing the original row", async (t) => {
+  const { managed, repository } = await tempDatabase(t);
+  // 绕过库内 CHECK 写入非法时刻：读取与启动排期都必须拒绝，坏行原样保留。
+  managed.database.exec("PRAGMA ignore_check_constraints = ON");
+  managed.database.prepare(
+    "INSERT INTO jobs (id, position, prompt, daily, at, enabled, created_at, next_run_at) VALUES ('broken', 0, 'p', 1, '99:99', 1, ?, ?)",
+  ).run("2029-01-01T00:00:00.000Z", "2030-01-01T00:00:00.000Z");
+  managed.database.exec("PRAGMA ignore_check_constraints = OFF");
+  await assert.rejects(createJobService(repository).reconcileOnStart());
+  const rows = managed.database.prepare("SELECT id, at FROM jobs").all() as Array<{ id: string; at: string }>;
+  assert.deepEqual(rows.map((row) => ({ id: row.id, at: row.at })), [{ id: "broken", at: "99:99" }]);
 });
 
 test("nextRunAfter rejects invalid daily time without fallback or Date auto-overflow", () => {
@@ -119,24 +140,31 @@ test("nextRunAfter rejects invalid daily time without fallback or Date auto-over
   assert.throws(() => nextRunAfter(true, "Infinity:00", after), isScheduleError);
 });
 
-test("repository rejects bad job entries instead of filtering and preserves original bytes", async (t) => {
-  const file = await tempFile(t);
-  const repository = createJobRepository(file);
-  for (const invalid of [
-    { id: "minimal", prompt: "" }, { id: "missing-prompt" },
-    { ...baseJob("bad"), daily: "yes" }, { ...baseJob("bad"), nextRunAt: "invalid" }, null,
-  ]) {
-    const source = JSON.stringify([baseJob("valid"), invalid]);
-    await writeFile(file, source);
+test("repository rejects bad job entries instead of filtering and keeps the original row", async (t) => {
+  const { managed, repository } = await tempDatabase(t);
+  // 绕过库内 CHECK 造出各类坏记录：布尔列不是 0/1、时间不是合法时刻、下一轮时间不可解析。
+  const broken: Array<{ id: string; daily: string | number; at: string; nextRunAt: string }> = [
+    { id: "bad-daily", daily: "yes", at: "2030-01-01T00:00:00.000Z", nextRunAt: "2030-01-01T00:00:00.000Z" },
+    { id: "bad-at", daily: 0, at: "not-a-date", nextRunAt: "2030-01-01T00:00:00.000Z" },
+    { id: "bad-next", daily: 0, at: "2030-01-01T00:00:00.000Z", nextRunAt: "invalid" },
+  ];
+  for (const [index, item] of broken.entries()) {
+    managed.database.exec("PRAGMA ignore_check_constraints = ON");
+    managed.database.prepare(
+      "INSERT INTO jobs (id, position, prompt, daily, at, enabled, created_at, next_run_at) VALUES (?, 0, 'p', ?, ?, 1, ?, ?)",
+    ).run(item.id, item.daily, item.at, "2029-01-01T00:00:00.000Z", item.nextRunAt);
+    managed.database.exec("PRAGMA ignore_check_constraints = OFF");
     await assert.rejects(repository.read(), /Invalid jobs document/);
     await assert.rejects(repository.update(() => ({ items: [], result: undefined })), /Invalid jobs document/);
-    assert.equal(await readFile(file, "utf8"), source);
+    // 坏记录不被过滤，也不被删除。
+    const rows = managed.database.prepare("SELECT id FROM jobs ORDER BY id").all() as Array<{ id: string }>;
+    assert.deepEqual(rows.map((row) => row.id).sort(), broken.slice(0, index + 1).map((entry) => entry.id).sort());
   }
 });
 
-test("add trims prompt and writes a 0600 JSON file", async (t) => {
-  const file = await tempFile(t);
-  const service = createJobService(createJobRepository(file));
+test("add trims prompt and persists the task to the database", async (t) => {
+  const { file, repository } = await tempDatabase(t);
+  const service = createJobService(repository);
 
   const job = await service.add("  hello  ", false, "2030-01-01T00:00:00.000Z");
   assert.equal(job.prompt, "hello");
@@ -150,8 +178,8 @@ test("add trims prompt and writes a 0600 JSON file", async (t) => {
 test("markRun advances daily jobs, closes one-time jobs, and truncates results", async (t) => {
   const created = new Date(2030, 0, 1, 10, 30);
   t.mock.timers.enable({ apis: ["Date"], now: created.getTime() });
-  const file = await tempFile(t);
-  const service = createJobService(createJobRepository(file));
+  const { repository } = await tempDatabase(t);
+  const service = createJobService(repository);
   const daily = await service.add("daily", true, "23:59");
   const once = await service.add("once", false, "2030-01-01T00:00:00.000Z");
   const result = "x".repeat(2001);
@@ -186,8 +214,8 @@ test("markRun advances daily jobs, closes one-time jobs, and truncates results",
 test("markRun uses the supplied completion time even when saving on a later day", async (t) => {
   const completedAt = new Date(2030, 0, 1, 10, 31);
   t.mock.timers.enable({ apis: ["Date"], now: completedAt.getTime() });
-  const file = await tempFile(t);
-  const service = createJobService(createJobRepository(file));
+  const { repository } = await tempDatabase(t);
+  const service = createJobService(repository);
   const daily = await service.add("daily", true, "10:30");
   const once = await service.add("once", false, "2030-01-01T00:00:00.000Z");
 
@@ -208,17 +236,16 @@ test("markRun uses the supplied completion time even when saving on a later day"
 test("markRun retry keeps a daily job cancelled after its first save failed", async (t) => {
   const completedAt = new Date(2030, 0, 1, 10, 31);
   t.mock.timers.enable({ apis: ["Date"], now: completedAt.getTime() });
-  const file = await tempFile(t);
-  const repository = createJobRepository(file);
+  const { managed, repository } = await tempDatabase(t);
   const service = createJobService(repository);
   const daily = await service.add("cancel during retry", true, "10:30");
-  const before = await readFile(file, "utf8");
+  const before = totalChanges(managed);
   const failedUpdate = t.mock.method(repository, "update", async () => {
     throw new Error("test save failure");
   });
   await assert.rejects(service.markRun(daily.id, "completed", "original result", completedAt));
   failedUpdate.mock.restore();
-  assert.equal(await readFile(file, "utf8"), before);
+  assert.equal(totalChanges(managed), before);
 
   // 模型已经结束但结果尚未保存时，取消仍通过同一 repository 生效。
   // 补写只重算运行字段，不能拿执行前快照覆盖 enabled，也不能更改完成时间。
@@ -234,8 +261,8 @@ test("markRun retry keeps a daily job cancelled after its first save failed", as
 });
 
 test("cancel disables an existing job", async (t) => {
-  const file = await tempFile(t);
-  const service = createJobService(createJobRepository(file));
+  const { repository } = await tempDatabase(t);
+  const service = createJobService(repository);
   const job = await service.add("cancel me", false, "2030-01-01T00:00:00.000Z");
 
   assert.equal(await service.cancel(job.id), true);
@@ -247,24 +274,30 @@ test("cancel disables an existing job", async (t) => {
   assert.equal(await service.cancel(job.id), true);
 });
 
-test("cancel and markRun change only the first job with a duplicate id", async (t) => {
-  const file = await tempFile(t);
-  const service = createJobService(createJobRepository(file));
+test("重复 id 无法入库，控制与执行只作用于唯一任务", async (t) => {
+  const { managed, repository } = await tempDatabase(t);
+  const service = createJobService(repository);
   const first = baseJob("duplicate");
   const second = { ...first, prompt: "second duplicate" };
-  await writeFile(file, JSON.stringify([first, second]));
+  managed.database.prepare(
+    "INSERT INTO jobs (id, position, prompt, daily, at, enabled, created_at, next_run_at, origin_session_id) VALUES (?, 0, ?, 0, ?, 1, ?, ?, ?)",
+  ).run(first.id, first.prompt, first.at, first.createdAt, first.nextRunAt, first.originSessionId ?? null);
+  // 同一 id 不再允许出现第二次：库内主键直接拒绝，旧文档里的重复行不再可能存在。
+  assert.throws(() => managed.database.prepare(
+    "INSERT INTO jobs (id, position, prompt, daily, at, enabled, created_at, next_run_at) VALUES (?, 1, ?, 0, ?, 1, ?, ?)",
+  ).run(second.id, second.prompt, second.at, second.createdAt, second.nextRunAt), /UNIQUE constraint failed/);
 
   assert.equal(await service.cancel(first.id), true);
   const cancelledFirst = await service.get(first.id);
-  assert.deepEqual(await service.list(), [{ ...first, enabled: false, controlState: "cancelled", lastControl: cancelledFirst!.lastControl }, second]);
+  assert.deepEqual(await service.list(), [{ ...first, enabled: false, controlState: "cancelled", lastControl: cancelledFirst!.lastControl }]);
   const run = await service.markRun(first.id, "completed", "first only");
   assert.equal(run?.lastResult, "first only");
-  assert.deepEqual(await service.list(), [run, second]);
+  assert.deepEqual(await service.list(), [run]);
 });
 
 test("concurrent updates are serialized without losing jobs", async (t) => {
-  const file = await tempFile(t);
-  const service = createJobService(createJobRepository(file));
+  const { repository } = await tempDatabase(t);
+  const service = createJobService(repository);
 
   const jobs = await Promise.all(
     Array.from({ length: 20 }, (_, index) =>
@@ -287,35 +320,33 @@ test("concurrent updates are serialized without losing jobs", async (t) => {
   ]);
 });
 
-test("missing cancel and markRun do not create or rewrite the file", async (t) => {
-  const file = await tempFile(t);
-  const service = createJobService(createJobRepository(file));
+test("missing cancel and markRun do not write to the database", async (t) => {
+  const { managed, repository } = await tempDatabase(t);
+  const service = createJobService(repository);
 
   assert.equal(await service.cancel("missing"), false);
   assert.equal(await service.markRun("missing", "failed", "ignored"), undefined);
-  assert.deepEqual(await readdir(dirname(file)), []);
+  assert.deepEqual(await service.list(), []);
 
-  // 使用与 repository 写入格式不同的文本，并同时核对写入时间，捕获无意义重写。
-  await writeFile(file, JSON.stringify([baseJob("existing")]));
-  const before = await readFile(file, "utf8");
-  const beforeStat = await stat(file, { bigint: true });
+  // 已有任务时，未命中同样不产生任何写入。
+  await repository.update(() => ({ items: [baseJob("existing")], result: undefined }));
+  const before = totalChanges(managed);
   assert.equal(await service.cancel("missing"), false);
   assert.equal(await service.markRun("missing", "completed", "ignored"), undefined);
-  assert.equal(await readFile(file, "utf8"), before);
-  assert.equal((await stat(file, { bigint: true })).mtimeNs, beforeStat.mtimeNs);
+  assert.equal(totalChanges(managed), before);
+  assert.deepEqual((await service.list()).map((job) => job.id), ["existing"]);
 });
 
 test("repository writes returned empty arrays and recovers after a failed update", async (t) => {
-  const file = await tempFile(t);
-  const repository = createJobRepository(file);
+  const { repository } = await tempDatabase(t);
   await assert.rejects(repository.update(() => { throw new Error("change failed"); }));
   assert.equal(await repository.update(() => ({ items: [], result: "cleared" })), "cleared");
-  assert.equal(await readFile(file, "utf8"), "[]\n");
+  assert.deepEqual(await repository.read(), []);
 });
 
 test("update modifies job fields, records updatedAt and recalculates nextRunAt", async (t) => {
-  const file = await tempFile(t);
-  const service = createJobService(createJobRepository(file));
+  const { repository } = await tempDatabase(t);
+  const service = createJobService(repository);
   const job = await service.add("original prompt", true, "10:00");
   assert.equal(job.updatedAt, undefined);
 
@@ -333,9 +364,8 @@ test("update modifies job fields, records updatedAt and recalculates nextRunAt",
 });
 
 test("JobService add, update, and reconcileOnStart strictly reject invalid daily time and keep data intact", async (t) => {
-  const file = await tempFile(t);
-  const repo = createJobRepository(file);
-  const service = createJobService(repo);
+  const { repository } = await tempDatabase(t);
+  const service = createJobService(repository);
   const isScheduleError = (err: unknown) =>
     err instanceof Error && "code" in err && (err as { code: string }).code === "INVALID_SCHEDULE_FORMAT";
 
@@ -346,7 +376,7 @@ test("JobService add, update, and reconcileOnStart strictly reject invalid daily
       isScheduleError,
     );
   }
-  // 文件仍为空或不存在
+  // 库里仍为空
   assert.deepEqual(await service.list(), []);
 
   // 2. 正常添加任务（包含 paused 任务）
@@ -375,28 +405,26 @@ test("JobService add, update, and reconcileOnStart strictly reject invalid daily
   assert.equal(updated2359?.at, "23:59");
 });
 
-test("reconcileOnStart strictly validates existing records (including disabled) and preserves original bytes on failure", async (t) => {
-  const file = await tempFile(t);
-  const repo = createJobRepository(file);
-  const service = createJobService(repo);
+test("reconcileOnStart strictly validates existing records (including disabled) and keeps the bad row untouched", async (t) => {
+  const { managed, repository } = await tempDatabase(t);
+  const service = createJobService(repository);
 
   // 写入包含非法时刻的停用任务
-  const corruptJob: Job = {
-    ...baseJob("corrupt-disabled"),
-    daily: true,
-    at: "24:00", // 非法每日时刻
-    enabled: false,
-    controlState: "paused",
-  };
-  const originalBytes = JSON.stringify([corruptJob], null, 2) + "\n";
-  await writeFile(file, originalBytes);
+  managed.database.exec("PRAGMA ignore_check_constraints = ON");
+  managed.database.prepare(
+    "INSERT INTO jobs (id, position, prompt, daily, at, enabled, created_at, next_run_at, control_state) VALUES ('corrupt-disabled', 0, 'p', 1, '24:00', 0, ?, ?, 'paused')",
+  ).run("2029-01-01T00:00:00.000Z", "2030-01-01T00:00:00.000Z");
+  managed.database.exec("PRAGMA ignore_check_constraints = OFF");
 
-  // 确切断言：repository 读阶段由 readJobsDocument 按存储模式拦截并抛出 InvalidDocumentError，绝不进位且文件字节原样保留
+  // 确切断言：repository 读阶段由 jobs 文档规则拦截并抛出 InvalidDocumentError，绝不进位且坏行原样保留
   await assert.rejects(
     () => service.reconcileOnStart(),
     (err: unknown) => err instanceof Error && err.name === "InvalidDocumentError" && err.message.includes("jobs"),
   );
 
-  // 文件字节必须原样保留
-  assert.equal(await readFile(file, "utf8"), originalBytes);
+  // 坏行必须原样保留
+  const rows = managed.database.prepare("SELECT id, at, enabled FROM jobs").all() as Array<{ id: string; at: string; enabled: number }>;
+  assert.deepEqual(rows.map((row) => ({ id: row.id, at: row.at, enabled: row.enabled })), [
+    { id: "corrupt-disabled", at: "24:00", enabled: 0 },
+  ]);
 });

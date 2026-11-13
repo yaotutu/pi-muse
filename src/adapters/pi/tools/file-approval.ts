@@ -144,7 +144,7 @@ export type CommitApprovedFileOptions = {
   commitQueue?: WorkspaceCommitQueue;
   /** 提交前重查目标仍是登记时解析出的物理路径与版本。 */
   validateTarget?: (target: string) => Promise<boolean>;
-  /** 文件提交后的收尾；文件与配置不是事务，失败保留 running 供人工核查。 */
+  /** 文件提交后的收尾；文件与配置不是事务，失败记录 unknown 供人工核查。 */
   afterCommit?: (target: string) => Promise<void>;
 };
 
@@ -202,7 +202,11 @@ export const commitApprovedFile = async ({
     await actions.finishExecution(approval.id, "succeeded", "File committed after approval and version checks");
     return { content: [{ type: "text" as const, text: `Saved ${successPath}.` }], details: undefined };
   } catch {
-    if (committed) return deniedResult("File was committed, but its execution receipt could not be saved. Verify the file before repeating.");
+    if (committed) {
+      try { await actions.finishExecution(approval.id, "unknown", "File committed but post-commit verification or receipt failed; verify before repeating"); }
+      catch { /* 数据库不可用时仍保留下面的结果未明提示，不重放物理文件操作。 */ }
+      return deniedResult("File was committed, but its execution receipt could not be saved. Verify the file before repeating.");
+    }
     return refused("File commit refused: the file changed, the path is unsafe, or writing failed.");
   } finally {
     if (temporary) await unlink(temporary).catch((error) => { if (!isMissing(error)) throw error; });
