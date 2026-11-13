@@ -1264,15 +1264,16 @@ test("session skills: GET/PUT overrides, validation and agent isolation", {
   const topic1 = await h.service().sessions.create("agent-other");
   t.after(h.close);
 
-  // 1. 新会话所有内置技能默认关闭，不继承 main 的测试设置。
+  // 1. 新会话按发布清单默认开启内置技能，不继承 main 的手动选择。
   const res1 = await h.request(`/api/sessions/${topic0.id}/skills`);
   assert.equal(res1.status, 200);
-  const data1 = (await res1.json()) as { skills: { name: string; defaultEnabled: boolean; enabled: boolean }[] };
+  const data1 = (await res1.json()) as { skills: { name: string; source: string; defaultEnabled: boolean; enabled: boolean }[] };
   const cronSkill = data1.skills.find((s) => s.name === "cron");
   assert.ok(cronSkill);
-  assert.equal(cronSkill.defaultEnabled, false);
-  assert.equal(cronSkill.enabled, false);
-  assert.ok(data1.skills.every((skill) => !skill.defaultEnabled && !skill.enabled));
+  assert.equal(cronSkill.defaultEnabled, true);
+  assert.equal(cronSkill.enabled, true);
+  assert.ok(data1.skills.every((skill) => skill.defaultEnabled === (skill.source === "builtin")));
+  assert.ok(data1.skills.every((skill) => skill.enabled === skill.defaultEnabled));
 
   // 2. 显式开启原工具集，再覆盖关闭 cron 和 web。
   await enableBuiltinSkills(h.service(), topic0.id, harnessSkills);
@@ -1288,7 +1289,7 @@ test("session skills: GET/PUT overrides, validation and agent isolation", {
   // 3. 验证另外一个 agent-other 不受影响
   const res3 = await h.request(`/api/sessions/${topic1.id}/skills`);
   const data3 = (await res3.json()) as { skills: { name: string; enabled: boolean }[] };
-  assert.equal(data3.skills.find((s) => s.name === "cron")?.enabled, false);
+  assert.equal(data3.skills.find((s) => s.name === "cron")?.enabled, true, "其他会话保持默认开启，不继承 topic0 的关闭");
 
   // 4. PUT 未知技能名返回 400
   const res4 = await h.request(`/api/sessions/${topic0.id}/skills`, {

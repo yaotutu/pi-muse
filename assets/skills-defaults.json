@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "defaultEnabled": [
+    "browser",
+    "cron",
+    "goal",
+    "memory",
+    "monitor",
+    "skill-creator",
+    "task",
+    "web",
+    "write"
+  ]
+}

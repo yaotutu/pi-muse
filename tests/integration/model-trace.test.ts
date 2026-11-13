@@ -30,7 +30,8 @@ const traceFiles = async (dir: string): Promise<string[]> => {
     const days = await readdir(dir);
     const files: string[] = [];
     for (const day of days.sort()) {
-      for (const name of (await readdir(join(dir, day))).sort()) files.push(join(dir, day, name));
+      // 与生产 reader 一致：正在原子写入的 .tmp 中间文件不属于已完成的 trace。
+      for (const name of (await readdir(join(dir, day))).sort().filter((entry) => !entry.startsWith(".") && !entry.endsWith(".tmp"))) files.push(join(dir, day, name));
     }
     return files;
   } catch (error) {

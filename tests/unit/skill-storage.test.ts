@@ -41,7 +41,7 @@ test("skill overrides only default on missing files and preserve damaged documen
   }
 });
 
-test("all three sources default off, SDK parses metadata, and scanning has no writes", async (t) => {
+test("built-ins follow the shipped default manifest; shared and created skills default off without writes", async (t) => {
   const { layout, shared, repository, service } = await fixture(t);
   await repository.listSkills();
   await assert.rejects(stat(layout.root), { code: "ENOENT" });
@@ -50,7 +50,9 @@ test("all three sources default off, SDK parses metadata, and scanning has no wr
   await putSkill(shared, "shared-meta");
   let catalog = await repository.listSkills();
   assert.deepEqual(new Set(catalog.skills.map((skill) => skill.source)), new Set(["builtin", "user", "shared"]));
-  assert.ok(catalog.skills.every((skill) => skill.defaultEnabled === false && skill.id === `${skill.source}/${skill.name}`));
+  assert.ok(catalog.skills.every((skill) => skill.id === `${skill.source}/${skill.name}`));
+  assert.ok(catalog.skills.every((skill) => skill.defaultEnabled === (skill.source === "builtin")),
+    "仅随服务端发布的内置清单可默认开启；通用与自建一律默认关闭");
   const own = catalog.skills.find((skill) => skill.name === "custom-meta")!;
   assert.match(own.description, /Multiline skill description parsed by pi/);
   assert.equal(own.source, "user", "frontmatter cannot spoof source");
@@ -63,8 +65,9 @@ test("all three sources default off, SDK parses metadata, and scanning has no wr
   assert.equal(await readFile(join(directory, "config.json"), "utf8"), original);
   assert.deepEqual(await readdir(directory), ["SKILL.md", "config.json"]);
   const described = await service.describeSession(sessionId);
-  assert.ok(described.skills.every((skill) => !skill.enabled && !skill.defaultEnabled));
-  assert.deepEqual(await service.getEnabledSkillDefinitions(sessionId), []);
+  assert.ok(described.skills.every((skill) => skill.enabled === skill.defaultEnabled), "无手动选择时按默认值生效");
+  assert.deepEqual((await service.getEnabledSkillDefinitions(sessionId)).map((skill) => skill.id),
+    described.skills.filter((skill) => skill.enabled).map((skill) => skill.id));
   assert.deepEqual(await service.describeAuthoring(sessionId), described);
   assert.deepEqual(await service.getEffectiveSkills(sessionId), described.skills);
   assert.ok(described.skills.every((skill) => !("path" in skill)));
@@ -80,12 +83,14 @@ test("priority is user > builtin > shared and a disabled winner never falls back
   const directory = await putSkill(layout.skillsDir, builtin.name);
   assert.equal((await service.findSkill(builtin.name))?.source, "user");
   assert.equal((await service.describeSkill(sessionId, builtin.name)).enabled, false);
-  assert.deepEqual(await service.getEnabledSkillDefinitions(sessionId), []);
+  assert.ok((await service.getEnabledSkillDefinitions(sessionId)).every((skill) => skill.name !== builtin.name), "关闭的自有覆盖不回退到内置默认开启");
   await assert.rejects(service.updateSessionOverrides(sessionId, { [builtin.id]: true }), UnknownSkillError);
   await service.updateSessionOverrides(sessionId, { [builtin.name]: true });
   assert.deepEqual(await repository.getSessionOverrides(sessionId), { [`user/${builtin.name}`]: true });
   await rm(directory, { recursive: true });
-  assert.equal((await service.describeSkill(sessionId, builtin.name)).enabled, false);
+  // 选择仍绑定 user 来源；builtin 凭自身默认值恢复生效，不继承 user 的显式开启。
+  assert.equal((await service.describeSkill(sessionId, builtin.name)).enabled, true);
+  assert.deepEqual((await repository.getSessionOverrides(sessionId)), { [`user/${builtin.name}`]: true });
   const catalog = await repository.listSkills();
   assert.equal(catalog.skills.filter((skill) => skill.name === builtin.name).length, 1);
   assert.ok(catalog.diagnostics.some((item) => /shadowed/.test(item.message)));
@@ -103,7 +108,9 @@ test("manual choices bind to the winning source when sources appear or disappear
   const described = await service.describeSkill(sessionId, "switchable");
   assert.equal(described.source, "shared");
   assert.equal(described.enabled, false);
-  assert.deepEqual(await service.getEnabledSkillDefinitions(sessionId), []);
+  const enabledAfterSwitch = await service.getEnabledSkillDefinitions(sessionId);
+  assert.ok(enabledAfterSwitch.every((skill) => skill.name !== "switchable"), "来源切换后目标技能不再装配");
+  assert.ok(enabledAfterSwitch.some((skill) => skill.source === "builtin"), "内置默认开启不受来源切换影响");
 });
 
 test("legacy name overrides retain own choices without authorizing shared skills or migrating on read", async (t) => {
@@ -128,7 +135,7 @@ test("prototype-like names stay disabled and an explicit source choice takes pre
   const { layout, repository, service } = await fixture(t);
   await putSkill(layout.skillsDir, "constructor");
   assert.equal((await service.describeSkill(sessionId, "constructor")).enabled, false);
-  assert.deepEqual(await service.getEnabledSkillDefinitions(sessionId), []);
+  assert.ok((await service.getEnabledSkillDefinitions(sessionId)).every((skill) => skill.source === "builtin"));
   await repository.setSessionOverrides(sessionId, { constructor: true, "user/constructor": false });
   assert.equal((await service.describeSkill(sessionId, "constructor")).enabled, false);
   await service.updateSessionOverrides(sessionId, { constructor: true });
@@ -204,8 +211,9 @@ test("skill details contain full bounded UTF-8 content and unknown or oversized 
   assert.equal(described.enabled, true);
   assert.ok(!("path" in described));
   const enabled = await service.getEnabledSkillDefinitions(sessionId);
-  assert.equal(enabled.length, 1);
-  assert.equal(enabled[0]?.path, join(layout.skillsDir, "bounded"));
+  assert.ok(enabled.some((skill) => skill.id === "user/bounded" && skill.path === join(layout.skillsDir, "bounded")));
+  assert.ok(enabled.some((skill) => skill.source === "builtin"), "内置默认开启与显式自建选择并存");
+  assert.ok(enabled.every((skill) => skill.id === "user/bounded" || skill.source === "builtin"));
   await putSkill(shared, "oversized", document("oversized", "中".repeat(40 * 1024)));
   await putSkill(layout.skillsDir, "invalid-utf8");
   await writeFile(join(layout.skillsDir, "invalid-utf8", "SKILL.md"), Buffer.from([0xff]));

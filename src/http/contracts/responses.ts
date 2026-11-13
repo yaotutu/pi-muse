@@ -294,7 +294,7 @@ export const skillItem = z.object({
   name: z.string().describe("技能名称（目录名），同名采用实例自有 > 内置自有 > 通用目录的优先级"),
   description: z.string().describe("技能描述"),
   source: z.enum(["user", "builtin", "shared"]).describe("来源：user=DATA_DIR/skills 实例自有；builtin=随服务端发布的内置自有；shared=服务端用户 ~/.agents/skills 通用技能。builtin/shared 只读"),
-  defaultEnabled: z.literal(false).describe("所有技能默认关闭，发现或创建不会自动启用"),
+  defaultEnabled: z.boolean().describe("未手动保存选择时的默认开关：内置技能按随服务端发布的清单（当前 9 项默认开启）；通用与实例自建技能一律默认关闭"),
   enabled: z.boolean().describe("当前会话由用户手动保存的启用状态；关闭技能不进入运行装配"),
 });
 export const skillDetailResponse = skillItem.extend({

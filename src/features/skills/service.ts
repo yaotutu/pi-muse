@@ -2,10 +2,10 @@ import type { SkillMeta, SkillRepository } from "./port.js";
 
 export class UnknownSkillError extends Error {}
 
-/** 来源 ID 优先；旧名称选择只兼容自有技能，绝不授权新发现的通用技能。 */
+/** 来源 ID 优先；旧名称选择只兼容自有技能，绝不授权新发现的通用技能。默认值只来自随服务端发布的内置清单。 */
 const isEnabled = (skill: SkillMeta, overrides: Record<string, boolean>): boolean => {
   if (Object.hasOwn(overrides, skill.id)) return overrides[skill.id]!;
-  return skill.source !== "shared" && Object.hasOwn(overrides, skill.name) ? overrides[skill.name]! : false;
+  return skill.source !== "shared" && Object.hasOwn(overrides, skill.name) ? overrides[skill.name]! : skill.defaultEnabled;
 };
 
 const metadata = (skill: SkillMeta, overrides: Record<string, boolean>) => ({

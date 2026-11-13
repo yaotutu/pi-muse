@@ -75,13 +75,15 @@ async function fixture(t: TestContext) {
   return { root, dataDir, sharedDir, own, model, base, request, run, putSkill, extensionSentinel, historicalConfig };
 }
 
-test("shared skills HTTP: one source-tagged catalog, all default off, and authenticated full detail", async (t) => {
+test("shared skills HTTP: source-tagged catalog with shipped builtin defaults and authenticated full detail", async (t) => {
   const h = await fixture(t);
   const response = await h.request("/api/sessions/main/skills");
   assert.equal(response.status, 200);
   const catalog = skillsResponse.parse(await response.json());
   assert.ok(catalog.skills.length >= 10);
-  assert.ok(catalog.skills.every((skill) => !skill.defaultEnabled && !skill.enabled));
+  assert.ok(catalog.skills.every((skill) => skill.defaultEnabled === (skill.source === "builtin")), "仅内置清单默认开启");
+  assert.ok(catalog.skills.every((skill) => skill.enabled === skill.defaultEnabled), "无手动选择时按默认值生效");
+  assert.ok(catalog.skills.filter((skill) => skill.source === "builtin").length >= 9);
   assert.equal(catalog.skills.find((skill) => skill.name === "same-name")?.source, "user");
   assert.equal(catalog.skills.find((skill) => skill.name === "web")?.source, "builtin");
   assert.equal(catalog.skills.find((skill) => skill.name === "general-note")?.id, "shared/general-note");
@@ -108,7 +110,8 @@ test("shared skills runtime: explicit enable only, no shared code execution, and
   let response = await h.request("/api/sessions/main/skills", { overrides: { "shared/general-note": true } });
   assert.equal(response.status, 200);
   let view = skillsResponse.parse(await response.json());
-  assert.equal(view.skills.filter((skill) => skill.enabled).length, 1);
+  assert.equal(view.skills.find((skill) => skill.id === "shared/general-note")?.enabled, true);
+  assert.ok(view.skills.filter((skill) => skill.enabled).every((skill) => skill.source === "builtin" || skill.id === "shared/general-note"));
   await h.run("hello after selection");
   assert.ok(JSON.stringify(h.model.requests.at(-1)).includes("SHARED_DISCOVERY_SENTINEL_93b"));
   await assert.rejects(stat(h.extensionSentinel), { code: "ENOENT" });

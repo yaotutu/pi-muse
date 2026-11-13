@@ -6,7 +6,7 @@ import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
 import type { DataLayout } from "./data-layout.js";
 import { sessionSkillsFile } from "./data-layout.js";
-import { getBuiltinSkillsDir } from "./builtin-skills.js";
+import { getBuiltinSkillsDefaultsFile, getBuiltinSkillsDir } from "./builtin-skills.js";
 import { writeJsonDocument } from "./json-document.js";
 import { InvalidDocumentError } from "./document-schemas.js";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
@@ -69,9 +69,20 @@ const readSkillContent = async (directory: string): Promise<string> => {
   } finally { await handle.close(); }
 };
 
+/** 内置默认开关清单：仅随服务端发布的自有资产可声明默认开启；通用与实例自建一律默认关闭。 */
+const defaultsSchema = z.strictObject({ schemaVersion: z.literal(1), defaultEnabled: z.array(z.string().max(64)) });
+const readBuiltinDefaults = async (): Promise<Set<string>> => {
+  const parsed = defaultsSchema.parse(JSON.parse(await readFile(getBuiltinSkillsDefaultsFile(), "utf8")));
+  const names = new Set(parsed.defaultEnabled);
+  if (names.size !== parsed.defaultEnabled.length) throw new Error("Duplicate built-in default skill");
+  for (const name of names) if (!validName(name)) throw new Error("Invalid built-in default skill name");
+  return names;
+};
+
 /** 元数据只走 SDK；诊断只使用受控逻辑位置/文案，不转发含物理路径的 SDK 或 I/O 错误。 */
-const scanSkillsDir = async (dir: string, source: SkillSource, boundary = dir): Promise<SkillCatalog> => {
+const scanSkillsDir = async (dir: string, source: SkillSource, boundary = dir, builtinDefaults?: ReadonlySet<string>): Promise<SkillCatalog> => {
   const result: SkillCatalog = { skills: [], diagnostics: [] };
+  const defaultEnabled = source === "builtin" ? (builtinDefaults ?? new Set<string>()) : new Set<string>();
   let physicalDir: string;
   let entries;
   try {
@@ -108,7 +119,7 @@ const scanSkillsDir = async (dir: string, source: SkillSource, boundary = dir): 
         continue;
       }
       result.skills.push({
-        name: skill.name, description: skill.description, id: `${source}/${skill.name}`, source, defaultEnabled: false,
+        name: skill.name, description: skill.description, id: `${source}/${skill.name}`, source, defaultEnabled: defaultEnabled.has(skill.name),
         path: source === "shared" ? path : join(dir, entry.name),
       });
     } catch {
@@ -135,9 +146,11 @@ export const createSkillRepository = (layout: DataLayout, sharedSkillsDir = join
     return sessionSkillsFile(layout, sessionId);
   };
   const listSkills = async (): Promise<SkillCatalog> => {
+    // 清单损坏属于自有资产损坏，直接失败；不静默回退成“内置全关”。
+    const builtinDefaults = await readBuiltinDefaults();
     const catalogs = [
       await scanSkillsDir(layout.skillsDir, "user", layout.root),
-      await scanSkillsDir(builtinDir, "builtin"),
+      await scanSkillsDir(builtinDir, "builtin", undefined, builtinDefaults),
       await scanSkillsDir(sharedSkillsDir, "shared"),
     ];
     const merged = new Map<string, SkillCatalog["skills"][number]>();

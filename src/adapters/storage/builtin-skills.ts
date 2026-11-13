@@ -9,3 +9,12 @@ export const getBuiltinSkillsDir = (): string => {
     ? resolve(outputRoot, "assets/skills")
     : resolve(directory, "../../../assets/skills");
 };
+
+/** 随服务端发布的内置默认开关清单；损坏即加载失败，不静默忽略自家资产。 */
+export const getBuiltinSkillsDefaultsFile = (): string => {
+  const directory = dirname(fileURLToPath(import.meta.url));
+  const outputRoot = resolve(directory, "../..");
+  return basename(outputRoot) === "dist"
+    ? resolve(outputRoot, "assets/skills-defaults.json")
+    : resolve(directory, "../../../assets/skills-defaults.json");
+};

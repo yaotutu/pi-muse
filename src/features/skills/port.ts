@@ -6,7 +6,8 @@ export type SkillMeta = {
   description: string;
   id: string;
   source: SkillSource;
-  defaultEnabled: false;
+  /** 未手动选择时的默认开关：只有随服务端发布的内置清单可声明 true。 */
+  defaultEnabled: boolean;
   path: string;
 };
 

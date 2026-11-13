@@ -8,7 +8,7 @@ Use the `skills` tool only for product skill maintenance requested explicitly by
 
 ## Tool contract
 
-- `action="list"` returns the current priority-resolved catalog with `id`, `name`, `description`, `source` (`builtin`, `user`, or `shared`), default-off state, and the current manual selection. `builtin` and `user` are Pi Muse-owned; `shared` comes from the server user's shared skills directory. It never returns server paths.
+- `action="list"` returns the current priority-resolved catalog with `id`, `name`, `description`, `source` (`builtin`, `user`, or `shared`), the shipped default state, and the current manual selection. `builtin` and `user` are Pi Muse-owned; `shared` comes from the server user's shared skills directory. It never returns server paths.
 - `action="read"` requires `name` and optionally `file`. It can read installed or disabled skills so they can be edited. Allowed files are `SKILL.md` and UTF-8 text resources under `references/` or `assets/` with `.md`, `.txt`, `.json`, `.csv`, `.yaml`, or `.yml` extensions.
 - `action="save"` requires `name`, optionally `file`, and complete `content`. It replaces exactly one UTF-8 file of at most 100KB. Every save requires human approval and revalidates the bound file version before commit. If approval is denied, expires, is cancelled, or the file changes, do not resend automatically; inspect the current state first.
 
@@ -22,7 +22,7 @@ Use the `skills` tool only for product skill maintenance requested explicitly by
 4. Submit a complete file through `skills` and show the user the resulting approval preview. Wait for the human decision.
 5. After approval, report the saved file, default state, and current-session enabled state. Saved or overridden skills load on the next model turn; the current turn does not gain their new instructions or extensions.
 
-Every optional skill defaults to off. New skills require no private `config.json`, and saving one never enables it. The user must manually select it for a session. Selections bind to source IDs, so an instance override does not inherit the old built-in or shared source's selection. Enabling shared text never executes its scripts or extensions.
+Built-in skills may default on through the server's shipped manifest. Newly created and shared skills always default to off; no private `config.json` is created, and saving never enables a skill. The user must manually select it for a session. Selections bind to source IDs, so an instance override does not inherit the old built-in or shared source's selection. Enabling shared text never executes its scripts or extensions.
 
 ## Safety
 
