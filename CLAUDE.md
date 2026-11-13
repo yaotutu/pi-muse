@@ -36,7 +36,7 @@ pnpm exec tsx --test --test-name-pattern="features depend" tests/unit/dependenci
 pnpm test:live --config <protected-config-path> --allow-live
 ```
 
-runner 建立隔离实例；专项场景与不同 runner 的参数见 [testing.md](docs/testing.md)，不要猜测共享参数。`pnpm dev` 没有 `--config` 透传参数；不要误启动或覆盖真实实例。`pnpm dev:mock` 是已有联调工具，不是真实模型证据；其固定数据目录不可当临时测试目录。
+本工作区是可丢弃的开发环境，默认直接在当前开发实例（通常 12330）和数据上联调，允许按任务写入、重置、清空数据及重启本项目服务，无需额外确认，不强制隔离实例。上面的 runner 自带临时实例是脚本实现细节；专项参数见 [testing.md](docs/testing.md)，不要猜测或为绕开它另造环境。`pnpm dev` 没有 `--config` 透传参数；启动前核对项目进程和目标端口即可。`pnpm dev:mock` 是已有联调工具，不是真实模型证据。
 
 ## 架构与状态所有权
 
