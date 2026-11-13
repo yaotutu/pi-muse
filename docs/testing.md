@@ -96,7 +96,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 
 使用独立 DATA_DIR 和临时 `home/.agents/skills`，显式注入共享目录，仅读取受保护配置的 model；绝不创建或修改真实用户技能。透明代理连接外部真实模型，不返回合成模型响应。
 
-验证全部默认关闭与基础工具保留；用户显式启用后，真实模型读取共享 SKILL.md 及精确参考资料并返回唯一标记；共享 extension.ts 从不执行，也不生成私有 config。新增同名实例技能后自有优先且不继承共享选择，新会话需重新手动启用明确来源。场景逐项输出 PASS/FAIL，无自动重试，finally 正常关闭服务、HTTP 与代理；`--keep-artifacts` 只保留隔离数据和脱敏 summary。
+验证内置技能遵循发布默认清单、通用及自建技能默认关闭；用户显式启用通用技能后，真实模型读取共享 SKILL.md 及精确参考资料并返回唯一标记；共享 extension.ts 从不执行，也不生成私有 config。新增同名实例技能后自有优先且不继承共享选择，新会话需重新手动启用明确来源。场景逐项输出 PASS/FAIL，无自动重试，finally 正常关闭服务、HTTP 与代理；`--keep-artifacts` 只保留隔离数据和脱敏 summary。
 
 ### `tests/live/message-feedback.ts`
 
