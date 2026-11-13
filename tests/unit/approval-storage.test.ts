@@ -13,7 +13,8 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { InvalidDocumentError, readActionsDocument } from "../../src/adapters/storage/document-schemas.js";
+import { InvalidDocumentError } from "../../src/adapters/storage/document-schemas.js";
+import { parseActions } from "../../src/adapters/storage/actions-schema.js";
 import { openActionStore } from "./actions-sqlite-fixture.js";
 import type { PendingAction } from "../../src/features/actions/types.js";
 
@@ -73,11 +74,11 @@ test("action document accepts valid pending and terminal records including execu
     }));
   }
 
-  assert.deepEqual(readActionsDocument(valid), valid);
-  assert.deepEqual(readActionsDocument([]), []);
+  assert.deepEqual(parseActions(valid), valid);
+  assert.deepEqual(parseActions([]), []);
 
   // 文件不存在/不可读语义由 repository 处理；reader 接受裸数组。
-  const ok = readActionsDocument(valid);
+  const ok = parseActions(valid);
   assert.equal(ok.length, valid.length);
 });
 
@@ -106,7 +107,7 @@ test("action document rejects records missing mandatory nullable context fields 
   ];
 
   for (const value of invalid) {
-    assert.throws(() => readActionsDocument(value), InvalidDocumentError, `expected reject: ${JSON.stringify(value)}`);
+    assert.throws(() => parseActions(value), InvalidDocumentError, `expected reject: ${JSON.stringify(value)}`);
   }
 });
 
@@ -122,7 +123,7 @@ test("action document allows execution only on approved status with valid starte
       decidedAt,
       execution: { status: "succeeded", startedAt: at, finishedAt: at, result: "ok" },
     });
-    assert.throws(() => readActionsDocument([bogus]), InvalidDocumentError, `${status} must not carry execution`);
+    assert.throws(() => parseActions([bogus]), InvalidDocumentError, `${status} must not carry execution`);
   }
 
   // execution 自身形状：状态枚举、startedAt 必为 ISO，finishedAt/null 约束，result 字符串或 null。
@@ -143,7 +144,7 @@ test("action document allows execution only on approved status with valid starte
       decidedAt: at,
       execution: execution as unknown as PendingAction["execution"],
     });
-    assert.throws(() => readActionsDocument([bogus]), InvalidDocumentError, `bad execution: ${JSON.stringify(execution)}`);
+    assert.throws(() => parseActions([bogus]), InvalidDocumentError, `bad execution: ${JSON.stringify(execution)}`);
   }
 
   // running / unknown 必须 finishedAt=null；非空字符串视为损坏。
@@ -161,7 +162,7 @@ test("action document allows execution only on approved status with valid starte
         result: status === "running" ? null : "verify manually",
       },
     });
-    assert.throws(() => readActionsDocument([bogus]), InvalidDocumentError, `${status} must keep finishedAt null`);
+    assert.throws(() => parseActions([bogus]), InvalidDocumentError, `${status} must keep finishedAt null`);
   }
 });
 

@@ -10,7 +10,7 @@ import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.j
 import { createJobService } from "../../src/features/jobs/job-service.js";
 import { presentJob, presentJobDetail } from "../../src/http/job-presenters.js";
 import { jobDetail } from "../../src/http/contracts/responses.js";
-import { readJobsDocument } from "../../src/adapters/storage/document-schemas.js";
+import { parseJobs } from "../../src/adapters/storage/jobs-schema.js";
 import type { Job } from "../../src/features/jobs/types.js";
 
 /** 定时任务事实落在 main.sqlite；模块账本先登记，坏数据不得静默通过。 */
@@ -182,12 +182,12 @@ test("restart preserves pause/cancel but does not durably replay immediate retry
   assert.equal((await restarted.get("paused"))!.controlState, "paused");
 });
 
-test("job document validates complete records and control metadata", () => {
-  assert.throws(() => readJobsDocument([{ id: "partial", prompt: "partial" }, { bad: true }]), /Invalid jobs document/);
+test("job records validate complete fields and control metadata", () => {
+  assert.throws(() => parseJobs([{ id: "partial", prompt: "partial" }, { bad: true }]), /Invalid jobs document/);
   for (const extra of [
     { controlState: "running" }, { lastControl: null }, { lastControl: { action: "pause", at: "invalid" } },
     { lastControl: { action: "made_up", at: "2026-01-01T00:00:00.000Z" } },
-  ]) assert.throws(() => readJobsDocument([{ ...job(), ...extra }]), /Invalid jobs document/);
+  ]) assert.throws(() => parseJobs([{ ...job(), ...extra }]), /Invalid jobs document/);
   const controlled = job({ controlState: "paused", lastControl: { action: "pause", at: "2026-01-01T00:00:00.000Z" } });
-  assert.deepEqual(readJobsDocument([controlled]), [controlled]);
+  assert.deepEqual(parseJobs([controlled]), [controlled]);
 });

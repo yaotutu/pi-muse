@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
-import { InvalidDocumentError, readActionsDocument } from "../../src/adapters/storage/document-schemas.js";
+import { InvalidDocumentError } from "../../src/adapters/storage/document-schemas.js";
+import { parseActions } from "../../src/adapters/storage/actions-schema.js";
 import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
 import {
   ApprovalCapacityError,
@@ -404,7 +405,7 @@ test("synchronous throws and rejected promises from onChange are isolated from c
 
 test("actions reader accepts only current records with required revision and consistent terminal timestamps", () => {
   const pending = baseAction();
-  assert.deepEqual(readActionsDocument([pending]), [pending]);
+  assert.deepEqual(parseActions([pending]), [pending]);
 
   const terminal = baseAction({
     status: "approved",
@@ -412,14 +413,14 @@ test("actions reader accepts only current records with required revision and con
     resolvedAt: "2026-01-01T00:01:00.000Z",
     decidedAt: "2026-01-01T00:01:00.000Z",
   });
-  assert.deepEqual(readActionsDocument([terminal]), [terminal]);
+  assert.deepEqual(parseActions([terminal]), [terminal]);
 
   // 旧格式缺少新增字段：整体拒绝，不补默认值。
   const legacy = { ...pending } as Record<string, unknown>;
   for (const field of ["activityId", "sessionId", "decidedAt", "resolvedAt", "revision", "runId", "subagentId", "toolCallId"]) {
     const missing = { ...legacy };
     delete missing[field];
-    assert.throws(() => readActionsDocument([missing]), InvalidDocumentError, `missing ${field}`);
+    assert.throws(() => parseActions([missing]), InvalidDocumentError, `missing ${field}`);
   }
 
   const invalid = [
@@ -441,7 +442,7 @@ test("actions reader accepts only current records with required revision and con
     { ...pending, status: "unknown" },
     { ...pending, payload: { path: 1 } },
   ];
-  for (const record of invalid) assert.throws(() => readActionsDocument([record]), InvalidDocumentError);
+  for (const record of invalid) assert.throws(() => parseActions([record]), InvalidDocumentError);
 });
 
 test("仓储拒绝非法状态组合的写入，且不破坏已存记录", async (t) => {

@@ -1,13 +1,70 @@
 import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 import { SQLITE_MODULE_LEDGER_TABLE, type SqliteModule } from "./sqlite-modules.js";
 import { canonicalJson } from "./sms-schema.js";
-import { InvalidDocumentError, readDreamDocument } from "./document-schemas.js";
+import { InvalidDocumentError } from "./document-schemas.js";
 import {
   defaultDreamState,
   type DreamPending,
   type DreamRun,
   type DreamState,
 } from "../../features/dream/types.js";
+
+/**
+ * Dream 状态形状校验：开关、游标、最近运行与待决项必须是合法形状。
+ * 库内读回的聚合同样走这条校验，坏数据整体拒绝，不静默过滤、不补默认值。
+ */
+export const parseDreamState = (value: unknown): DreamState => {
+  const targets = ["user", "soul", "instructions", "memory"];
+  const runStatuses = ["running", "completed", "failed", "partial"];
+  const reasons = ["ambiguous", "global_from_session", "no_purpose"];
+  const allowedRoot = new Set(["enabled", "cursors", "lastRun", "pending"]);
+  if (
+    !value || typeof value !== "object" || Array.isArray(value) ||
+    "schemaVersion" in (value as Record<string, unknown>) ||
+    Object.keys(value as Record<string, unknown>).some((key) => !allowedRoot.has(key)) ||
+    typeof (value as Record<string, unknown>).enabled !== "boolean" ||
+    !(value as Record<string, unknown>).cursors ||
+    typeof (value as Record<string, unknown>).cursors !== "object" ||
+    !Object.entries((value as Record<string, unknown>).cursors as Record<string, unknown>).every(([id, cursor]) =>
+      (id === "main" || /^[a-f0-9-]{36}$/.test(id)) && typeof cursor === "string" && cursor.length > 0) ||
+    !Array.isArray((value as Record<string, unknown>).pending)
+  ) {
+    throw new InvalidDocumentError("dream");
+  }
+  const state = value as Record<string, unknown>;
+  if (state.lastRun !== undefined) {
+    const run = state.lastRun as Record<string, unknown>;
+    const allowedRun = new Set(["at", "status", "changed", "processed", "error"]);
+    if (
+      !run || typeof run !== "object" || Array.isArray(run) ||
+      Object.keys(run).some((key) => !allowedRun.has(key)) ||
+      typeof run.at !== "string" || !Number.isFinite(Date.parse(run.at)) ||
+      typeof run.status !== "string" || !runStatuses.includes(run.status) ||
+      !Array.isArray(run.changed) ||
+      !run.changed.every((item) => typeof item === "string" && targets.includes(item)) ||
+      typeof run.processed !== "number" || !Number.isInteger(run.processed) || run.processed < 0 ||
+      (run.error !== undefined && typeof run.error !== "string")
+    ) {
+      throw new InvalidDocumentError("dream");
+    }
+  }
+  const allowedPending = new Set(["id", "text", "suggestedTarget", "reason", "createdAt", "sourceSessionId"]);
+  if (
+    !(state.pending as unknown[]).every((item) => {
+      const pending = item as Record<string, unknown>;
+      return pending && typeof pending === "object" && !Array.isArray(pending) &&
+        Object.keys(pending).every((key) => allowedPending.has(key)) &&
+        typeof pending.id === "string" && pending.id.length > 0 &&
+        typeof pending.text === "string" && pending.text.length > 0 &&
+        typeof pending.suggestedTarget === "string" && targets.includes(pending.suggestedTarget) &&
+        typeof pending.reason === "string" && reasons.includes(pending.reason) &&
+        typeof pending.createdAt === "string" && Number.isFinite(Date.parse(pending.createdAt));
+    })
+  ) {
+    throw new InvalidDocumentError("dream");
+  }
+  return value as DreamState;
+};
 
 /**
  * Dream 机器状态在 main.sqlite 的表结构与行映射。
@@ -141,7 +198,7 @@ export const readDreamState = (managed: ManagedSqliteDatabase): DreamState => {
     ...(row.source_session_id !== null ? { sourceSessionId: row.source_session_id } : {}),
   }));
   const lastRun = parseLastRun(stateRow.last_run_json);
-  return readDreamDocument({
+  return parseDreamState({
     enabled: stateRow.enabled === 1,
     cursors,
     ...(lastRun !== undefined ? { lastRun } : {}),

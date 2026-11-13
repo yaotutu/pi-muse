@@ -1,7 +1,7 @@
 import { actionFromRow, applyActionsDiff, readActionRows } from "./actions-schema.js";
 import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 import type { ActionRepository, PendingAction } from "../../features/actions/types.js";
-import { readActionsDocument } from "./document-schemas.js";
+import { parseActions } from "./actions-schema.js";
 
 /**
  * 审批记录的 SQLite 仓储实现。

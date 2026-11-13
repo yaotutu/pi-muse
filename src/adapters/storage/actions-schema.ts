@@ -1,5 +1,6 @@
 import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 import type { SqliteModule } from "./sqlite-modules.js";
+import { InvalidDocumentError } from "./document-schemas.js";
 import type {
   ActionKind,
   ActionStatus,
@@ -8,11 +9,63 @@ import type {
 } from "../../features/actions/types.js";
 
 /**
+ * 审批记录形状校验：revision 为正整数，终态必有 resolvedAt，只有人工
+ * approved/denied 才带 decidedAt，execution 只能在 approved 上且各状态自洽。
+ * 缺字段或状态与时间矛盾的记录整体拒绝，不补默认值、不静默过滤。
+ */
+export const parseActions = (value: unknown): PendingAction[] => {
+  if (!Array.isArray(value)) throw new InvalidDocumentError("actions");
+  const statuses = ["pending", "approved", "denied", "expired", "cancelled"];
+  const kinds = ["file_write", "file_edit"];
+  const isObject = (entry: unknown): entry is Record<string, unknown> =>
+    entry !== null && typeof entry === "object" && !Array.isArray(entry);
+  const actionTime = (time: unknown): time is string =>
+    typeof time === "string" && Number.isFinite(Date.parse(time)) && new Date(time).toISOString() === time;
+  const nullableContext = (field: unknown) => field === null || typeof field === "string";
+  const isPayload = (field: unknown) =>
+    isObject(field) && Object.values(field).every((entry) => typeof entry === "string");
+  const validExecution = (item: Record<string, unknown>) => {
+    if (item.execution === undefined) return true;
+    const execution = item.execution;
+    if (item.status !== "approved" || !isObject(execution) ||
+      typeof execution.status !== "string" || !["running", "succeeded", "failed", "cancelled", "unknown"].includes(execution.status) ||
+      !actionTime(execution.startedAt) || !(execution.result === null || typeof execution.result === "string")) return false;
+    if (execution.status === "running") return execution.finishedAt === null && execution.result === null;
+    return execution.status === "unknown" ? execution.finishedAt === null : actionTime(execution.finishedAt);
+  };
+  const isStateConsistent = (item: Record<string, unknown>) => {
+    const terminal = item.status !== "pending";
+    if (!terminal) return item.resolvedAt === null && item.decidedAt === null;
+    if (!actionTime(item.resolvedAt)) return false;
+    return item.status === "approved" || item.status === "denied"
+      ? actionTime(item.decidedAt)
+      : item.decidedAt === null;
+  };
+  const list = value.filter(
+    (item): item is PendingAction =>
+      isObject(item) &&
+      typeof item.id === "string" &&
+      typeof item.title === "string" &&
+      typeof item.kind === "string" && kinds.includes(item.kind) &&
+      typeof item.status === "string" && statuses.includes(item.status) &&
+      isPayload(item.payload) &&
+      typeof item.revision === "number" && Number.isInteger(item.revision) && item.revision >= 1 &&
+      actionTime(item.createdAt) && actionTime(item.expiresAt) &&
+      Object.hasOwn(item, "sessionId") && nullableContext(item.sessionId) &&
+      nullableContext(item.runId) && nullableContext(item.toolCallId) &&
+      nullableContext(item.subagentId) && nullableContext(item.activityId) &&
+      isStateConsistent(item) && validExecution(item),
+  );
+  if (list.length !== value.length) throw new InvalidDocumentError("actions");
+  return list;
+};
+
+/**
  * 审批记录（文件 write/edit 审批与执行回执）的 SQLite 表结构与行映射。
  *
  * 为什么把状态机写进数据库约束：审批记录同时承载"人的决定"（approved/denied）
  * 与"执行事实"（execution），两者一旦被错误组合就会把授权读成执行成功。
- * 这里把 readActionsDocument 的每条状态机规则逐条翻成 CHECK，非法组合在写入
+ * 这里把审批记录的每条状态机规则逐条翻成 CHECK，非法组合在写入
  * 那一刻就被拒绝，不会落库后再被读路径发现。
  *
  * 时间统一为 UTC ISO 8601（毫秒 + Z），与 new Date().toISOString() 完全一致。

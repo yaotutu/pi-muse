@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { readGoalsDocument, InvalidDocumentError } from "./document-schemas.js";
+import { InvalidDocumentError } from "./document-schemas.js";
 import {
   ensureSqliteModules,
   SQLITE_MODULE_LEDGER_TABLE,
@@ -105,7 +105,22 @@ export const ensureGoalsModule = (managed: ManagedSqliteDatabase): void => {
  * 任一条不满足都整体拒绝，不静默过滤坏条目，也不补默认值。
  */
 export const parseGoals = (value: unknown): Goal[] => {
-  const base = readGoalsDocument(value);
+  if (!Array.isArray(value)) throw new InvalidDocumentError("goals");
+  const statuses = ["active", "paused", "completed", "archived"];
+  const base = value.filter((item): item is Goal => {
+    const goal = item as unknown as Record<string, unknown>;
+    return goal !== null && typeof goal === "object" && !Array.isArray(goal) &&
+      typeof goal.id === "string" &&
+      typeof goal.title === "string" &&
+      typeof goal.status === "string" && statuses.includes(goal.status) &&
+      Array.isArray(goal.milestones) &&
+      (goal.milestones as unknown[]).every((milestone) => {
+        const row = milestone as Record<string, unknown>;
+        return row !== null && typeof row === "object" && !Array.isArray(row) &&
+          typeof row.id === "string" && typeof row.title === "string" && typeof row.done === "boolean";
+      });
+  });
+  if (base.length !== value.length) throw new InvalidDocumentError("goals");
   const goalIds = new Set<string>();
   const milestoneIds = new Set<string>();
   return base.map((item) => {

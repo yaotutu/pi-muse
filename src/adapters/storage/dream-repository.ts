@@ -1,7 +1,6 @@
 import type { DreamRepository } from "../../features/dream/types.js";
 import type { DreamPromptsPort } from "../../features/dream/service.js";
-import { applyDreamState, ensureDreamModule, readDreamState } from "./dream-schema.js";
-import { readDreamDocument } from "./document-schemas.js";
+import { applyDreamState, ensureDreamModule, parseDreamState, readDreamState } from "./dream-schema.js";
 import type { DataLayout } from "./data-layout.js";
 import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 import { readProfileFile, writeProfileFile } from "./profile-files.js";
@@ -52,7 +51,7 @@ export const createDreamRepository = (
       // 回调允许原位修改；diff 基线必须与回调持有的对象隔离。
       const changed = await change(structuredClone(current));
       if (changed.state) {
-        const next = readDreamDocument(changed.state);
+        const next = parseDreamState(changed.state);
         managed.transaction(() => applyDreamState(managed, current, next));
         onCommitted?.();
       }

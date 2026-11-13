@@ -2,7 +2,7 @@
  * 审批 HTTP + 文档回归。每条用例独占 dataDir；不调模型。
  *
  * 真实路径：以 service.actions.submit / decide / markExecuting / finishExecution
- * 落入真实 repository；批量终态数据通过独立临时 dataDir 的 actions.json 直接写入，
+ * 落入真实 repository；批量终态数据通过独立临时 dataDir 的 main.sqlite 直接写入，
  * 让 actions.history 与路由都走生产代码，不再复制分页算法。
  *
  * merge 语义（已对齐 main 为冲突基准，叠加 execution 与 /pending 补充读取）：
@@ -70,7 +70,7 @@ const openService = async (t: TestContext): Promise<Opened> => {
 };
 
 /**
- * 打开 service 前先把合成记录写入 actions.json：readActionsDocument 校验的格式是裸数组。
+ * 打开 service 前先把合成记录写入 main.sqlite：审批记录按库层 schema 落库。
  * settled 项在 service.actions.cancelPending 启动收尾时不会被改动（只动 pending 与 running），
  * 因此真实 history 会读到我们注入的数据，覆盖分页/过滤/游标路径而不复制算法。
  */
