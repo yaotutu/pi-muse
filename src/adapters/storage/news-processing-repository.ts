@@ -1,7 +1,7 @@
 import type { NewsRepository } from "../../features/news/types.js";
 import type { InformationRepository } from "../../features/information/types.js";
 
-/** 新闻处理事实嵌入 news.json；复用同一 repository 队列，不开第二个 writer。 */
+/** 新闻处理事实存入 news.sqlite 的 news_* 表；复用同一 repository 队列，不开第二个 writer。 */
 export const createNewsProcessingRepository = (news: NewsRepository): InformationRepository => {
   const repository: InformationRepository = {
     read: async () => (await news.read()).processing,

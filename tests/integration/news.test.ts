@@ -9,7 +9,7 @@ import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { sessionInstructionsFile } from "../../src/adapters/storage/data-layout.js";
 import { readSessionInstructions } from "../../src/adapters/storage/session-instructions.js";
-import { createNewsRepository } from "../../src/adapters/storage/news-repository.js";
+import { openNewsRepository } from "../../src/adapters/storage/news-repository.js";
 import {
   newsArticleListResponseSchema,
   newsFeedbackResponseSchema,
@@ -57,7 +57,7 @@ test("news HTTP surface is authenticated, stable and exposes News as a full agen
   const invalidSaved = await service.app.request("/api/news/articles?savedOnly=1", { headers });
   assert.equal(invalidSaved.status, 400);
   const article = { id:"info_contract", source:"rss", externalId:"article-contract", title:"Feedback response contract", content:"Strict feedback response projection.", receivedAt:new Date().toISOString(), acceptedAt:new Date().toISOString(), status:"processed" as const, metadata:{sourceId:"newssource_http",sourceTitle:"HTTP Feed",url:"https://example.com/article"} };
-  await createNewsRepository(service.layout.newsFile).update((state)=>({state:{...state,processing:{...state.processing,items:[article]}},result:undefined}));
+  await service.newsRepository.update((state)=>({state:{...state,processing:{...state.processing,items:[article]}},result:undefined}));
   assert.ok(article);
   const feedbackCall = async (label: string, path: string, init: RequestInit) => {
     const response = await service.app.request(path, { ...init, headers });
@@ -144,11 +144,14 @@ for(const scenario of ["valid","object-notifications","duplicate"] as const) {
     const dataDir=await mkdtemp(join(tmpdir(),"pi-muse-news-sdk-"));
     const model=await createFakeModel();
     let service:Awaited<ReturnType<typeof createService>>|undefined;
-    t.after(async()=>{try{await service?.close();}finally{await model.close();await rm(dataDir,{recursive:true,force:true});}});
-    const repo=createNewsRepository(join(dataDir,"news.json"));
+    t.after(async()=>{try{await service?.close();await newsStorage.database.close();}finally{await model.close();await rm(dataDir,{recursive:true,force:true});}});
+    const newsStorage=await openNewsRepository({databaseFile:join(dataDir,"news.sqlite"),legacyJsonFile:join(dataDir,"news.json")});
+    let repo=newsStorage.repository;
     const timestamp=new Date().toISOString();
     await repo.update((state)=>({state:{...state,processing:{...state.processing,items:[{id:"info_news_schema",source:"rss",externalId:"schema",title:"SDK schema",content:scenario==="object-notifications"?"NOTIFY NEWS_OBJECT_NOTIFICATIONS":scenario==="duplicate"?"NOTIFY TWO_VALID_SUBMISSIONS":"NOTIFY news value",receivedAt:timestamp,acceptedAt:timestamp,status:"pending",metadata:{sourceId:"source_schema",sourceTitle:"Synthetic feed",url:null}}]}},result:undefined}));
+    await newsStorage.database.close();
     service=await createService(createConfig({server:{host:"127.0.0.1"},model:{baseUrl:model.baseUrl,id:"test-model",apiKey:"fake-news-key"},runtime:{dataDir,schedulerIntervalMs:60000,monitorScanIntervalMs:60000}}));
+    repo=service.newsRepository;
     const run=await waitForTest(async()=>{const current=(await repo.read()).processing.runs[0];return current && current.status!=="running"?current:undefined;},"news analysis",8000);
     assert.equal(run.status,scenario==="valid"?"completed":"failed");
     assert.equal(run.model?.status,scenario==="valid"?"succeeded":"failed");

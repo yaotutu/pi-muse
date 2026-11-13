@@ -108,7 +108,7 @@ Every section and field may be omitted as needed; omitted values use built-in de
 | `tools.browser.timeoutMs` | `30000` | Timeout for tab navigation and element operations. |
 | `tools.browser.desktopPort` | `6080` | In-container websockify/noVNC desktop port (1–65535); bound to 127.0.0.1 only. External desktop access goes through the same-origin `/browser/desktop/` gateway. |
 | `tools.presentation.default` | `hidden` | Tool presentation policy for the client's live stream and history projection: `hidden` hides tool calls, while `summary` sends only a controlled summary. |
-| `tools.presentation.overrides` | `{}` | Overrides the default policy by tool name. Names follow the explicit registry in `src/adapters/pi/tools/index.ts`: `currentTime`, `instructions`, `memory`, `memory_search`, `schedule`, `subagent`, `goal`, `monitor`, `read`, `grep`, `find`, `ls`, `write`, `edit`, `skills`, `search_web`, `web_fetch`, `get_weather`, `navigate`, `snapshot`, `act`, and `tab`. |
+| `tools.presentation.overrides` | `{}` | Overrides the default policy by tool name. Names follow the explicit registry in `src/adapters/pi/tools/index.ts`: `currentTime`, `database`, `instructions`, `memory`, `memory_search`, `schedule`, `subagent`, `goal`, `monitor`, `read`, `grep`, `find`, `ls`, `write`, `edit`, `skills`, `search_web`, `web_fetch`, `get_weather`, `navigate`, `snapshot`, `act`, and `tab`. |
 
 By default, the `.pi-muse/` directory containing `.pi-muse/config.json` is also the instance data directory. The current default instance directory is unified as `.pi-muse/`; legacy directories are neither read nor migrated automatically. In other words, sessions, memory, jobs, the workspace, and the configuration file stay in the same instance directory.
 
@@ -126,13 +126,14 @@ DATA_DIR/
   sessions/<sessionId>/  pi JSONL, INSTRUCTIONS.md, skills.json
   messages/<sessionId>/<piSessionId>.json
   information/sms.json
-  news.json
+  main.sqlite       default database and agent-created tables
+  news.sqlite       relational news tables
   jobs.json goals.json actions.json monitors.json
   agent/            pi auth resources
   skills/ subagents/ traces/ browser/
 ```
 
-All sessions and child calls share one workspace root. Child calls use in-memory context and create no directories or persistent history. The new layout does not implicitly read, migrate or delete older instances.
+All sessions and child calls share one workspace root. Child calls use in-memory context and create no directories or persistent history. The new layout does not implicitly read, migrate or delete older instances. See [Database](database.md) for `main.sqlite` and `news.sqlite`; other feature files have not all migrated. Legacy `news.json` needs explicit import and is not a second runtime write destination. Live SQLite databases may also have `-wal`/`-shm` files, so the directory list is not a recipe for copying individual files during writes.
 
 ## Data Storage and Security Boundaries {#data-storage-and-security-boundaries}
 

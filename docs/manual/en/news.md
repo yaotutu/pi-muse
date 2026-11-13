@@ -34,6 +34,30 @@ Manual refresh waits for collection and returns the added count, not model compl
 
 Read status, sources and articles after an unknown collection result. A failed list read should only repeat the read, not automatically refresh sources. Controlled errors omit credentials and internal diagnostics.
 
+## Storage {#storage}
+
+Sources, articles, reactions, saves, comments, analysis batches, recommendations and learned summaries are stored in the server's separate `news.sqlite`, rather than rewriting a complete news JSON document at runtime. It is separate from the default `main.sqlite`; this does not mean memory, tasks or other modules have already migrated. Chat history remains managed by pi and is unchanged by this news-storage update.
+
+The news API and the agent's [database tool](database.md) operate on the same news data. The agent can query, modify, extend schemas or drop tables without per-SQL approval. Breaking built-in table structures can make news unavailable; the system does not silently rebuild an empty database. Database operations do not automatically recompute previous recommendations or rerun a model.
+
+Existing news JSON requires explicit import and cutover; startup does not automatically convert or delete it. Use a consistent SQLite backup method rather than copying only the main file while writes may still be committed in its WAL.
+
+## Import legacy news {#import}
+
+Operate only on an explicitly authorized instance. First stop its writes and background processing normally and retain a protected backup. Do not import while the old service is still changing news. The target `news.sqlite` and its sidecars must not exist.
+
+From the server repository, replace these paths with the actual instance paths:
+
+```sh
+node --import tsx scripts/import-news-sqlite.ts \
+  --source /path/to/data/news.json \
+  --target /path/to/data/news.sqlite
+```
+
+The importer strictly validates the document, preserves IDs, times, order, feedback and analysis facts, verifies a read-back and returns counts. The source stays read-only: it is neither deleted nor rewritten, and runtime news uses SQLite as its only data source. An imported database is accepted only after data and the completion marker commit together. An interrupted import cannot start as empty news.
+
+An existing target is refused; do not overwrite or delete it merely to retry. If import fails or its outcome is unknown, inspect the report, target state and backup before deciding what to do. After verification, start the new service and check health identity, sources, articles and feedback. This cutover does not require resetting chat or rotating the signing key.
+
 ## Boundaries {#boundaries}
 
 News has no separate instructions, workspace, session, Dream or delivery binding. Recommendations do not generate chat system notifications or add a global polling/notification stream. Discussing an article does not change workspace, tool or approval boundaries.

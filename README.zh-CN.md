@@ -56,7 +56,7 @@ Pi Muse 面向个人自用，是单用户、单一助手，不是团队平台或
 
 ### 1. 运行自己的服务端
 
-准备 Node.js **24+**、`package.json` 声明的 pnpm 版本，以及与 Pi Muse 当前 pi provider 兼容的模型接口。当前适配器使用 pi 的 `openai-completions` API；仅有“OpenAI 兼容”标签，不代表所有提供方、模型和功能都能使用。图片理解还要求模型本身具备视觉能力，Pi Muse 不会自动换模型。
+准备 Node.js **24.18.0+**、`package.json` 声明的 pnpm 版本，以及与 Pi Muse 当前 pi provider 兼容的模型接口。当前适配器使用 pi 的 `openai-completions` API；仅有“OpenAI 兼容”标签，不代表所有提供方、模型和功能都能使用。图片理解还要求模型本身具备视觉能力，Pi Muse 不会自动换模型。
 
 在准备运行服务端的主机上执行：
 

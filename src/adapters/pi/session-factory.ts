@@ -85,6 +85,7 @@ export type PiDeps = {
   /** 业务会话中的独立讨论；即使后台自动处理关闭，仍可主动查询本会话已有信息。 */
   /** 跨会话写入的审批回到原调用者；工作区与实际文件版本仍属于执行会话。 */
   information?: Pick<import("../../features/information/service.js").InformationService, "getSettings" | "query">;
+  database?: Pick<import("../../features/database/database-service.js").DatabaseService, "execute">;
 };
 
 const subagentBlockedTools = new Set([SUBAGENT_TOOL_NAME, "activity", "schedule", "monitor", "instructions", "bash"]);
@@ -196,6 +197,7 @@ export async function openPi(deps: PiDeps) {
     writableEnabled: deps.config.writable.enabled,
     workspaceCommits: deps.workspaceCommits,
     information: informationEnabled ? deps.information : undefined,
+    database: deps.database,
   });
 
   const builtinToolNames = new Set(registeredToolNames);

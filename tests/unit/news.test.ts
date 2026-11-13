@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createInformationRepository } from "../../src/adapters/storage/information-repository.js";
-import { createNewsRepository } from "../../src/adapters/storage/news-repository.js";
+import { openNewsRepository } from "../../src/adapters/storage/news-repository.js";
 import { createDataLayout } from "../../src/adapters/storage/data-layout.js";
 import { cleanRssText, parseRss2 } from "../../src/adapters/news/rss.js";
 import { createInformationService } from "../../src/features/information/service.js";
@@ -63,10 +63,14 @@ test("RSS2 parser enforces its nesting limit before traversing the parsed tree",
 
 test("recommendation processing projects decisions without retaining or notifying chat", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-service-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const layout = createDataLayout(dataDir);
   const informationRepository = createInformationRepository(layout);
-  const newsRepository = createNewsRepository(layout.newsFile);
+  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile, legacyJsonFile: layout.newsFile });
+  t.after(async () => {
+    await newsStorage.database.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const newsRepository = newsStorage.repository;
   let retained = false;
   let mainInstructions = "";
   let failNext = false;
@@ -215,8 +219,12 @@ test("touching an old article makes its feedback recent for the next model input
 
 test("news pagination returns null nextCursor for an exact full page", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-pagination-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const layout = createDataLayout(dataDir);
+  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile, legacyJsonFile: layout.newsFile });
+  t.after(async () => {
+    await newsStorage.database.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const information = createInformationService({
     repository: createInformationRepository(layout),
 
@@ -227,7 +235,7 @@ test("news pagination returns null nextCursor for an exact full page", async (t)
     enabledSkillTexts: async () => [],
   });
   const news = createNewsService({
-    repository: createNewsRepository(layout.newsFile),
+    repository: newsStorage.repository,
     information,
       fetchFeed: async () => {
       throw new Error("not used");
@@ -261,8 +269,12 @@ test("news pagination returns null nextCursor for an exact full page", async (t)
 
 test("background refresh keeps failed articles failed while explicit refresh requeues them", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-retry-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const layout = createDataLayout(dataDir);
+  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile, legacyJsonFile: layout.newsFile });
+  t.after(async () => {
+    await newsStorage.database.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const information = createInformationService({
     repository: createInformationRepository(layout),
 
@@ -274,7 +286,7 @@ test("background refresh keeps failed articles failed while explicit refresh req
   });
   const feed = parseRss2(rss(item("retry", "Retry", "Wed, 29 Oct 2026 10:00:00 GMT")));
   const news = createNewsService({
-    repository: createNewsRepository(layout.newsFile),
+    repository: newsStorage.repository,
     information,
       fetchFeed: async () => feed,
   });
@@ -304,8 +316,12 @@ test("background refresh keeps failed articles failed while explicit refresh req
 
 test("concurrent news refresh is rejected without queueing", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-refresh-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const layout = createDataLayout(dataDir);
+  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile, legacyJsonFile: layout.newsFile });
+  t.after(async () => {
+    await newsStorage.database.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const information = createInformationService({
     repository: createInformationRepository(layout),
 
@@ -322,7 +338,7 @@ test("concurrent news refresh is rejected without queueing", async (t) => {
   const refreshGate = new Promise<void>((resolve) => { releaseRefresh = resolve; });
   const refreshStarted = new Promise<void>((resolve) => { markRefreshStarted = resolve; });
   const news = createNewsService({
-    repository: createNewsRepository(layout.newsFile),
+    repository: newsStorage.repository,
     information,
       fetchFeed: async () => {
       calls++;
@@ -344,8 +360,12 @@ test("concurrent news refresh is rejected without queueing", async (t) => {
 
 test("one broken RSS source does not block another and its error stays controlled", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-source-error-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const layout = createDataLayout(dataDir);
+  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile, legacyJsonFile: layout.newsFile });
+  t.after(async () => {
+    await newsStorage.database.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const information = createInformationService({
     repository: createInformationRepository(layout),
 
@@ -359,7 +379,7 @@ test("one broken RSS source does not block another and its error stays controlle
   const badFeed = parseRss2(rss(item("bad", "Bad", "Thu, 30 Oct 2026 10:00:00 GMT")));
   let failBad = false;
   const news = createNewsService({
-    repository: createNewsRepository(layout.newsFile),
+    repository: newsStorage.repository,
     information,
       fetchFeed: async (url) => {
       if (url.includes("bad") && failBad) throw new Error("upstream-marker-4wrqxe7u");

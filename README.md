@@ -56,7 +56,7 @@ Browser availability depends on deployment and configuration. The noVNC desktop 
 
 ### 1. Run your server
 
-Use Node.js **24+**, the pnpm version declared in `package.json`, and a model endpoint compatible with Pi Muse's configured pi provider. The current adapter uses pi's `openai-completions` API: an “OpenAI-compatible” label alone does not guarantee that every provider, model, or feature will work. Image understanding also requires a vision-capable model; Pi Muse does not automatically switch models.
+Use Node.js **24.18.0+**, the pnpm version declared in `package.json`, and a model endpoint compatible with Pi Muse's configured pi provider. The current adapter uses pi's `openai-completions` API: an “OpenAI-compatible” label alone does not guarantee that every provider, model, or feature will work. Image understanding also requires a vision-capable model; Pi Muse does not automatically switch models.
 
 On the host that will run the server:
 

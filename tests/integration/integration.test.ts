@@ -32,7 +32,7 @@ const user = (content: string, id: string = randomUUID()): Message => ({
   role: "user",
   content,
 });
-// 服务端只应把只读工具集声明给模型；客户端伪造的 tools 永不透传。
+// 服务端只声明明确注册的当前工具集；客户端伪造的 tools 永不透传。
 const declaredTools = (request: ModelRequest) =>
   (request.tools || [])
     .map(
@@ -46,6 +46,7 @@ const expectedTools = [
   "act",
   "activity",
   "currentTime",
+  "database",
   "edit",
   "find",
   "get_weather",

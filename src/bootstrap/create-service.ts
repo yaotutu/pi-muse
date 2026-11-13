@@ -30,7 +30,10 @@ import { createInformationRepository } from "../adapters/storage/information-rep
 import { createInformationService } from "../features/information/service.js";
 import { createInformationScheduler } from "../features/information/scheduler.js";
 import { createInformationRunner, createInformationSkillTextReader } from "../adapters/pi/information-runner.js";
-import { createNewsRepository } from "../adapters/storage/news-repository.js";
+import { openNewsRepository } from "../adapters/storage/news-repository.js";
+import { openSqliteDatabase, type ManagedSqliteDatabase } from "../adapters/storage/sqlite-database.js";
+import { createDatabaseToolStore } from "../adapters/storage/database-tool-store.js";
+import { createDatabaseService } from "../features/database/database-service.js";
 import { parseRss2 } from "../adapters/news/rss.js";
 import { createNewsService } from "../features/news/service.js";
 import { sessionInstructionsFile } from "../adapters/storage/data-layout.js";
@@ -128,7 +131,6 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   const messageFeedbackRepository = createMessageFeedbackRepository(layout);
   const dreamRepository = createDreamRepository(layout);
   const informationRepository = createInformationRepository(layout);
-  const newsRepository = createNewsRepository(layout.newsFile);
   const sessionRepository = createSessionRepository(layout.sessionIndexFile);
   const sessionStorage = createSessionStorage(layout);
   await initializeMainSession(sessionRepository, sessionStorage);
@@ -253,6 +255,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
               skills,
               workspaceCommits,
               information,
+              database,
             }),
             manager,
           );
@@ -277,7 +280,35 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     enabledSkillTexts: () => createInformationSkillTextReader(skills)("main"),
   };
   information = createInformationService({ ...informationDeps, repository: informationRepository });
-  // 新闻与短信复用处理规则，但各有全局事实文档；不借用会话充当数据 owner。
+  // 新闻事实落 news.sqlite；打开时完成旧 news.json 显式导入检测与建库。
+  // Managed 实例唯一，后续 AgentSQL 工具复用同一实例，不另开 writer。
+  let newsStorage: Awaited<ReturnType<typeof openNewsRepository>>;
+  try {
+    newsStorage = await openNewsRepository({
+      databaseFile: layout.newsDatabaseFile,
+      legacyJsonFile: layout.newsFile,
+    });
+  } catch (error) {
+    await Promise.allSettled([information.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
+    throw error;
+  }
+  const newsRepository = newsStorage.repository;
+  let mainDatabase: Promise<ManagedSqliteDatabase> | undefined;
+  let databasesClosing = false;
+  const database = createDatabaseService(createDatabaseToolStore(async (name) => {
+    if (databasesClosing) throw new Error("Managed databases are closing");
+    if (name === "news") return newsStorage.database;
+    // main 尚无内置业务表，首次实际访问时才开库；所有会话复用同一 Promise/队列。
+    mainDatabase ??= openSqliteDatabase(layout.mainDatabaseFile);
+    return mainDatabase;
+  }));
+  const closeDatabases = async () => {
+    databasesClosing = true;
+    const pending = [newsStorage.database.close()];
+    if (mainDatabase) pending.push(mainDatabase.then((managed) => managed.close(), () => undefined));
+    return Promise.allSettled(pending);
+  };
+  // 新闻与短信复用处理规则，但各有全局事实存储；不借用会话充当数据 owner。
   const newsProcessingRepository = createNewsProcessingRepository(newsRepository);
   const newsProcessing = createInformationService({ ...informationDeps, repository: newsProcessingRepository });
   const informationScheduler = createInformationScheduler(information);
@@ -295,10 +326,8 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     await actions.cancelPending();
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
-    await information?.close();
-    await conversationHub.closeAll();
-    await browser?.close();
-    await modelTrace?.close();
+    await Promise.allSettled([information?.close(), newsProcessing.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
+    await closeDatabases();
     throw error;
   }
   let mainConversation: Awaited<ReturnType<typeof conversationHub.forSession>>;
@@ -321,10 +350,8 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     }
   } catch (error) {
     await news.close();
-    await information?.close();
-    await conversationHub.closeAll();
-    await browser?.close();
-    await modelTrace?.close();
+    await Promise.allSettled([information?.close(), newsProcessing.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
+    await closeDatabases();
     throw error;
   }
   const scheduler = createScheduler(config, jobs, mainConversation, (sessionId) => conversationHub.findSession(sessionId));
@@ -396,11 +423,12 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     jobs, monitors, actions, feedback: messageFeedbackRepository, pauseMain: () => information!.pause(), forgetPresence: workspaceEvents.presence.forget });
   // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
   const traces = createModelTraceReader(layout.tracesDir);
-  const dependencies = { companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, sessions, browser, browserDesktop, messageFeedbackRepository };
+  const dependencies = { companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
     closed = true;
+    databasesClosing = true;
     clearInterval(approvalTimer);
     // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
     workspaceEvents.close();
@@ -409,6 +437,8 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
       await approvalExpiry;
+      // 新闻写方与在途请求都收尾后再关库；之后不再接受任何 news_* 写入。
+      results.push(...await closeDatabases());
       try {
         await browser?.close();
       } finally {

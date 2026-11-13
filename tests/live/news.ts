@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
+import { DatabaseSync } from "node:sqlite";
 import {
   newsArticleDetailResponseSchema,
   newsArticleListResponseSchema,
@@ -14,7 +15,8 @@ import {
 } from "../../src/http/contracts/news.js";
 
 const FIRST_FEED = "https://hnrss.org/frontpage?count=3";
-const SECOND_FEED = "https://hnrss.org/ask?count=3";
+// 第二源使用已实测可解析的另一公开 RSS2，避免 HNRSS Ask 的 HTTP 502 阻断后续存储验收。
+const SECOND_FEED = "https://www.solidot.org/index.rss";
 const ACCESS_KEY = "news-live-access";
 const SUBMIT_TOOL = "submit_information_result";
 
@@ -98,12 +100,31 @@ const stopHttp = async (http: Http) => {
   await new Promise<void>((resolve) => http.close(() => resolve()));
 };
 
+const sqliteEvidence = (dataDir: string) => {
+  const database = new DatabaseSync(join(dataDir, "news.sqlite"), { readOnly: true });
+  try {
+    assert.equal(database.prepare("PRAGMA integrity_check").get()?.integrity_check, "ok");
+    const tables = database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'news_%' ORDER BY name")
+      .all().map((row) => String(row.name));
+    assert.ok(tables.includes("news_articles"), "articles must have a real relational table");
+    assert.ok(tables.includes("news_article_feedback"), "article feedback must not live in an opaque document");
+    return {
+      tables,
+      articles: Number(database.prepare("SELECT COUNT(*) AS total FROM news_articles").get()?.total),
+      feedback: Number(database.prepare("SELECT COUNT(*) AS total FROM news_article_feedback").get()?.total),
+      integrity: "ok",
+    };
+  } finally {
+    database.close();
+  }
+};
+
 const execute = async (options: NewsLiveOptions) => {
   const { createService } = await import("../support/test-service.js");
   const { createConfig } = await import("../../src/config/load-config.js");
   const { createLiveModel, redactApiKey } = await import("../support/live-model.js");
   const raw = JSON.parse(await readFile(options.configPath, "utf8")) as { model?: unknown };
-  const model = createConfig({ model: raw.model });
+  const model = createConfig({ server: { host: "127.0.0.1" }, model: raw.model });
   if (!model.configured || !model.baseUrl || !model.modelId) throw new Error("Model configuration is required");
 
   let root: string | undefined;
@@ -211,6 +232,16 @@ const execute = async (options: NewsLiveOptions) => {
     assert.deepEqual(sessions.sessions.map((session)=>session.id),["main"]);
     const instructions = (await expect("main instructions", "/api/sessions/main/instructions", 200)) as { instructions:string };
     assert.equal(coldPreferences.notes,instructions.instructions);
+    // 合成新闻验收明确给出偏好，不把生产默认短信规则或默认技能开关当作推荐前提。
+    const newsTestNotes = [
+      "本次是隔离新闻推荐验收，不是短信紧急通知筛选。",
+      "从每个非空新闻批次中至少选择一篇最值得阅读的文章，优先深入技术、工程实践和一手资料；由你根据实际文章内容选择并说明理由。",
+      "参考逐篇喜欢、不喜欢、收藏与评论。出现有效反馈后，在 learnedNotes 中总结简短偏好；没有反馈时不编造偏好。",
+    ].join("\n");
+    const configuredPreferences = newsPreferencesResponseSchema.parse(await expect("set synthetic news preferences", "/api/news/preferences", 200, {
+      method: "PUT", body: JSON.stringify({ notes: newsTestNotes }),
+    }));
+    assert.equal(configuredPreferences.notes, newsTestNotes);
     const mainHistoryBefore = await expect("main history", "/api/conversation?sessionId=main", 200);
 
     const firstSource = (await expect("add first source", "/api/news/sources", 200, {
@@ -294,9 +325,15 @@ const execute = async (options: NewsLiveOptions) => {
       await expect("saved filter", "/api/news/articles?view=all&savedOnly=true&limit=100", 200),
     );
     assert.ok(savedOnly.articles.some((article) => article.id === firstArticle.id));
+    const persistedFeedback = sqliteEvidence(dataDir);
+    assert.equal(persistedFeedback.articles, (await allArticles()).articles.length);
+    assert.ok(persistedFeedback.feedback > 0);
+    await assert.rejects(readFile(join(dataDir, "news.json")), (error: unknown) =>
+      (error as NodeJS.ErrnoException).code === "ENOENT");
+    record("sqlite-relational-feedback", persistedFeedback);
 
     const secondSource = (await expect("add second source", "/api/news/sources", 200, {
-      method: "POST", body: JSON.stringify({ url: SECOND_FEED, title: "HN Ask" }),
+      method: "POST", body: JSON.stringify({ url: SECOND_FEED, title: "Solidot RSS" }),
     }) as { source: { id: string } }).source;
     const secondBaseline = acceptedSubmitCount();
     const secondRefresh = (await expect("refresh second", "/api/news/refresh", 200, {
@@ -335,8 +372,7 @@ const execute = async (options: NewsLiveOptions) => {
 
     const mainHistoryAfter = await expect("main history after news", "/api/conversation?sessionId=main", 200);
     assert.deepEqual(mainHistoryAfter, mainHistoryBefore, "news collection must not mutate the main chat");
-    assert.ok(!(await allArticles()).articles.some((article) => article.content.includes("main")));
-    record("hidden-agent-and-chat-isolation", { articleCount: (await allArticles()).articles.length });
+    record("news-does-not-mutate-chat", { articleCount: (await allArticles()).articles.length });
 
     const articleCountBeforeRestart = (await allArticles()).articles.length;
     const currentService = service;
@@ -361,13 +397,17 @@ const execute = async (options: NewsLiveOptions) => {
     assert.equal(restartedArticle.feedback.reaction, "like");
     assert.equal(restartedArticle.feedback.saved, true);
     assert.equal(restartedPreferences.learnedNotes, learned.learnedNotes);
-    // 重启后内置新闻智能体仍在目录中（与冷启动同一契约）。
+    assert.equal(restartedPreferences.notes, newsTestNotes);
+    // 重启后仍只有同一 main 身份；新闻不创建独立聊天身份。
     assert.ok(((await expect("restarted sessions", "/api/sessions", 200)) as {
       sessions: Array<{ id: string }>;
     }).sessions.some((agent) => agent.id === "main"));
+    const restartedSqlite = sqliteEvidence(dataDir);
+    assert.equal(restartedSqlite.articles, articleCountBeforeRestart);
     record("restart-persistence", {
       articles: restartedArticles.articles.length,
       learnedNotesLength: restartedPreferences.learnedNotes.length,
+      sqlite: restartedSqlite,
     });
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);

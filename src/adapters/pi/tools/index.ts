@@ -25,6 +25,8 @@ import { createInformationTool, INFORMATION_TOOL_NAME } from "./information.js";
 import type { ActivityRun } from "../../../features/activities/types.js";
 import { SUBAGENT_TOOL_NAME } from "../subagent/extension.js";
 import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
+import type { DatabaseService } from "../../../features/database/database-service.js";
+import { databaseTool } from "./database.js";
 
 type ToolDependencies = {
   root: string;
@@ -48,6 +50,7 @@ type ToolDependencies = {
   browser?: BrowserService;
   layout?: DataLayout;
   information?: Pick<import("../../../features/information/service.js").InformationService, "query">;
+  database?: Pick<DatabaseService, "execute">;
   readOnlyFiles?: readonly ReadOnlyFile[];
   workspaceCommits?: WorkspaceCommitQueue;
 };
@@ -75,6 +78,7 @@ export const skillToToolsMap: Record<string, string[]> = {
 
 const registrations = [
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
+  { names: ["database"], create: (deps: ToolDependencies) => deps.database ? [databaseTool(deps.database)] : [] },
   { names: [INFORMATION_TOOL_NAME], create: (deps: ToolDependencies) => deps.information && deps.sessionId ? [createInformationTool(deps.information)] : [] },
   { names: [ACTIVITY_TOOL_NAME], create: (deps: ToolDependencies) => deps.activity && !isSubagent(deps) ? [createActivityTool(deps.activity)] : [] },
   { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout ? [] : [instructionsTool(deps.layout, deps.sessionId)] },

@@ -607,6 +607,15 @@ test("docs: source routing, deletion, safe errors and deployed code identity are
   assert.match(description("/api/health", "get"), /commit[\s\S]*dirty[\s\S]*sourceHash/);
 });
 
+test("docs: database tool declares shared storage, autonomous SQL and honest cancellation", () => {
+  const doc = buildOpenApiDocument();
+  const chat = doc.paths["/api/conversation/run"].post as { description: string };
+  for (const rule of [/database/, /main\/news/, /无逐次 SQL 审批或表级权限/, /共用同一数据库/,
+    /不接受任意文件路径/, /工具帧隐藏 SQL 参数和原始行/, /已提交修改不会因稍后取消而撤销/,
+    /不自动重放/]) assert.match(chat.description, rule);
+  assert.equal(Object.hasOwn(doc.paths, "/api/database"), false, "SQL stays a model tool, not a new unaudited REST endpoint");
+});
+
 test("docs: subagent stays inside the parent run and no background task creation remains", () => {
   const doc = buildOpenApiDocument();
   type Operation = { description: string; responses: Record<string, { content: Record<string, { schema: { properties: Record<string, unknown> } }> }> };

@@ -486,6 +486,8 @@ export const endpoints: EndpointSpec[] = [
     method: "post", path: "/api/conversation/run", tag: "会话", summary: "提交一条用户消息（SSE 流）",
     hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。首次合法 ID 建立新会话；删除进行中返回 409 SESSION_DELETING，客户端不自动重试旧 ID。事件顺序：${SSE_EVENT_ORDER}。` +
       "message.attachments 最多 4 项，随本条消息一次性提交：PNG/JPEG/GIF/WebP 单图最大 8MiB，全部原始字节合计最大 8MiB，严格 UTF-8 文本合计最大 100000 字节；请求体上限 12MiB，超限在 SSE/历史/模型开始前返回 413 REQUEST_TOO_LARGE。图片需要当前单业务模型支持视觉，服务端不自动换模型、不静默丢图；PDF/Office/压缩包及其他二进制拒绝，SVG/HTML 只按不可信文本处理。completed 重放或失败显式重试必须保持附件顺序与字节 SHA-256 身份一致。" +
+      "主模型可调用 database 工具自主操作 main/news 托管 SQLite：可查询、写入、建表、改列和删表，无逐次 SQL 审批或表级权限。news 与新闻 API 共用同一数据库；main 是默认库，不表示其他业务已全部迁入。该工具不接受任意文件路径、不附加外部数据库或加载扩展；文件 write/edit 的审批边界不变。" +
+      "database 的调用/结果按现有 tools.presentation 的 hidden/summary 投影，工具帧隐藏 SQL 参数和原始行；模型仍可能在最终回答中引用结果。Stop 不保证中断已开始的同步 SQL，已提交修改不会因稍后取消而撤销。结果未明先查询核对，不自动重放。" +
       "主模型可在本轮调用 subagent 工具（官方 pi 1.3.0 示例适配），子会话返回结果后主模型继续；这不是独立后台任务队列，不提供创建子任务的 HTTP 接口。" +
       "工具参数为单个 {agent,task}、并行 {tasks:[{agent,task}]} 或链式 {chain:[{agent,task}]} 三选一；最多8项，最多4个子会话并发，链式用 {previous} 引用上一步结果，失败即停止。" +
       "subagent 的客户端卡片按 tools.presentation 的 hidden/summary 策略显示，参数正文不透出；父 SSE 不直接嵌套子会话聊天流或暴露原始工具详情。" +

@@ -108,7 +108,7 @@ chmod 600 .pi-muse/config.json
 | `tools.browser.timeoutMs` | `30000` | 标签导航和元素操作超时 |
 | `tools.browser.desktopPort` | `6080` | 容器内 websockify/noVNC 桌面端口（1–65535）；只绑定 127.0.0.1，对外桌面访问统一走同源 `/browser/desktop/` 网关 |
 | `tools.presentation.default` | `hidden` | 客户端实时流与历史投影的工具展示策略：`hidden` 隐藏工具调用，`summary` 只发送受控摘要 |
-| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`instructions`、`memory`、`memory_search`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`skills`、`search_web`、`web_fetch`、`get_weather`、`navigate`、`snapshot`、`act`、`tab` |
+| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`database`、`instructions`、`memory`、`memory_search`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`skills`、`search_web`、`web_fetch`、`get_weather`、`navigate`、`snapshot`、`act`、`tab` |
 
 默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
 `runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
@@ -124,13 +124,14 @@ DATA_DIR/
   sessions/<sessionId>/  pi JSONL, INSTRUCTIONS.md, skills.json
   messages/<sessionId>/<piSessionId>.json
   information/sms.json
-  news.json
+  main.sqlite       默认数据库与 Agent 自建表
+  news.sqlite       新闻关系表
   jobs.json goals.json actions.json monitors.json
   agent/            pi auth resources
   skills/ subagents/ traces/ browser/
 ```
 
-所有会话与子代理共用唯一 workspace 根；子代理使用内存上下文，不落盘或建目录。新布局不隐式读取、迁移或删除旧实例。
+所有会话与子代理共用唯一 workspace 根；子代理使用内存上下文，不落盘或建目录。新布局不隐式读取、迁移或删除旧实例。`main.sqlite` 与 `news.sqlite` 的用途见[数据库](database.md)；其他业务文件尚未因此全部迁库。旧 `news.json` 需要明确导入，不是新闻运行时的第二份写入来源。运行中的 SQLite 还可能有 `-wal`/`-shm` 文件，备份不能只按上述文件列表逐个随意复制。
 
 ## 数据存储与安全边界 {#data-storage-and-security-boundaries}
 

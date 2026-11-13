@@ -9,7 +9,8 @@ export { isSessionId } from "../../features/conversation/session-id.js";
 export type DataLayout = {
   root: string; companionsDir: string; profileDir: string; workspaceDir: string; sessionsDir: string; sessionIndexFile: string;
   messageFeedbackDir: string; informationDir: string; agentDir: string; piAuthFile: string;
-  memoryFile: string; jobsFile: string; goalsFile: string; actionsFile: string; monitorsFile: string; newsFile: string;
+  memoryFile: string; jobsFile: string; goalsFile: string; actionsFile: string; monitorsFile: string;
+  mainDatabaseFile: string; newsDatabaseFile: string; newsFile: string;
   soulFile: string; userFile: string; dreamFile: string; authKeyFile: string;
   browserProfileDir: string; browserDownloadsDir: string; skillsDir: string; subagentsDir: string; tracesDir: string;
 };
@@ -21,7 +22,10 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     sessionIndexFile: join(root, "sessions.json"), messageFeedbackDir: join(root, "messages"),
     informationDir: join(root, "information"), agentDir: join(root, "agent"), piAuthFile: join(root, "agent", "auth.json"),
     memoryFile: join(profileDir, "memory.json"), jobsFile: join(root, "jobs.json"), goalsFile: join(root, "goals.json"),
-    actionsFile: join(root, "actions.json"), monitorsFile: join(root, "monitors.json"), newsFile: join(root, "news.json"),
+    actionsFile: join(root, "actions.json"), monitorsFile: join(root, "monitors.json"),
+    mainDatabaseFile: join(root, "main.sqlite"), newsDatabaseFile: join(root, "news.sqlite"),
+    // 旧 JSON 路径只作为显式导入的来源检测，运行时不再写入。
+    newsFile: join(root, "news.json"),
     soulFile: join(profileDir, "SOUL.md"), userFile: join(profileDir, "USER.md"), dreamFile: join(profileDir, "DREAM.md"),
     authKeyFile: join(root, "auth.key"), browserProfileDir: join(root, "browser", "profile"),
     browserDownloadsDir: join(root, "browser", "downloads"), skillsDir: join(root, "skills"),

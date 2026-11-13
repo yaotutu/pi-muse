@@ -60,7 +60,7 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 
 后台分析使用受限内存 pi 轮，只开放结构化提交工具，显式读取 main 指令及技能文本；不因此获得文件、网络、委派或指令写入权限。重要结果经 `main` 的 `conversation.notify` 正常落盘到 pi 历史并发送会话失效通知，不额外启动一次主聊天模型调用；专题会话不接收。silent 或失败不制造通知。disable/reset/shutdown 取消未落盘投递；已落盘通知不回滚。模型成功而发布失败分别保留事实，不重跑模型。
 
-新闻是全局 RSS 采集与推荐管线，源、文章、反馈、推荐结果在 news 文档中；没有独立聊天身份。与短信复用处理规则，但不共用数据 owner 或写队列之外的第二份文件。RSS 通过安全网络 adapter 抓取，严格 XML/大小/深度/条数校验，拒绝 DTD/实体和可执行 HTML。推荐不写聊天；删除源保留文章与反馈。偏好显式读取 main 指令；模型学习摘要不覆盖用户指令。
+新闻是全局 RSS 采集与推荐管线，源、文章、反馈、推荐结果保存在独立的 `news.sqlite` 关系表中；没有独立聊天身份。与短信复用处理规则，但不共用数据 owner，新闻服务与数据库工具复用同一 SQLite 连接及操作队列。RSS 通过安全网络 adapter 抓取，严格 XML/大小/深度/条数校验，拒绝 DTD/实体和可执行 HTML。推荐不写聊天；删除源保留文章与反馈。偏好显式读取 main 指令；模型学习摘要不覆盖用户指令。
 
 Dream 是实例全局服务：配置提示词在 profile/DREAM.md，游标按来源会话在全局状态文档保存，待决项全局管理。整理用受限内存 pi 轮；条件写入核对读取版本，不覆盖用户并发编辑；失败/部分成功不推进对应游标。来源已删除时不得借待决项重建会话。周期固定两小时，忙会话跳过，不自动重跑失败模型轮。
 
@@ -80,9 +80,15 @@ Activity 与真实步骤保存在对应会话 JSONL custom entries，不建立�
 
 ## 数据布局与校验
 
-路径唯一来源是 `src/adapters/storage/data-layout.ts`。全局 profile 包含 SOUL、USER、DREAM、memory 与 Dream 状态；workspace 是唯一文件根；sessions.json 保存元数据，sessions/<sessionId>/ 保存 JSONL、INSTRUCTIONS 和技能覆盖；messages/<sessionId>/<piSessionId>.json 保存反馈；information/sms.json 保存短信；news.json 保存新闻；其他业务域各自单文档。
+路径唯一来源是 `src/adapters/storage/data-layout.ts`。全局 profile 包含 SOUL、USER、DREAM、memory 与 Dream 状态；workspace 是唯一文件根；sessions.json 保存元数据，sessions/<sessionId>/ 保存 JSONL、INSTRUCTIONS 和技能覆盖；messages/<sessionId>/<piSessionId>.json 保存反馈；information/sms.json 保存短信；新闻使用独立 `news.sqlite`，默认业务库为 `main.sqlite`，其他尚未迁移的业务域继续使用当前各自文档，不能宣称已全部迁入 main。
+
+SQLite 表和字段采用 snake_case，领域表以模块名前缀区分，迁移版本单独登记。新闻文章、反馈、评论、批次和决定关系化保存，不以整份 JSON 文档替代关系表。保持原始业务 ID、顺序、时间及删除语义；来源是历史快照的关联不应错误级联删除文章。数据库内更新使用短事务，不在 SQL 事务内等待模型、网络或人工决定。
+
+`database` 是共享的业务数据工具，可自主查询、写入、建表、改列和删表，无库/表角色或逐次 SQL 审批；main/news 两个库均可操作。它不是任意文件或代码执行接口：库位置由宿主管理，不借 SQLite 扩展、外部文件附加或文件输出绕过工作区与文件审批边界。数据库结构被直接改坏时应如实失败，不自动重建成空库。同步 SQL 已执行/提交的副作用不因稍后取消而回滚，不宣称 AbortSignal 能中断任意正在运行的 SQLite 语句。
 
 仅 ENOENT 可初始化默认值，损坏 JSON、非法字段、未知结构与其他 I/O 错误必须报错，不过滤坏条目或静默置空。文件写入使用同目录独占临时文件、受保护权限与 rename；单进程串行读改写。新布局不读取、转换、迁移或删除旧实例数据；正式实例处理另行授权。
+
+SQLite 的连接所有权、模块命名、当前表语义与演进边界见 [SQLite 存储约定](sqlite-storage.md)。
 
 ## 助手形象
 
