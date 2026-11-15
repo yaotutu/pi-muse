@@ -30,15 +30,9 @@
 | Antigravity CLI（`agy`，`~/.local/bin`） | ⚠️ 已安装 1.5.9，但未登录：print 模式要求 Google OAuth 授权 | 用户完成登录后才可作为客户端视觉执行者；登录与凭据由用户操作，不写入仓库 |
 | GLM / DeepSeek 独立 CLI | ❌ 无独立入口 | 但 GLM 系模型可经 Magpie 使用（见下表），不等同于已接入独立 CLI 执行者 |
 
-Magpie 聚合的供应商与 2026-11-15 实测状态（能力以实时 `/v1/models` 为准，额度以真实请求为准）：
+Magpie 聚合的供应商与实测状态由 [`docs/model-availability.md`](model-availability.md) 统一维护（`/model-audit` 技能巡检生成，本表只留指针与最近一次结论摘要，避免双处漂移）：
 
-| 前缀 | 系列 | 实测（2026-11-15） |
-| --- | --- | --- |
-| `minimax-cn/` | MiniMax-M2 → M3.1（9 个） | ✅ 全部实测回复正常；M3/M3.1-Flash 支持视觉。产品实例当前用的 `minimax-cn/MiniMax-M2.5` 在此列 |
-| `qwenwork/` | flash（标准）、pro（高级）、frontier-1 | ✅ 全部实测回复正常，支持视觉 |
-| `lee-gpt/cx/` | GPT-6 Luna、GPT-6.1 Sol | ⚠️ 不稳定：sol 上游 502 超时，luna 有响应；用前实测 |
-| `zai/` | GLM-4.5 → 5.3（12 个） | ❌ 7 天用量限额触顶，2026-11-18 重置；重置后需实测再启用 |
-| `moonshot-cn/` | Kimi K2.6/K3/K3.1-pro、K2.7-code（6 个） | ❌ Invalid Authentication，供应商凭据失效，需用户在 Magpie 重新配置 |
+- 2026-11-15 摘要：`minimax-cn`（9）与 `qwenwork`（3）实测可用；`zai` GLM（12）7 天限额至 11-18；`moonshot-cn` Kimi（6）与 `lee-gpt` GPT-6（2）凭据待用户在 Magpie 处理。
 
 - 供应商目录、key 与额度都归 Magpie 自身管理，本仓库不读取也不记录任何凭据；`providers-state.json` 的 `ready` 只代表配置存在，不代表额度可用，判断可用性必须发真实请求。
 - 模型路由是用户偏好不是硬门槛：某执行者不可用或明显不适配时，主会话选择当前可用执行者并在交付中说明，不因此阻塞任务。当前默认路径就是 Claude Code 主会话 + sub agent，外部执行者缺位不阻塞开发。
