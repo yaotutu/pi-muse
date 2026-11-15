@@ -10,7 +10,15 @@ import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.j
 import { openNewsRepository } from "../../src/adapters/storage/news-repository.js";
 import { openSqliteDatabase, type ManagedSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
 import { createDataLayout, type DataLayout } from "../../src/adapters/storage/data-layout.js";
-import { cleanRssText, parseRss2 } from "../../src/adapters/news/rss.js";
+import { cleanRssText, fetchRss2, parseRss2 } from "../../src/adapters/news/rss.js";
+import { NewsError, NewsSourceError, type NewsSourceFailure } from "../../src/features/news/errors.js";
+import { createNewsRoutes } from "../../src/http/routes/news.js";
+import {
+  newsCreateSourceErrorSchema,
+  newsCreateSourceResponseSchema,
+  newsRefreshResponseSchema,
+  newsSourceListResponseSchema,
+} from "../../src/http/contracts/news.js";
 import { createInformationService } from "../../src/features/information/service.js";
 import type { InformationRepository } from "../../src/features/information/types.js";
 import { createNewsService } from "../../src/features/news/service.js";
@@ -50,20 +58,35 @@ test("RSS2 parser validates stable items and strips executable markup", () => {
   );
 });
 
-test("RSS2 parser rejects DTDs, malformed XML and items without stable fields", () => {
-  assert.throws(() => parseRss2(`<!DOCTYPE rss [<!ENTITY x "y">]><rss><channel><title>x</title></channel></rss>`), {
-    message: /DTD/,
-  });
-  assert.throws(() => parseRss2("<rss><channel>"), { message: /valid XML/ });
-  assert.throws(() => parseRss2(rss(
-    "<item><title>No identity</title><description>body</description></item>",
-  )), { message: /guid/ });
-  assert.throws(() => parseRss2(rss(
-    "<item><guid>x</guid><title></title><description>body</description></item>",
-  )), { message: /title/ });
-  assert.throws(() => parseRss2(rss(
-    "<item><guid>x</guid><title>No body</title><link>https://example.com/x</link></item>",
-  )), { message: /content/ });
+test("RSS2 parser rejects unsafe XML and feeds with more than half invalid items", () => {
+  for (const xml of [
+    `<!DOCTYPE rss [<!ENTITY x "y">]><rss><channel><title>x</title></channel></rss>`,
+    "<rss><channel>",
+    "<html><body>Not a feed</body></html>",
+    rss("<item><title>No identity</title><description>body</description></item>"),
+    rss("<item><guid>x</guid><title></title><description>body</description></item>"),
+    rss(item("valid", "Valid", "") + "<item/><item/>"),
+  ]) {
+    assert.throws(() => parseRss2(xml), { message: "RSS source failed: PARSE_INVALID" });
+  }
+});
+
+test("RSS2 parser skips bad items, accepts exactly half invalid and retains title-only articles", () => {
+  const thin = "<item><guid>thin</guid><title>Title only</title></item>";
+  const parsed = parseRss2(rss(
+    thin + item("good", "Good", "", "x") +
+    "<item><title>No ID</title></item>" + "<item><guid>no-title</guid></item>",
+  ));
+  assert.equal(parsed.skipped, 2);
+  assert.deepEqual(parsed.items.map(({ externalId, content }) => ({ externalId, content })), [
+    { externalId: "thin", content: "" }, { externalId: "good", content: "x" },
+  ]);
+  assert.equal(parseRss2(rss("<item/>" + thin)).skipped, 1);
+  assert.equal(parseRss2(rss("")).skipped, 0);
+  assert.equal(
+    parseRss2(rss("<item><link>https://example.com/link</link><title>Link ID</title></item>")).items[0]?.externalId,
+    "https://example.com/link",
+  );
 });
 
 test("RSS2 parser enforces its nesting limit before traversing the parsed tree", () => {
@@ -71,7 +94,7 @@ test("RSS2 parser enforces its nesting limit before traversing the parsed tree",
   assert.throws(() => parseRss2(rss(
     "<item><guid>deep</guid><title>Deep</title><link>https://example.com/deep</link>" +
     `<description>${nested}</description><pubDate>Wed, 29 Oct 2026 10:00:00 GMT</pubDate></item>`,
-  )), { message: /could not be parsed|nested too deeply/ });
+  )), { message: /PARSE_INVALID/ });
 });
 
 test("recommendation processing projects decisions without retaining or notifying chat", async (t) => {
@@ -426,7 +449,7 @@ test("one broken RSS source does not block another and its error stays controlle
   assert.equal(sources.find((source) => source.id === good.source.id)?.lastError, null);
   assert.equal(
     sources.find((source) => source.url.includes("bad"))?.lastError,
-    "RSS source fetch or parse failed",
+    "RSS source failed: UNKNOWN",
   );
   assert.ok(!JSON.stringify(sources).includes("upstream-marker-4wrqxe7u"));
 });
@@ -450,4 +473,270 @@ test("recommendation tool schema omits notifications, permits empty learned note
   assert.equal(sms.parameters.properties.notifications?.type,"array");
   assert.ok(sms.parameters.required?.includes("notifications"));
   assert.equal((await sms.execute("sms",{...valid,notifications:{}} as never,undefined,undefined,{} as never)).isError,true);
+});
+
+/** SQLite 新闻/信息仓储与新闻路由的最小装配；每个用例使用独立临时目录。 */
+const rssFixture = async (
+  t: test.TestContext,
+  fetchFeed: Parameters<typeof createNewsService>[0]["fetchFeed"],
+  runModel: Parameters<typeof createInformationService>[0]["runModel"] =
+    async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
+) => {
+  const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-rss-boundaries-"));
+  const layout = createDataLayout(dataDir);
+  const informationStorage = await openInformationRepository(layout);
+  const newsStorage = await openNewsRepository({
+    databaseFile: layout.newsDatabaseFile,
+    legacyJsonFile: layout.newsFile,
+  });
+  const information = createInformationService({
+    repository: informationStorage.repository,
+    retainMain: async () => undefined,
+    feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
+    runModel,
+    readInstructions: async () => "",
+    enabledSkillTexts: async () => [],
+  });
+  const news = createNewsService({ repository: newsStorage.repository, information, fetchFeed });
+  t.after(async () => {
+    await news.close();
+    await information.close();
+    await newsStorage.database.close();
+    await informationStorage.managed.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  await news.initialize();
+  return { news, repository: newsStorage.repository, information, app: createNewsRoutes({ news }) };
+};
+
+test("RSS transport failures are classified without leaking upstream content, causes or stacks", async () => {
+  const sensitive = "upstream-private-marker";
+  const cases: [unknown, NewsSourceFailure][] = [
+    [Object.assign(new Error(sensitive), { code: "ENOTFOUND" }), { category: "NETWORK" }],
+    [Object.assign(new Error(sensitive), { code: "ECONNRESET" }), { category: "NETWORK" }],
+    [new Error("DNS unavailable"), { category: "NETWORK" }],
+    [new Error("Blocked private address"), { category: "SSRF_BLOCKED" }],
+    [new Error("Blocked local hostname"), { category: "SSRF_BLOCKED" }],
+    [Object.assign(new Error(sensitive), { name: "AbortError" }), { category: "TIMEOUT" }],
+    [Object.assign(new Error(sensitive), { code: "ETIMEDOUT" }), { category: "TIMEOUT" }],
+    [new Error("HTTP 403"), { category: "HTTP_ERROR", httpStatus: 403 }],
+    [new Error(sensitive, { cause: new Error("private-stack") }), { category: "UNKNOWN" }],
+    [sensitive, { category: "UNKNOWN" }],
+  ];
+  for (const [error, failure] of cases) {
+    await assert.rejects(fetchRss2("https://example.com/rss", { timeoutMs: 10, maxResponseBytes: 1024 },
+      new AbortController().signal, async () => { throw error; }), (actual: unknown) => {
+      assert.ok(actual instanceof NewsSourceError);
+      assert.deepEqual(actual.failure, failure);
+      assert.ok(!actual.message.includes(sensitive));
+      assert.equal(actual.cause, undefined);
+      return true;
+    });
+  }
+  for (const status of [300, 304, 403, 503]) {
+    await assert.rejects(fetchRss2("https://example.com/rss", { timeoutMs: 10, maxResponseBytes: 1024 },
+      new AbortController().signal, async () => ({
+        status, contentType: "text/xml", body: sensitive, finalUrl: `https://redirect.example/${sensitive}`,
+      })),
+    (error: unknown) => error instanceof NewsSourceError && error.failure.category === "HTTP_ERROR" &&
+      error.failure.httpStatus === status && !error.message.includes(sensitive));
+  }
+  await assert.rejects(fetchRss2("https://example.com/rss", { timeoutMs: 10, maxResponseBytes: 1024 },
+    new AbortController().signal, async () => ({
+      status: 200, contentType: "text/html", body: `<html>${sensitive}</html>`, finalUrl: "https://example.com",
+    })),
+  { message: "RSS source failed: PARSE_INVALID" });
+});
+
+test("add-source 400 and persisted source errors share classifications and discard arbitrary NewsError messages", async (t) => {
+  let failure: unknown;
+  const feed = parseRss2(rss(item("ok", "OK", "")));
+  const { app, repository } = await rssFixture(t, async () => {
+    if (failure) throw failure;
+    return feed;
+  });
+  const postSource = () => app.request("/sources", {
+    method: "POST", body: JSON.stringify({ url: "https://example.com/feed" }),
+  });
+  for (const details of [
+    { category: "NETWORK" }, { category: "SSRF_BLOCKED" }, { category: "TIMEOUT" },
+    { category: "HTTP_ERROR", httpStatus: 403 }, { category: "PARSE_INVALID" }, { category: "UNKNOWN" },
+  ] satisfies NewsSourceFailure[]) {
+    failure = new NewsSourceError(details);
+    const response = await postSource();
+    assert.equal(response.status, 400);
+    assert.deepEqual(newsCreateSourceErrorSchema.parse(await response.json()).failure, details);
+    assert.equal((await repository.read()).sources.length, 0);
+  }
+  failure = undefined;
+  assert.equal((await postSource()).status, 200);
+  failure = new NewsSourceError({ category: "HTTP_ERROR", httpStatus: 503 });
+  const refresh = await app.request("/refresh", { method: "POST", body: "{}" });
+  assert.equal(refresh.status, 200, "all source failures remain a successful collection attempt");
+  newsRefreshResponseSchema.parse(await refresh.json());
+  const sources = newsSourceListResponseSchema.parse(await (await app.request("/sources")).json());
+  assert.deepEqual(sources.sources[0]?.lastErrorDetails, { category: "HTTP_ERROR", httpStatus: 503 });
+  assert.deepEqual(
+    (await repository.read()).sources[0]?.lastErrorDetails,
+    sources.sources[0]?.lastErrorDetails,
+  );
+  failure = new NewsError("INVALID_INPUT", "external-content-private-marker");
+  await app.request("/refresh", { method: "POST", body: "{}" });
+  assert.deepEqual((await repository.read()).sources[0]?.lastErrorDetails, { category: "UNKNOWN" });
+  assert.ok(!JSON.stringify(await repository.read()).includes("external-content-private-marker"));
+  failure = undefined;
+  await app.request("/refresh", { method: "POST", body: "{}" });
+  assert.equal((await repository.read()).sources[0]?.lastErrorDetails, null);
+  assert.equal((await repository.read()).sources[0]?.lastError, null);
+});
+
+test("RSS skipped counts reach add/refresh responses and empty body items survive ingestion", async (t) => {
+  let xml = rss("<item/>" + "<item><guid>thin</guid><title>Thin</title></item>");
+  const { app, news, repository } = await rssFixture(t, async () => parseRss2(xml));
+  const created = await app.request("/sources", {
+    method: "POST", body: JSON.stringify({ url: "https://example.com/rss" }),
+  });
+  assert.equal(newsCreateSourceResponseSchema.parse(await created.json()).skipped, 1);
+  assert.equal((await news.listArticles({ view: "all", savedOnly: false, limit: 20 })).articles.length, 0);
+  assert.deepEqual(
+    newsRefreshResponseSchema.parse(await (await app.request("/refresh", { method: "POST", body: "{}" })).json()),
+    { added: 1, skipped: 1, resetDeferred: false },
+  );
+  assert.equal((await news.listArticles({ view: "all", savedOnly: false, limit: 20 })).articles[0]?.content, "Thin");
+  xml = rss("<item/><item/>" + item("not-ingested", "Rejected feed", ""));
+  assert.equal((await news.refresh()).added, 0);
+  assert.deepEqual((await repository.read()).sources[0]?.lastErrorDetails, { category: "PARSE_INVALID" });
+});
+
+test("RSS URL normalization deduplicates aliases, legacy fragments and concurrent additions", async (t) => {
+  let fetches = 0;
+  const { news, repository } = await rssFixture(t, async () => {
+    fetches++;
+    return parseRss2(rss(""));
+  });
+  const { source } = await news.addSource({ url: "HTTPS://EXAMPLE.COM:443/feed#first" });
+  assert.equal(source.url, "https://example.com/feed");
+  for (const url of ["https://example.com/feed", "https://EXAMPLE.COM:443/feed#second"]) {
+    await assert.rejects(news.addSource({ url }), (error: unknown) =>
+      error instanceof NewsError && error.code === "CONFLICT" && error.message.includes(source.id));
+  }
+  assert.equal(fetches, 1, "duplicates are rejected before fetching");
+  await repository.update((state) => ({
+    state: {
+      ...state,
+      sources: state.sources.map((candidate) => ({ ...candidate, url: `${candidate.url}#legacy` })),
+    },
+    result: undefined,
+  }));
+  await assert.rejects(news.addSource({ url: "https://example.com/feed#new" }), /already exists/);
+  assert.equal(
+    (await repository.read()).sources[0]?.url,
+    "https://example.com/feed#legacy",
+    "checking legacy URLs must not rewrite storage",
+  );
+  const results = await Promise.allSettled([
+    news.addSource({ url: "HTTP://EXAMPLE.COM:80/other#one" }),
+    news.addSource({ url: "http://example.com/other#two" }),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  const rejected = results.find((result) => result.status === "rejected") as PromiseRejectedResult;
+  assert.match(rejected.reason.message, /already exists: newssource_/);
+  assert.equal((await repository.read()).sources.length, 2);
+});
+
+test("manual refresh explicitly reports deferred reset during a model run without automatic retry", async (t) => {
+  let release!: () => void;
+  let started!: () => void;
+  let gated = false;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const running = new Promise<void>((resolve) => { started = resolve; });
+  t.after(() => release());
+  const { news, information, app } = await rssFixture(t, async () => parseRss2(rss("")), async () => {
+    if (gated) { started(); await gate; }
+    return { ok: false, error: "MODEL_REQUEST_FAILED" };
+  });
+  const ingest = (id: string) => information.ingestNews([{
+    source: "newssource_test", externalId: id, title: id, content: id,
+    metadata: { sourceId: "newssource_test", sourceTitle: "Feed", url: null },
+  }]);
+  await ingest("failed");
+  await information.runNow();
+  gated = true;
+  await ingest("active");
+  const active = information.runNow();
+  await running;
+  const result = await app.request("/refresh", { method: "POST", body: "{}" });
+  assert.deepEqual(
+    newsRefreshResponseSchema.parse(await result.json()),
+    { added: 0, skipped: 0, resetDeferred: true },
+  );
+  assert.equal((await information.getNewsCounts()).failedCount, 1);
+  assert.equal((await news.refresh({ retryFailed: false })).resetDeferred, false);
+  release();
+  await active;
+  assert.deepEqual(await information.getNewsCounts(), {
+    processing: false, pendingCount: 0, failedCount: 2,
+  });
+  assert.equal((await news.refresh({ retryFailed: true })).resetDeferred, false);
+  assert.equal((await information.getNewsCounts()).pendingCount, 2);
+});
+
+test("news storage accepts optional failure details without migrating legacy sources and rejects invalid details", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-muse-rss-storage-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const databaseFile = join(dir, "news.sqlite");
+  const legacyJsonFile = join(dir, "news.json");
+  const first = await openNewsRepository({ databaseFile, legacyJsonFile });
+  await first.repository.update((state) => ({
+    state: {
+      ...state,
+      sources: [{
+        id: "newssource_legacy", title: "Legacy", url: "https://example.com/rss#legacy",
+        createdAt: new Date().toISOString(), lastFetchedAt: null, lastError: "RSS source fetch or parse failed",
+      }],
+    },
+    result: undefined,
+  }));
+  const before = await first.repository.read();
+  await first.repository.validate();
+  assert.equal(Object.hasOwn((await first.repository.read()).sources[0]!, "lastErrorDetails"), false);
+  assert.deepEqual(await first.repository.read(), before);
+  for (const details of [
+    { category: "OTHER" }, { category: "HTTP_ERROR", httpStatus: 999 },
+    { category: "UNKNOWN", body: "must-not-persist" },
+  ]) {
+    await assert.rejects(first.repository.update((state) => ({
+      state: {
+        ...state,
+        sources: state.sources.map((source) => ({
+          ...source, lastErrorDetails: details as NewsSourceFailure,
+        })),
+      },
+      result: undefined,
+    })), /Invalid news document/);
+  }
+  assert.deepEqual(await first.repository.read(), before, "invalid writes never change the old state");
+  await first.repository.update((state) => ({
+    state: {
+      ...state,
+      sources: state.sources.map((source) => ({
+        ...source, lastErrorDetails: { category: "HTTP_ERROR" as const, httpStatus: 403 },
+      })),
+    },
+    result: undefined,
+  }));
+  assert.deepEqual(
+    (await first.repository.read()).sources[0]?.lastErrorDetails,
+    { category: "HTTP_ERROR", httpStatus: 403 },
+  );
+  await first.database.close();
+  const second = await openNewsRepository({ databaseFile, legacyJsonFile });
+  try {
+    assert.deepEqual(
+      (await second.repository.read()).sources[0]?.lastErrorDetails,
+      { category: "HTTP_ERROR", httpStatus: 403 },
+    );
+  } finally {
+    await second.database.close();
+  }
 });

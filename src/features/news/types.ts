@@ -1,4 +1,5 @@
 import { defaultInformationState, type InformationState } from "../information/types.js";
+import type { NewsSourceFailure } from "./errors.js";
 
 export type NewsSource = {
   id: string;
@@ -7,6 +8,7 @@ export type NewsSource = {
   createdAt: string;
   lastFetchedAt: string | null;
   lastError: string | null;
+  lastErrorDetails?: NewsSourceFailure | null;
 };
 
 export type NewsState = {
@@ -42,4 +44,5 @@ export type ParsedFeedItem = {
 export type ParsedFeed = {
   title: string;
   items: ParsedFeedItem[];
+  skipped: number;
 };

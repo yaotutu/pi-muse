@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { informationStateSchema } from "./information-repository.js";
 import type { ManagedSqliteDatabase } from "./sqlite-database.js";
+import { newsSourceFailureCategories, type NewsSourceFailure } from "../../features/news/errors.js";
 import {
   defaultNewsState,
   type NewsRepository,
@@ -28,7 +29,7 @@ import type {
  *   position 列保真；游标分页的时间并列由 id 决胜，不依赖 position。
  */
 
-const NEWS_SCHEMA_VERSION = 1;
+const NEWS_SCHEMA_VERSION = 2;
 
 const publicFeedUrl = z.string().url().max(2048).regex(/^https?:\/\//).refine((value) => {
   const url = new URL(value);
@@ -43,6 +44,10 @@ const sourceSchema = z.strictObject({
   createdAt: z.string().datetime(),
   lastFetchedAt: z.string().datetime().nullable(),
   lastError: z.string().max(300).nullable(),
+  lastErrorDetails: z.strictObject({
+    category: z.enum(newsSourceFailureCategories),
+    httpStatus: z.number().int().min(100).max(599).optional(),
+  }).nullable().optional(),
 });
 
 export const newsDocumentSchema = z.strictObject({
@@ -100,7 +105,8 @@ const NEWS_TABLE_DDL = [
     url TEXT NOT NULL,
     created_at TEXT NOT NULL,
     last_fetched_at TEXT,
-    last_error TEXT
+    last_error TEXT,
+    last_error_details TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS news_articles (
     id TEXT PRIMARY KEY,
@@ -221,13 +227,21 @@ export const ensureNewsSchema = (managed: ManagedSqliteDatabase, init: NewsSchem
     const pageCount = Number((database.prepare("PRAGMA page_count").get() as { page_count: number })?.page_count ?? 0);
     const isEmptyDatabase = version === 0 && existingTables.length === 0 && pageCount <= 1;
     if (!initialize || !isEmptyDatabase) {
-      if (version !== NEWS_SCHEMA_VERSION) {
+      if (version !== NEWS_SCHEMA_VERSION && version !== 1) {
         throw new Error(`Invalid news database: unsupported schema version ${version}`);
       }
       for (const table of NEWS_TABLES) {
         if (!existingTables.includes(table)) {
           throw new Error(`Invalid news database: missing table ${table}`);
         }
+      }
+      // v1→v2 是纯增列升级：只补可空的源失败分类，旧行保持 NULL（读取时省略字段）。
+      if (version === 1) {
+        const columns = database.prepare("PRAGMA table_info(news_sources)").all() as Array<{ name: string }>;
+        if (!columns.some((column) => column.name === "last_error_details")) {
+          database.exec("ALTER TABLE news_sources ADD COLUMN last_error_details TEXT");
+        }
+        database.exec(`PRAGMA user_version = ${NEWS_SCHEMA_VERSION}`);
       }
       if (!database.prepare("SELECT 1 FROM news_state WHERE id = 1").get()) {
         throw new Error("Invalid news database: missing news_state row");
@@ -269,9 +283,20 @@ const parsePayload = (raw: string | null, label: string): unknown => {
   }
 };
 
+/**
+ * 源失败分类的可选列：SQL NULL 表示旧库/旧行从未写入分类（读取时省略字段），
+ * 文本 null 表示成功抓取后显式清空（读取时保留 null）。
+ */
+const parseSourceDetails = (raw: string | null): NewsSourceFailure | null | undefined =>
+  raw === null ? undefined : parsePayload(raw, "source error details") as NewsSourceFailure | null;
+
+const sourceDetailsJson = (source: NewsSource): string | null =>
+  source.lastErrorDetails === undefined ? null : JSON.stringify(source.lastErrorDetails);
+
 type SourceRow = {
   id: string; position: number; title: string; url: string;
   created_at: string; last_fetched_at: string | null; last_error: string | null;
+  last_error_details: string | null;
 };
 type ArticleRow = {
   id: string; position: number; source: string; external_id: string; title: string | null;
@@ -301,15 +326,19 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
   ).get() as StateRow | undefined;
   if (!stateRow) throw new Error("Invalid news database: missing news_state row");
   const sources = (database.prepare(
-    "SELECT id, position, title, url, created_at, last_fetched_at, last_error FROM news_sources ORDER BY position",
-  ).all() as SourceRow[]).map<NewsSource>((row) => ({
-    id: row.id,
-    title: row.title,
-    url: row.url,
-    createdAt: row.created_at,
-    lastFetchedAt: row.last_fetched_at,
-    lastError: row.last_error,
-  }));
+    "SELECT id, position, title, url, created_at, last_fetched_at, last_error, last_error_details FROM news_sources ORDER BY position",
+  ).all() as SourceRow[]).map<NewsSource>((row) => {
+    const lastErrorDetails = parseSourceDetails(row.last_error_details);
+    return {
+      id: row.id,
+      title: row.title,
+      url: row.url,
+      createdAt: row.created_at,
+      lastFetchedAt: row.last_fetched_at,
+      lastError: row.last_error,
+      ...(lastErrorDetails === undefined ? {} : { lastErrorDetails }),
+    };
+  });
   const items = (database.prepare(
     "SELECT id, position, source, external_id, title, content, received_at, accepted_at, status, run_id, metadata_present, source_id, source_title, article_url FROM news_articles ORDER BY position",
   ).all() as ArticleRow[]).map<InformationItem>((row) => ({
@@ -613,10 +642,11 @@ export const applyNewsState = (managed: ManagedSqliteDatabase, previous: NewsSta
         old.source.url === source.url &&
         old.source.createdAt === source.createdAt &&
         old.source.lastFetchedAt === source.lastFetchedAt &&
-        old.source.lastError === source.lastError) return;
+        old.source.lastError === source.lastError &&
+        sourceDetailsJson(old.source) === sourceDetailsJson(source)) return;
     database.prepare(
-      "INSERT INTO news_sources (id, position, title, url, created_at, last_fetched_at, last_error) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET position = excluded.position, title = excluded.title, url = excluded.url, created_at = excluded.created_at, last_fetched_at = excluded.last_fetched_at, last_error = excluded.last_error",
-    ).run(source.id, index, source.title, source.url, source.createdAt, source.lastFetchedAt, source.lastError);
+      "INSERT INTO news_sources (id, position, title, url, created_at, last_fetched_at, last_error, last_error_details) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET position = excluded.position, title = excluded.title, url = excluded.url, created_at = excluded.created_at, last_fetched_at = excluded.last_fetched_at, last_error = excluded.last_error, last_error_details = excluded.last_error_details",
+    ).run(source.id, index, source.title, source.url, source.createdAt, source.lastFetchedAt, source.lastError, sourceDetailsJson(source));
   });
 };
 

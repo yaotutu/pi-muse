@@ -1,12 +1,24 @@
 import { z } from "zod";
+import { newsSourceFailureCategories } from "../../features/news/errors.js";
 
-const publicHttpUrlSchema = z.string().url().max(2048).regex(/^https?:\/\//).refine((value) => {
+const publicHttpUrlSchema = z.string().url().max(2048).regex(/^https?:\/\//i).refine((value) => {
   const url = new URL(value);
   const credentialKeys = new Set(["username", "pass" + "word"] as const);
   return ![...credentialKeys].some((key) => url[key as keyof URL] !== "");
 }, "URL must not contain credentials").describe("无凭据的公网 HTTP(S) URL");
 
 const newsIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/);
+
+export const newsSourceFailureSchema = z.strictObject({
+  category: z.enum(newsSourceFailureCategories).describe("NETWORK=DNS/网络错误；SSRF_BLOCKED=私网/本机目标阻断；TIMEOUT=超时；HTTP_ERROR=最终 HTTP 非 2xx；PARSE_INVALID=无效 RSS2/解析限制/过半条目无效；UNKNOWN=其他受控失败"),
+  httpStatus: z.number().int().min(100).max(599).optional().describe("仅 HTTP_ERROR 携带已知 HTTP 状态码；不含上游响应体、外部内容、重定向地址或内部堆栈"),
+});
+
+export const newsCreateSourceErrorSchema = z.strictObject({
+  error: z.string().describe("受控错误文案，不含外部响应体或内部堆栈"),
+  code: z.literal("INVALID_INPUT"),
+  failure: newsSourceFailureSchema.optional().describe("源抓取/解析失败时必有，与源 lastErrorDetails 使用同一分类；请求字段/JSON 校验失败时省略"),
+});
 
 export const newsStatusResponseSchema = z.strictObject({
   refreshing: z.boolean().describe("一次源抓取是否正在运行"),
@@ -23,7 +35,8 @@ export const newsSourceResponseSchema = z.strictObject({
   url: publicHttpUrlSchema.describe("RSS2 feed 地址"),
   createdAt: z.string().datetime(),
   lastFetchedAt: z.string().datetime().nullable().describe("该源最近一次抓取完成时间；尚未抓取为 null"),
-  lastError: z.string().nullable().describe("该源最近一次受控失败信息；无失败为 null"),
+  lastError: z.string().nullable().describe("该源最近一次受控失败文案；无失败为 null"),
+  lastErrorDetails: newsSourceFailureSchema.nullable().optional().describe("该源最近一次失败分类，与添加源 400 的 failure 相同；成功后为 null；旧存储尚无分类时省略。不推断旧错误，不迁移数据"),
 });
 
 export const newsSourceListResponseSchema = z.strictObject({
@@ -37,6 +50,7 @@ export const newsCreateSourceRequestSchema = z.strictObject({
 
 export const newsCreateSourceResponseSchema = z.strictObject({
   source: newsSourceResponseSchema,
+  skipped: z.number().int().nonnegative().describe("本次验证中因缺标题或稳定 ID 跳过的条目数；添加源只验证，不接纳文章"),
 });
 
 export const newsDeleteSourceResponseSchema = z.strictObject({
@@ -63,7 +77,7 @@ export const newsArticleResponseSchema = z.strictObject({
   sourceTitle: z.string().min(1).max(500),
   title: z.string().min(1).max(500),
   url: publicHttpUrlSchema.nullable().describe("原文链接；源条目没有有效无凭据 HTTP(S) URL 时为 null"),
-  content: z.string().min(1).max(20000).describe("RSS 摘要/正文清理后的安全 UTF-8 文本"),
+  content: z.string().min(1).max(20000).describe("RSS 摘要/正文清理后的安全 UTF-8 文本；有 ID/标题但正文为空的条目仍保留，以标题作为最小正文"),
   publishedAt: z.string().datetime().describe("RSS 声明的发布时间；无有效值使用接纳时间，用于排序"),
   acceptedAt: z.string().datetime().describe("服务端首次接纳时间"),
   recommendation: z.strictObject({
@@ -104,9 +118,11 @@ export const newsFeedbackResponseSchema = z.strictObject({
   feedback: newsFeedbackSchema,
 });
 
-export const newsRefreshRequestSchema = z.strictObject({});
+export const newsRefreshRequestSchema = z.strictObject({}).describe("必填有效 JSON 空对象 {}；非法 JSON、空请求体或额外字段返回 400，不执行抓取/failed 重置");
 export const newsRefreshResponseSchema = z.strictObject({
   added: z.number().int().nonnegative().describe("本次源抓取新接纳的文章数；不等待模型分析完成"),
+  skipped: z.number().int().nonnegative().describe("成功解析的源中缺标题或稳定 ID 而跳过的条目总数；解析失败的源不计入"),
+  resetDeferred: z.boolean().describe("true=新闻模型轮运行，本次未重置 failed 条目；不会自动补重试。false=未因模型轮运行跳过重置，不表示模型分析已完成"),
 });
 
 export const newsPreferencesResponseSchema = z.strictObject({

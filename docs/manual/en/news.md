@@ -16,7 +16,11 @@ Synchronize current history before resending a reference with an unknown outcome
 
 ## Managing RSS sources {#sources}
 
-Add a public HTTP(S) RSS2 URL and optional title. Addition actually fetches and validates XML. Credential-bearing URLs and Atom are not supported. DNS, SSRF, fixed-IP, per-hop redirect, size, depth, item-count, timeout and cancellation boundaries remain. DTD/entities, malformed XML and missing titles/readable content produce controlled errors instead of silently becoming empty sources.
+Add a public HTTP(S) RSS2 URL and optional title. Addition actually fetches and validates XML. Credential-bearing URLs and Atom are not supported. DNS, SSRF, fixed-IP, per-hop redirect, size, depth, item-count, timeout and cancellation boundaries remain. The final HTTP response must be successful. DTD/entities, malformed XML or a missing feed title produce controlled errors instead of silently becoming empty sources.
+
+Items without an article title or stable identity (guid or a valid article link) are skipped. If more than half the items are invalid, parsing fails for the whole source on that attempt. Items with a title and stable identity but no body are retained, using the title as minimal content; this does not mean the full article was fetched. Adding a source only validates it, does not ingest articles, and returns the skipped-item count.
+
+Duplicate checking removes fragments, normalizes scheme/host case and removes default ports. A duplicate error names the existing source ID; redirect destinations are not merged. Controlled fetch/parse categories distinguish network errors, private-target blocking, timeouts, HTTP status and parsing issues. Source lists keep an error message and optional details; legacy error categories are not inferred. Consult the server's generated API documentation for the exact fields.
 
 Collection defaults to every 30 minutes. One source's failure does not block others. Removing a source stops future collection but keeps accepted articles, feedback and saves. Read back source lists before retrying unknown additions/deletions.
 
@@ -30,7 +34,9 @@ Reasons and learned summaries default to concise Simplified Chinese while RSS ti
 
 ## Refresh and failures {#refresh}
 
-Manual refresh waits for collection and returns the added count, not model completion. Only one refresh runs at a time. Scheduled collection does not requeue failed articles; explicit refresh may requeue failures outside an active batch. Model failures are not automatically retried and active batches are not requeued.
+Manual refresh waits for collection and returns added and skipped counts, not model completion. Only one refresh runs at a time. Scheduled collection does not requeue failed articles; explicit refresh may requeue failures outside an active batch. When a news model run is active, the refresh result has `resetDeferred=true`: failed items remain unchanged and are not automatically retried when the batch finishes. A value of `false` does not mean model analysis is complete. Model failures are not automatically retried.
+
+Refresh can still return a successful response when one or all sources fail, so HTTP success alone does not establish source health; read source errors and categories. API callers must send a valid JSON empty object `{}`. Empty bodies, malformed JSON and extra fields are rejected without collection or failed-item reset.
 
 Read status, sources and articles after an unknown collection result. A failed list read should only repeat the read, not automatically refresh sources. Controlled errors omit credentials and internal diagnostics.
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { InformationService } from "../information/service.js";
 import type { InformationArticleFeedback } from "../information/types.js";
-import { NewsError } from "./errors.js";
+import { asNewsSourceError, NewsError } from "./errors.js";
 import type { NewsRepository, NewsSource, ParsedFeed } from "./types.js";
 import type { ObserveWork } from "../workspace/session-presence.js";
 
@@ -14,6 +14,7 @@ const assertPublicFeedUrl = (raw: string) => {
     const credentialKeys = ["username", "pass" + "word"] as const;
     if (!["http:", "https:"].includes(url.protocol) || raw.length > 2048 ||
         credentialKeys.some((key) => url[key as keyof URL] !== "")) throw new Error("invalid");
+    url.hash = "";
     return url.toString();
   } catch {
     throw new NewsError("INVALID_INPUT", "RSS URL must be a credential-free HTTP(S) URL");
@@ -31,7 +32,7 @@ export type NewsServiceDependencies = {
 export const createNewsService = (deps: NewsServiceDependencies) => {
   let refreshing = false;
   let closed = false;
-  let activeRefresh: Promise<{ added: number }> | undefined;
+  let activeRefresh: Promise<{ added: number; skipped: number; resetDeferred: boolean }> | undefined;
   let refreshController: AbortController | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
 
@@ -65,16 +66,16 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
     requireOpen();
     const url = assertPublicFeedUrl(input.url);
     const state = await deps.repository.read();
-    if (state.sources.some((source) => source.url === url)) {
-      throw new NewsError("CONFLICT", "RSS source already exists");
+    const existing = state.sources.find((source) => assertPublicFeedUrl(source.url) === url);
+    if (existing) {
+      throw new NewsError("CONFLICT", `RSS source already exists: ${existing.id}`);
     }
     const controller = new AbortController();
     let parsed;
     try {
       parsed = await deps.fetchFeed(url, controller.signal);
     } catch (error) {
-      if (error instanceof NewsError) throw error;
-      throw new NewsError("INVALID_INPUT", SOURCE_ERROR);
+      throw asNewsSourceError(error);
     }
     const source: NewsSource = {
       id: `newssource_${randomUUID()}`,
@@ -83,17 +84,19 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
       createdAt: new Date().toISOString(),
       lastFetchedAt: null,
       lastError: null,
+      lastErrorDetails: null,
     };
     await deps.repository.update((current) => {
-      if (current.sources.some((candidate) => candidate.url === url)) {
-        throw new NewsError("CONFLICT", "RSS source already exists");
+      const existing = current.sources.find((candidate) => assertPublicFeedUrl(candidate.url) === url);
+      if (existing) {
+        throw new NewsError("CONFLICT", `RSS source already exists: ${existing.id}`);
       }
       return {
         state: { ...current, sources: [...current.sources, source] },
         result: undefined,
       };
     });
-    return { source };
+    return { source, skipped: parsed.skipped };
   };
 
   const deleteSource = async (sourceId: string) => {
@@ -120,16 +123,19 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
     const work = (async () => {
       const initial = await deps.repository.read();
       let added = 0;
+      let skipped = 0;
       let failed = false;
       for (const source of initial.sources) {
         controller.signal.throwIfAborted();
         try {
           const feed = await deps.fetchFeed(source.url, controller.signal);
+          skipped += feed.skipped;
           const items = feed.items.map((item) => ({
             source: source.id,
             externalId: item.externalId,
             title: item.title,
-            content: item.content,
+            // 空正文仍保留文章；信息接纳要求非空正文，以已有标题作最小文本，不伪造内容。
+            content: item.content || item.title,
             ...(item.publishedAt ? { receivedAt: item.publishedAt } : {}),
             metadata: { sourceId: source.id, sourceTitle: source.title, url: item.url },
           }));
@@ -138,7 +144,7 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
             state: {
               ...state,
               sources: state.sources.map((candidate) => candidate.id === source.id
-                ? { ...candidate, lastFetchedAt: new Date().toISOString(), lastError: null }
+                ? { ...candidate, lastFetchedAt: new Date().toISOString(), lastError: null, lastErrorDetails: null }
                 : candidate),
             },
             result: undefined,
@@ -146,11 +152,12 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
         } catch (error) {
           controller.signal.throwIfAborted();
           failed = true;
+          const failure = asNewsSourceError(error);
           await deps.repository.update((state) => ({
             state: {
               ...state,
               sources: state.sources.map((candidate) => candidate.id === source.id
-                ? { ...candidate, lastError: error instanceof NewsError ? error.message : SOURCE_ERROR }
+                ? { ...candidate, lastError: failure.message, lastErrorDetails: failure.failure }
                 : candidate),
             },
             result: undefined,
@@ -165,11 +172,11 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
         },
         result: undefined,
       }));
-      if (options.retryFailed) {
-        await deps.information.retryFailedNews();
-      }
+      const resetDeferred = options.retryFailed
+        ? (await deps.information.retryFailedNews()).resetDeferred
+        : false;
       finish?.(failed ? "failed" : "succeeded", added > 0);
-      return { added };
+      return { added, skipped, resetDeferred };
     })();
     activeRefresh = work;
     try {
