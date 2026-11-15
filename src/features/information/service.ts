@@ -580,7 +580,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     };
   };
   const retryFailedNews = async () => {
-    if (Boolean(active)) return 0;
+    if (Boolean(active)) return { resetCount: 0, resetDeferred: true };
     return deps.repository.update((state) => {
       let changed = 0;
       const items = state.items.map((item) => {
@@ -590,7 +590,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       });
       return {
         state: changed ? { ...state, items } : undefined,
-        result: changed,
+        result: { resetCount: changed, resetDeferred: false },
       };
     });
   };

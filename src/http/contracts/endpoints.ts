@@ -361,18 +361,18 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "listNewsSources",
     method: "get", path: "/api/news/sources", tag: "新闻", summary: "列出 RSS 源",
-    hint: "只读列出源配置与健康状态。lastError 已脱敏，不包含 URL 中的凭据或上游详细错误。",
+    hint: "只读列出源配置与健康状态。lastError 为受控文案；lastErrorDetails 与添加源失败的 failure 共用分类字段，不含外部响应体、外部内容或内部堆栈。旧源尚无分类时可省略 lastErrorDetails，不推断旧错误。",
     auth: true, response: news.newsSourceListResponseSchema,
     errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
   },
   {
     operationId: "createNewsSource",
     method: "post", path: "/api/news/sources", tag: "新闻", summary: "添加 RSS 源",
-    hint: "仅接受无凭据公网 HTTP(S) URL；服务端抓取 RSS2 后保存源。拒绝带用户名/密码的 URL，不把凭据写入错误或持久状态。",
+    hint: "仅接受无凭据公网 HTTP(S) URL；最终 HTTP 响应必须 2xx，服务端验证 RSS2 后保存源，不接纳文章。URL 去 fragment、scheme/host 小写、去默认端口后查重，409 文案包含已存在源 ID；不按重定向最终地址归一。条目缺稳定 guid/有效 link 或标题时跳过并返回 skipped；超过一半条目无效则整源 PARSE_INVALID。正文薄或为空但有 ID/标题的条目保留。拒绝带凭据 URL；抓取/解析失败 400 的 failure 为受控分类，不透传上游内容。",
     auth: true, request: news.newsCreateSourceRequestSchema, response: news.newsCreateSourceResponseSchema,
     errorResponses: {
-      400: { description: "非法 URL、标题或 XML", schema: resp.errorResponse },
-      409: { description: "相同 RSS 源已存在", schema: resp.errorResponse },
+      400: { description: "字段/JSON 非法，或源抓取/解析失败；仅后者携带 failure 分类", schema: news.newsCreateSourceErrorSchema },
+      409: { description: "归一 URL 相同的 RSS 源已存在；文案包含已存在的源 ID", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
@@ -456,9 +456,10 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "refreshNews",
     method: "post", path: "/api/news/refresh", tag: "新闻", summary: "手动抓取 RSS 源",
-    hint: "同步完成源抓取并返回新增数量，不等待模型分析；已有 information 调度处理 pending。并发 refresh 返回 409。失败可在 status/sources 查看受控错误，不自动重发写入。",
+    hint: "请求须为有效 JSON 空对象 {}，非法 JSON 或空请求体返回 400 且无抓取/重置副作用。同步完成逐源抓取并返回 added、skipped，不等待模型分析；已有 information 调度处理 pending。缺标题/稳定 ID 的条目跳过，超过一半无效则该源失败；空正文条目保留并以标题作最小正文。并发 refresh 返回 409。单源或全部源抓取失败仍返回 200，受控文案/分类从 sources 的 lastError/lastErrorDetails 查看，status 提供汇总错误。抓取后尝试重置 failed；新闻模型轮运行时 resetDeferred=true，failed 保持原样，不自动补重试。resetDeferred=false 不保证模型分析完成。不自动重发写入。",
     auth: true, request: news.newsRefreshRequestSchema, response: news.newsRefreshResponseSchema,
     errorResponses: {
+      400: { description: "非法 JSON、空请求体或非空对象；不执行抓取/failed 重置", schema: resp.errorResponse },
       409: { description: "已有 refresh 正在运行", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },

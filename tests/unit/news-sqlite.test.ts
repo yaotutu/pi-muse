@@ -333,6 +333,44 @@ test("service-initialized database refuses to silently mix later-appearing legac
   await assert.rejects(openNewsRepository({ databaseFile, legacyJsonFile }), LegacyNewsImportRequiredError);
 });
 
+test("a v1 news database upgrades in place by adding optional source failure details", async (t) => {
+  const directory = await tempDirectory("pi-muse-news-sqlite-upgrade");
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const databaseFile = join(directory, "news.sqlite");
+  const legacyJsonFile = join(directory, "news.json");
+  const first = await openNewsRepository({ databaseFile, legacyJsonFile });
+  await first.repository.update((state) => ({
+    state: {
+      ...state,
+      sources: [{
+        id: "newssource_legacy", title: "Legacy", url: "https://example.com/feed.xml",
+        createdAt: TIMESTAMP, lastFetchedAt: null, lastError: "RSS source fetch or parse failed",
+      }],
+    },
+    result: undefined,
+  }));
+  await first.database.close();
+  const raw = await openSqliteDatabase(databaseFile);
+  raw.database.exec("ALTER TABLE news_sources DROP COLUMN last_error_details");
+  raw.database.exec("PRAGMA user_version = 1");
+  await raw.close();
+
+  const upgraded = await openNewsRepository({ databaseFile, legacyJsonFile });
+  try {
+    assert.equal(
+      (upgraded.database.database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version,
+      2,
+    );
+    const columns = upgraded.database.database.prepare("PRAGMA table_info(news_sources)").all() as Array<{ name: string }>;
+    assert.ok(columns.some((column) => column.name === "last_error_details"));
+    const source = (await upgraded.repository.read()).sources[0]!;
+    assert.equal(source.lastError, "RSS source fetch or parse failed");
+    assert.equal(Object.hasOwn(source, "lastErrorDetails"), false, "legacy rows keep the field absent");
+  } finally {
+    await upgraded.database.close();
+  }
+});
+
 test("structural damage to an initialized news database fails startup explicitly", async (t) => {
   const damages = [
     { statement: "DROP TABLE news_article_comments", message: /missing table news_article_comments/ },

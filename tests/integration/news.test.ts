@@ -12,7 +12,9 @@ import { readSessionInstructions } from "../../src/adapters/storage/session-inst
 import { openNewsRepository } from "../../src/adapters/storage/news-repository.js";
 import {
   newsArticleListResponseSchema,
+  newsCreateSourceErrorSchema,
   newsFeedbackResponseSchema,
+  newsRefreshResponseSchema,
 } from "../../src/http/contracts/news.js";
 
 const configFor = (dataDir: string) => createConfig({
@@ -110,6 +112,36 @@ test("news HTTP surface is authenticated, stable and exposes News as a full agen
   assert.equal((await service.app.request("/api/news/sources")).status,401);
   assert.equal((await service.app.request("/api/sessions",{headers})).status,200);
 
+});
+
+test("news refresh rejects malformed JSON before changing collection state", async (t) => {
+  const { service, headers } = await start(t);
+  const before = await service.newsRepository.read();
+  for (const body of ["{", "", "[]", "null", '{"extra":true}']) {
+    const response = await service.app.request("/api/news/refresh", { method: "POST", headers, body });
+    assert.equal(response.status, 400, body);
+    assert.deepEqual(await response.json(), { error: "Invalid refresh request", code: "INVALID_INPUT" });
+    assert.deepEqual(await service.newsRepository.read(), before, "invalid refresh has no side effects");
+  }
+  const response = await service.app.request("/api/news/refresh", { method: "POST", headers, body: "{}" });
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    newsRefreshResponseSchema.parse(await response.json()),
+    { added: 0, skipped: 0, resetDeferred: false },
+  );
+  assert.ok((await service.newsRepository.read()).lastRefreshedAt);
+});
+
+test("news source rejection exposes safe SSRF classification through actual bootstrap without network I/O", async (t) => {
+  const { service, headers } = await start(t);
+  const response = await service.app.request("/api/news/sources", {
+    method: "POST", headers, body: JSON.stringify({ url: "http://127.0.0.1/feed" }),
+  });
+  assert.equal(response.status, 400);
+  assert.deepEqual(newsCreateSourceErrorSchema.parse(await response.json()), {
+    error: "RSS source failed: SSRF_BLOCKED", code: "INVALID_INPUT", failure: { category: "SSRF_BLOCKED" },
+  });
+  assert.deepEqual((await service.newsRepository.read()).sources, []);
 });
 
 test("ordinary information HTTP contracts do not expose internal recommendation fields", async (t) => {

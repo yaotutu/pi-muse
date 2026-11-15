@@ -37,14 +37,14 @@ import { ensureSqliteModules } from "../adapters/storage/sqlite-modules.js";
 import { mainSqliteModules } from "../adapters/storage/sqlite-registry.js";
 import { createDatabaseToolStore } from "../adapters/storage/database-tool-store.js";
 import { createDatabaseService } from "../features/database/database-service.js";
-import { parseRss2 } from "../adapters/news/rss.js";
+import { fetchRss2 } from "../adapters/news/rss.js";
 import { createNewsService } from "../features/news/service.js";
 import { sessionInstructionsFile } from "../adapters/storage/data-layout.js";
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout, ensureLayout, sessionDir } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
 import { createWebService } from "../features/web/web-service.js";
-import { createHttpWebTransport, safePublicGet } from "../adapters/web/http-transport.js";
+import { createHttpWebTransport } from "../adapters/web/http-transport.js";
 import { createOpenMeteoTransport } from "../adapters/weather/open-meteo.js";
 import { createWeatherService } from "../features/weather/weather-service.js";
 import { createBrowserService } from "../features/browser/browser-service.js";
@@ -325,7 +325,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     observeWork: workspaceEvents.presence.observe,
     repository: newsRepository,
     information: newsProcessing,
-    fetchFeed: async (url, signal) => parseRss2((await safePublicGet(url, config.web, signal)).body),
+    fetchFeed: (url, signal) => fetchRss2(url, config.web, signal),
   });
 
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。

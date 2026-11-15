@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
 import { InformationError } from "../../features/information/errors.js";
-import { NewsError } from "../../features/news/errors.js";
+import { NewsError, NewsSourceError } from "../../features/news/errors.js";
 import {
   newsArticlesQuerySchema,
   newsCommentCreateRequestSchema,
@@ -31,7 +31,11 @@ const failure = (error: unknown) => {
       : error.code === "NOT_FOUND" ? 404
       : error.code === "SHUTDOWN" ? 503
       : 409;
-    return { status, body: { error: error.message, code: error.code } } as const;
+    return { status, body: {
+      error: error.message,
+      code: error.code,
+      ...(error instanceof NewsSourceError ? { failure: error.failure } : {}),
+    } } as const;
   }
   if (error instanceof InformationError) {
     const status = error.code === "INVALID_INPUT" ? 400
@@ -108,7 +112,7 @@ export const createNewsRoutes = (dependencies: Pick<HttpDependencies, "news">) =
     return handle(c, () => news.deleteComment(articleId, commentId));
   });
   app.post("/refresh", async (c) => {
-    const parsed = newsRefreshRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    const parsed = newsRefreshRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid refresh request", code: "INVALID_INPUT" }, 400);
     return handle(c, () => news.refresh({ retryFailed: true }));
   });
