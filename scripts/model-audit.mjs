@@ -22,6 +22,7 @@ const SAMPLES = {
   qwenwork: "qwenwork/flash",
   "lee-gpt": "lee-gpt/cx/gpt-6.1-sol",
   zai: "zai/glm-4.5",
+  "kimi-code-cn": "kimi-code-cn/kimi-for-coding",
   "moonshot-cn": "moonshot-cn/kimi-k3",
 };
 

@@ -32,7 +32,7 @@
 
 Magpie 聚合的供应商与实测状态由 [`docs/model-availability.md`](model-availability.md) 统一维护（`/model-audit` 技能巡检生成，本表只留指针与最近一次结论摘要，避免双处漂移）：
 
-- 2026-11-15 摘要：`minimax-cn`（9）与 `qwenwork`（3）实测可用；`zai` GLM（12）7 天限额至 11-18；`moonshot-cn` Kimi（6）与 `lee-gpt` GPT-6（2）凭据待用户在 Magpie 处理。
+- 2026-11-16 摘要：`minimax-cn`（9）、`qwenwork`（3）与 `kimi-code-cn`（2，用户重配凭据后恢复，替代原 `moonshot-cn` 入口）实测可用；`zai` GLM（12）7 天限额至 11-18；`lee-gpt` GPT-6（2）凭据待用户在 Magpie 处理。
 
 - 供应商目录、key 与额度都归 Magpie 自身管理，本仓库不读取也不记录任何凭据；`providers-state.json` 的 `ready` 只代表配置存在，不代表额度可用，判断可用性必须发真实请求。
 - 模型路由是用户偏好不是硬门槛：某执行者不可用或明显不适配时，主会话选择当前可用执行者并在交付中说明，不因此阻塞任务。当前默认路径就是 Claude Code 主会话 + sub agent，外部执行者缺位不阻塞开发。
