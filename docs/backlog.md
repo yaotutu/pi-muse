@@ -18,11 +18,17 @@
 
 ## 待实施
 
-- RSS 历史故障归因和后续边界优化仍暂缓：错误分类、坏条目整源失败策略、URL 别名/fragment 去重、忙时重排和非法 JSON 行为。见[原核实记录](archive/2026-11-05-news-rss-verification.md)。默认 SSRF 防护不因本次重构改变。
+暂无。新的需求先在此登记，方案较详细时放 `docs/discussions/` 并在本页留入口。
 
 ## 已完成
 
 以下需求已实施验收并移出待实施清单；编号保留占用，历史讨论中的引用仍可对应。当前行为以源码、运行时 `/docs` 与 `/openapi.json` 为准。
+
+### RSS 故障归因与抓取边界优化 —— 已完成
+
+- **完成日期：** 2026-11-16。
+- **实施结果：** 针对[原核实记录](archive/2026-11-05-news-rss-verification.md)逐项落地：源级失败分类 `NETWORK / SSRF_BLOCKED / TIMEOUT / HTTP_ERROR / PARSE_INVALID / UNKNOWN` 经 `lastErrorDetails` 透出且脱敏；坏条目超过半数时整源判失败，否则跳过并在 refresh 返回 `skipped`；添加源按规范化 URL（清 fragment）查重，重复返回 409 与已有 id；refresh 非法 JSON 或含未知字段返回 400；新闻智能体运行中无法重置 failed 时返回 `resetDeferred`，不再静默。默认 SSRF 防护与私网例外规则不变。
+- **验收：** 合入 `80c1b69`（源提交 `299167e`）；服务端门禁全过，真实实例验证 v1→v2 库迁移、分类错误透出与 refresh 新字段。
 
 ### REQ-019 · 已被单主助手多会话架构废止
 
