@@ -7,6 +7,12 @@ dist/
 *.log
 *.tsbuildinfo
 .*
+!.agents/
+.agents/*
+!.agents/skills.json
+!.claude/
+.claude/*
+!.claude/skills/
 !docs-site/.vitepress/
 docs-site/.vitepress/cache/
 docs-site/.vitepress/dist/
