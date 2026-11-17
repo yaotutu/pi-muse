@@ -12,8 +12,6 @@
 | App / README 品牌图标 | `client/icon.png` 与 Android 三层、favicon | 客户端已接入；服务端 README 直接引用同一张图 |
 | 默认八状态形象包 | [`companion/`](companion/README.md)：`idle/thinking/responding/working/waiting-approval/success/error/stopped`，统一为 B | 已完成透明准备并整包接入当前客户端源码；安装版本需核对 Release |
 | 超级玛丽水管工 | 仅作为服务端可选外观包；不成为品牌或内置默认 | 独立保留，不修改真实实例 |
-| 耳机玩偶 A | [历史原图](../../archive/visual-explorations/headphone-plush.png) | 用户仍喜欢，保留收藏；不进入新 B 包 |
-| 毛绒企鹅 C | [原八态归档](../../archive/visual-explorations/companion-c/README.md)与[旧动作素材导航](../../avatar.md) | 原图和历史视频保留，不作为 B 的状态图来源，也不与新 B 包混装 |
 
 **整包切换规则：** 新 B 八态全部完成身份、状态辨识、透明边缘与 64dp 可读性检查后，再整体替换客户端默认图。不能只换待机图，把其他七态仍留作 C；制作中不得把新包写成已交付。视频不在本次范围。
 
@@ -42,7 +40,7 @@ B 企鹅（历史编号 T1）是项目吉祥物和默认角色的唯一视觉基
 
 用户已确认 B 八态静态稿；正式产物统一放在 [`companion/`](companion/README.md)，八张均为 512 × 512 RGBA PNG，已整包接入当前客户端源码。`idle` 复用现有 `mascot/transparent.png` 派生，不另立待机母版；其余七态的已批准 JPEG 原图保留在 `companion/sources/`，由包内确定性脚本处理。尺寸、来源与校验和见 [`companion/manifest.json`](companion/manifest.json)，浅深底透明检查见包内预览。文件回归与 Android 真实资源显示已核对；这不等于用户手机已更新到此源码版本。
 
-这是内置默认八态的独立交付，不是下方旧 ZIP 的扩充，也不是视频。移动端只复制完成验收的八张 PNG 到自身 `assets/images/avatar/`；运行时不依赖本仓库路径。A 收藏与 C 归档均不进入新包，服务端可选水管工也不随本次默认图替换而修改。
+这是内置默认八态的独立交付，不是下方旧 ZIP 的扩充，也不是视频。移动端只复制完成验收的八张 PNG 到自身 `assets/images/avatar/`；运行时不依赖本仓库路径。历史 A / C 探索素材已清理，服务端可选水管工也不随本次默认图替换而修改。
 
 ## 历史图标与单张静态图交接快照
 
@@ -91,6 +89,6 @@ B 企鹅（历史编号 T1）是项目吉祥物和默认角色的唯一视觉基
 
 ## 旧素材边界
 
-原 [avatar 动作素材](../avatar/)是 C 毛绒企鹅的历史探索，不是 B / T1 的动作扩展；移动端原有的八张 C 运行时 PNG 已[按原字节归档](../../archive/visual-explorations/companion-c/README.md)。保留已有图片、提示词和视频，不删除、不自动重做，也不声称已经符合 B 形象。移动端旧 A13 图标包同样仅供归档。
+历史 A 耳机玩偶、C 毛绒企鹅八态图与旧动作视频探索素材均已清理，不再保留或混用。
 
 本目录不提供运行时资源端点。品牌图标与 README 顶图已经使用 B，本次不再改动；内置默认八态按上方整包切换规则交付与验收，不把角色选定、静态生成或旧图标验收等同于新八态已完成原生接入。

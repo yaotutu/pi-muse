@@ -28,4 +28,4 @@ python3 docs/assets/brand/companion/build-pack.py
 
 客户端随包保存 PNG 与来源清单副本，运行时不读取服务端仓库文件或下载这些默认图。`builtin:penguin` 的选择 key 与状态机保持不变，变更的是完整默认资源。哈希、PNG 格式、实际透明像素、纸张中心和防裁切回归位于移动端 `tests/builtin-brand-assets.test.mjs`。
 
-水管工等服务端自定义包仍独立可选，不参与品牌或默认角色；旧 C 八图按原字节保存在 [`companion-c` 归档](../../../archive/visual-explorations/companion-c/README.md)。本包是静态姿态图，不是视频。
+水管工等服务端自定义包仍独立可选，不参与品牌或默认角色；旧 C 八图及探索素材已清理。本包是静态姿态图，不是视频。

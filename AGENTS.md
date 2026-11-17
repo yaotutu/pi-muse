@@ -67,7 +67,7 @@ pnpm test:live --config <protected-config-path> --allow-live
 | HTTP/SSE、工具报文、多端适配 | [API 开发](docs/api-development.md)；核对对应 contracts 和实际 Web/mobile 调用方 |
 | 启动、联调、配置 | [开发](docs/development.md)、[配置手册](docs/manual/configuration.md) |
 | 文档和用户可见行为 | [文档指南](docs/agent-documentation-guide.md) |
-| 品牌、图标或形象 | [品牌资产](docs/assets/brand/README.md)、[虚拟形象](docs/avatar.md) |
+| 品牌、图标或形象 | [品牌资产](docs/assets/brand/README.md)、[默认八态形象包](docs/assets/brand/companion/README.md) |
 | 待办 / 历史 | [backlog](docs/backlog.md) / `docs/archive/`，不默认加载历史全文 |
 
 项目技能 `.claude/skills/create-issue/SKILL.md`（已通过 `.agents/skills.json` 同步挂载）只有在实际存在且用户要求提 Issue 时使用，创建前展示内容并确认，不隐式发布。
