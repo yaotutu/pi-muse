@@ -62,7 +62,7 @@ The assistant can call `subagent` for a bounded single/parallel/chain operation.
 
 ### Confirm the reset scope {#reset-current-session}
 
-Confirm the irreversible scope before submitting. Reset stops execution, cancels approvals, clears chat JSONL and message feedback, and rotates the internal pi identity. The public id, instructions, skill overrides and workspace remain. Optionally remove jobs and monitors; they are retained by default.
+The entry is Settings → Danger zone → Reset main chat. Confirm the irreversible scope before submitting. Reset stops execution, cancels approvals, clears chat JSONL and message feedback, and rotates the internal pi identity. The public id, instructions, skill overrides and workspace remain. Optionally remove jobs and monitors; they are retained by default.
 
 Reset does not delete news, SMS, global memory or global Dream configuration. If the result is unknown, reread history and state; do not repeat reset automatically.
 

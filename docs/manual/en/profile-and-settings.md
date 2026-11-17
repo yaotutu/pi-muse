@@ -11,7 +11,7 @@ Profile, long-term memory, and Dream management pages share a fixed header: the 
 
 ## Settings home {#settings-home}
 
-The home page groups controls under 「助手」 (Assistant), 「资料与任务」 (Data and tasks), 「信息」 (Information), and 「应用」 (App), using consistent icon rows instead of many separate buttons or an expanded theme picker. Tap a row to open its page. Local appearance and app updates also work offline; server-dependent rows first guide you to connect.
+The home page groups controls under 「助手」 (Assistant), 「内容与信息」 (Content and information), 「记录与任务」 (Records and tasks), and 「应用与连接」 (App and connection), using consistent icon rows instead of many separate buttons or an expanded theme picker. Destructive actions such as 「重置主聊天」 (Reset main chat) sit in a separate 「危险操作」 (Danger zone) group at the bottom, not in the same card as ordinary settings. Tap a row to open its page. Local appearance and app updates also work offline; server-dependent rows first guide you to connect.
 
 ## Assistant and User Profile {#assistant-and-user-profile}
 
@@ -45,7 +45,7 @@ The built-in default uses penguin B: a simple, rounded blue-and-white character 
 
 ### Choose on the phone {#choose-companion}
 
-1. Open Settings → App → 「助手形象」 (Companion). The built-in ice-blue penguin is always available. Once connected, tap 「刷新列表」 (Refresh list) to read complete installed server packs. Incomplete or damaged packs show diagnostics and are not selectable.
+1. Open Settings → App and connection → 「助手形象」 (Companion). The built-in ice-blue penguin is always available. Once connected, tap 「刷新列表」 (Refresh list) to read complete installed server packs. Incomplete or damaged packs show diagnostics and are not selectable.
 2. Select a server pack. The app uses the current authenticated connection to download all eight state images and replaces the current character only after every image succeeds. A failed download retains the currently usable character and shows an error rather than mixing images from different packs.
 3. The choice is local to this device: it does not reset main, reconnect the chat stream, or change another device's choice. A complete same-server cache can remain visible offline. If the selected pack is missing, deleted, or its local cache is incomplete, the app shows a notice and falls back to the built-in penguin.
 4. After you confirm and save a server change through the connection flow, the app clears the old server's companion cache and choice and returns to the built-in penguin. It does not delete server packs.
@@ -68,7 +68,7 @@ You may save metadata first and upload images one at a time. A pack appears in t
 
 ## Appearance {#appearance}
 
-1. Tap Settings, then 「外观主题」 (Appearance) under 「应用」 (App) to open its separate page.
+1. Tap Settings, then 「外观主题」 (Appearance) under 「应用与连接」 (App and connection) to open its separate page.
 2. Choose one of 「经典蓝白」 (Classic Blue), 「晨光白」 (Morning Light), or 「深夜黑」 (Midnight Black). The interface switches immediately and tries to save the preference on this device.
 3. If saving fails, the new theme remains visible but the page reports that the local preference was not saved. Choose a theme again to retry.
 
@@ -78,7 +78,7 @@ Theme preference is stored separately from the server connection, AccessKey, Tok
 
 For the first address, access key, and connection steps, see [Quick Start](getting-started.md#connect-mobile-client). To maintain the connection later:
 
-1. Tap Settings, then 「服务器连接」 (Server connection) under App.
+1. Tap Settings, then 「服务器连接」 (Server connection) under 「应用与连接」 (App and connection).
 2. Edit 「服务器地址」 or 「访问密钥」, then tap 「保存」(Save). The app verifies the current input before saving; a separate test is not required.
 3. Optionally tap 「测试连接」. Success shows 「连接正常」 and 「保存后生效」. Testing does not save configuration; editing either address or key immediately invalidates the test result.
 4. To reauthenticate at the same address, enter the new access key and save. The app verifies that new key instead of reusing the old login. Leaving the key blank verifies and reuses the current login.
@@ -92,13 +92,13 @@ The current app has no logout or server-sign-out button. Closing the connection 
 
 ## Real Browser {#real-browser}
 
-Tap Browser under App in Settings to view and control the server's same Chrome instance through a native WebView. The client does not configure a separate desktop address or password. It obtains a one-time same-origin ticket through the current connection and does not inject the API Token into the viewer URL. Closing the viewer does not close server Chrome; disabled or unreachable desktop state is shown explicitly.
+Tap Browser under 「应用与连接」 (App and connection) in Settings to view and control the server's same Chrome instance through a native WebView. The client does not configure a separate desktop address or password. It obtains a one-time same-origin ticket through the current connection and does not inject the API Token into the viewer URL. Closing the viewer does not close server Chrome; disabled or unreachable desktop state is shown explicitly.
 
 See [Browser Docker and noVNC](browser-docker.md) for deployment. Never expose the raw noVNC port publicly without authentication.
 
 ## Android App Updates {#android-updates}
 
-1. Tap Settings, then 「应用更新」 (App update) under App. The app checks automatically when it starts in the foreground and once per hour while foregrounded. You can also tap 「立即检查更新」 or 「再次检查」.
+1. Tap Settings, then 「应用更新」 (App update) under 「应用与连接」 (App and connection). The app checks automatically when it starts in the foreground and once per hour while foregrounded. You can also tap 「立即检查更新」 or 「再次检查」.
 2. Checking reads only the official GitHub repository's stable Release. The app picks the per-architecture package matching the device's CPU (for example `app-arm64-v8a-release.apk`) and falls back to the universal `app-release.apk` when that split package is missing or the architecture cannot be identified. Prereleases, drafts, and other assets are not used as update packages, and duplicate assets with the same name are rejected rather than guessed.
 3. When a higher version is found, the app shows the current version, target version, and size, then starts downloading. You can cancel or retry the download and continue using the app; downloading may consume mobile data.
 4. After the download finishes, the client opens the Android system installer. The first attempt may require allowing Pi Muse to install unknown apps, and the final installation must still be confirmed in the system UI. Opening the installer does not mean the upgrade completed.
