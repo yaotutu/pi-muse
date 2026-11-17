@@ -1,6 +1,6 @@
 # 开发 Agent 工作方式
 
-本文面向在 Pi Muse 仓库工作的开发 Agent（当前主控为 Claude Code）。它约束开发过程，不是产品 Agent 的系统提示词，不改变 pi SDK、业务模型或实例规则。Claude Code 自动入口为各目录的 `CLAUDE.md`，项目约束在 `AGENTS.md`；架构、测试和文档分别由专项指南维护。
+本文面向在 Pi Muse 仓库工作的开发 Agent（当前主力为 Antigravity，兼容 Claude Code）。它约束开发过程，不是产品 Agent 的系统提示词，不改变 pi SDK、业务模型或实例规则。各目录 `AGENTS.md` 统一维护开发命令、高层架构与项目约束（Antigravity 自动加载 `AGENTS.md` 与 `.agents/skills.json`，Claude Code 通过同目录 `CLAUDE.md` 的 `@AGENTS.md` 加载同一份规则）；架构、测试和文档分别由专项指南维护。
 
 ## 任务与执行（积极委派）
 
@@ -22,12 +22,12 @@
 
 2026-11-15 换机后重新实测，旧电脑的执行者清单不再适用：以本表为准，历史报告（含 2026-11-05 的 codex 视觉实测）只作为设计来源，不代表当前可用。
 
-| 执行者 | 当前状态（2026-11-16 实测） | 适用与边界 |
+| 执行者 | 当前状态（2026-11-16 实测，2026-11-17 更新） | 适用与边界 |
 | --- | --- | --- |
-| Claude Code（主会话与原生 sub agent） | ✅ 主力，用户已确认「目前主要用 Claude Code 开发」。本机 harness 当前由 `qwenwork/flash[1m]` 驱动（经用户配置的模型网关接入，不是 Anthropic 直连）；用户指定主力模型为 `siliconflow/deepseek-ai/DeepSeek-V4.1-Flash`，harness 切换由用户在配置入口完成，Agent 不自行改配置 | 需求理解、决策、派单、diff 审查、真实验收与本地提交；sub agent 默认继承会话模型，可在派单时用 `model` 参数显式指定，不假设「sub agent = Claude 系」 |
+| Antigravity（主会话与原生 subagent） | ✅ 当前主力，用户于 2026-11-17 确认主要使用 Antigravity 开发，同时保留 Claude Code 兼容 | 需求理解、决策、派单、diff 审查、真实验收与本地提交；原生 `read_file` 支持看图，原生 `invoke_subagent`（`research` / `self` / `image-generator`）支持子 Agent 委派，可通过 `Workspace: "share"` 或 git worktree 隔离写集 |
+| Claude Code（主会话与原生 sub agent） | ✅ 兼容可用，经同目录 `CLAUDE.md`（`@AGENTS.md`）共享同一套规则；可通过用户配置的模型网关接入 | 需求理解、决策、派单、diff 审查、真实验收与本地提交；sub agent 默认继承会话模型，可在派单时用 `model` 参数显式指定 |
 | Magpie 本地模型网关 | ⚠️ 已运行（`http://127.0.0.1:3425`），但目录 ≠ 额度：2026-11-15 逐个实测仅部分供应商可用 | 当前电脑第三方模型的唯一入口；清单与可用性每次使用前实时验证（`/v1/models` + 最小真实请求），不写死在本文 |
 | `codex exec` | ❌ 本机未安装（旧电脑的外部执行者链路已断） | 需要时由用户重新安装并配置；接入前不得声称已由它执行 |
-| Antigravity CLI（`agy`，`~/.local/bin`） | ⚠️ 已安装 1.5.9，但未登录：print 模式要求 Google OAuth 授权 | 用户完成登录后才可作为客户端视觉执行者；登录与凭据由用户操作，不写入仓库 |
 | GLM / DeepSeek 独立 CLI | ❌ 无独立入口 | 但 GLM 系模型可经 Magpie 使用（见下表），不等同于已接入独立 CLI 执行者 |
 
 Magpie 聚合的供应商与实测状态由 [`docs/model-availability.md`](model-availability.md) 统一维护（`/model-audit` 技能巡检生成，本表只留指针与最近一次结论摘要，避免双处漂移）：
@@ -35,19 +35,19 @@ Magpie 聚合的供应商与实测状态由 [`docs/model-availability.md`](model
 - 2026-11-16 摘要：**主力 `siliconflow/deepseek-ai/DeepSeek-V4.1-Flash`**（用户指定，实测可用）；`minimax-cn`（9）量大可用、`kimi-code-cn`（2）质优量少；`qwenwork`（3）上游故障待重测；`zai` GLM（12）7 天限额至 11-18；`lee-gpt` GPT-6（2）凭据待用户在 Magpie 处理。
 
 - 供应商目录、key 与额度都归 Magpie 自身管理，本仓库不读取也不记录任何凭据；`providers-state.json` 的 `ready` 只代表配置存在，不代表额度可用，判断可用性必须发真实请求。
-- 模型路由是用户偏好不是硬门槛：某执行者不可用或明显不适配时，主会话选择当前可用执行者并在交付中说明，不因此阻塞任务。当前默认路径就是 Claude Code 主会话 + sub agent，外部执行者缺位不阻塞开发。
+- 模型路由是用户偏好不是硬门槛：某执行者不可用或明显不适配时，主会话选择当前可用执行者并在交付中说明，不因此阻塞任务。当前默认路径为 Antigravity（或 Claude Code）主会话 + 原生子 Agent，外部执行者缺位不阻塞开发。
 - 需要第三方模型时用 Magpie：地址 `http://127.0.0.1:3425/v1`。产品实例的 `model.baseUrl` 也可以指向它，但那是运行配置，不是开发执行者。
 - Magpie 只在 App 运行时可用；`/v1/models` 请求失败先确认进程在跑，不要把网关未启动记成模型不可用。
 - 执行者不递归委派；并行任务用独立 worktree/分支隔离写集；执行者不做 commit、push、发布或修改版本，产物以工作区改动交回，主会话审查后统一提交。
 - 外部执行者可按任务使用本项目开发数据，不为此强制创建隔离目录；凭据和密钥仍只由必要的配置入口读取，不在派单中附带秘密。执行失败、限流或超时如实记录，不自动换模型重放。
 
-## Claude Code 工具与上下文
+## 开发 Agent 工具与上下文
 
 - 文件读取/修改优先使用当前会话提供的专用工具，搜索、构建和 Git 使用可用工具；不要在项目规则里硬编码另一执行器的命令格式或内部工具协议。
 - 优先读取当前模块源码、测试和契约，按任务加载指南；archive、截图目录、发布流水不默认整包加载。需要用户看图时用正文内嵌实际存在的图片，不只给路径。
 - 使用本会话实际可用的浏览器、设备和视觉能力；工具缺失时如实报告，不沿用旧模型“无多模态”的永久假设，也不把未查看的截图描述成已视觉确认。
 - 模型和工具由本会话环境提供，不自行切换模型、探测额度、改全局配置或用外部执行器绕过权限/限流。开发工具身份不决定产品业务模型。
-- `.claude/settings*.json`、MCP 配置与用户级配置不是普通文档。不要为“适配 Claude”扩大权限或整体读取可能含凭据的文件；确需配置更改时使用相应配置入口并确认影响。
+- `.agents/`、`.claude/settings*.json`、MCP 配置与用户级配置不是普通文档。不要为“适配 Agent”扩大权限或整体读取可能含凭据的文件；确需配置更改时使用相应配置入口并确认影响。
 
 ## 授权与失败
 
