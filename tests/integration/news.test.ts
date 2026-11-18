@@ -151,14 +151,21 @@ test("ordinary information HTTP contracts do not expose internal recommendation 
   assert.deepEqual(await settings.json(), { enabled: false, batchWindowSeconds: 15 });
   const preferences = await service.app.request("/api/information/preferences", { headers });
   assert.equal(preferences.status, 200);
-  assert.match(JSON.stringify(await preferences.json()), /短信过滤与通知规则/);
+  assert.deepEqual(await preferences.json(), { notes: "", learnedNotes: "", feedbackExamples: [] });
 });
 
-test("news and SMS use main instructions without creating hidden sessions", async (t) => {
-  const {service} = await start(t);
-  const instructions = await readSessionInstructions(sessionInstructionsFile(service.layout,"main"));
-  assert.match(instructions,/短信过滤与通知规则/);
-  assert.deepEqual((await service.sessions.list()).map((s)=>s.id),["main"]);
+test("SMS preferences stay decoupled from main instructions without creating hidden sessions", async (t) => {
+  const { service, headers } = await start(t);
+  const instructions = await readSessionInstructions(sessionInstructionsFile(service.layout, "main"));
+  assert.equal(instructions, "");
+  const saved = await service.app.request("/api/information/preferences", {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ notes: "只提醒验证码与账单" }),
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(await readSessionInstructions(sessionInstructionsFile(service.layout, "main")), "");
+  assert.deepEqual((await service.sessions.list()).map((s) => s.id), ["main"]);
 });
 
 test("initialization preserves explicitly empty main instructions", async (t) => {

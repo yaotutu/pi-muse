@@ -11,7 +11,7 @@ export const informationSettingsRequestSchema = z.strictObject({
     .describe("首条待处理信息到期后的聚合窗口秒数；0 表示下一轮调度立即处理"),
 });
 export const informationPreferencesRequestSchema = z.strictObject({
-  notes: z.string().max(20000).describe("main 会话指令全文；整份替换；空串等于清空，最后保存生效"),
+  notes: z.string().max(20000).describe("短信过滤规则与偏好全文（独立于 main 会话指令）；整份替换；空串等于清空，最后保存生效"),
 });
 export const informationIngestRequestSchema = z.strictObject({
   items: z.array(z.strictObject({
@@ -102,6 +102,7 @@ export const informationFeedbackExampleResponse = z.strictObject({
 });
 export const informationPreferencesResponse = z.strictObject({
   notes: z.string(),
+  learnedNotes: z.string().describe("短信 Sub-Agent 从点赞/收藏/不喜欢反馈中自学习沉淀的敏感度偏好摘要"),
   feedbackExamples: z.array(informationFeedbackExampleResponse).describe("main 当前 pi 历史仍可投影的最新反馈例证；回撤/编辑/删除后不保留旧结论"),
 });
 export const informationIngestResponse = z.strictObject({

@@ -518,3 +518,58 @@ test("first run executes initial_summary then transitions to incremental", async
   const updatedPrefs = await service.getPreferences();
   assert.equal(updatedPrefs.notes, "不再提醒取件码");
 });
+
+test("SMS notification subagent persists and reuses learnedNotes independently from main instructions", async () => {
+  let state: InformationState = {
+    ...defaultInformationState(),
+    settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
+  };
+  const repository: InformationRepository = {
+    read: async () => structuredClone(state),
+    update: async (change) => {
+      const changed = await change(structuredClone(state));
+      if (changed.state) state = changed.state;
+      return changed.result;
+    },
+    reconcileOnStart: async () => undefined,
+    validateAll: async () => undefined,
+  };
+  const capturedPreferences: Array<{ notes: string; learnedNotes: string }> = [];
+  let round = 0;
+  const service = createInformationService({
+    repository,
+    retainMain: async () => ({
+      conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ piSessionId: "session-1", messageId: id }) },
+      release: () => undefined,
+    }),
+    feedback: { read: async () => emptyFeedback() } as never,
+    runModel: async (input) => {
+      round++;
+      capturedPreferences.push({ ...input.preferences });
+      return {
+        ok: true,
+        result: {
+          decisions: input.items.map((item) => ({ itemId: item.id, decision: "notify" as const, reason: "ok" })),
+          notifications: [{ itemIds: input.items.map((item) => item.id), text: "短信通知" }],
+          learnedNotes: round === 1 ? "用户对银行账单和快递取件码高度敏感" : "用户对银行账单、快递取件码敏感；忽略积分提醒",
+        },
+      };
+    },
+    readInstructions: async () => "",
+    enabledSkillTexts: async () => [],
+  });
+
+  await service.savePreferences({ notes: "优先提醒银行与快递" });
+  await service.ingest([{ source: "sms", externalId: "sms-1", content: "【顺丰】取件码 1234" }]);
+  await service.runNow();
+
+  assert.equal(capturedPreferences[0]?.notes, "优先提醒银行与快递");
+  assert.equal(capturedPreferences[0]?.learnedNotes, "");
+  assert.equal((await service.getPreferences()).learnedNotes, "用户对银行账单和快递取件码高度敏感");
+
+  await service.ingest([{ source: "sms", externalId: "sms-2", content: "【银行】积分提醒" }]);
+  await service.runNow();
+
+  assert.equal(capturedPreferences[1]?.learnedNotes, "用户对银行账单和快递取件码高度敏感");
+  assert.equal((await service.getPreferences()).learnedNotes, "用户对银行账单、快递取件码敏感；忽略积分提醒");
+});

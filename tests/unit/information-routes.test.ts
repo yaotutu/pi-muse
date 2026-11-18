@@ -61,7 +61,7 @@ test("global preferences save main rules before retaining main for feedback", as
     body: JSON.stringify({ notes: "latest" }),
   });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { notes: "latest", feedbackExamples: [] });
+  assert.deepEqual(await response.json(), { notes: "latest", learnedNotes: "", feedbackExamples: [] });
   assert.deepEqual(order, ["retain", "release"]);
 });
 

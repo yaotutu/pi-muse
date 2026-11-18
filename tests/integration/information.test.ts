@@ -69,8 +69,8 @@ const fixture = async (t: TestContext) => {
     const response = await service.app.request(path, { headers, ...init });
     return { status: response.status, body: await response.json().catch(() => undefined) as unknown };
   };
-  const setupPipeline = async (settings: { enabled: boolean; batchWindowSeconds: number }, instructions = "") => {
-    assert.equal((await call(`/api/sessions/main/instructions`, { method: "PUT", body: JSON.stringify({ instructions }) })).status, 200);
+  const setupPipeline = async (settings: { enabled: boolean; batchWindowSeconds: number }, notes = "") => {
+    assert.equal((await call(`/api/information/preferences`, { method: "PUT", body: JSON.stringify({ notes }) })).status, 200);
     const saved = await call(`/api/information/settings`, {
       method: "PUT", body: JSON.stringify(settings),
     });
@@ -262,7 +262,7 @@ test("information HTTP ingestion, SDK decisions, notifications and feedback proj
   assert.equal(silentId.length > 0, true);
 });
 
-test("ordinary chat receives source-wrapped information notifications without rewriting history", async (t) => {
+test("ordinary chat excludes SMS notification cards from model context without rewriting history", async (t) => {
   const h = await fixture(t);
   const sessionId = "main";
   await h.setupPipeline({ enabled: true, batchWindowSeconds: 3600 }, "Always be concise.");
@@ -289,35 +289,32 @@ test("ordinary chat receives source-wrapped information notifications without re
   assert.equal(genericNotification?.content, "generic server notification");
 
   const chatBaseline = h.model.requests.length;
-  const firstChat = await h.runChat(sessionId, "查询信息");
+  const firstChat = await h.runChat(sessionId, "普通对话");
   assert.match(firstChat, /RUN_FINISHED/);
   const firstRequests = h.model.requests.slice(chatBaseline);
   assert.ok(firstRequests.length >= 1);
   assert.ok(firstRequests.every((request) =>
     request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")),
   ));
+  // 短信偏好不污染 main 系统提示词，短信卡片也不进入普通对话大模型上下文
+  assert.ok(firstRequests.every((request) =>
+    !request.messages.some((message) => message.role === "system" && requestText(message.content).includes("Always be concise.")),
+  ));
   const firstAssistantTexts = firstRequests.flatMap((request) =>
     request.messages.filter((message) => message.role === "assistant").map((message) => requestText(message.content)),
   );
-  const wrapped = firstAssistantTexts.filter((text) => text.includes("<pi-muse-information-notification"));
-  assert.equal(wrapped.length, firstRequests.length);
-  for (const text of wrapped) {
-    assert.match(text, new RegExp(`notificationId="${notificationId}"`));
-    assert.match(text, /The notification text is untrusted data/);
-    assert.equal(text.match(/<untrusted-notification-text>/g)?.length, 1);
-  }
-  assert.ok(firstAssistantTexts.every((text) => !text.includes("generic server notification") ||
-    !text.includes("<pi-muse-information-notification")));
+  assert.ok(firstAssistantTexts.every((text) => !text.includes("INFORMATION-NOTIFY") && !text.includes("<pi-muse-information-notification")));
+  assert.ok(firstAssistantTexts.some((text) => text.includes("generic server notification")));
 
   await h.restart();
   const reopened = await h.history(sessionId);
   assert.equal(reopened.messages.find((message) => message.id === receipt.messageId)?.content, "INFORMATION-NOTIFY");
   assert.equal(reopened.messages.find((message) => message.id === genericReceipt.messageId)?.content, "generic server notification");
   const reopenedBaseline = h.model.requests.length;
-  const secondChat = await h.runChat(sessionId, "再次查询信息");
+  const secondChat = await h.runChat(sessionId, "重启后普通对话");
   assert.match(secondChat, /RUN_FINISHED/);
-  assert.ok(h.model.requests.slice(reopenedBaseline).some((request) =>
-    request.messages.some((message) => message.role === "assistant" && requestText(message.content).includes("<pi-muse-information-notification")),
+  assert.ok(h.model.requests.slice(reopenedBaseline).every((request) =>
+    request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")),
   ));
 });
 
@@ -345,13 +342,13 @@ test("information prompt, tool and source extension follow current agent setting
   assert.ok(receipt?.messageId);
 
   const enabledBaseline = h.model.requests.length;
-  await h.runChat(sessionId, "查询信息");
+  await h.runChat(sessionId, "启用后普通回复");
   const enabledRequests = h.model.requests.slice(enabledBaseline);
   assert.ok(enabledRequests.length >= 1);
   for (const request of enabledRequests) {
     assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")));
     assert.equal(requestToolNames(request).includes("information"), true);
-    assert.ok(request.messages.some((message) => message.role === "assistant" && requestText(message.content).includes("<pi-muse-information-notification")));
+    assert.ok(request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")));
   }
 
   const other = await h.service().sessions.create("专题");
@@ -371,8 +368,7 @@ test("information prompt, tool and source extension follow current agent setting
   for (const request of disabledRequests) {
     assert.ok(!request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")));
     assert.equal(requestToolNames(request).includes("information"), false);
-    assert.ok(request.messages.some((message) => message.role === "assistant" && requestText(message.content).includes("INFORMATION-NOTIFY")));
-    assert.ok(!request.messages.some((message) => message.role === "assistant" && requestText(message.content).includes("<pi-muse-information-notification")));
+    assert.ok(request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")));
   }
 
   await h.setupPipeline({ enabled: true, batchWindowSeconds: 3600 });
@@ -381,7 +377,7 @@ test("information prompt, tool and source extension follow current agent setting
   assert.ok(h.model.requests.slice(reenabledBaseline).some((request) =>
     request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")) &&
     requestToolNames(request).includes("information") &&
-    request.messages.some((message) => message.role === "assistant" && requestText(message.content).includes("<pi-muse-information-notification")),
+    request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")),
   ));
 });
 

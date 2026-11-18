@@ -291,7 +291,13 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     writeInstructions: (instructions: string) => writeSessionInstructions(sessionInstructionsFile(layout, "main"), instructions).then(() => {}),
     enabledSkillTexts: () => createInformationSkillTextReader(skills)("main"),
   };
-  information = createInformationService({ ...informationDeps, repository: informationRepository });
+  // 短信使用独立 Sub-Agent 偏好与自学习存储，不读写 main 会话 INSTRUCTIONS.md，避免污染全局对话上下文。
+  information = createInformationService({
+    ...informationDeps,
+    readInstructions: async () => "",
+    writeInstructions: undefined,
+    repository: informationRepository,
+  });
   // 新闻事实落 news.sqlite；打开时完成旧 news.json 显式导入检测与建库。
   // Managed 实例唯一，后续 AgentSQL 工具复用同一实例，不另开 writer。
   let newsStorage: Awaited<ReturnType<typeof openNewsRepository>>;
@@ -342,20 +348,6 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   try {
     mainConversation = await conversationHub.forSession("main");
     await news.initialize();
-    const instructionsFile = sessionInstructionsFile(layout, "main");
-    // 只有首次初始化才写默认规则；用户显式清空的文件也不能覆盖。
-    try { await stat(instructionsFile); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      await writeSessionInstructions(instructionsFile, [
-        "# 短信过滤与通知规则",
-        "分析和整理用户的短信，并根据规则决定是否需要提醒用户。",
-        "默认规则：",
-        "- 整理快递取件码、验证码、重要账单等对用户有明确即时行动价值的信息，判定为 notify。",
-        "- 营销推广、垃圾广告、日常问候等无紧迫行动价值的信息，判定为 silent。",
-        "用户指令与偏好拥有最高优先级。如果用户说明了特定偏好（例如不关心取件码或只关心账单），必须严格遵循。",
-      ].join("\n\n"));
-    }
   } catch (error) {
     await news.close();
     await Promise.allSettled([information?.close(), newsProcessing.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);

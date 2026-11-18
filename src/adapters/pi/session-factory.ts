@@ -259,7 +259,8 @@ export async function openPi(deps: PiDeps) {
   const inlineExtensions: InlineExtension[] = [];
   // 内联 loader 的 runtime 不等于最终会话 runtime；只从实际 AgentSession 读公开工具快照。
   let activeParentTools: () => readonly string[] = () => [];
-  if (!child && informationEnabled) {
+  // 对所有主/专题非子会话始终挂载上下文过滤：即使后续关闭短信处理，历史中的短信通知卡片也不会泄漏进主会话上下文。
+  if (!child) {
     inlineExtensions.push({
       name: "pi-muse-information-notification-context",
       hidden: true,

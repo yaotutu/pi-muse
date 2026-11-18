@@ -250,7 +250,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateInformationSettings",
     method: "put", path: "/api/information/settings", tag: "信息后台", summary: "保存会话信息后台设置",
-    hint: "整份替换 enabled 与 batchWindowSeconds（0–3600；0 表示下一轮调度立即聚合）。规则继续复用普通会话 INSTRUCTIONS.md，没有独立业务 prompt。禁用时拒绝新接入/新 run 并取消该会话在途信息轮，未处理队列保留；最后保存生效。",
+    hint: "整份替换 enabled 与 batchWindowSeconds（0–3600；0 表示下一轮调度立即聚合）。短信 Sub-Agent 使用独立偏好 notes 与自学习 learnedNotes，不写入普通会话 INSTRUCTIONS.md。禁用时拒绝新接入/新 run 并取消该会话在途信息轮，未处理队列保留；最后保存生效。",
     auth: true, request: information.informationSettingsRequestSchema, response: information.informationSettingsResponse,
     errorResponses: {
       400: { description: "非法请求或窗口范围", schema: resp.errorResponse },
@@ -262,7 +262,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getInformationPreferences",
     method: "get", path: "/api/information/preferences", tag: "信息后台", summary: "读取会话信息偏好与当前反馈例证",
-    hint: "返回会话局部 notes 以及当前会话内已发布信息通知对应的最新喜欢/不喜欢和评论投影。回撤、编辑或删除反馈后立即以当前投影为准，不长期固化旧结论；reset 后旧会话反馈不迁移。",
+    hint: "返回短信独立偏好 notes、Sub-Agent 从用户交互反馈自学习沉淀的 learnedNotes，以及当前主聊天短信卡片对应的最新点赞/收藏/不喜欢和评论投影。回撤、编辑或删除反馈后立即以当前投影为准，不长期固化旧结论；reset 后旧会话反馈不迁移。",
     auth: true, response: information.informationPreferencesResponse,
     errorResponses: {
       400: { description: "非法 sessionId", schema: resp.errorResponse },
@@ -273,7 +273,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateInformationPreferences",
     method: "put", path: "/api/information/preferences", tag: "信息后台", summary: "保存会话信息偏好备注",
-    hint: "保存当前会话局部 notes（最多 20000 字符；空串清空）。它不写全局记忆、不自动改写会话规则、不触发模型；最后保存生效。",
+    hint: "保存短信独立过滤偏好 notes（最多 20000 字符；空串清空）。它不写入 main 会话 INSTRUCTIONS.md、不写全局记忆、不触发模型；最后保存生效。",
     auth: true, request: information.informationPreferencesRequestSchema, response: information.informationPreferencesResponse,
     errorResponses: {
       400: { description: "非法请求或超长 notes", schema: resp.errorResponse },
