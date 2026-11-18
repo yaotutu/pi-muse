@@ -61,6 +61,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       "For explicit chat requests use the requested tool normally. This is isolated synthetic acceptance data, not real SMS.",
     ].join("\n\n");
     await client.json("/api/sessions/main/instructions", { instructions: rules }, "PUT");
+    await client.json("/api/information/preferences", { notes: rules }, "PUT");
     assert.deepEqual(await client.json("/api/information/settings"), { enabled: false, batchWindowSeconds: 15 });
     await client.json("/api/information/settings", { enabled: true, batchWindowSeconds: 3600 }, "PUT");
     const ingest = async (id: string, content: string) => client.json("/api/information/items", { items: [{ source: "synthetic", externalId: id, content }] });
@@ -110,6 +111,9 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.deepEqual(silent.run.publications, []);
     assert.equal((await client.history("main")).revision, mainAfter.revision);
     assert.ok(proxy.traces.slice(feedbackBaseline).some((trace) => trace.users.some((text) => text.includes("LIVE-FEEDBACK-CURRENT"))));
+    const prefsAfterFeedback = (await client.json("/api/information/preferences")) as { notes: string; learnedNotes: string };
+    assert.equal(prefsAfterFeedback.notes, rules);
+    assert.equal(typeof prefsAfterFeedback.learnedNotes, "string");
     pass(current);
 
     current = "main-context-source-and-read-only-query";
@@ -118,7 +122,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.equal(query.at(-1)?.type,"RUN_FINISHED");
     const queryTraces=proxy.traces.slice(queryBaseline);
     assert.ok(queryTraces.some((trace)=>trace.calls.some((call)=>call.name==="information")));
-    assert.ok(queryTraces.some((trace)=>trace.assistantContexts.some((context)=>context.informationNotification && context.notificationId===publication.notificationId)));
+    assert.ok(queryTraces.every((trace)=>!trace.assistantContexts.some((context)=>context.informationNotification)));
     const persisted=await client.history("main");
     assert.equal(persisted.messages.find((message:{id:string})=>message.id===publication.receipt!.messageId)?.content,publication.text);
     pass(current);
