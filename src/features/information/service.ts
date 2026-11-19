@@ -54,7 +54,7 @@ export type InformationServiceDependencies = {
   } | undefined>;
   feedback: MessageFeedbackRepository;
   runModel: (input: InformationModelInput, signal: AbortSignal) => Promise<InformationModelResult>;
-  readInstructions: () => Promise<string>;
+  readInstructions?: () => Promise<string>;
   writeInstructions?: (instructions: string) => Promise<void>;
   enabledSkillTexts: () => Promise<string[]>;
 };
@@ -266,7 +266,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     if (state.settings.mode === "recommendations") {
       return { notes: state.preferences.notes, learnedNotes, feedbackExamples: [] };
     }
-    const notes = state.preferences.notes || (await deps.readInstructions()).trim();
+    const notes = state.preferences.notes;
     const retained = await deps.retainMain();
     if (!retained) return { notes, learnedNotes, feedbackExamples: [] };
     try {
@@ -281,7 +281,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   };
   const getNewsPreferences = async () => {
     const preferences = (await deps.repository.read()).preferences;
-    return { notes: await deps.readInstructions(), learnedNotes: preferences.learnedNotes };
+    return { notes: (await deps.readInstructions?.()) ?? preferences.notes, learnedNotes: preferences.learnedNotes };
   };
   const savePreferences = async (preferences: Pick<InformationPreferences, "notes">) => {
     requireOpen();
@@ -713,20 +713,19 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         const items = claimed.itemIds
           .map((id) => state.items.find((item) => item.id === id))
           .filter((item): item is InformationItem => Boolean(item));
-        const sessionInstructions = await deps.readInstructions();
-        const smsNotes = state.preferences.notes || sessionInstructions.trim();
+        const sessionInstructions = mode === "recommendations" ? ((await deps.readInstructions?.()) ?? "") : "";
         const analysisKind = claimed.kind ?? (!initialState.initialAnalysisCompleted ? "initial_summary" : "incremental");
         const input: InformationModelInput = {
           runId: claimed.id,
           mode,
           analysisKind,
-          instructions: mode === "recommendations" ? sessionInstructions : smsNotes,
+          instructions: mode === "recommendations" ? sessionInstructions : state.preferences.notes,
           enabledSkillTexts: await deps.enabledSkillTexts(),
           preferences: {
             ...state.preferences,
             notes: mode === "recommendations"
               ? (sessionInstructions.trim() || state.preferences.notes)
-              : smsNotes,
+              : state.preferences.notes,
           },
           items: items.map(({ id, source, externalId, title, content, receivedAt, metadata }) => ({
             id, source, externalId, ...(title ? { title } : {}), content, receivedAt,

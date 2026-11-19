@@ -287,15 +287,11 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     retainMain: () => conversationHub.retainSession("main"),
     feedback: messageFeedbackRepository,
     runModel: createInformationRunner({ config, layout, modelRuntime }),
-    readInstructions: () => readSessionInstructions(sessionInstructionsFile(layout, "main")),
-    writeInstructions: (instructions: string) => writeSessionInstructions(sessionInstructionsFile(layout, "main"), instructions).then(() => {}),
     enabledSkillTexts: () => createInformationSkillTextReader(skills)("main"),
   };
   // 短信使用独立 Sub-Agent 偏好与自学习存储，不读写 main 会话 INSTRUCTIONS.md，避免污染全局对话上下文。
   information = createInformationService({
     ...informationDeps,
-    readInstructions: async () => "",
-    writeInstructions: undefined,
     repository: informationRepository,
   });
   // 新闻事实落 news.sqlite；打开时完成旧 news.json 显式导入检测与建库。
@@ -324,7 +320,12 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   };
   // 新闻与短信复用处理规则，但各有全局事实存储；不借用会话充当数据 owner。
   const newsProcessingRepository = createNewsProcessingRepository(newsRepository);
-  const newsProcessing = createInformationService({ ...informationDeps, repository: newsProcessingRepository });
+  const newsProcessing = createInformationService({
+    ...informationDeps,
+    readInstructions: () => readSessionInstructions(sessionInstructionsFile(layout, "main")),
+    writeInstructions: (instructions: string) => writeSessionInstructions(sessionInstructionsFile(layout, "main"), instructions).then(() => {}),
+    repository: newsProcessingRepository,
+  });
   const informationScheduler = createInformationScheduler(information);
   const newsProcessingScheduler = createInformationScheduler(newsProcessing);
   const news = createNewsService({

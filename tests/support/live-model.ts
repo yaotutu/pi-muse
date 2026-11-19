@@ -21,7 +21,8 @@ export type CallTrace = {
     weather: boolean;
     browser: boolean;
   };
-  assistantContexts: Array<{ informationNotification: boolean; notificationId?: string; informationRunId?: string }>;
+  assistantContexts?: never;
+  assistants: string[];
 };
 const textOf = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value)
   ? value.map((entry) => entry && typeof entry === "object" && "text" in entry ? String(entry.text) : "").join("") : "";
@@ -58,17 +59,9 @@ export const createLiveModel = async (model: { baseUrl: string; apiKey?: string 
           .map((entry) => textOf(entry.content))
           .join("\n");
         const normalizedSystemText = systemText.replace(/\s+/g, " ");
-        const assistantContexts = messages
+        const assistants = messages
           .filter((entry) => entry.role === "assistant")
-          .map((entry) => {
-            const text = textOf(entry.content);
-            const match = /<pi-muse-information-notification notificationId="([^"]+)" informationRunId="([^"]+)">/.exec(text);
-            return {
-              informationNotification: text.includes("<pi-muse-information-notification"),
-              notificationId: match?.[1],
-              informationRunId: match?.[2],
-            };
-          });
+          .map((entry) => textOf(entry.content).slice(0, 16_384));
         trace = {
           index: traces.length, startedAt: Date.now(),
           child: systemText.includes("## Subagent role"),
@@ -92,7 +85,7 @@ export const createLiveModel = async (model: { baseUrl: string; apiKey?: string 
             weather: normalizedSystemText.includes("Use get_weather"),
             browser: normalizedSystemText.includes("real-browser tools"),
           },
-          assistantContexts,
+          assistants,
         };
         traces.push(trace);
         const upstream = await fetch(model.baseUrl.replace(/\/+$/, "") + "/chat/completions", {

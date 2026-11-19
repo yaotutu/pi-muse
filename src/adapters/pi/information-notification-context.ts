@@ -27,7 +27,6 @@ This feature does not provide operating-system push or SMS delivery.`;
  */
 export const projectInformationNotificationContext = (
   messages: readonly AgentMessage[],
-  _informationEnabled = true,
 ): AgentMessage[] => {
   const projected = messages.filter((message) => {
     if (message.role !== "assistant") return true;
@@ -36,7 +35,7 @@ export const projectInformationNotificationContext = (
   return projected.length === messages.length ? [...messages] : projected;
 };
 
-export const createInformationNotificationContextExtension = (informationEnabled = true): ExtensionFactory =>
+export const createInformationNotificationContextExtension = (): ExtensionFactory =>
   (pi) => {
-    pi.on("context", (event) => ({ messages: projectInformationNotificationContext(event.messages, informationEnabled) }));
+    pi.on("context", (event) => ({ messages: projectInformationNotificationContext(event.messages) }));
   };

@@ -303,7 +303,7 @@ test("ordinary chat excludes SMS notification cards from model context without r
   const firstAssistantTexts = firstRequests.flatMap((request) =>
     request.messages.filter((message) => message.role === "assistant").map((message) => requestText(message.content)),
   );
-  assert.ok(firstAssistantTexts.every((text) => !text.includes("INFORMATION-NOTIFY") && !text.includes("<pi-muse-information-notification")));
+  assert.ok(firstAssistantTexts.every((text) => !text.includes("INFORMATION-NOTIFY")));
   assert.ok(firstAssistantTexts.some((text) => text.includes("generic server notification")));
 
   await h.restart();

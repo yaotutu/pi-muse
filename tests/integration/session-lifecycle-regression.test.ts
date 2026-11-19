@@ -152,7 +152,7 @@ test("conversation instructions and JSONL are isolated while workspace stays fla
   assert.ok(prompts.some((s) => s.includes("A-ONLY-PROMPT")));
   const bRequest = prompts.find((s) => s.includes("hello-B-ONLY"))!;
   assert.ok(bRequest);
-  assert.doesNotMatch(bRequest, /A-ONLY-PROMPT|hello-A-ONLY|短信过滤与通知规则/);
+  assert.doesNotMatch(bRequest, /A-ONLY-PROMPT|hello-A-ONLY/);
   assert.doesNotMatch(JSON.stringify(await h.snapshot(b.id)), /hello-A-ONLY/);
   const workspace = h.service().layout.workspaceDir;
   assert.deepEqual(await readdir(workspace), []);

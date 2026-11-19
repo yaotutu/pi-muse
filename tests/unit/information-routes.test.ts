@@ -19,7 +19,6 @@ test("global preferences save main rules before retaining main for feedback", as
     validateAll: async () => undefined,
   };
   let hubDepth = 0;
-  let instructions = "";
   const order: string[] = [];
   const information = createInformationService({
     repository,
@@ -37,8 +36,6 @@ test("global preferences save main rules before retaining main for feedback", as
     },
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => instructions,
-    writeInstructions: async (text) => { instructions = text; },
     enabledSkillTexts: async () => [],
   });
   const dependencies = {
@@ -98,7 +95,6 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
     },
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
   await information.saveSettings({ enabled: true, batchWindowSeconds: 0 });

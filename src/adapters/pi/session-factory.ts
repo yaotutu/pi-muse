@@ -264,7 +264,7 @@ export async function openPi(deps: PiDeps) {
     inlineExtensions.push({
       name: "pi-muse-information-notification-context",
       hidden: true,
-      factory: createInformationNotificationContextExtension(Boolean(informationEnabled)),
+      factory: createInformationNotificationContextExtension(),
     });
   }
   if (!child && enabledSkillNames.has("task")) {

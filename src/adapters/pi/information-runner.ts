@@ -144,7 +144,7 @@ const buildSystemPrompt = (input: InformationModelInput): string =>
           DEFAULT_SMS_RULES,
           "",
           "## Explicit SMS preference notes",
-          input.preferences.notes.trim() || input.instructions.trim() || "(none)",
+          input.preferences.notes.trim() || "(none)",
           "",
           "## Learned SMS sensitivity notes",
           input.preferences.learnedNotes.trim() || "(none)",

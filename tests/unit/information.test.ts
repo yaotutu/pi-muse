@@ -14,7 +14,6 @@ const emptyFeedback = () => ({ schemaVersion: 1 as const, events: [] });
 
 const fixture = (options?: {
   notify?: (text: string, id: string) => Promise<{ piSessionId: string; messageId: string }>;
-  instructions?: () => Promise<string>;
   feedbackRead?: () => Promise<{ schemaVersion: 1; events: never[] }>;
 }) => {
   let state = defaultInformationState();
@@ -45,7 +44,6 @@ const fixture = (options?: {
     }),
     feedback: { read: options?.feedbackRead ?? (async () => emptyFeedback()) } as never,
     runModel: async () => { throw new Error("unexpected model call"); },
-    readInstructions: options?.instructions ?? (async () => ""),
     enabledSkillTexts: async () => [],
   });
   return { repository, service, notifications, state: () => state, readState: () => structuredClone(state) };
@@ -115,7 +113,6 @@ test("manual and automatic runs contend on one synchronously reserved global slo
       const result = await model.promise;
       return { ok: true, result };
     },
-    readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
@@ -138,7 +135,7 @@ test("manual and automatic runs contend on one synchronously reserved global slo
 });
 
 test("processing setup failures mark the run failed and release the global slot", async () => {
-  let failInstructions = true;
+  let failSkills = true;
   let modelCalled = false;
   const base = fixture();
   const service = createInformationService({
@@ -150,15 +147,14 @@ test("processing setup failures mark the run failed and release the global slot"
     }),
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => { modelCalled = true; return { ok: false, error: "MODEL_REQUEST_FAILED" }; },
-    readInstructions: async () => {
-      if (failInstructions) throw new Error("instructions I/O failed");
-      return "";
+    enabledSkillTexts: async () => {
+      if (failSkills) throw new Error("skills I/O failed");
+      return [];
     },
-    enabledSkillTexts: async () => [],
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
   await service.ingest([{ source: "rss", externalId: "1", content: "one" }]);
-  await assert.rejects(service.runNow(), /instructions I\/O failed/);
+  await assert.rejects(service.runNow(), /skills I\/O failed/);
   const state = base.readState();
   assert.equal(state.runs[0]?.status, "failed");
   assert.equal(state.items[0]?.status, "failed");
@@ -184,7 +180,6 @@ test("cancellation while retain is pending releases the retained agent", async (
     },
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
@@ -217,7 +212,6 @@ test("cancellation after a successful model result preserves model success but f
       await modelGate.promise;
       return { ok: true, result: resultFor([itemId!]) };
     },
-    readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
@@ -247,7 +241,6 @@ test("per-agent pause barrier is synchronous, nested, and blocks scheduler work"
     }),
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
@@ -281,7 +274,6 @@ test("per-agent pause aborts an already started run and waits for exit", async (
       await gate.promise;
       return { ok: false, error: "CANCELLED" };
     },
-    readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
@@ -322,7 +314,6 @@ test("pagination uses the last returned row and does not skip equal timestamps",
     retainMain: async () => undefined,
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
   const first = await service.listItems({ limit: 2 });
@@ -349,7 +340,6 @@ test("information cursors are bound to their status filter", async () => {
     retainMain: async () => undefined,
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
   const pending = await service.listItems({ status: "pending", limit: 1 });
@@ -408,7 +398,6 @@ test("feedback examples expose current projections and bounded original item con
       }),
     } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
   const preferences = await service.getPreferences();
@@ -450,7 +439,6 @@ test("feedback storage failures are exposed instead of being treated as no prefe
     retainMain: async () => ({ conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ piSessionId: "session-1", messageId: id }) }, release: () => undefined }),
     feedback: { read: async () => { throw new Error("corrupt feedback"); } } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
   await assert.rejects(service.getPreferences(), /corrupt feedback/);
@@ -460,6 +448,7 @@ test("first run executes initial_summary then transitions to incremental", async
   let state: InformationState = {
     ...defaultInformationState(),
     settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
+    preferences: { notes: "关注快递取件码", learnedNotes: "" },
   };
   const repository: InformationRepository = {
     read: async () => structuredClone(state),
@@ -473,7 +462,6 @@ test("first run executes initial_summary then transitions to incremental", async
     validateAll: async () => undefined,
   };
   const capturedKinds: string[] = [];
-  let instructions = "关注快递取件码";
   const service = createInformationService({
     repository,
 
@@ -492,8 +480,6 @@ test("first run executes initial_summary then transitions to incremental", async
         },
       };
     },
-    readInstructions: async () => instructions,
-    writeInstructions: async (text) => { instructions = text; },
     enabledSkillTexts: async () => [],
   });
 
@@ -510,11 +496,11 @@ test("first run executes initial_summary then transitions to incremental", async
   await service.runNow();
   assert.equal(capturedKinds[1], "incremental");
 
-  // Preferences read/write synchronized with agent instructions
+  // Preferences read/write strictly stored in isolated information preferences
   const prefs = await service.getPreferences();
   assert.equal(prefs.notes, "关注快递取件码");
   await service.savePreferences({ notes: "不再提醒取件码" });
-  assert.equal(instructions, "不再提醒取件码");
+  assert.equal(state.preferences.notes, "不再提醒取件码");
   const updatedPrefs = await service.getPreferences();
   assert.equal(updatedPrefs.notes, "不再提醒取件码");
 });
@@ -555,7 +541,6 @@ test("SMS notification subagent persists and reuses learnedNotes independently f
         },
       };
     },
-    readInstructions: async () => "",
     enabledSkillTexts: async () => [],
   });
 
