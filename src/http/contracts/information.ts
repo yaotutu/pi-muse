@@ -20,7 +20,7 @@ export const informationIngestRequestSchema = z.strictObject({
     content: z.string().min(1).max(20000).refine((value) => value.trim().length > 0).describe("原始信息正文；仅拒绝全空白，不 trim、不裁剪、不改写"),
     title: z.string().min(1).max(500).refine((value) => value.trim().length > 0).optional().describe("可选原始标题；仅拒绝全空白并按原文保存，不 trim"),
     receivedAt: z.string().datetime().optional().describe("来源时间；省略时使用服务端接纳时间"),
-  })).min(1).max(50).describe("本批最多 50 条；整批校验通过后才提交"),
+  })).min(1).max(500).describe("本批最多 500 条；整批校验通过后才提交"),
 });
 export const informationRunRequestSchema = z.strictObject({});
 export const informationStatusSchema = z.enum(["pending", "processing", "processed", "failed"]);

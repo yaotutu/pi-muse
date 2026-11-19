@@ -3,7 +3,7 @@ import { projectFeedback } from "../messages/service.js";
 import type { MessageFeedbackRepository } from "../messages/types.js";
 import { InformationError } from "./errors.js";
 import type { ObserveWork } from "../workspace/session-presence.js";
-import { parseInformationResult } from "./result.js";
+import { INFORMATION_NOTIFICATION_TEXT_MAX_LENGTH, parseInformationResult } from "./result.js";
 import type {
   InformationFeedbackExample,
   InformationInputItem,
@@ -604,7 +604,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       if (!state.settings.enabled) return { result: undefined as InformationRun | undefined };
       const pending = [...state.items]
         .filter((item) => item.status === "pending")
-        .sort((a, b) => a.acceptedAt.localeCompare(b.acceptedAt) || a.id.localeCompare(b.id));
+        .sort((a, b) => a.acceptedAt.localeCompare(b.acceptedAt) || a.receivedAt.localeCompare(b.receivedAt) || a.id.localeCompare(b.id));
       const first = pending[0];
       if (!first) return { result: undefined };
       if (!force && Date.now() < Date.parse(first.acceptedAt) + state.settings.batchWindowSeconds * 1000) {
@@ -685,7 +685,24 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     result: undefined,
   }));
 
-  const process = async (slot: ActiveSlot, claimed: InformationRun) => {
+  type ProcessOptions = {
+    deferInitialPublication?: (notifications: Array<{ itemIds: string[]; text: string }>) => void;
+    combinedInitialNotifications?: Array<{ itemIds: string[]; text: string }>;
+  };
+
+  const mergeInitialNotifications = (entries: ReadonlyArray<{ itemIds: string[]; text: string }>) => {
+    if (entries.length <= 1) return [...entries];
+    const rawText = entries.map((entry) => entry.text.trim()).filter(Boolean).join("\n\n");
+    const boundedText = rawText.length > INFORMATION_NOTIFICATION_TEXT_MAX_LENGTH
+      ? `${rawText.slice(0, INFORMATION_NOTIFICATION_TEXT_MAX_LENGTH - 1)}…`
+      : rawText;
+    return [{
+      itemIds: [...new Set(entries.flatMap((entry) => entry.itemIds))],
+      text: boundedText,
+    }];
+  };
+
+  const process = async (slot: ActiveSlot, claimed: InformationRun, options?: ProcessOptions) => {
     const { controller } = slot;
     const finish = deps.observeWork?.("main", "information", "正在整理信息");
     let succeeded = false;
@@ -755,18 +772,31 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         const deliveryError = controller.signal.aborted
           ? "Cancelled before notification delivery"
           : "Target session changed before notification delivery";
-        await deps.repository.update((current) => {
+        const priorInitial = mode === "notifications" && analysisKind === "initial_summary"
+          ? (options?.combinedInitialNotifications ?? [])
+          : [];
+        const { deferred } = await deps.repository.update((current) => {
           const run = current.runs.find((candidate) => candidate.id === claimed.id);
-          if (!run || run.status !== "running") return { result: undefined };
-          const publications = mode === "notifications" ? parsed.notifications.map((notification, index) => ({
+          if (!run || run.status !== "running") return { result: { deferred: false } };
+          const claimedIds = new Set(claimed.itemIds);
+          const remainingPending = current.items.filter((item) => item.status === "pending" && !claimedIds.has(item.id));
+          const shouldDefer = mode === "notifications" &&
+            analysisKind === "initial_summary" &&
+            remainingPending.length > 0 &&
+            !deliveryCancelled &&
+            Boolean(options?.deferInitialPublication);
+          const effectiveNotifications = shouldDefer
+            ? []
+            : mode === "notifications" && analysisKind === "initial_summary"
+              ? mergeInitialNotifications([...priorInitial, ...parsed.notifications])
+              : parsed.notifications;
+          const publications = mode === "notifications" ? effectiveNotifications.map((notification, index) => ({
             notificationId: `info-notification-${claimed.id}-${index}`,
             itemIds: notification.itemIds,
             text: notification.text,
             status: deliveryCancelled ? "failed" as const : "pending" as const,
             ...(deliveryCancelled ? { error: deliveryError } : {}),
           })) : [];
-          const claimedIds = new Set(claimed.itemIds);
-          const remainingPending = current.items.filter((item) => item.status === "pending" && !claimedIds.has(item.id));
           const initialCompleted = current.initialAnalysisCompleted || (analysisKind === "initial_summary" && remainingPending.length === 0);
           return {
             state: {
@@ -789,9 +819,12 @@ export const createInformationService = (deps: InformationServiceDependencies) =
                 }
                 : candidate),
             },
-            result: undefined,
+            result: { deferred: shouldDefer },
           };
         });
+        if (deferred) {
+          options?.deferInitialPublication?.(parsed.notifications);
+        }
         if (deliveryCancelled) { cancelled = true; return; }
         const completed = await deps.repository.read();
         succeeded = true;
@@ -851,8 +884,31 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     } finally {
       finish?.(controller.signal.aborted || cancelled ? "cancelled" : succeeded && !deliveryFailed ? "succeeded" : "failed", meaningful);
       retained?.release();
-      slot.release();
     }
+  };
+
+  /** 首轮历史分析模式下在同一个执行槽内连续排空所有待处理批次，最终只合并投递一次汇总通知。 */
+  const drainClaimed = async (slot: ActiveSlot, firstClaimed: InformationRun): Promise<InformationRun> => {
+    const deferredInitial: Array<{ itemIds: string[]; text: string }> = [];
+    let current = firstClaimed;
+    while (true) {
+      const isInitial = current.kind === "initial_summary";
+      await process(slot, current, isInitial
+        ? {
+            deferInitialPublication: (notifications) => { deferredInitial.push(...notifications); },
+            combinedInitialNotifications: deferredInitial,
+          }
+        : undefined);
+      if (!isInitial || slot.controller.signal.aborted) break;
+      const stateNow = await deps.repository.read();
+      const finishedRun = stateNow.runs.find((candidate) => candidate.id === current.id);
+      if (!finishedRun || finishedRun.status !== "completed" || stateNow.initialAnalysisCompleted) break;
+      if (!stateNow.settings.enabled || !stateNow.items.some((item) => item.status === "pending")) break;
+      const next = await claim(true);
+      if (!next) break;
+      current = next;
+    }
+    return current;
   };
 
   const runNow = async () => {
@@ -860,15 +916,15 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     if (isPaused()) throw new InformationError("SESSION_PAUSED", "Agent lifecycle is changing");
     const slot = reserveSlot();
     try {
-        const state = await deps.repository.read();
+      const state = await deps.repository.read();
       if (!state.settings.enabled) throw new InformationError("DISABLED", "Information processing is disabled");
       if (!state.items.some((item) => item.status === "pending")) {
         throw new InformationError("NO_PENDING", "No pending information");
       }
       const claimed = await claim(true);
       if (!claimed) throw new InformationError("NO_PENDING", "No pending information");
-      await process(slot, claimed);
-      return getRun(claimed.id);
+      const lastClaimed = await drainClaimed(slot, claimed);
+      return getRun(lastClaimed.id);
     } finally {
       slot.release();
     }
@@ -883,10 +939,12 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         const claimed = await claim(false);
         if (!claimed) return false;
         processStarted = true;
-        void process(slot, claimed).catch(() => undefined);
+        void drainClaimed(slot, claimed)
+          .catch(() => undefined)
+          .finally(() => slot.release());
         return true;
       } finally {
-        // process 接管后负责释放；未到期/无待处理在这里立即释放全局槽。
+        // drainClaimed 接管后由其 finally 释放；未到期/无待处理在这里立即释放全局槽。
         if (!processStarted) slot.release();
       }
     })();

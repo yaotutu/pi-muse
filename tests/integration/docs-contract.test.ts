@@ -1205,7 +1205,7 @@ test("docs: information endpoints expose a bounded authenticated agent-scoped AP
     }
   }
 
-  assert.match(paths["/api/information/items"]!.post!.description ?? "", /最多 50 条/);
+  assert.match(paths["/api/information/items"]!.post!.description ?? "", /最多 500 条/);
   assert.match(paths["/api/information/items"]!.post!.description ?? "", /同内容幂等回读/);
   assert.match(paths["/api/information/items"]!.post!.description ?? "", /不同内容返回 409/);
   assert.match(paths["/api/information/runs"]!.post!.description ?? "", /409 BUSY/);

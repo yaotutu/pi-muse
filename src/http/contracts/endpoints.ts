@@ -285,7 +285,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "createInformationItems",
     method: "post", path: "/api/information/items", tag: "信息后台", summary: "批量接入原始信息",
-    hint: "最多 50 条，整批校验通过后原子提交；source 是 ASCII identifier，externalId/content 有界且 content 非空。同会话 source+externalId 同内容幂等回读，不同内容返回 409 且不覆盖原文。禁用返回 409。后台原始信息保存在 Pi Muse 独立 repository，不 append PI 聊天历史。",
+    hint: "最多 500 条，整批校验通过后原子提交；source 是 ASCII identifier，externalId/content 有界且 content 非空。同会话 source+externalId 同内容幂等回读，不同内容返回 409 且不覆盖原文。禁用返回 409。后台原始信息保存在 Pi Muse 独立 repository，不 append PI 聊天历史。",
     auth: true, request: information.informationIngestRequestSchema, response: information.informationIngestResponse,
     errorResponses: {
       400: { description: "整批或任一条目非法；不会提交任何条目", schema: resp.errorResponse },

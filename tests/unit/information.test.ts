@@ -558,3 +558,101 @@ test("SMS notification subagent persists and reuses learnedNotes independently f
   assert.equal(capturedPreferences[1]?.learnedNotes, "用户对银行账单和快递取件码高度敏感");
   assert.equal((await service.getPreferences()).learnedNotes, "用户对银行账单、快递取件码敏感；忽略积分提醒");
 });
+
+test("initial bulk import drains all pending batches, rolls learnedNotes, and publishes only one combined notification", async () => {
+  let state: InformationState = {
+    ...defaultInformationState(),
+    settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
+  };
+  const repository: InformationRepository = {
+    read: async () => structuredClone(state),
+    update: async (change) => {
+      const changed = await change(structuredClone(state));
+      if (changed.state) state = changed.state;
+      return changed.result;
+    },
+    reconcileOnStart: async () => undefined,
+    validateAll: async () => undefined,
+  };
+  const sentNotifications: Array<{ text: string; id: string }> = [];
+  const rounds: Array<{
+    analysisKind: string;
+    itemCount: number;
+    incomingLearnedNotes: string;
+  }> = [];
+
+  const service = createInformationService({
+    repository,
+    retainMain: async () => ({
+      conversation: {
+        piSessionId: () => "session-1",
+        notify: async (text, id) => {
+          sentNotifications.push({ text, id });
+          return { piSessionId: "session-1", messageId: id };
+        },
+      },
+      release: () => undefined,
+    }),
+    feedback: { read: async () => emptyFeedback() } as never,
+    runModel: async (input) => {
+      const roundIndex = rounds.length + 1;
+      rounds.push({
+        analysisKind: input.analysisKind,
+        itemCount: input.items.length,
+        incomingLearnedNotes: input.preferences.learnedNotes,
+      });
+      const notifyItems = input.items.filter((item) => item.content.includes("ACTIONABLE"));
+      return {
+        ok: true,
+        result: {
+          decisions: input.items.map((item) => ({
+            itemId: item.id,
+            decision: notifyItems.some((entry) => entry.id === item.id) ? "notify" as const : "silent" as const,
+            reason: "evaluated",
+          })),
+          notifications: notifyItems.length
+            ? [{ itemIds: notifyItems.map((item) => item.id), text: `批次${roundIndex}待办(${notifyItems.length})` }]
+            : [],
+          learnedNotes: `画像阶段${roundIndex}`,
+        },
+      };
+    },
+    enabledSkillTexts: async () => [],
+  });
+
+  // 45 historical SMS: items #0 (batch 1), #20 (batch 2), #44 (batch 3) are actionable
+  const inputs = Array.from({ length: 45 }, (_value, index) => ({
+    source: "sms",
+    externalId: `hist-${index}`,
+    content: (index === 0 || index === 20 || index === 44) ? `ACTIONABLE 短信 ${index}` : `历史促销/过期验证码 ${index}`,
+    receivedAt: new Date(Date.UTC(2026, 10, 1, 0, index)).toISOString(),
+  }));
+  await service.ingest(inputs);
+  const lastRun = await service.runNow();
+
+  assert.equal(rounds.length, 3);
+  assert.deepEqual(rounds, [
+    { analysisKind: "initial_summary", itemCount: 20, incomingLearnedNotes: "" },
+    { analysisKind: "initial_summary", itemCount: 20, incomingLearnedNotes: "画像阶段1" },
+    { analysisKind: "initial_summary", itemCount: 5, incomingLearnedNotes: "画像阶段2" },
+  ]);
+  assert.equal(state.initialAnalysisCompleted, true);
+  assert.equal(state.preferences.learnedNotes, "画像阶段3");
+  assert.equal(state.items.every((item) => item.status === "processed"), true);
+
+  // Only 1 combined notification published on the final drained batch
+  assert.equal(sentNotifications.length, 1);
+  assert.equal(sentNotifications[0]?.text, "批次1待办(1)\n\n批次2待办(1)\n\n批次3待办(1)");
+  assert.equal(lastRun.run.status, "completed");
+  assert.equal(lastRun.run.publications[0]?.itemIds.length, 3);
+  assert.equal(state.runs[0]?.publications.length, 0);
+  assert.equal(state.runs[1]?.publications.length, 0);
+  assert.equal(state.runs[2]?.publications.length, 1);
+
+  // Next ingested SMS after initial drain runs as incremental
+  await service.ingest([{ source: "sms", externalId: "live-1", content: "ACTIONABLE 新短信" }]);
+  await service.runNow();
+  assert.equal(rounds[3]?.analysisKind, "incremental");
+  assert.equal(rounds[3]?.incomingLearnedNotes, "画像阶段3");
+  assert.equal(sentNotifications.length, 2);
+});
