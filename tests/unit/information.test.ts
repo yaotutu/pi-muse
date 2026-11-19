@@ -620,21 +620,21 @@ test("initial bulk import drains all pending batches, rolls learnedNotes, and pu
     enabledSkillTexts: async () => [],
   });
 
-  // 45 historical SMS: items #0 (batch 1), #20 (batch 2), #44 (batch 3) are actionable
-  const inputs = Array.from({ length: 45 }, (_value, index) => ({
+  // 110 historical SMS: items #0 (batch 1), #50 (batch 2), #109 (batch 3) are actionable (50 + 50 + 10)
+  const inputs = Array.from({ length: 110 }, (_value, index) => ({
     source: "sms",
     externalId: `hist-${index}`,
-    content: (index === 0 || index === 20 || index === 44) ? `ACTIONABLE 短信 ${index}` : `历史促销/过期验证码 ${index}`,
-    receivedAt: new Date(Date.UTC(2026, 10, 1, 0, index)).toISOString(),
+    content: (index === 0 || index === 50 || index === 109) ? `ACTIONABLE 短信 ${index}` : `历史促销/过期验证码 ${index}`,
+    receivedAt: new Date(Date.UTC(2026, 10, 1, Math.floor(index / 60), index % 60)).toISOString(),
   }));
   await service.ingest(inputs);
   const lastRun = await service.runNow();
 
   assert.equal(rounds.length, 3);
   assert.deepEqual(rounds, [
-    { analysisKind: "initial_summary", itemCount: 20, incomingLearnedNotes: "" },
-    { analysisKind: "initial_summary", itemCount: 20, incomingLearnedNotes: "画像阶段1" },
-    { analysisKind: "initial_summary", itemCount: 5, incomingLearnedNotes: "画像阶段2" },
+    { analysisKind: "initial_summary", itemCount: 50, incomingLearnedNotes: "" },
+    { analysisKind: "initial_summary", itemCount: 50, incomingLearnedNotes: "画像阶段1" },
+    { analysisKind: "initial_summary", itemCount: 10, incomingLearnedNotes: "画像阶段2" },
   ]);
   assert.equal(state.initialAnalysisCompleted, true);
   assert.equal(state.preferences.learnedNotes, "画像阶段3");
@@ -655,4 +655,104 @@ test("initial bulk import drains all pending batches, rolls learnedNotes, and pu
   assert.equal(rounds[3]?.analysisKind, "incremental");
   assert.equal(rounds[3]?.incomingLearnedNotes, "画像阶段3");
   assert.equal(sentNotifications.length, 2);
+});
+
+test("getStatus tracks queue counts and background + forceInitial runs drain asynchronously", async () => {
+  let state: InformationState = {
+    ...defaultInformationState(),
+    settings: { enabled: true, batchWindowSeconds: 15, mode: "notifications" },
+    initialAnalysisCompleted: true,
+  };
+  const repository: InformationRepository = {
+    read: async () => structuredClone(state),
+    update: async (change) => {
+      const changed = await change(structuredClone(state));
+      if (changed.state) state = changed.state;
+      return changed.result;
+    },
+    reconcileOnStart: async () => undefined,
+    validateAll: async () => undefined,
+  };
+  const firstBatchGate = deferred<void>();
+  let callIndex = 0;
+  const capturedKinds: string[] = [];
+  const notifications: Array<{ text: string; id: string }> = [];
+
+  const service = createInformationService({
+    repository,
+    retainMain: async () => ({
+      conversation: {
+        piSessionId: () => "session-1",
+        notify: async (text, id) => {
+          notifications.push({ text, id });
+          return { piSessionId: "session-1", messageId: id };
+        },
+      },
+      release: () => undefined,
+    }),
+    feedback: { read: async () => emptyFeedback() } as never,
+    runModel: async (input) => {
+      callIndex++;
+      capturedKinds.push(input.analysisKind);
+      if (callIndex === 1) await firstBatchGate.promise;
+      const notifyItems = input.items.filter((item) => item.content.includes("ACTIONABLE"));
+      return {
+        ok: true,
+        result: {
+          decisions: input.items.map((item) => ({
+            itemId: item.id,
+            decision: notifyItems.some((entry) => entry.id === item.id) ? "notify" as const : "silent" as const,
+            reason: "evaluated",
+          })),
+          notifications: notifyItems.length
+            ? [{ itemIds: notifyItems.map((item) => item.id), text: `摘要${callIndex}` }]
+            : [],
+          learnedNotes: `画像${callIndex}`,
+        },
+      };
+    },
+    enabledSkillTexts: async () => [],
+  });
+
+  await service.ingest(
+    Array.from({ length: 60 }, (_value, index) => ({
+      source: "sms",
+      externalId: `bg-${index}`,
+      content: index === 0 || index === 59 ? `ACTIONABLE ${index}` : `history ${index}`,
+      receivedAt: new Date(Date.UTC(2026, 10, 1, Math.floor(index / 60), index % 60)).toISOString(),
+    })),
+  );
+  const beforeRun = await service.getStatus();
+  assert.deepEqual(beforeRun, {
+    running: false,
+    initialAnalysisCompleted: true,
+    counts: { total: 60, pending: 60, processing: 0, processed: 0, failed: 0 },
+  });
+
+  const started = await service.runNow({ background: true, forceInitial: true });
+  assert.equal(started.run.status, "running");
+  assert.equal(started.run.kind, "initial_summary");
+  assert.equal(started.run.itemIds.length, 50);
+
+  const midStatus = await service.getStatus();
+  assert.equal(midStatus.running, true);
+  assert.equal(midStatus.initialAnalysisCompleted, false);
+  assert.deepEqual(midStatus.counts, { total: 60, pending: 10, processing: 50, processed: 0, failed: 0 });
+  await assert.rejects(service.runNow(), { code: "BUSY" });
+
+  firstBatchGate.resolve();
+  for (let i = 0; i < 50; i++) {
+    const statusNow = await service.getStatus();
+    if (!statusNow.running) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  const doneStatus = await service.getStatus();
+  assert.deepEqual(doneStatus, {
+    running: false,
+    initialAnalysisCompleted: true,
+    counts: { total: 60, pending: 0, processing: 0, processed: 60, failed: 0 },
+  });
+  assert.deepEqual(capturedKinds, ["initial_summary", "initial_summary"]);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0]?.text, "摘要1\n\n摘要2");
 });

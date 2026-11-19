@@ -19,6 +19,7 @@ import type {
 } from "./types.js";
 
 export const MAX_INFORMATION_ITEMS_PER_BATCH = 20;
+export const MAX_INITIAL_INFORMATION_ITEMS_PER_BATCH = 50;
 export const MAX_INFORMATION_BATCH_CHARS = 60_000;
 const MAX_FEEDBACK_EXAMPLES = 10;
 const MAX_FEEDBACK_ITEMS = 20;
@@ -598,7 +599,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     });
   };
 
-  const claim = async (force: boolean) =>
+  const claim = async (force: boolean, options?: { forceInitial?: boolean }) =>
     deps.repository.update((state) => {
       if (isPaused()) return { result: undefined as InformationRun | undefined };
       if (!state.settings.enabled) return { result: undefined as InformationRun | undefined };
@@ -610,16 +611,19 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       if (!force && Date.now() < Date.parse(first.acceptedAt) + state.settings.batchWindowSeconds * 1000) {
         return { result: undefined };
       }
+      const isInitial = Boolean(options?.forceInitial) || !state.initialAnalysisCompleted;
+      const maxItems = isInitial && state.settings.mode === "notifications"
+        ? MAX_INITIAL_INFORMATION_ITEMS_PER_BATCH
+        : MAX_INFORMATION_ITEMS_PER_BATCH;
       const selected: InformationItem[] = [];
       let chars = 0;
       for (const item of pending) {
-        if (selected.length >= MAX_INFORMATION_ITEMS_PER_BATCH) break;
+        if (selected.length >= maxItems) break;
         if (selected.length && chars + item.content.length > MAX_INFORMATION_BATCH_CHARS) continue;
         selected.push(item);
         chars += item.content.length;
       }
       const nowText = now();
-      const isInitial = !state.initialAnalysisCompleted;
       const run: InformationRun = {
         id: `inforun_${randomUUID()}`,
         itemIds: selected.map((item) => item.id),
@@ -633,6 +637,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       return {
         state: {
           ...state,
+          ...(options?.forceInitial ? { initialAnalysisCompleted: false } : {}),
           items: state.items.map((item) => selectedIds.has(item.id)
             ? { ...item, status: "processing" as const, runId: run.id }
             : item),
@@ -911,23 +916,55 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     return current;
   };
 
-  const runNow = async () => {
+  const runNow = async (options?: { background?: boolean; forceInitial?: boolean }) => {
     requireOpen();
     if (isPaused()) throw new InformationError("SESSION_PAUSED", "Agent lifecycle is changing");
     const slot = reserveSlot();
+    let backgroundStarted = false;
     try {
       const state = await deps.repository.read();
       if (!state.settings.enabled) throw new InformationError("DISABLED", "Information processing is disabled");
       if (!state.items.some((item) => item.status === "pending")) {
         throw new InformationError("NO_PENDING", "No pending information");
       }
-      const claimed = await claim(true);
+      const claimed = await claim(true, { forceInitial: options?.forceInitial });
       if (!claimed) throw new InformationError("NO_PENDING", "No pending information");
+      if (options?.background) {
+        backgroundStarted = true;
+        void drainClaimed(slot, claimed)
+          .catch(() => undefined)
+          .finally(() => slot.release());
+        return getRun(claimed.id);
+      }
       const lastClaimed = await drainClaimed(slot, claimed);
       return getRun(lastClaimed.id);
     } finally {
-      slot.release();
+      if (!backgroundStarted) slot.release();
     }
+  };
+  const getStatus = async () => {
+    const state = await deps.repository.read();
+    let pending = 0;
+    let processing = 0;
+    let processed = 0;
+    let failed = 0;
+    for (const item of state.items) {
+      if (item.status === "pending") pending++;
+      else if (item.status === "processing") processing++;
+      else if (item.status === "processed") processed++;
+      else if (item.status === "failed") failed++;
+    }
+    return {
+      running: Boolean(active),
+      initialAnalysisCompleted: Boolean(state.initialAnalysisCompleted),
+      counts: {
+        total: state.items.length,
+        pending,
+        processing,
+        processed,
+        failed,
+      },
+    };
   };
   const runDue = () => {
     if (closed || active || isPaused()) return Promise.resolve(false);
@@ -1039,6 +1076,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     deleteArticleComment,
     listRuns,
     getRun,
+    getStatus,
     runNow,
     runDue,
     nextDue,

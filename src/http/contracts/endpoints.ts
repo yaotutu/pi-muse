@@ -317,9 +317,18 @@ export const endpoints: EndpointSpec[] = [
     },
   },
   {
+    operationId: "getInformationStatus",
+    method: "get", path: "/api/information/status", tag: "信息后台", summary: "读取信息后台当前处理进度与队列统计",
+    hint: "返回后台分析是否仍在运行（running）、首轮全量历史分析是否完成及各状态条目数量，便于客户端在后台全量导入分析期间轮询展示真实进度。",
+    auth: true, response: information.informationStatusResponse,
+    errorResponses: {
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
     operationId: "runInformationNow",
-    method: "post", path: "/api/information/runs", tag: "信息后台", summary: "显式立即处理一批待处理信息",
-    hint: "忽略剩余窗口，选取最早 pending 的有限批次（最多 20 条/60000 字符）并同步等待本次真实模型轮与确定性发布收尾。全局已有后台信息轮返回 409 BUSY；禁用或无 pending 分别返回 409 DISABLED/NO_PENDING。模型失败或非法提交记录为 failed run，不自动重试；发布失败与模型失败分开记录，不冒充已送达。",
+    method: "post", path: "/api/information/runs", tag: "信息后台", summary: "显式立即处理待处理信息队列",
+    hint: "忽略剩余窗口，选取最早 pending 批次（首轮全量模式下每批最多 50 条、增量模式最多 20 条，均受 60000 字符上限保护）并执行真实模型轮；默认同步等待完成，传 background=true 时后台连续排空队列并立即返回当前 run，传 forceInitial=true 时以首轮汇总建画像模式运行。全局已有后台信息轮返回 409 BUSY；禁用或无 pending 分别返回 409 DISABLED/NO_PENDING。模型失败或非法提交记录为 failed run，不自动重试；发布失败与模型失败分开记录，不冒充已送达。",
     auth: true, request: information.informationRunRequestSchema, response: information.informationRunDetailResponse,
     errorResponses: {
       400: { description: "非法请求", schema: resp.errorResponse },

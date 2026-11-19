@@ -22,7 +22,21 @@ export const informationIngestRequestSchema = z.strictObject({
     receivedAt: z.string().datetime().optional().describe("来源时间；省略时使用服务端接纳时间"),
   })).min(1).max(500).describe("本批最多 500 条；整批校验通过后才提交"),
 });
-export const informationRunRequestSchema = z.strictObject({});
+export const informationRunRequestSchema = z.strictObject({
+  background: z.boolean().optional().describe("为 true 时启动后台排空处理并立即返回当前运行记录，不阻塞长连接"),
+  forceInitial: z.boolean().optional().describe("为 true 时以首轮全量历史分析（initial_summary）模式处理待处理队列，适合全量导入历史短信后统一建画像与汇总"),
+});
+export const informationStatusResponse = z.strictObject({
+  running: z.boolean().describe("当前是否有信息后台批处理轮在运行"),
+  initialAnalysisCompleted: z.boolean().describe("是否已完成首次历史全量分析"),
+  counts: z.strictObject({
+    total: z.number().int().min(0),
+    pending: z.number().int().min(0),
+    processing: z.number().int().min(0),
+    processed: z.number().int().min(0),
+    failed: z.number().int().min(0),
+  }),
+});
 export const informationStatusSchema = z.enum(["pending", "processing", "processed", "failed"]);
 export const informationRunStatusSchema = z.enum(["running", "completed", "failed", "cancelled"]);
 const listQueryBase = {

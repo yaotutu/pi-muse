@@ -1196,6 +1196,7 @@ test("docs: information endpoints expose a bounded authenticated agent-scoped AP
     ["/api/information/runs", ["get", "post"]],
     ["/api/information/runs/{runId}", ["get"]],
     ["/api/information/settings", ["get", "put"]],
+    ["/api/information/status", ["get"]],
   ]);
 
   for (const operations of Object.values(paths)) {
