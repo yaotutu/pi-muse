@@ -28,7 +28,7 @@ Collection defaults to every 30 minutes. One source's failure does not block oth
 
 Like/dislike are mutually exclusive and removable. Saved state is independent; the server also supports bounded comments. Feedback does not immediately call a model. Later batches read bounded recent examples; saves are weaker signals. A single reaction does not become a permanent rule.
 
-Explicit preferences (`notes`) are stored independently in `news.sqlite` without modifying main `INSTRUCTIONS.md` or global profile files. You can replace the full text in Settings → News Preferences (last successful save wins) or ask the assistant in main chat to update them. The model-inferred profile (`learnedNotes`) remains separate and read-only, without overwriting explicit rules, chat instructions, or USER.
+Explicit preferences (`notes`) are stored independently in `news.sqlite` without modifying main `INSTRUCTIONS.md` or global profile files. You can replace the full text in Settings → News Preferences (last successful save wins) or ask the assistant in main chat to update them. The model-inferred profile (`learnedNotes`) remains separate and read-only, without overwriting explicit rules, chat instructions, or USER. In News Preferences, expand the learned interests section to see what the assistant has learned.
 
 Reasons and learned summaries default to concise Simplified Chinese while RSS titles/content retain their original language. Read back unknown writes instead of automatically resending. Client draft behavior depends on the adapted version.
 

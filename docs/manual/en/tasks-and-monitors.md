@@ -19,7 +19,7 @@ The chat `schedule` and `monitor` tools list and control records only in the cur
 
 ## View Activity History {#view-activity-history}
 
-1. In Messages, tap the floating companion to open Main chat actions, or go to Settings → Records and tasks → Activity & Approvals.
+1. In Messages, tap the assistant at the top to open the main-chat activity panel.
 2. Open 「历史」 (History) to see main's activities.
 3. If activities exist, filter by running, waiting for approval, waiting for input, awaiting continuation, completed, failed, stopped, or interrupted.
 4. Open an activity to inspect its goal, deliverable, progress, result, and safe step projection. Steps do not contain internal model reasoning or raw tool payloads.

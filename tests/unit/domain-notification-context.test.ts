@@ -83,3 +83,10 @@ test("generic non-domain notifications and invalid domain markers are not exclud
   assert.equal(notificationDomainIdOf(generic), undefined);
   assert.equal(notificationDomainIdOf(badDomain), undefined);
 });
+
+test("persisted SMS cards created before domain IDs remain isolated", () => {
+  const legacy = createNotificationMessage({ id: `info-notification-${runId}-1`, text: "旧短信提醒" });
+  assert.equal(notificationDomainIdOf(legacy), "sms");
+  assert.deepEqual(projectDomainNotificationContext([legacy]), []);
+  assert.equal("personalBotDomainId" in legacy, false);
+});

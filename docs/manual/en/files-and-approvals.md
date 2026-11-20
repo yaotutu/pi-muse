@@ -6,7 +6,7 @@ This page distinguishes three easily confused concepts: attachments sent with a 
 
 - The phone is connected to the real server as described in [Quick Start](getting-started.md#connect-mobile-client).
 - Attachment selection depends on the Android system file picker. Current mobile source does not support selecting attachments in the Web preview.
-- Open files from Session settings → 「文件」. Approvals are under Session settings → 「动态与审批」 → 「审批」, or the pending-approval entry when shown in All.
+- Open workspace files from Settings → 工作区文件. To review approvals, tap the assistant at the top of Messages and select 审批 (Approvals).
 
 ## What Belongs Where {#what-belongs-where}
 

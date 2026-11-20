@@ -34,9 +34,13 @@ export const notificationIdOf = (message: AssistantMessage): string | undefined 
     ? id : undefined;
 };
 
-/** 仅当服务端通知标记有效且携带合法领域 ID 时返回所属领域，供上下文隔离与历史投影复用。 */
+const legacySmsNotificationId = /^info-notification-inforun_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-(0|[1-9][0-9]*)$/;
+
+/** 读取可信服务端标记；旧短信按稳定 ID 投影，避免改写 JSONL 或把卡片带入模型上下文。 */
 export const notificationDomainIdOf = (message: AssistantMessage): string | undefined => {
-  if (!notificationIdOf(message)) return undefined;
+  const id = notificationIdOf(message);
+  if (!id) return undefined;
   const domainId = "personalBotDomainId" in message ? message.personalBotDomainId : undefined;
+  if (domainId === undefined) return legacySmsNotificationId.test(id) ? "sms" : undefined;
   return typeof domainId === "string" && DOMAIN_ID_PATTERN.test(domainId) ? domainId : undefined;
 };

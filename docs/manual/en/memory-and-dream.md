@@ -23,7 +23,7 @@ Deletion is irreversible and affects all sessions without deleting chat. Never s
 
 ## Configure Dream {#configure-dream}
 
-Dream has one global enablement setting and one prompt in profile/DREAM.md. There are no per-session settings, inheritance or supplemental prompts. The prompt limit is 20,000 characters; saving an empty string restores the built-in default.
+Dream has one global enablement setting and one prompt in profile/DREAM.md. There are no per-session settings, inheritance or supplemental prompts. The prompt limit is 20,000 characters; saving an empty string restores the built-in default. In Settings → Dream, expand the custom instructions section to edit the prompt.
 
 Every two hours the background service scans existing sessions, reads new messages using source cursors and skips busy sessions. Disabling only affects later scans and does not undo writes. Prompts, instructions and skills cannot expand the consolidation tool set.
 
