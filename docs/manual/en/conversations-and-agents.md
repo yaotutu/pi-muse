@@ -2,6 +2,8 @@
 
 Pi Muse has one assistant identity. The mobile app currently focuses on the default main chat: tapping 消息 (Messages) opens chat directly, without choosing or creating a session. This page describes the current source; check the corresponding release for the installed app's controls.
 
+Open Settings → Session instructions to see the current text. Tap Edit, then Done to return to Settings, and select Save instructions. Assistant persona, personal profile, and domain rules use the same editing flow.
+
 ## Prerequisites {#prerequisites}
 
 Follow [Getting started](getting-started.md#connect-mobile-client) and connect to a matching server version. Chat requires a configured external model.
