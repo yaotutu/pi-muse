@@ -1,8 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createInformationService } from "../../src/features/information/service.js";
-import { defaultInformationState, type InformationRepository, type InformationState } from "../../src/features/information/types.js";
-import { parseInformationResult } from "../../src/features/information/result.js";
+import {
+  defaultInformationState,
+  type InformationBriefingInput,
+  type InformationRepository,
+  type InformationState,
+} from "../../src/features/information/types.js";
+import {
+  INITIAL_BRIEFING_MAX_LENGTH,
+  parseInformationResult,
+  parseInitialBriefingResult,
+} from "../../src/features/information/result.js";
 
 const deferred = <T = void>() => {
   let resolve!: (value: T) => void;
@@ -581,6 +590,7 @@ test("initial bulk import drains all pending batches, rolls learnedNotes, and pu
     incomingLearnedNotes: string;
   }> = [];
 
+  const briefingInputs: InformationBriefingInput[] = [];
   const service = createInformationService({
     repository,
     retainMain: async () => ({
@@ -617,32 +627,46 @@ test("initial bulk import drains all pending batches, rolls learnedNotes, and pu
         },
       };
     },
+    synthesizeBriefing: async (input) => {
+      briefingInputs.push(input);
+      return {
+        ok: true,
+        text: `已梳理 ${input.totalScanned} 条历史短信（过滤 ${input.silentCount} 条）：仅剩 ${input.candidates.length} 条关键待办`,
+        itemIds: input.candidates.map((candidate) => candidate.itemId),
+      };
+    },
     enabledSkillTexts: async () => [],
   });
 
-  // 110 historical SMS: items #0 (batch 1), #50 (batch 2), #109 (batch 3) are actionable (50 + 50 + 10)
-  const inputs = Array.from({ length: 110 }, (_value, index) => ({
+  // 70 historical SMS: items #0 (batch 1), #30 (batch 2), #69 (batch 3) are actionable (30 + 30 + 10)
+  const inputs = Array.from({ length: 70 }, (_value, index) => ({
     source: "sms",
     externalId: `hist-${index}`,
-    content: (index === 0 || index === 50 || index === 109) ? `ACTIONABLE 短信 ${index}` : `历史促销/过期验证码 ${index}`,
+    content: (index === 0 || index === 30 || index === 69) ? `ACTIONABLE 短信 ${index}` : `历史促销/过期验证码 ${index}`,
     receivedAt: new Date(Date.UTC(2026, 10, 1, Math.floor(index / 60), index % 60)).toISOString(),
   }));
-  await service.ingest(inputs);
+  await service.ingest(inputs, { bulkImport: true });
   const lastRun = await service.runNow();
 
   assert.equal(rounds.length, 3);
   assert.deepEqual(rounds, [
-    { analysisKind: "initial_summary", itemCount: 50, incomingLearnedNotes: "" },
-    { analysisKind: "initial_summary", itemCount: 50, incomingLearnedNotes: "画像阶段1" },
+    { analysisKind: "initial_summary", itemCount: 30, incomingLearnedNotes: "" },
+    { analysisKind: "initial_summary", itemCount: 30, incomingLearnedNotes: "画像阶段1" },
     { analysisKind: "initial_summary", itemCount: 10, incomingLearnedNotes: "画像阶段2" },
   ]);
   assert.equal(state.initialAnalysisCompleted, true);
   assert.equal(state.preferences.learnedNotes, "画像阶段3");
   assert.equal(state.items.every((item) => item.status === "processed"), true);
 
-  // Only 1 combined notification published on the final drained batch
+  // Reduce ran once at the end and published only 1 executive briefing card
+  assert.equal(briefingInputs.length, 1);
+  assert.equal(briefingInputs[0]?.totalScanned, 70);
+  assert.equal(briefingInputs[0]?.silentCount, 67);
+  assert.equal(briefingInputs[0]?.batchCount, 3);
+  assert.equal(briefingInputs[0]?.candidates.length, 3);
+  assert.equal(briefingInputs[0]?.preferences.learnedNotes, "画像阶段3");
   assert.equal(sentNotifications.length, 1);
-  assert.equal(sentNotifications[0]?.text, "批次1待办(1)\n\n批次2待办(1)\n\n批次3待办(1)");
+  assert.equal(sentNotifications[0]?.text, "已梳理 70 条历史短信（过滤 67 条）：仅剩 3 条关键待办");
   assert.equal(lastRun.run.status, "completed");
   assert.equal(lastRun.run.publications[0]?.itemIds.length, 3);
   assert.equal(state.runs[0]?.publications.length, 0);
@@ -654,6 +678,7 @@ test("initial bulk import drains all pending batches, rolls learnedNotes, and pu
   await service.runNow();
   assert.equal(rounds[3]?.analysisKind, "incremental");
   assert.equal(rounds[3]?.incomingLearnedNotes, "画像阶段3");
+  assert.equal(briefingInputs.length, 1);
   assert.equal(sentNotifications.length, 2);
 });
 
@@ -715,10 +740,10 @@ test("getStatus tracks queue counts and background + forceInitial runs drain asy
   });
 
   await service.ingest(
-    Array.from({ length: 60 }, (_value, index) => ({
+    Array.from({ length: 40 }, (_value, index) => ({
       source: "sms",
       externalId: `bg-${index}`,
-      content: index === 0 || index === 59 ? `ACTIONABLE ${index}` : `history ${index}`,
+      content: index === 0 || index === 39 ? `ACTIONABLE ${index}` : `history ${index}`,
       receivedAt: new Date(Date.UTC(2026, 10, 1, Math.floor(index / 60), index % 60)).toISOString(),
     })),
   );
@@ -726,18 +751,18 @@ test("getStatus tracks queue counts and background + forceInitial runs drain asy
   assert.deepEqual(beforeRun, {
     running: false,
     initialAnalysisCompleted: true,
-    counts: { total: 60, pending: 60, processing: 0, processed: 0, failed: 0 },
+    counts: { total: 40, pending: 40, processing: 0, processed: 0, failed: 0 },
   });
 
   const started = await service.runNow({ background: true, forceInitial: true });
   assert.equal(started.run.status, "running");
   assert.equal(started.run.kind, "initial_summary");
-  assert.equal(started.run.itemIds.length, 50);
+  assert.equal(started.run.itemIds.length, 30);
 
   const midStatus = await service.getStatus();
   assert.equal(midStatus.running, true);
   assert.equal(midStatus.initialAnalysisCompleted, false);
-  assert.deepEqual(midStatus.counts, { total: 60, pending: 10, processing: 50, processed: 0, failed: 0 });
+  assert.deepEqual(midStatus.counts, { total: 40, pending: 10, processing: 30, processed: 0, failed: 0 });
   await assert.rejects(service.runNow(), { code: "BUSY" });
 
   firstBatchGate.resolve();
@@ -750,9 +775,275 @@ test("getStatus tracks queue counts and background + forceInitial runs drain asy
   assert.deepEqual(doneStatus, {
     running: false,
     initialAnalysisCompleted: true,
-    counts: { total: 60, pending: 0, processing: 0, processed: 60, failed: 0 },
+    counts: { total: 40, pending: 0, processing: 0, processed: 40, failed: 0 },
   });
   assert.deepEqual(capturedKinds, ["initial_summary", "initial_summary"]);
   assert.equal(notifications.length, 1);
-  assert.equal(notifications[0]?.text, "摘要1\n\n摘要2");
+  assert.ok(notifications[0]!.text.length <= INITIAL_BRIEFING_MAX_LENGTH);
+  assert.match(notifications[0]!.text, /已梳理|历史短信/);
+});
+
+test("parseInitialBriefingResult enforces 1200-char limit and valid candidate IDs", () => {
+  const valid = parseInitialBriefingResult({ text: "  精炼简报  ", itemIds: ["a"] }, ["a", "b"]);
+  assert.deepEqual(valid, { text: "精炼简报", itemIds: ["a"] });
+  assert.deepEqual(parseInitialBriefingResult({ text: "无待办简报", itemIds: [] }, ["a"]), {
+    text: "无待办简报",
+    itemIds: [],
+  });
+  assert.throws(() => parseInitialBriefingResult({ text: "   ", itemIds: [] }, ["a"]), { code: "INVALID_INPUT" });
+  assert.throws(
+    () => parseInitialBriefingResult({ text: "x".repeat(INITIAL_BRIEFING_MAX_LENGTH + 1), itemIds: [] }, []),
+    { code: "INVALID_INPUT" },
+  );
+  assert.throws(() => parseInitialBriefingResult({ text: "ok", itemIds: ["unknown"] }, ["a"]), { code: "INVALID_INPUT" });
+  assert.throws(() => parseInitialBriefingResult({ text: "ok", itemIds: ["a", "a"] }, ["a"]), { code: "INVALID_INPUT" });
+});
+
+test("persisted Map-Reduce wave survives restart and passes cross-batch lifecycle updates to briefing synthesizer", async () => {
+  let state: InformationState = {
+    ...defaultInformationState(),
+    settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
+  };
+  const repository: InformationRepository = {
+    read: async () => structuredClone(state),
+    update: async (change) => {
+      const changed = await change(structuredClone(state));
+      if (changed.state) state = changed.state;
+      return changed.result;
+    },
+    reconcileOnStart: async () => undefined,
+    validateAll: async () => undefined,
+  };
+  // Pre-seed 35 items where batch 1 (30) already completed before a process restart
+  const items = Array.from({ length: 35 }, (_v, idx) => ({
+    id: `item-${idx}`,
+    source: "sms",
+    externalId: `ext-${idx}`,
+    content: idx === 10
+      ? "【京东快递】您的包裹 JD9901 已到达东门驿站，请及时取件"
+      : idx === 32
+        ? "【京东快递】您的包裹 JD9901 已于今日签收完成"
+        : idx === 34
+          ? "【招商银行】尾号8829信用卡本期应还 3200 元"
+          : `促销垃圾 ${idx}`,
+    receivedAt: new Date(Date.UTC(2026, 10, 1, Math.floor(idx / 60), idx % 60)).toISOString(),
+    acceptedAt: new Date(Date.UTC(2026, 10, 1, Math.floor(idx / 60), idx % 60)).toISOString(),
+    status: idx < 30 ? "processed" as const : "pending" as const,
+    ...(idx < 30 ? { runId: "prior-run-1" } : {}),
+  }));
+  state = {
+    ...state,
+    initialAnalysisCompleted: false,
+    preferences: { notes: "", learnedNotes: "批1画像：关注快递账单" },
+    items,
+    runs: [{
+      id: "prior-run-1",
+      kind: "initial_summary",
+      itemIds: items.slice(0, 30).map((i) => i.id),
+      status: "completed",
+      createdAt: "2026-11-01T00:00:00.000Z",
+      startedAt: "2026-11-01T00:00:00.000Z",
+      finishedAt: "2026-11-01T00:00:05.000Z",
+      model: { status: "succeeded" },
+      decisions: items.slice(0, 30).map((item, idx) => ({
+        itemId: item.id,
+        decision: idx === 10 ? "notify" as const : "silent" as const,
+        reason: idx === 10 ? "待取件" : "历史噪声",
+      })),
+      publications: [],
+    }],
+  };
+
+  let capturedBriefing: InformationBriefingInput | undefined;
+  const sent: Array<{ text: string; id: string }> = [];
+  const restartedService = createInformationService({
+    repository,
+    retainMain: async () => ({
+      conversation: {
+        piSessionId: () => "session-1",
+        notify: async (text, id) => {
+          sent.push({ text, id });
+          return { piSessionId: "session-1", messageId: id };
+        },
+      },
+      release: () => undefined,
+    }),
+    feedback: { read: async () => emptyFeedback() } as never,
+    runModel: async (input) => ({
+      ok: true,
+      result: {
+        decisions: input.items.map((item) => ({
+          itemId: item.id,
+          decision: item.id === "item-34" ? "notify" as const : "silent" as const,
+          reason: item.id === "item-32" ? "已签收完成" : "evaluated",
+        })),
+        notifications: input.items.some((i) => i.id === "item-34")
+          ? [{ itemIds: ["item-34"], text: "招行账单待还" }]
+          : [],
+        learnedNotes: "批1+批2完整画像",
+      },
+    }),
+    synthesizeBriefing: async (input) => {
+      capturedBriefing = input;
+      const kept = input.candidates.filter((c) => !input.relatedUpdates?.some((u) => u.content.includes("JD9901") && c.content.includes("JD9901")));
+      return {
+        ok: true,
+        text: `已完成 ${input.totalScanned} 条短信梳理，当前待办：招行账单 3200 元（JD9901 已签收自动消除）。`,
+        itemIds: kept.map((c) => c.itemId),
+      };
+    },
+    enabledSkillTexts: async () => [],
+  });
+
+  await restartedService.runNow();
+  assert.ok(capturedBriefing);
+  assert.equal(capturedBriefing.batchCount, 2);
+  assert.equal(capturedBriefing.totalScanned, 35);
+  assert.equal(capturedBriefing.silentCount, 33);
+  assert.equal(capturedBriefing.candidates.length, 2);
+  assert.equal(capturedBriefing.relatedUpdates?.length, 1);
+  assert.match(capturedBriefing.relatedUpdates?.[0]?.content ?? "", /JD9901 已于今日签收完成/);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0]!.text, /JD9901 已签收自动消除/);
+  assert.equal(state.initialAnalysisCompleted, true);
+});
+
+test("reduce briefing failure falls back safely within 1200 chars, and silent bulk waves emit one summary card", async () => {
+  let state: InformationState = {
+    ...defaultInformationState(),
+    settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
+  };
+  const repository: InformationRepository = {
+    read: async () => structuredClone(state),
+    update: async (change) => {
+      const changed = await change(structuredClone(state));
+      if (changed.state) state = changed.state;
+      return changed.result;
+    },
+    reconcileOnStart: async () => undefined,
+    validateAll: async () => undefined,
+  };
+  const sent: string[] = [];
+  const service = createInformationService({
+    repository,
+    retainMain: async () => ({
+      conversation: {
+        piSessionId: () => "session-1",
+        notify: async (text, id) => {
+          sent.push(text);
+          return { piSessionId: "session-1", messageId: id };
+        },
+      },
+      release: () => undefined,
+    }),
+    feedback: { read: async () => emptyFeedback() } as never,
+    runModel: async (input) => {
+      const notifyIds = input.items
+        .filter((item, idx) => item.content.includes("NOTIFY") && idx < 10)
+        .map((i) => i.id);
+      return {
+        ok: true,
+        result: {
+          decisions: input.items.map((item) => ({
+            itemId: item.id,
+            decision: notifyIds.includes(item.id) ? "notify" as const : "silent" as const,
+            reason: "evaluated",
+          })),
+          notifications: notifyIds.length
+            ? [{
+                itemIds: notifyIds,
+                text: "超长通知".repeat(300),
+              }]
+            : [],
+          learnedNotes: "沉淀完成",
+        },
+      };
+    },
+    synthesizeBriefing: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
+    enabledSkillTexts: async () => [],
+  });
+
+  // 120 items where first 10 items per batch trigger verbose notifications, and Reduce fails
+  await service.ingest(Array.from({ length: 120 }, (_v, idx) => ({
+    source: "sms",
+    externalId: `fallback-${idx}`,
+    content: idx < 15 ? `NOTIFY 重要提醒 #${idx} ${"详情".repeat(80)}` : `广告 ${idx}`,
+    receivedAt: new Date(Date.UTC(2026, 10, 1, Math.floor(idx / 60), idx % 60)).toISOString(),
+  })), { bulkImport: true });
+  await service.runNow();
+
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0]!.length <= INITIAL_BRIEFING_MAX_LENGTH);
+  assert.match(sent[0]!, /已完成 120 条历史短信梳理/);
+  assert.equal(state.initialAnalysisCompleted, true);
+  assert.equal(state.preferences.learnedNotes, "沉淀完成");
+
+  // Second bulk wave: 12 all-silent items still deliver 1 concise "暂无待办" card
+  await service.ingest(Array.from({ length: 12 }, (_v, idx) => ({
+    source: "sms",
+    externalId: `silent-bulk-${idx}`,
+    content: `促销短信 ${idx}`,
+  })), { bulkImport: true });
+  await service.runNow();
+  assert.equal(sent.length, 2);
+  assert.match(sent[1]!, /已完成 12 条历史短信全量梳理/);
+});
+
+test("bulkImport holds scheduler race during chunk uploads and preserves initialAnalysisCompleted on duplicate re-import", async () => {
+  let state: InformationState = {
+    ...defaultInformationState(),
+    settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
+    initialAnalysisCompleted: true,
+    items: [{
+      id: "old-1",
+      source: "sms",
+      externalId: "ext-old",
+      content: "已有已处理短信",
+      receivedAt: "2026-11-01T00:00:00.000Z",
+      acceptedAt: "2026-11-01T00:00:00.000Z",
+      status: "processed",
+    }],
+  };
+  const repository: InformationRepository = {
+    read: async () => structuredClone(state),
+    update: async (change) => {
+      const changed = await change(structuredClone(state));
+      if (changed.state) state = changed.state;
+      return changed.result;
+    },
+    reconcileOnStart: async () => undefined,
+    validateAll: async () => undefined,
+  };
+  const service = createInformationService({
+    repository,
+    retainMain: async () => ({
+      conversation: { piSessionId: () => "session-1", notify: async (_t, id) => ({ piSessionId: "session-1", messageId: id }) },
+      release: () => undefined,
+    }),
+    feedback: { read: async () => emptyFeedback() } as never,
+    runModel: async (input) => ({
+      ok: true,
+      result: {
+        decisions: input.items.map((item) => ({ itemId: item.id, decision: "silent" as const, reason: "ok" })),
+        notifications: [],
+      },
+    }),
+    enabledSkillTexts: async () => [],
+  });
+
+  // Duplicate bulkImport with 0 newly created items must NOT reset initialAnalysisCompleted
+  await service.ingest([{ source: "sms", externalId: "ext-old", content: "已有已处理短信" }], { bulkImport: true });
+  assert.equal(state.initialAnalysisCompleted, true);
+  assert.equal(await service.nextDue(), false);
+  assert.equal(await service.runDue(), false);
+
+  // Genuine new bulkImport resets initialAnalysisCompleted and holds nextDue/runDue until runNow clears it
+  await service.ingest([{ source: "sms", externalId: "ext-new", content: "新增历史短信" }], { bulkImport: true });
+  assert.equal(state.initialAnalysisCompleted, false);
+  assert.equal(await service.nextDue(), false);
+  assert.equal(await service.runDue(), false);
+
+  await service.runNow();
+  assert.equal(state.initialAnalysisCompleted, true);
+  assert.equal(state.runs[0]?.kind, "initial_summary");
 });

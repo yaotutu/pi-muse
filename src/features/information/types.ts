@@ -188,3 +188,34 @@ export type InformationSubmittedResult = {
 export type InformationModelResult =
   | { ok: true; result: InformationSubmittedResult }
   | { ok: false; error: "MODEL_REQUEST_FAILED" | "INVALID_MODEL_RESULT" | "CANCELLED" };
+
+export type InformationBriefingCandidate = {
+  itemId: string;
+  source: string;
+  title?: string;
+  content: string;
+  receivedAt: string;
+  reason: string;
+};
+
+export type InformationBriefingUpdate = {
+  itemId: string;
+  title?: string;
+  content: string;
+  receivedAt: string;
+  reason: string;
+};
+
+export type InformationBriefingInput = {
+  runId: string;
+  preferences: InformationPreferences;
+  totalScanned: number;
+  silentCount: number;
+  batchCount: number;
+  candidates: InformationBriefingCandidate[];
+  relatedUpdates?: InformationBriefingUpdate[];
+};
+
+export type InformationBriefingResult =
+  | { ok: true; text: string; itemIds: string[] }
+  | { ok: false; error: "MODEL_REQUEST_FAILED" | "INVALID_MODEL_RESULT" | "CANCELLED" };

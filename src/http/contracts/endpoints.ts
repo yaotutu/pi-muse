@@ -285,7 +285,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "createInformationItems",
     method: "post", path: "/api/information/items", tag: "信息后台", summary: "批量接入原始信息",
-    hint: "最多 500 条，整批校验通过后原子提交；source 是 ASCII identifier，externalId/content 有界且 content 非空。同会话 source+externalId 同内容幂等回读，不同内容返回 409 且不覆盖原文。禁用返回 409。后台原始信息保存在 Pi Muse 独立 repository，不 append PI 聊天历史。",
+    hint: "最多 500 条，整批校验通过后原子提交；source 是 ASCII identifier，externalId/content 有界且 content 非空。同会话 source+externalId 同内容幂等回读，不同内容返回 409 且不覆盖原文。传 bulkImport=true 时表示历史批量分片上传：暂缓后台定时增量抢跑并在新增待处理条目时标记首轮 Map-Reduce 建画像，避免分片途中刷屏。禁用返回 409。后台原始信息保存在 Pi Muse 独立 repository，不 append PI 聊天历史。",
     auth: true, request: information.informationIngestRequestSchema, response: information.informationIngestResponse,
     errorResponses: {
       400: { description: "整批或任一条目非法；不会提交任何条目", schema: resp.errorResponse },
@@ -328,7 +328,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "runInformationNow",
     method: "post", path: "/api/information/runs", tag: "信息后台", summary: "显式立即处理待处理信息队列",
-    hint: "忽略剩余窗口，选取最早 pending 批次（首轮全量模式下每批最多 50 条、增量模式最多 20 条，均受 60000 字符上限保护）并执行真实模型轮；默认同步等待完成，传 background=true 时后台连续排空队列并立即返回当前 run，传 forceInitial=true 时以首轮汇总建画像模式运行。全局已有后台信息轮返回 409 BUSY；禁用或无 pending 分别返回 409 DISABLED/NO_PENDING。模型失败或非法提交记录为 failed run，不自动重试；发布失败与模型失败分开记录，不冒充已送达。",
+    hint: "忽略剩余窗口，选取最早 pending 批次（首轮全量模式下每批最多 30 条、增量模式最多 20 条，均受 60000 字符上限保护）并执行真实模型轮；首轮全量波次在后台逐批完成筛选与画像沉淀（期间零投递），全部排空后经一次全局终审（Reduce）最多向聊天推送 1 张不超过 1200 字的精炼简报。默认同步等待完成，传 background=true 时后台连续排空队列并立即返回当前 run，传 forceInitial=true 时以首轮汇总建画像模式运行。全局已有后台信息轮返回 409 BUSY；禁用或无 pending 分别返回 409 DISABLED/NO_PENDING。模型失败或非法提交记录为 failed run，不自动重试；发布失败与模型失败分开记录，不冒充已送达。",
     auth: true, request: information.informationRunRequestSchema, response: information.informationRunDetailResponse,
     errorResponses: {
       400: { description: "非法请求", schema: resp.errorResponse },

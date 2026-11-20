@@ -21,6 +21,7 @@ export const informationIngestRequestSchema = z.strictObject({
     title: z.string().min(1).max(500).refine((value) => value.trim().length > 0).optional().describe("可选原始标题；仅拒绝全空白并按原文保存，不 trim"),
     receivedAt: z.string().datetime().optional().describe("来源时间；省略时使用服务端接纳时间"),
   })).min(1).max(500).describe("本批最多 500 条；整批校验通过后才提交"),
+  bulkImport: z.boolean().optional().describe("为 true 时表示批量历史导入分片：暂缓定时任务抢跑并在新增待处理条目时标记首轮全量建画像，避免分片途中拆散为多批增量刷屏"),
 });
 export const informationRunRequestSchema = z.strictObject({
   background: z.boolean().optional().describe("为 true 时启动后台排空处理并立即返回当前运行记录，不阻塞长连接"),

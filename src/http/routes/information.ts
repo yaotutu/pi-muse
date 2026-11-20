@@ -97,7 +97,7 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     const parsed = informationIngestRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid information items", code: "INVALID_REQUEST" }, 400);
     try {
-      return c.json({ items: await information.ingest(parsed.data.items) });
+      return c.json({ items: await information.ingest(parsed.data.items, { bulkImport: parsed.data.bulkImport }) });
     } catch (error) {
       if (error instanceof InformationError) {
         const result = failure(error);

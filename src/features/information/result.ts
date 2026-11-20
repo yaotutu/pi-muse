@@ -3,6 +3,7 @@ import type { InformationSubmittedResult } from "./types.js";
 
 export const INFORMATION_REASON_MAX_LENGTH = 1000;
 export const INFORMATION_NOTIFICATION_TEXT_MAX_LENGTH = 4000;
+export const INITIAL_BRIEFING_MAX_LENGTH = 1200;
 export const INFORMATION_MAX_NOTIFICATIONS = 20;
 
 /** PI 无关的唯一结构化结果校验；SDK 工具与业务持久化共用，不能漂移出两套规则。 */
@@ -52,8 +53,17 @@ export const parseInformationResult = (
       throw new InformationError("INVALID_INPUT", "Information notification must reference at least one notify item");
     }
     for (const itemId of notification.itemIds) {
-      if (typeof itemId !== "string" || !notifyIds.has(itemId) || covered.has(itemId)) {
-        throw new InformationError("INVALID_INPUT", "Information notification coverage is invalid");
+      if (typeof itemId !== "string") {
+        throw new InformationError("INVALID_INPUT", "Notification itemId must be a string");
+      }
+      if (!notifyIds.has(itemId)) {
+        throw new InformationError(
+          "INVALID_INPUT",
+          "Every itemId in notifications must have decision='notify' in decisions; do not include silent items",
+        );
+      }
+      if (covered.has(itemId)) {
+        throw new InformationError("INVALID_INPUT", "Duplicate itemId across notifications");
       }
       covered.add(itemId);
     }
@@ -75,4 +85,36 @@ export const parseInformationResult = (
     notifications,
     ...(rawLearnedNotes === undefined ? {} : { learnedNotes: rawLearnedNotes }),
   };
+};
+
+/** 首轮全局终审简报校验：严格限制在 1200 字符内，且关联条目只能来自候选待办集合（可为空）。 */
+export const parseInitialBriefingResult = (
+  value: unknown,
+  allowedItemIds: readonly string[],
+): { text: string; itemIds: string[] } => {
+  if (!value || typeof value !== "object") {
+    throw new InformationError("INVALID_INPUT", "Invalid initial briefing result");
+  }
+  const source = value as { text?: unknown; itemIds?: unknown };
+  if (typeof source.text !== "string") {
+    throw new InformationError("INVALID_INPUT", "Initial briefing text must be a string");
+  }
+  const text = source.text.trim();
+  if (!text || text.length > INITIAL_BRIEFING_MAX_LENGTH) {
+    throw new InformationError("INVALID_INPUT", "Initial briefing text is blank or exceeds limit");
+  }
+  if (!Array.isArray(source.itemIds)) {
+    throw new InformationError("INVALID_INPUT", "Initial briefing itemIds must be an array");
+  }
+  const allowed = new Set(allowedItemIds);
+  const seen = new Set<string>();
+  const itemIds: string[] = [];
+  for (const id of source.itemIds) {
+    if (typeof id !== "string" || !allowed.has(id) || seen.has(id)) {
+      throw new InformationError("INVALID_INPUT", "Initial briefing itemIds contain invalid or duplicate item");
+    }
+    seen.add(id);
+    itemIds.push(id);
+  }
+  return { text, itemIds };
 };

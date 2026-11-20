@@ -30,7 +30,11 @@ import { createMessageFeedbackRepository } from "../adapters/storage/message-fee
 import { createInformationRepository } from "../adapters/storage/information-repository.js";
 import { createInformationService } from "../features/information/service.js";
 import { createInformationScheduler } from "../features/information/scheduler.js";
-import { createInformationRunner, createInformationSkillTextReader } from "../adapters/pi/information-runner.js";
+import {
+  createInformationBriefingRunner,
+  createInformationRunner,
+  createInformationSkillTextReader,
+} from "../adapters/pi/information-runner.js";
 import { openNewsRepository } from "../adapters/storage/news-repository.js";
 import { openSqliteDatabase, type ManagedSqliteDatabase } from "../adapters/storage/sqlite-database.js";
 import { ensureSqliteModules } from "../adapters/storage/sqlite-modules.js";
@@ -292,6 +296,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   // 短信使用独立 Sub-Agent 偏好与自学习存储，不读写 main 会话 INSTRUCTIONS.md，避免污染全局对话上下文。
   information = createInformationService({
     ...informationDeps,
+    synthesizeBriefing: createInformationBriefingRunner({ config, layout, modelRuntime }),
     repository: informationRepository,
   });
   // 新闻事实落 news.sqlite；打开时完成旧 news.json 显式导入检测与建库。

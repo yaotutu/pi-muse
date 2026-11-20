@@ -3,8 +3,13 @@ import { projectFeedback } from "../messages/service.js";
 import type { MessageFeedbackRepository } from "../messages/types.js";
 import { InformationError } from "./errors.js";
 import type { ObserveWork } from "../workspace/session-presence.js";
-import { INFORMATION_NOTIFICATION_TEXT_MAX_LENGTH, parseInformationResult } from "./result.js";
+import { INITIAL_BRIEFING_MAX_LENGTH, parseInformationResult } from "./result.js";
 import type {
+  InformationBriefingCandidate,
+  InformationBriefingInput,
+  InformationBriefingResult,
+  InformationBriefingUpdate,
+  InformationDecision,
   InformationFeedbackExample,
   InformationInputItem,
   InformationItem,
@@ -19,8 +24,11 @@ import type {
 } from "./types.js";
 
 export const MAX_INFORMATION_ITEMS_PER_BATCH = 20;
-export const MAX_INITIAL_INFORMATION_ITEMS_PER_BATCH = 50;
+export const MAX_INITIAL_INFORMATION_ITEMS_PER_BATCH = 30;
 export const MAX_INFORMATION_BATCH_CHARS = 60_000;
+const BULK_IMPORT_HOLD_MS = 60_000;
+const MAX_BRIEFING_CANDIDATES = 80;
+const MAX_BRIEFING_UPDATES = 20;
 const MAX_FEEDBACK_EXAMPLES = 10;
 const MAX_FEEDBACK_ITEMS = 20;
 const MAX_FEEDBACK_COMMENTS = 5;
@@ -55,6 +63,7 @@ export type InformationServiceDependencies = {
   } | undefined>;
   feedback: MessageFeedbackRepository;
   runModel: (input: InformationModelInput, signal: AbortSignal) => Promise<InformationModelResult>;
+  synthesizeBriefing?: (input: InformationBriefingInput, signal: AbortSignal) => Promise<InformationBriefingResult>;
   readInstructions?: () => Promise<string>;
   writeInstructions?: (instructions: string) => Promise<void>;
   enabledSkillTexts: () => Promise<string[]>;
@@ -115,6 +124,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   let closed = false;
   let closing: Promise<void> | undefined;
   let pauses = 0;
+  let bulkImportHoldUntil = 0;
 
   // 全局执行槽必须在第一个 await 前同步占住，手动/自动争用不会重复 claim。
   const reserveSlot = (): ActiveSlot => {
@@ -364,11 +374,12 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     });
   };
 
-  const ingest = async (inputs: readonly InformationInputItem[]) => {
+  const ingest = async (inputs: readonly InformationInputItem[], options?: { bulkImport?: boolean }) => {
     requireOpen();
     const state = await deps.repository.read();
     if (!state.settings.enabled) throw new InformationError("DISABLED", "Information ingestion is disabled");
-    return deps.repository.update((current) => {
+    if (options?.bulkImport) bulkImportHoldUntil = Date.now() + BULK_IMPORT_HOLD_MS;
+    const result = await deps.repository.update((current) => {
       if (!current.settings.enabled) throw new InformationError("DISABLED", "Information ingestion is disabled");
       const acceptedAt = now();
       const existing = new Map(current.items.map((item) => [keyOf(item.source, item.externalId), item]));
@@ -409,11 +420,19 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         returned.push(item);
         return item;
       });
+      // 大批量分片导入仅在确实新增了待处理短信时进入首轮建画像与终审简报波次，防止重导已分析短信误触发全量重跑。
+      const resetInitial = Boolean(options?.bulkImport) && planned.length > 0;
       return {
-        state: { ...current, items: [...current.items, ...planned] },
+        state: {
+          ...current,
+          ...(resetInitial ? { initialAnalysisCompleted: false } : {}),
+          items: [...current.items, ...planned],
+        },
         result: returned,
       };
     }, { allowCreate: true });
+    if (options?.bulkImport) bulkImportHoldUntil = Date.now() + BULK_IMPORT_HOLD_MS;
+    return result;
   };
 
   const ingestNews = async (inputs: readonly InformationInputItem[]) => {
@@ -690,24 +709,157 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     result: undefined,
   }));
 
-  type ProcessOptions = {
-    deferInitialPublication?: (notifications: Array<{ itemIds: string[]; text: string }>) => void;
-    combinedInitialNotifications?: Array<{ itemIds: string[]; text: string }>;
+  const oneLine = (value: string, maxChars: number) => {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    return normalized.length > maxChars ? `${normalized.slice(0, maxChars - 1)}…` : normalized;
   };
 
-  const mergeInitialNotifications = (entries: ReadonlyArray<{ itemIds: string[]; text: string }>) => {
-    if (entries.length <= 1) return [...entries];
-    const rawText = entries.map((entry) => entry.text.trim()).filter(Boolean).join("\n\n");
-    const boundedText = rawText.length > INFORMATION_NOTIFICATION_TEXT_MAX_LENGTH
-      ? `${rawText.slice(0, INFORMATION_NOTIFICATION_TEXT_MAX_LENGTH - 1)}…`
-      : rawText;
-    return [{
-      itemIds: [...new Set(entries.flatMap((entry) => entry.itemIds))],
-      text: boundedText,
-    }];
+  const extractIdentifiers = (title: string | undefined, content: string): string[] => {
+    const haystack = `${title ?? ""} ${content}`;
+    const codes = [...haystack.matchAll(/\b[A-Za-z]{1,6}[-_]?\d{3,}[A-Za-z0-9-]*\b/g)]
+      .map((match) => match[0].replace(/[-_]/g, "").toUpperCase());
+    const cardTails = [...haystack.matchAll(/(?:尾号|卡号)\s*([0-9]{4})/g)]
+      .map((match) => `TAIL:${match[1]}`);
+    return [...new Set([...codes, ...cardTails])];
   };
 
-  const process = async (slot: ActiveSlot, claimed: InformationRun, options?: ProcessOptions) => {
+  const buildFallbackBriefing = (args: {
+    totalScanned: number;
+    silentCount: number;
+    learnedNotes: string;
+    candidates: readonly InformationBriefingCandidate[];
+  }): { itemIds: string[]; text: string } => {
+    const { totalScanned, silentCount, learnedNotes, candidates } = args;
+    const profileNote = learnedNotes.trim()
+      ? `；已整理常用偏好画像：${oneLine(learnedNotes, 120)}`
+      : "";
+    if (!candidates.length) {
+      const text = oneLine(
+        `已完成 ${totalScanned} 条历史短信全量梳理（已过滤 ${silentCount} 条营销与历史通知${profileNote}）。当前暂无待处理事项，后续新短信已进入静默守护模式。`,
+        INITIAL_BRIEFING_MAX_LENGTH,
+      );
+      return { itemIds: [], text };
+    }
+    const maxListed = 6;
+    const header = `已完成 ${totalScanned} 条历史短信梳理（过滤 ${silentCount} 条历史与营销短信${profileNote}），当前重点待办：`;
+    const lines: string[] = [header];
+    const selected: InformationBriefingCandidate[] = [];
+    for (const candidate of candidates.slice(0, maxListed)) {
+      const prefix = candidate.title ? `[${oneLine(candidate.title, 24)}] ` : "";
+      const bullet = `• ${prefix}${oneLine(candidate.content, 110)}`;
+      const remainingAfter = candidates.length - (selected.length + 1);
+      const footerReserve = remainingAfter > 0 ? `\n另有 ${remainingAfter} 条提醒已归档，可在短信队列中查看。` : "";
+      if ([...lines, bullet].join("\n").length + footerReserve.length > INITIAL_BRIEFING_MAX_LENGTH) break;
+      lines.push(bullet);
+      selected.push(candidate);
+    }
+    if (!selected.length) {
+      const first = candidates[0]!;
+      const fallbackBullet = `• ${oneLine(first.content, 120)}`;
+      lines.push(fallbackBullet);
+      selected.push(first);
+    }
+    const omitted = candidates.length - selected.length;
+    if (omitted > 0) {
+      lines.push(`另有 ${omitted} 条较早提醒已归档，可在短信队列中查看。`);
+    }
+    const raw = lines.join("\n");
+    return {
+      itemIds: selected.map((candidate) => candidate.itemId),
+      text: raw.length > INITIAL_BRIEFING_MAX_LENGTH ? `${raw.slice(0, INITIAL_BRIEFING_MAX_LENGTH - 1)}…` : raw,
+    };
+  };
+
+  /** 从已落盘状态回溯收集本波连续 initial_summary 批次的统计、待办候选与跨批状态变更线索。 */
+  const collectInitialWave = (
+    state: InformationState,
+    currentClaimed: InformationRun,
+    currentDecisions: readonly InformationDecision[],
+  ) => {
+    const claimedIndex = state.runs.findIndex((candidate) => candidate.id === currentClaimed.id);
+    const stopIndex = claimedIndex >= 0 ? claimedIndex : state.runs.length;
+    const priorRuns: InformationRun[] = [];
+    for (let i = stopIndex - 1; i >= 0; i--) {
+      const candidate = state.runs[i]!;
+      if (candidate.kind !== "initial_summary" || candidate.publications.length > 0) break;
+      if (candidate.status === "completed") priorRuns.unshift(candidate);
+    }
+    const waveRuns: Array<Pick<InformationRun, "itemIds" | "decisions">> = [
+      ...priorRuns,
+      { itemIds: currentClaimed.itemIds, decisions: [...currentDecisions] },
+    ];
+    const itemById = new Map(state.items.map((item) => [item.id, item]));
+    const seenScanned = new Set<string>();
+    const seenCandidates = new Set<string>();
+    let silentCount = 0;
+    const allCandidates: InformationBriefingCandidate[] = [];
+    const silentEntries: Array<{ item: InformationItem; reason: string }> = [];
+
+    for (const run of waveRuns) {
+      for (const itemId of run.itemIds) seenScanned.add(itemId);
+      for (const decision of run.decisions ?? []) {
+        const item = itemById.get(decision.itemId);
+        if (!item) continue;
+        if (decision.decision === "notify") {
+          if (seenCandidates.has(item.id)) continue;
+          seenCandidates.add(item.id);
+          allCandidates.push({
+            itemId: item.id,
+            source: item.source,
+            ...(item.title ? { title: item.title } : {}),
+            content: item.content.slice(0, 400),
+            receivedAt: item.receivedAt,
+            reason: decision.reason,
+          });
+        } else {
+          silentCount++;
+          silentEntries.push({ item, reason: decision.reason });
+        }
+      }
+    }
+
+    allCandidates.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt) || b.itemId.localeCompare(a.itemId));
+    const candidates = allCandidates.slice(0, MAX_BRIEFING_CANDIDATES);
+
+    const identifierMinAt = new Map<string, string>();
+    for (const candidate of candidates) {
+      for (const id of extractIdentifiers(candidate.title, candidate.content)) {
+        const prev = identifierMinAt.get(id);
+        if (!prev || candidate.receivedAt < prev) identifierMinAt.set(id, candidate.receivedAt);
+      }
+    }
+    const relatedUpdates: InformationBriefingUpdate[] = [];
+    if (identifierMinAt.size > 0) {
+      const seenUpdates = new Set<string>();
+      for (const { item, reason } of silentEntries) {
+        if (seenUpdates.has(item.id)) continue;
+        const matched = extractIdentifiers(item.title, item.content).some((id) => {
+          const minAt = identifierMinAt.get(id);
+          return minAt !== undefined && item.receivedAt >= minAt;
+        });
+        if (!matched) continue;
+        seenUpdates.add(item.id);
+        relatedUpdates.push({
+          itemId: item.id,
+          ...(item.title ? { title: item.title } : {}),
+          content: item.content.slice(0, 400),
+          receivedAt: item.receivedAt,
+          reason,
+        });
+      }
+      relatedUpdates.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt) || b.itemId.localeCompare(a.itemId));
+    }
+
+    return {
+      batchCount: waveRuns.length,
+      totalScanned: seenScanned.size,
+      silentCount,
+      candidates,
+      relatedUpdates: relatedUpdates.slice(0, MAX_BRIEFING_UPDATES),
+    };
+  };
+
+  const process = async (slot: ActiveSlot, claimed: InformationRun) => {
     const { controller } = slot;
     const finish = deps.observeWork?.("main", "information", "正在整理信息");
     let succeeded = false;
@@ -771,30 +923,103 @@ export const createInformationService = (deps: InformationServiceDependencies) =
           return;
         }
         // 模型已成功时先保留这个事实；若取消/目标会话已变化，只把投递标失败，不重跑模型。
-        const deliveryCancelled = mode === "notifications" && (
+        let deliveryCancelled = mode === "notifications" && (
           controller.signal.aborted || retained!.conversation.piSessionId() !== targetSessionId
         );
-        const deliveryError = controller.signal.aborted
+        const claimedIds = new Set(claimed.itemIds);
+        const stateBeforeCommit = await deps.repository.read();
+        const remainingBeforeReduce = stateBeforeCommit.items.filter(
+          (item) => item.status === "pending" && !claimedIds.has(item.id),
+        );
+
+        let preparedNotifications: Array<{ itemIds: string[]; text: string }> = mode === "notifications"
+          ? parsed.notifications
+          : [];
+        let reduceCancelled = false;
+        if (mode === "notifications" && analysisKind === "initial_summary") {
+          if (remainingBeforeReduce.length > 0) {
+            preparedNotifications = [];
+          } else {
+            const wave = collectInitialWave(stateBeforeCommit, claimed, parsed.decisions);
+            const effectiveLearnedNotes = parsed.learnedNotes ?? stateBeforeCommit.preferences.learnedNotes;
+            const singleFastPath =
+              wave.batchCount === 1 &&
+              wave.totalScanned < 10 &&
+              parsed.notifications.length === 1 &&
+              parsed.notifications[0]!.text.trim().length <= INITIAL_BRIEFING_MAX_LENGTH;
+            if (deliveryCancelled) {
+              preparedNotifications = singleFastPath
+                ? [{ itemIds: parsed.notifications[0]!.itemIds, text: parsed.notifications[0]!.text.trim() }]
+                : parsed.notifications;
+            } else if (wave.batchCount === 1 && wave.candidates.length === 0 && wave.totalScanned < 10) {
+              preparedNotifications = [];
+            } else if (singleFastPath) {
+              preparedNotifications = [{
+                itemIds: parsed.notifications[0]!.itemIds,
+                text: parsed.notifications[0]!.text.trim(),
+              }];
+            } else if (deps.synthesizeBriefing) {
+              const briefingOutcome = await deps.synthesizeBriefing({
+                runId: claimed.id,
+                preferences: {
+                  ...stateBeforeCommit.preferences,
+                  learnedNotes: effectiveLearnedNotes,
+                },
+                totalScanned: wave.totalScanned,
+                silentCount: wave.silentCount,
+                batchCount: wave.batchCount,
+                candidates: wave.candidates,
+                ...(wave.relatedUpdates.length ? { relatedUpdates: wave.relatedUpdates } : {}),
+              }, controller.signal);
+              if (briefingOutcome.ok) {
+                const boundedText = briefingOutcome.text.trim().slice(0, INITIAL_BRIEFING_MAX_LENGTH);
+                preparedNotifications = [{
+                  itemIds: briefingOutcome.itemIds,
+                  text: boundedText,
+                }];
+              } else if (briefingOutcome.error === "CANCELLED" || controller.signal.aborted) {
+                reduceCancelled = true;
+                preparedNotifications = [buildFallbackBriefing({
+                  totalScanned: wave.totalScanned,
+                  silentCount: wave.silentCount,
+                  learnedNotes: effectiveLearnedNotes,
+                  candidates: wave.candidates,
+                })];
+              } else {
+                preparedNotifications = [buildFallbackBriefing({
+                  totalScanned: wave.totalScanned,
+                  silentCount: wave.silentCount,
+                  learnedNotes: effectiveLearnedNotes,
+                  candidates: wave.candidates,
+                })];
+              }
+            } else {
+              preparedNotifications = [buildFallbackBriefing({
+                totalScanned: wave.totalScanned,
+                silentCount: wave.silentCount,
+                learnedNotes: effectiveLearnedNotes,
+                candidates: wave.candidates,
+              })];
+            }
+          }
+        }
+
+        deliveryCancelled = mode === "notifications" && (
+          reduceCancelled || controller.signal.aborted || retained!.conversation.piSessionId() !== targetSessionId
+        );
+        const deliveryError = controller.signal.aborted || reduceCancelled
           ? "Cancelled before notification delivery"
           : "Target session changed before notification delivery";
-        const priorInitial = mode === "notifications" && analysisKind === "initial_summary"
-          ? (options?.combinedInitialNotifications ?? [])
-          : [];
-        const { deferred } = await deps.repository.update((current) => {
+
+        await deps.repository.update((current) => {
           const run = current.runs.find((candidate) => candidate.id === claimed.id);
-          if (!run || run.status !== "running") return { result: { deferred: false } };
-          const claimedIds = new Set(claimed.itemIds);
-          const remainingPending = current.items.filter((item) => item.status === "pending" && !claimedIds.has(item.id));
-          const shouldDefer = mode === "notifications" &&
+          if (!run || run.status !== "running") return { result: undefined };
+          const remainingNow = current.items.filter((item) => item.status === "pending" && !claimedIds.has(item.id));
+          const deferredByNewItems = mode === "notifications" &&
             analysisKind === "initial_summary" &&
-            remainingPending.length > 0 &&
-            !deliveryCancelled &&
-            Boolean(options?.deferInitialPublication);
-          const effectiveNotifications = shouldDefer
-            ? []
-            : mode === "notifications" && analysisKind === "initial_summary"
-              ? mergeInitialNotifications([...priorInitial, ...parsed.notifications])
-              : parsed.notifications;
+            remainingNow.length > 0 &&
+            !deliveryCancelled;
+          const effectiveNotifications = deferredByNewItems ? [] : preparedNotifications;
           const publications = mode === "notifications" ? effectiveNotifications.map((notification, index) => ({
             notificationId: `info-notification-${claimed.id}-${index}`,
             itemIds: notification.itemIds,
@@ -802,7 +1027,8 @@ export const createInformationService = (deps: InformationServiceDependencies) =
             status: deliveryCancelled ? "failed" as const : "pending" as const,
             ...(deliveryCancelled ? { error: deliveryError } : {}),
           })) : [];
-          const initialCompleted = current.initialAnalysisCompleted || (analysisKind === "initial_summary" && remainingPending.length === 0);
+          const initialCompleted = current.initialAnalysisCompleted ||
+            (analysisKind === "initial_summary" && remainingNow.length === 0 && !reduceCancelled);
           return {
             state: {
               ...current,
@@ -824,12 +1050,9 @@ export const createInformationService = (deps: InformationServiceDependencies) =
                 }
                 : candidate),
             },
-            result: { deferred: shouldDefer },
+            result: undefined,
           };
         });
-        if (deferred) {
-          options?.deferInitialPublication?.(parsed.notifications);
-        }
         if (deliveryCancelled) { cancelled = true; return; }
         const completed = await deps.repository.read();
         succeeded = true;
@@ -892,18 +1115,12 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     }
   };
 
-  /** 首轮历史分析模式下在同一个执行槽内连续排空所有待处理批次，最终只合并投递一次汇总通知。 */
+  /** 首轮历史分析模式下在同一个执行槽内连续排空所有待处理批次，每批持久化结论，最终只经 Reduce 终审投递 1 张简报。 */
   const drainClaimed = async (slot: ActiveSlot, firstClaimed: InformationRun): Promise<InformationRun> => {
-    const deferredInitial: Array<{ itemIds: string[]; text: string }> = [];
     let current = firstClaimed;
     while (true) {
       const isInitial = current.kind === "initial_summary";
-      await process(slot, current, isInitial
-        ? {
-            deferInitialPublication: (notifications) => { deferredInitial.push(...notifications); },
-            combinedInitialNotifications: deferredInitial,
-          }
-        : undefined);
+      await process(slot, current);
       if (!isInitial || slot.controller.signal.aborted) break;
       const stateNow = await deps.repository.read();
       const finishedRun = stateNow.runs.find((candidate) => candidate.id === current.id);
@@ -919,6 +1136,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   const runNow = async (options?: { background?: boolean; forceInitial?: boolean }) => {
     requireOpen();
     if (isPaused()) throw new InformationError("SESSION_PAUSED", "Agent lifecycle is changing");
+    bulkImportHoldUntil = 0;
     const slot = reserveSlot();
     let backgroundStarted = false;
     try {
@@ -967,12 +1185,12 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     };
   };
   const runDue = () => {
-    if (closed || active || isPaused()) return Promise.resolve(false);
+    if (closed || active || isPaused() || Date.now() < bulkImportHoldUntil) return Promise.resolve(false);
     const slot = reserveSlot();
     let processStarted = false;
     return (async () => {
       try {
-        if (isPaused()) return false;
+        if (isPaused() || Date.now() < bulkImportHoldUntil) return false;
         const claimed = await claim(false);
         if (!claimed) return false;
         processStarted = true;
@@ -987,6 +1205,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     })();
   };
   const nextDue = async () => {
+    if (Date.now() < bulkImportHoldUntil) return false;
     const state = await deps.repository.read();
     if (!state.settings.enabled || isPaused()) return false;
     const first = state.items.filter((item) => item.status === "pending").sort((a, b) => a.acceptedAt.localeCompare(b.acceptedAt))[0];
