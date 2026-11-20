@@ -158,6 +158,8 @@ After editing switches, tap 保存技能 (Save skills); changes take effect next
 
 Shared skill-folder entry links are supported by resolving the actual skill root. Internal links, out-of-bound files, and oversized instructions are diagnosed rather than loaded. Shared scripts and `extension.ts` are never executed. Enabling a skill does not enable bash, install dependencies, or expand tool permissions. Ordinary `read` receives only the exact enabled skill instructions and supported text resources, not access to the entire home directory.
 
+These `SKILL.md` skills and session switches apply only to chat sessions; background domain sub-agents such as SMS, News, and future domains never inject chat skills and rely solely on their domain prompts, independent explicit rule boards, and learned profiles.
+
 ## File Write Approvals {#file-write-approvals}
 
 - `write` / `edit` operate only in DATA_DIR/workspace/. Every change needs a complete preview, human approval and file-version binding. Denial, expiry, cancellation or version changes prevent commit. Traversal/symlinks are refused; no bash tool is provided.

@@ -56,13 +56,17 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 
 ## 后台领域子 Agent（短信与新闻）
 
-短信、新闻及后续扩展领域属于全局后台领域子 Agent：由主会话通过轻量注册表与统一 `domain_agent` 工具进行规则读写和按需只读查询（规则修改默认直接生效，并预留可插拔人工确认授权策略）；后台子 Agent 各自保留独立的私有数据存储与显式规则/自学习画像，绝不读取主会话 `INSTRUCTIONS.md`、`memory.md` 或主聊天技能文本。
+短信、新闻及后续扩展领域采用 **「1 个主 Agent + N 个独立后台领域子 Agent」** 架构，通过共享规则板和受控注册表协作，而不在聊天流里另起独立会话路由：
 
-短信是一条全局信息管线，设置默认关闭，批量校验、幂等键、结构化精确覆盖、批量上限、全局执行槽与无自动重试边界保持不变。原始条目、模型决策与投递事实存入 `main.sqlite` 的 `sms_*` 关系表。
+- **统一注册表与最小扩展点**：`src/features/domain-agents/` 定义 `DomainAgentRegistration`（`id`、`name`、`summary`、`isEnabled?`、`ruleUpdateMode?`、`rules: { read, write }` 及可选 `query`），在 `src/bootstrap/create-service.ts` 集中注册（当前为 `sms`、`news`）。新增后台领域子 Agent 只需实现并注册该接口，无需修改主协作工具或上下文隔离逻辑。
+- **规则写入授权策略（可插拔）**：注册表支持 `ruleUpdateMode: "auto" | "confirm"` 与异步 `authorizeRuleUpdate` 钩子。当前默认 `"auto"` 即刻更新并在回复中简述变更；后续接入统一用户确认/审批交互时，只需注入 `authorizeRuleUpdate` 或切换模式，无需重写工具与业务存储。
+- **主对话统一协作工具**：`src/adapters/pi/tools/domain-agent.ts` 提供 `domain_agent`（`list | get_rules | update_rules | query`），取代旧只读 `information` 工具；主系统提示词动态注入已注册领域清单与路由纪律（涉及某领域筛选/提醒规则时先 `get_rules` 合并再 `update_rules`，不只写进全局 `memory`）。`subagent` 等只读子代理（`readOnly: true`）拒绝调用 `update_rules`。
+- **后台技能彻底剥离**：聊天 `SKILL.md` 与会话技能开关只服务聊天会话；所有后台领域子 Agent 绝不注入主聊天技能、也不读取 `main/INSTRUCTIONS.md` 或全局 `memory.md`，只依赖各自领域的提示词、独立显式规则板与自学习画像。
+- **通知隔离与结构化引用**：重要后台通知携带显式 `domainId`（仅允许 `source === "notification"` 且存在 `notificationId`）写入 `main` 历史并发送失效通知，不额外启动一轮主聊天模型。`src/adapters/pi/domain-notification-context.ts` 默认将未被引用的领域通知卡片从主对话模型上下文剔除；用户通过移动端统一结构化格式 `【领域引用:<domainId>】...【引用结束】` 显式引用后，该卡片才进入当轮上下文。
 
-后台分析使用受限内存 pi 轮，只开放结构化提交工具与本领域提示词/显式规则/自学习画像；不接入技能系统，也不获得文件、网络、委派或指令写入权限。重要结果携带领域来源 `domainId` 经 `main` 的 `conversation.notify` 正常落盘到 pi 历史并发送会话失效通知，不额外启动一次主聊天模型调用；主聊天上下文扩展按 `domainId` 统一剔除未被引用的领域通知卡片，专题会话不接收。silent 或失败不制造通知。disable/reset/shutdown 取消未落盘投递；已落盘通知不回滚。模型成功而发布失败分别保留事实，不重跑模型。
+短信是一条全局信息管线，设置默认关闭，批量校验、幂等键、结构化精确覆盖、批量上限、全局执行槽与无自动重试边界保持不变。原始条目、模型决策、显式偏好规则（`preferences_notes`）、自学习画像（`preferences_learned_notes`）与投递事实存入 `main.sqlite` 的 `sms_*` 关系表；后台分析使用受限内存 pi 轮，只开放 `submit_information_result` 结构化提交工具，不接入技能或工作区工具。专题会话不接收通知，silent 或失败不制造通知；disable/reset/shutdown 取消未落盘投递，已落盘通知不回滚。
 
-新闻是全局 RSS 采集与推荐管线，源、文章、反馈、偏好规则、学习画像与推荐结果全部保存在独立的 `news.sqlite` 关系表中；没有独立聊天身份，不再借用 `main/INSTRUCTIONS.md`。与短信复用批处理引擎，但不共用数据 owner，新闻服务与数据库工具复用同一 SQLite 连接及操作队列。RSS 通过安全网络 adapter 抓取，严格 XML/大小/深度/条数校验，拒绝 DTD/实体和可执行 HTML。推荐不写聊天；删除源保留文章与反馈。模型学习摘要不覆盖用户显式规则。
+新闻是全局 RSS 采集与推荐管线，源、文章、反馈、显式偏好规则（`preferences_notes`）、自学习画像（`preferences_learned_notes`）与推荐结果全部保存在独立的 `news.sqlite` 关系表中，彻底解耦 `main/INSTRUCTIONS.md`。与短信复用批处理引擎，但不共用数据 owner，新闻服务与数据库工具复用同一 SQLite 连接及操作队列。RSS 通过安全网络 adapter 抓取，严格 XML/大小/深度/条数校验，拒绝 DTD/实体和可执行 HTML。推荐不写聊天，删除源保留文章与反馈，模型学习摘要不覆盖用户显式规则。
 
 Dream 是实例全局服务：配置提示词在 profile/DREAM.md，游标按来源会话在全局状态文档保存，待决项全局管理。整理用受限内存 pi 轮；条件写入核对读取版本，不覆盖用户并发编辑；失败/部分成功不推进对应游标。来源已删除时不得借待决项重建会话。周期固定两小时，忙会话跳过，不自动重跑失败模型轮。
 

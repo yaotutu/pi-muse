@@ -106,7 +106,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 ### `tests/live/information.ts`
 
 - 专项启动隔离后端并经 `createLiveModel` 透明代理真实调用外部模型，不读取或修改正式 DATA_DIR。入口必须显式给出 `--config` 与 `--allow-live`，可追加 `--keep-artifacts` 保留脱敏证据。
-- 覆盖混合批与全静默结构化提交、silent 不写聊天、通知发布与 notification/session/message 溯源、偏好 notes 与当前反馈例证进入下一轮、普通聊天只读 `information` 工具、幂等/冲突/跨会话隔离、自动调度、disable/reset/delete 取消排队通知以及重启持久化。
+- 覆盖混合批与全静默结构化提交、silent 不写聊天、通知发布与 notification/session/message 溯源、偏好 notes 与当前反馈例证进入下一轮、普通聊天 `domain_agent` 工具（含只读查询与规则更新）、幂等/冲突/跨会话隔离、自动调度、disable/reset/delete 取消排队通知以及重启持久化。
 - 以后端 repository、PI 历史 revision/message、真实代理 tool call/result 与 HTTP 状态为证据；后台请求必须只声明 `submit_information_result`。同一 SDK 轮内允许无效提交后由模型自行纠正，但最终必须恰好一个有效提交；测试策略只约束合成数据，不用关键词代码替代模型决策，失败不自动重试模型。
 
 ### `tests/live/news.ts`
