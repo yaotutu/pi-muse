@@ -26,6 +26,7 @@ export const informationIngestRequestSchema = z.strictObject({
 export const informationRunRequestSchema = z.strictObject({
   background: z.boolean().optional().describe("为 true 时启动后台排空处理并立即返回当前运行记录，不阻塞长连接"),
   forceInitial: z.boolean().optional().describe("为 true 时以首轮全量历史分析（initial_summary）模式处理待处理队列，适合全量导入历史短信后统一建画像与汇总"),
+  retryFailed: z.boolean().optional().describe("为 true 时先把队列中失败（failed）的条目重置为待处理（pending）后再触发分析"),
 });
 export const informationStatusResponse = z.strictObject({
   running: z.boolean().describe("当前是否有信息后台批处理轮在运行"),
@@ -37,6 +38,15 @@ export const informationStatusResponse = z.strictObject({
     processed: z.number().int().min(0),
     failed: z.number().int().min(0),
   }),
+  latestBriefing: z.strictObject({
+    runId: z.string(),
+    notificationId: z.string(),
+    text: z.string(),
+    createdAt: z.string().datetime(),
+    itemCount: z.number().int().min(0),
+    messageId: z.string().optional(),
+  }).optional().describe("最近一次已发布的首轮历史短信简报"),
+  lastError: z.string().optional().describe("存在失败条目或最近一轮失败时的简短错误标识"),
 });
 export const informationStatusSchema = z.enum(["pending", "processing", "processed", "failed"]);
 export const informationRunStatusSchema = z.enum(["running", "completed", "failed", "cancelled"]);

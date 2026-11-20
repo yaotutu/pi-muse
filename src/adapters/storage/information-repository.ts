@@ -40,7 +40,7 @@ const receiptSchema = z.strictObject({
 });
 const publicationSchema = z.strictObject({
   notificationId: z.string().min(1).max(200),
-  itemIds: z.array(z.string().min(1).max(128)).min(1),
+  itemIds: z.array(z.string().min(1).max(128)),
   text: z.string().min(1).max(4000),
   status: z.enum(["pending", "published", "failed"]),
   receipt: receiptSchema.optional(),

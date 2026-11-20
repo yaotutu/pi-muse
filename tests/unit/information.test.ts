@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { parseInformationState } from "../../src/adapters/storage/information-repository.js";
+import { createSubmitInformationResultTool } from "../../src/adapters/pi/information-runner.js";
 import { createInformationService } from "../../src/features/information/service.js";
 import {
   defaultInformationState,
@@ -772,11 +774,12 @@ test("getStatus tracks queue counts and background + forceInitial runs drain asy
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   const doneStatus = await service.getStatus();
-  assert.deepEqual(doneStatus, {
-    running: false,
-    initialAnalysisCompleted: true,
-    counts: { total: 40, pending: 0, processing: 0, processed: 40, failed: 0 },
-  });
+  assert.equal(doneStatus.running, false);
+  assert.equal(doneStatus.initialAnalysisCompleted, true);
+  assert.deepEqual(doneStatus.counts, { total: 40, pending: 0, processing: 0, processed: 40, failed: 0 });
+  assert.ok(doneStatus.latestBriefing);
+  assert.match(doneStatus.latestBriefing.text, /已梳理|历史短信/);
+  assert.equal(doneStatus.lastError, undefined);
   assert.deepEqual(capturedKinds, ["initial_summary", "initial_summary"]);
   assert.equal(notifications.length, 1);
   assert.ok(notifications[0]!.text.length <= INITIAL_BRIEFING_MAX_LENGTH);
@@ -1046,4 +1049,185 @@ test("bulkImport holds scheduler race during chunk uploads and preserves initial
   await service.runNow();
   assert.equal(state.initialAnalysisCompleted, true);
   assert.equal(state.runs[0]?.kind, "initial_summary");
+});
+
+test("all-silent bulk scan uses mapOnly + zero-itemId Reduce briefing, validates schema, and reports latestBriefing", async () => {
+  let state: InformationState = {
+    ...defaultInformationState(),
+    settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
+  };
+  const repository: InformationRepository = {
+    read: async () => structuredClone(state),
+    update: async (change) => {
+      const changed = await change(structuredClone(state));
+      if (changed.state) state = parseInformationState(changed.state);
+      return changed.result;
+    },
+    reconcileOnStart: async () => undefined,
+    validateAll: async () => undefined,
+  };
+  const observedMapOnly: boolean[] = [];
+  const sent: Array<{ text: string; id: string }> = [];
+  const service = createInformationService({
+    repository,
+    retainMain: async () => ({
+      conversation: {
+        piSessionId: () => "session-silent",
+        notify: async (text, id) => {
+          sent.push({ text, id });
+          return { piSessionId: "session-silent", messageId: `msg-${id}` };
+        },
+      },
+      release: () => undefined,
+    }),
+    feedback: { read: async () => emptyFeedback() } as never,
+    runModel: async (input) => {
+      observedMapOnly.push(Boolean(input.mapOnly));
+      return {
+        ok: true,
+        result: {
+          decisions: input.items.map((item) => ({ itemId: item.id, decision: "silent" as const, reason: "促销营销" })),
+          notifications: [],
+          learnedNotes: "仅识别营销推广，暂无待办",
+        },
+      };
+    },
+    synthesizeBriefing: async (input) => ({
+      ok: true,
+      text: `扫描 ${input.totalScanned} 条历史短信，均已归类为静默，当前无待办事项。`,
+      itemIds: [],
+    }),
+    enabledSkillTexts: async () => [],
+  });
+
+  await service.ingest(
+    Array.from({ length: 12 }, (_v, idx) => ({ source: "sms", externalId: `all-silent-${idx}`, content: `营销推送 ${idx}` })),
+    { bulkImport: true },
+  );
+  await service.runNow({ forceInitial: true });
+
+  assert.deepEqual(observedMapOnly, [true]);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0]!.text, /扫描 12 条历史短信/);
+  const status = await service.getStatus();
+  assert.equal(status.initialAnalysisCompleted, true);
+  assert.equal(status.lastError, undefined);
+  assert.ok(status.latestBriefing);
+  assert.equal(status.latestBriefing.itemCount, 0);
+  assert.equal(status.latestBriefing.messageId, `msg-${status.latestBriefing.notificationId}`);
+  assert.match(status.latestBriefing.text, /扫描 12 条历史短信/);
+});
+
+test("retryFailed resets failed batches, clears lastError, and completes initial briefing on retry", async () => {
+  let state: InformationState = {
+    ...defaultInformationState(),
+    settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
+  };
+  const repository: InformationRepository = {
+    read: async () => structuredClone(state),
+    update: async (change) => {
+      const changed = await change(structuredClone(state));
+      if (changed.state) state = parseInformationState(changed.state);
+      return changed.result;
+    },
+    reconcileOnStart: async () => undefined,
+    validateAll: async () => undefined,
+  };
+  let failBatch2 = true;
+  let round = 0;
+  const sent: string[] = [];
+  const service = createInformationService({
+    repository,
+    retainMain: async () => ({
+      conversation: {
+        piSessionId: () => "session-retry",
+        notify: async (text, id) => {
+          sent.push(text);
+          return { piSessionId: "session-retry", messageId: `msg-${id}` };
+        },
+      },
+      release: () => undefined,
+    }),
+    feedback: { read: async () => emptyFeedback() } as never,
+    runModel: async (input) => {
+      round++;
+      if (failBatch2 && round === 2) {
+        return { ok: false, error: "INVALID_MODEL_RESULT" };
+      }
+      const notifyIds = input.items.filter((item) => item.content.includes("PICKUP")).map((item) => item.id);
+      return {
+        ok: true,
+        result: {
+          decisions: input.items.map((item) => ({
+            itemId: item.id,
+            decision: notifyIds.includes(item.id) ? "notify" as const : "silent" as const,
+            reason: "评估完成",
+          })),
+          notifications: [],
+          learnedNotes: `累计画像-${round}`,
+        },
+      };
+    },
+    synthesizeBriefing: async (input) => ({
+      ok: true,
+      text: `已完成 ${input.totalScanned} 条短信梳理，提取 ${input.candidates.length} 条待取提醒。`,
+      itemIds: input.candidates.map((c) => c.itemId),
+    }),
+    enabledSkillTexts: async () => [],
+  });
+
+  await service.ingest(
+    Array.from({ length: 35 }, (_v, idx) => ({
+      source: "sms",
+      externalId: `retry-${idx}`,
+      content: idx === 32 ? "PICKUP 取件码 8-1-203" : `历史营销 ${idx}`,
+      receivedAt: new Date(Date.UTC(2026, 10, 1, Math.floor(idx / 60), idx % 60)).toISOString(),
+    })),
+    { bulkImport: true },
+  );
+  await service.runNow({ forceInitial: true });
+
+  const failedStatus = await service.getStatus();
+  assert.equal(failedStatus.initialAnalysisCompleted, false);
+  assert.deepEqual(failedStatus.counts, { total: 35, pending: 0, processing: 0, processed: 30, failed: 5 });
+  assert.equal(failedStatus.lastError, "INVALID_MODEL_RESULT");
+  assert.equal(failedStatus.latestBriefing, undefined);
+  assert.equal(sent.length, 0);
+
+  failBatch2 = false;
+  await service.runNow({ background: true, forceInitial: true, retryFailed: true });
+  for (let i = 0; i < 50; i++) {
+    const s = await service.getStatus();
+    if (!s.running) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  const recovered = await service.getStatus();
+  assert.equal(recovered.initialAnalysisCompleted, true);
+  assert.deepEqual(recovered.counts, { total: 35, pending: 0, processing: 0, processed: 35, failed: 0 });
+  assert.equal(recovered.lastError, undefined);
+  assert.ok(recovered.latestBriefing);
+  assert.equal(recovered.latestBriefing.itemCount, 1);
+  assert.match(recovered.latestBriefing.text, /已完成 35 条短信梳理/);
+  assert.equal(sent.length, 1);
+});
+
+test("mapOnly submit_information_result omits notifications schema property and rejects unexpected fields", async () => {
+  const submissions: unknown[] = [];
+  const tool = createSubmitInformationResultTool(
+    ["item-1"],
+    (value) => { submissions.push(value); },
+    "notifications",
+    { omitNotifications: true },
+  );
+  assert.deepEqual(Object.keys(tool.parameters.properties).sort(), ["decisions", "learnedNotes"]);
+  assert.equal("notifications" in tool.parameters.properties, false);
+  const invoke = (input: unknown) => tool.execute("map", input as never, undefined, undefined, {} as never);
+
+  const okSilent = await invoke({ decisions: [{ itemId: "item-1", decision: "silent", reason: "营销" }], learnedNotes: "画像" });
+  assert.equal(okSilent.isError, undefined);
+  const okNotifyWithoutNotifications = await invoke({ decisions: [{ itemId: "item-1", decision: "notify", reason: "待取" }] });
+  assert.equal(okNotifyWithoutNotifications.isError, undefined);
+  const rejectedObj = await invoke({ decisions: [{ itemId: "item-1", decision: "silent", reason: "营销" }], notifications: {} });
+  assert.equal(rejectedObj.isError, true);
+  assert.equal(submissions.length, 2);
 });

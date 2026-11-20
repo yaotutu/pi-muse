@@ -132,6 +132,7 @@ export type InformationModelInput = {
   runId: string;
   mode: "notifications" | "recommendations";
   analysisKind: InformationAnalysisKind;
+  mapOnly?: boolean;
   instructions: string;
   enabledSkillTexts: string[];
   preferences: InformationPreferences;

@@ -97,6 +97,55 @@ test("additive information fields default without discarding an existing valid s
   assert.equal(state.settings.mode, "notifications");
   assert.equal(state.preferences.notes, "keep me");
   assert.equal(state.preferences.learnedNotes, "");
-  assert.deepEqual(state.articleFeedback, []);
+  assert.equal(state.articleFeedback.length, 0);
   assert.equal(state.items[0]?.content, "original");
+});
+
+test("zero-candidate initial briefing publication with empty itemIds persists cleanly to SQLite", async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-information-repository-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const { managed, repository } = await openRepository(dataDir);
+  t.after(() => managed.close());
+  const at = new Date().toISOString();
+  await repository.update(() => ({
+    state: parseInformationState({
+      schemaVersion: 1,
+      settings: { enabled: true, batchWindowSeconds: 15, mode: "notifications" },
+      preferences: { notes: "", learnedNotes: "已整理偏好" },
+      items: [{
+        id: "item-silent",
+        source: "sms",
+        externalId: "silent-1",
+        content: "促销短信",
+        receivedAt: at,
+        acceptedAt: at,
+        status: "processed",
+        runId: "run-zero-briefing",
+      }],
+      runs: [{
+        id: "run-zero-briefing",
+        kind: "initial_summary",
+        itemIds: ["item-silent"],
+        status: "completed",
+        createdAt: at,
+        startedAt: at,
+        finishedAt: at,
+        model: { status: "succeeded" },
+        decisions: [{ itemId: "item-silent", decision: "silent", reason: "促销营销" }],
+        publications: [{
+          notificationId: "info-notification-zero",
+          itemIds: [],
+          text: "已梳理历史短信，当前无待办事项。",
+          status: "published",
+          receipt: { notificationId: "info-notification-zero", piSessionId: "pi-1", messageId: "msg-1" },
+        }],
+      }],
+      initialAnalysisCompleted: true,
+    }),
+    result: undefined,
+  }), { allowCreate: true });
+  const persisted = await repository.read();
+  assert.equal(persisted.runs[0]?.publications[0]?.itemIds.length, 0);
+  assert.equal(persisted.runs[0]?.publications[0]?.text, "已梳理历史短信，当前无待办事项。");
+  assert.equal(persisted.initialAnalysisCompleted, true);
 });

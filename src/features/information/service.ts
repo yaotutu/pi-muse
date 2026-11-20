@@ -884,15 +884,34 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       }
       {
         const state = initialState;
+        const claimedIds = new Set(claimed.itemIds);
         const items = claimed.itemIds
           .map((id) => state.items.find((item) => item.id === id))
           .filter((item): item is InformationItem => Boolean(item));
         const sessionInstructions = mode === "recommendations" ? ((await deps.readInstructions?.()) ?? "") : "";
         const analysisKind = claimed.kind ?? (!initialState.initialAnalysisCompleted ? "initial_summary" : "incremental");
+        const remainingOnStart = state.items.filter(
+          (item) => item.status === "pending" && !claimedIds.has(item.id),
+        ).length;
+        const claimedIndex = state.runs.findIndex((candidate) => candidate.id === claimed.id);
+        const stopIndex = claimedIndex >= 0 ? claimedIndex : state.runs.length;
+        let hasPriorInitialWaveRun = false;
+        for (let i = stopIndex - 1; i >= 0; i--) {
+          const candidate = state.runs[i]!;
+          if (candidate.kind !== "initial_summary" || candidate.publications.length > 0) break;
+          if (candidate.status === "completed") {
+            hasPriorInitialWaveRun = true;
+            break;
+          }
+        }
+        const mapOnly = mode === "notifications" &&
+          analysisKind === "initial_summary" &&
+          (items.length >= 10 || remainingOnStart > 0 || hasPriorInitialWaveRun);
         const input: InformationModelInput = {
           runId: claimed.id,
           mode,
           analysisKind,
+          ...(mapOnly ? { mapOnly: true } : {}),
           instructions: mode === "recommendations" ? sessionInstructions : state.preferences.notes,
           enabledSkillTexts: await deps.enabledSkillTexts(),
           preferences: {
@@ -917,7 +936,9 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         }
         let parsed: ReturnType<typeof parseInformationResult>;
         try {
-          parsed = parseInformationResult(result.result, claimed.itemIds, mode);
+          parsed = parseInformationResult(result.result, claimed.itemIds, mode, {
+            requireNotificationCoverage: mode === "notifications" && !mapOnly,
+          });
         } catch {
           await failRun(claimed.id, "INVALID_MODEL_RESULT");
           return;
@@ -926,7 +947,6 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         let deliveryCancelled = mode === "notifications" && (
           controller.signal.aborted || retained!.conversation.piSessionId() !== targetSessionId
         );
-        const claimedIds = new Set(claimed.itemIds);
         const stateBeforeCommit = await deps.repository.read();
         const remainingBeforeReduce = stateBeforeCommit.items.filter(
           (item) => item.status === "pending" && !claimedIds.has(item.id),
@@ -1027,8 +1047,9 @@ export const createInformationService = (deps: InformationServiceDependencies) =
             status: deliveryCancelled ? "failed" as const : "pending" as const,
             ...(deliveryCancelled ? { error: deliveryError } : {}),
           })) : [];
+          const hasFailedItems = current.items.some((item) => item.status === "failed");
           const initialCompleted = current.initialAnalysisCompleted ||
-            (analysisKind === "initial_summary" && remainingNow.length === 0 && !reduceCancelled);
+            (analysisKind === "initial_summary" && remainingNow.length === 0 && !reduceCancelled && !hasFailedItems);
           return {
             state: {
               ...current,
@@ -1133,15 +1154,39 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     return current;
   };
 
-  const runNow = async (options?: { background?: boolean; forceInitial?: boolean }) => {
+  const runNow = async (options?: { background?: boolean; forceInitial?: boolean; retryFailed?: boolean }) => {
     requireOpen();
     if (isPaused()) throw new InformationError("SESSION_PAUSED", "Agent lifecycle is changing");
     bulkImportHoldUntil = 0;
     const slot = reserveSlot();
     let backgroundStarted = false;
     try {
-      const state = await deps.repository.read();
-      if (!state.settings.enabled) throw new InformationError("DISABLED", "Information processing is disabled");
+      const initialState = await deps.repository.read();
+      if (!initialState.settings.enabled) throw new InformationError("DISABLED", "Information processing is disabled");
+      if (options?.retryFailed) {
+        await deps.repository.update((current) => {
+          if (!current.settings.enabled) throw new InformationError("DISABLED", "Information processing is disabled");
+          let resetCount = 0;
+          const items = current.items.map((item) => {
+            if (item.status !== "failed") return item;
+            resetCount++;
+            const { runId: _droppedRunId, ...rest } = item;
+            void _droppedRunId;
+            return { ...rest, status: "pending" as const };
+          });
+          if (!resetCount) return { result: 0 };
+          const shouldResetInitial = Boolean(options.forceInitial) || !current.initialAnalysisCompleted;
+          return {
+            state: {
+              ...current,
+              ...(shouldResetInitial ? { initialAnalysisCompleted: false } : {}),
+              items,
+            },
+            result: resetCount,
+          };
+        });
+      }
+      const state = options?.retryFailed ? await deps.repository.read() : initialState;
       if (!state.items.some((item) => item.status === "pending")) {
         throw new InformationError("NO_PENDING", "No pending information");
       }
@@ -1172,6 +1217,45 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       else if (item.status === "processed") processed++;
       else if (item.status === "failed") failed++;
     }
+    const recentRuns = sortedRuns(state.runs);
+    let latestBriefing:
+      | {
+          runId: string;
+          notificationId: string;
+          text: string;
+          createdAt: string;
+          itemCount: number;
+          messageId?: string;
+        }
+      | undefined;
+    for (const run of recentRuns) {
+      if (run.kind !== "initial_summary") continue;
+      const published = run.publications.find((publication) => publication.status === "published");
+      if (!published) continue;
+      latestBriefing = {
+        runId: run.id,
+        notificationId: published.notificationId,
+        text: published.text,
+        createdAt: run.finishedAt ?? run.createdAt,
+        itemCount: published.itemIds.length,
+        ...(published.receipt?.messageId ? { messageId: published.receipt.messageId } : {}),
+      };
+      break;
+    }
+    let lastError: string | undefined;
+    if (failed > 0 || recentRuns[0]?.status === "failed") {
+      for (const run of recentRuns) {
+        if (run.status === "failed" && run.model?.error) {
+          lastError = run.model.error;
+          break;
+        }
+        const failedPublication = run.publications.find((publication) => publication.status === "failed" && publication.error);
+        if (failedPublication?.error) {
+          lastError = failedPublication.error;
+          break;
+        }
+      }
+    }
     return {
       running: Boolean(active),
       initialAnalysisCompleted: Boolean(state.initialAnalysisCompleted),
@@ -1182,6 +1266,8 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         processed,
         failed,
       },
+      ...(latestBriefing ? { latestBriefing } : {}),
+      ...(lastError ? { lastError } : {}),
     };
   };
   const runDue = () => {

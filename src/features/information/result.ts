@@ -11,7 +11,9 @@ export const parseInformationResult = (
   value: unknown,
   itemIds: readonly string[],
   mode: "notifications" | "recommendations" = "notifications",
+  options?: { requireNotificationCoverage?: boolean },
 ): InformationSubmittedResult => {
+  const requireCoverage = options?.requireNotificationCoverage ?? (mode === "notifications");
   const expected = new Set(itemIds);
   const decided = new Set<string>();
   const notifyIds = new Set<string>();
@@ -69,7 +71,7 @@ export const parseInformationResult = (
     }
     return { itemIds: notification.itemIds as string[], text: notification.text };
   });
-  if (mode === "notifications" && covered.size !== notifyIds.size) {
+  if (requireCoverage && covered.size !== notifyIds.size) {
     throw new InformationError("INVALID_INPUT", "Every notify item must be covered exactly once");
   }
   const rawLearnedNotes = (value as { learnedNotes?: unknown }).learnedNotes;
