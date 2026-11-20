@@ -178,7 +178,7 @@ test("subagent is an in-memory function and creates no workspace or session dire
   const parent=h.model.requests.find((request)=>!JSON.stringify(request.messages).includes("## Subagent role"))!;
   const blocked=new Set(["bash","subagent","schedule","monitor","activity","instructions"]);
   assert.deepEqual(namesOf(child),namesOf(parent).filter((name)=>!blocked.has(name)));
-  for(const inherited of ["skills","navigate","information"])assert.ok(namesOf(child).includes(inherited),inherited);
+  for(const inherited of ["skills","navigate","domain_agent"])assert.ok(namesOf(child).includes(inherited),inherited);
   assert.match(JSON.stringify(await h.snapshot("main")), /SUBAGENT-MARKER/);
 });
 

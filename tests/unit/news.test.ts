@@ -110,7 +110,6 @@ test("recommendation processing projects decisions without retaining or notifyin
   });
   const newsRepository = newsStorage.repository;
   let retained = false;
-  let mainInstructions = "";
   let failNext = false;
   let modelInput: Parameters<Parameters<typeof createInformationService>[0]["runModel"]>[0] | undefined;
   const information = createInformationService({
@@ -137,9 +136,6 @@ test("recommendation processing projects decisions without retaining or notifyin
         },
       };
     },
-    readInstructions: async () => mainInstructions,
-    writeInstructions: async (text) => { mainInstructions = text; },
-    enabledSkillTexts: async () => [],
   });
   let feed = rss(
     item("old", "Older", "Wed, 29 Oct 2026 10:00:00 GMT") +
@@ -234,8 +230,6 @@ test("touching an old article makes its feedback recent for the next model input
         },
       };
     },
-    readInstructions: async () => "",
-    enabledSkillTexts: async () => [],
   });
   try {
     await information.configure({
@@ -276,8 +270,6 @@ test("news pagination returns null nextCursor for an exact full page", async (t)
     retainMain: async () => undefined,
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
-    enabledSkillTexts: async () => [],
   });
   const news = createNewsService({
     repository: newsStorage.repository,
@@ -328,8 +320,6 @@ test("background refresh keeps failed articles failed while explicit refresh req
     retainMain: async () => undefined,
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
-    enabledSkillTexts: async () => [],
   });
   const feed = parseRss2(rss(item("retry", "Retry", "Wed, 29 Oct 2026 10:00:00 GMT")));
   const news = createNewsService({
@@ -377,8 +367,6 @@ test("concurrent news refresh is rejected without queueing", async (t) => {
     retainMain: async () => undefined,
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
-    enabledSkillTexts: async () => [],
   });
   const feed = parseRss2(rss(item("concurrent", "Concurrent", "Wed, 29 Oct 2026 10:00:00 GMT")));
   let calls = 0;
@@ -423,8 +411,6 @@ test("one broken RSS source does not block another and its error stays controlle
     retainMain: async () => undefined,
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    readInstructions: async () => "",
-    enabledSkillTexts: async () => [],
   });
   const goodFeed = parseRss2(rss(item("good", "Good", "Wed, 29 Oct 2026 10:00:00 GMT")));
   const badFeed = parseRss2(rss(item("bad", "Bad", "Thu, 30 Oct 2026 10:00:00 GMT")));
@@ -494,8 +480,6 @@ const rssFixture = async (
     retainMain: async () => undefined,
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel,
-    readInstructions: async () => "",
-    enabledSkillTexts: async () => [],
   });
   const news = createNewsService({ repository: newsStorage.repository, information, fetchFeed });
   t.after(async () => {

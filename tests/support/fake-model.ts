@@ -385,6 +385,29 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
+    // 领域规则修改测试触发词优先于"提醒我"日程规则匹配。
+    if (declaresTool("domain_agent") && !pendingToolResult) {
+      const ruleMatch = last.match(/设定领域规则:([a-z][a-z0-9_-]*):([^\n]+)/);
+      if (ruleMatch) {
+        event({ role: "assistant" });
+        event(toolCall("domain_agent", {
+          action: "update_rules",
+          domain: ruleMatch[1]!,
+          notes: ruleMatch[2]!.trim(),
+          reason: "test rule update",
+        }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+      if (/查询信息/.test(last)) {
+        event({ role: "assistant" });
+        event(toolCall("domain_agent", { action: "query", domain: "sms", queryAction: "overview" }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+    }
     // 定时任务路径：触发词"提醒我" + 声明了 schedule 工具。测试用 15 秒后的一次性任务。
     if (declaresTool("schedule") && /提醒我/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });
@@ -448,14 +471,6 @@ export async function createFakeModel() {
     if (declaresTool("submit_information_result") && pendingToolResult && last.includes("EMPTY_FINAL")) {
       event({ role: "assistant" });
       event({}, "stop");
-      res.end("data: [DONE]\n\n");
-      return;
-    }
-    // 普通聊天的只读信息查询工具。
-    if (declaresTool("information") && /查询信息/.test(last) && !pendingToolResult) {
-      event({ role: "assistant" });
-      event(toolCall("information", { action: "overview" }));
-      event({}, "tool_calls");
       res.end("data: [DONE]\n\n");
       return;
     }
@@ -600,8 +615,8 @@ export async function createFakeModel() {
             ? "instructions reply: "
           : toolName === "submit_information_result"
             ? "information run reply: "
-          : toolName === "information"
-            ? "information query reply: "
+          : toolName === "domain_agent"
+            ? "domain agent reply: "
             : toolName === "schedule"
               ? "schedule reply: "
               : "time reply: ";

@@ -55,7 +55,6 @@ const fixture = (options?: {
     }),
     feedback: { read: options?.feedbackRead ?? (async () => emptyFeedback()) } as never,
     runModel: async () => { throw new Error("unexpected model call"); },
-    enabledSkillTexts: async () => [],
   });
   return { repository, service, notifications, state: () => state, readState: () => structuredClone(state) };
 };
@@ -124,7 +123,6 @@ test("manual and automatic runs contend on one synchronously reserved global slo
       const result = await model.promise;
       return { ok: true, result };
     },
-    enabledSkillTexts: async () => [],
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
   const inserted = await service.ingest([
@@ -146,26 +144,25 @@ test("manual and automatic runs contend on one synchronously reserved global slo
 });
 
 test("processing setup failures mark the run failed and release the global slot", async () => {
-  let failSkills = true;
+  let failSetup = true;
   let modelCalled = false;
   const base = fixture();
   const service = createInformationService({
     repository: base.repository,
 
-    retainMain: async () => ({
-      conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ piSessionId: "session-1", messageId: id }) },
-      release: () => undefined,
-    }),
+    retainMain: async () => {
+      if (failSetup) throw new Error("retain I/O failed");
+      return {
+        conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ piSessionId: "session-1", messageId: id }) },
+        release: () => undefined,
+      };
+    },
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => { modelCalled = true; return { ok: false, error: "MODEL_REQUEST_FAILED" }; },
-    enabledSkillTexts: async () => {
-      if (failSkills) throw new Error("skills I/O failed");
-      return [];
-    },
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
   await service.ingest([{ source: "rss", externalId: "1", content: "one" }]);
-  await assert.rejects(service.runNow(), /skills I\/O failed/);
+  await assert.rejects(service.runNow(), /retain I\/O failed/);
   const state = base.readState();
   assert.equal(state.runs[0]?.status, "failed");
   assert.equal(state.items[0]?.status, "failed");
@@ -191,7 +188,6 @@ test("cancellation while retain is pending releases the retained agent", async (
     },
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    enabledSkillTexts: async () => [],
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
   await service.ingest([{ source: "rss", externalId: "1", content: "one" }]);
@@ -223,7 +219,6 @@ test("cancellation after a successful model result preserves model success but f
       await modelGate.promise;
       return { ok: true, result: resultFor([itemId!]) };
     },
-    enabledSkillTexts: async () => [],
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
   await service.ingest([{ source: "rss", externalId: "1", content: "urgent" }]);
@@ -252,7 +247,6 @@ test("per-agent pause barrier is synchronous, nested, and blocks scheduler work"
     }),
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    enabledSkillTexts: async () => [],
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
   await service.ingest([{ source: "rss", externalId: "1", content: "paused" }]);
@@ -285,7 +279,6 @@ test("per-agent pause aborts an already started run and waits for exit", async (
       await gate.promise;
       return { ok: false, error: "CANCELLED" };
     },
-    enabledSkillTexts: async () => [],
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
   await service.ingest([{ source: "rss", externalId: "1", content: "urgent" }]);
@@ -325,7 +318,6 @@ test("pagination uses the last returned row and does not skip equal timestamps",
     retainMain: async () => undefined,
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    enabledSkillTexts: async () => [],
   });
   const first = await service.listItems({ limit: 2 });
   const second = await service.listItems({ limit: 2, cursor: first.nextCursor });
@@ -351,7 +343,6 @@ test("information cursors are bound to their status filter", async () => {
     retainMain: async () => undefined,
     feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    enabledSkillTexts: async () => [],
   });
   const pending = await service.listItems({ status: "pending", limit: 1 });
   const pendingNext = await service.listItems({ status: "pending", limit: 1, cursor: pending.nextCursor });
@@ -409,7 +400,6 @@ test("feedback examples expose current projections and bounded original item con
       }),
     } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    enabledSkillTexts: async () => [],
   });
   const preferences = await service.getPreferences();
   assert.equal(preferences.feedbackExamples.length, 1);
@@ -450,7 +440,6 @@ test("feedback storage failures are exposed instead of being treated as no prefe
     retainMain: async () => ({ conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ piSessionId: "session-1", messageId: id }) }, release: () => undefined }),
     feedback: { read: async () => { throw new Error("corrupt feedback"); } } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    enabledSkillTexts: async () => [],
   });
   await assert.rejects(service.getPreferences(), /corrupt feedback/);
 });
@@ -491,7 +480,6 @@ test("first run executes initial_summary then transitions to incremental", async
         },
       };
     },
-    enabledSkillTexts: async () => [],
   });
 
   await service.ingest([
@@ -552,7 +540,6 @@ test("SMS notification subagent persists and reuses learnedNotes independently f
         },
       };
     },
-    enabledSkillTexts: async () => [],
   });
 
   await service.savePreferences({ notes: "优先提醒银行与快递" });
@@ -637,7 +624,6 @@ test("initial bulk import drains all pending batches, rolls learnedNotes, and pu
         itemIds: input.candidates.map((candidate) => candidate.itemId),
       };
     },
-    enabledSkillTexts: async () => [],
   });
 
   // 70 historical SMS: items #0 (batch 1), #30 (batch 2), #69 (batch 3) are actionable (30 + 30 + 10)
@@ -738,7 +724,6 @@ test("getStatus tracks queue counts and background + forceInitial runs drain asy
         },
       };
     },
-    enabledSkillTexts: async () => [],
   });
 
   await service.ingest(
@@ -895,7 +880,6 @@ test("persisted Map-Reduce wave survives restart and passes cross-batch lifecycl
         itemIds: kept.map((c) => c.itemId),
       };
     },
-    enabledSkillTexts: async () => [],
   });
 
   await restartedService.runNow();
@@ -963,7 +947,6 @@ test("reduce briefing failure falls back safely within 1200 chars, and silent bu
       };
     },
     synthesizeBriefing: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    enabledSkillTexts: async () => [],
   });
 
   // 120 items where first 10 items per batch trigger verbose notifications, and Reduce fails
@@ -1031,7 +1014,6 @@ test("bulkImport holds scheduler race during chunk uploads and preserves initial
         notifications: [],
       },
     }),
-    enabledSkillTexts: async () => [],
   });
 
   // Duplicate bulkImport with 0 newly created items must NOT reset initialAnalysisCompleted
@@ -1097,7 +1079,6 @@ test("all-silent bulk scan uses mapOnly + zero-itemId Reduce briefing, validates
       text: `扫描 ${input.totalScanned} 条历史短信，均已归类为静默，当前无待办事项。`,
       itemIds: [],
     }),
-    enabledSkillTexts: async () => [],
   });
 
   await service.ingest(
@@ -1173,7 +1154,6 @@ test("retryFailed resets failed batches, clears lastError, and completes initial
       text: `已完成 ${input.totalScanned} 条短信梳理，提取 ${input.candidates.length} 条待取提醒。`,
       itemIds: input.candidates.map((c) => c.itemId),
     }),
-    enabledSkillTexts: async () => [],
   });
 
   await service.ingest(

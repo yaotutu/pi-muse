@@ -179,6 +179,7 @@ export const createMessageFeedbackSession = (input: {
           runId: fact.runId,
           jobId: fact.jobId,
           notificationId: fact.notificationId,
+          domainId: fact.domainId,
           feedbackAvailable: available(fact),
         };
         return {

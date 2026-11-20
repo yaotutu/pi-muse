@@ -197,6 +197,7 @@ test("information HTTP ingestion, SDK decisions, notifications and feedback proj
   assert.equal(backgroundRequests.length, 2);
   for (const request of backgroundRequests) {
     assert.deepEqual(requestToolNames(request), ["submit_information_result"]);
+    assert.ok(!request.messages.some((message) => message.role === "system" && requestText(message.content).includes("Enabled skill guidance")));
   }
 
   const afterNotify = await h.history(sessionId);
@@ -204,6 +205,7 @@ test("information HTTP ingestion, SDK decisions, notifications and feedback proj
   const notification = afterNotify.messages.find((message) => message.id === receipt.messageId);
   assert.equal(notification?.metadata?.source, "notification");
   assert.ok(notification?.metadata?.notificationId);
+  assert.equal(notification?.metadata?.domainId, "sms");
 
   await h.call(`/api/sessions/${sessionId}/messages/${encodeURIComponent(receipt.messageId)}/feedback/comments`, {
     method: "POST", body: JSON.stringify({ piSessionId: receipt.piSessionId, text: "old preference" }),
@@ -246,7 +248,7 @@ test("information HTTP ingestion, SDK decisions, notifications and feedback proj
   const chatStream = await h.runChat(sessionId, "查询信息");
   assert.match(chatStream, /RUN_FINISHED/);
   assert.ok(h.model.requests.slice(chatTraceBaseline).some((request) =>
-    requestToolNames(request).includes("information") &&
+    requestToolNames(request).includes("domain_agent") &&
     request.messages.some((message) => requestText(message.content).includes("查询信息")),
   ));
 
@@ -294,7 +296,7 @@ test("ordinary chat excludes SMS notification cards from model context without r
   const firstRequests = h.model.requests.slice(chatBaseline);
   assert.ok(firstRequests.length >= 1);
   assert.ok(firstRequests.every((request) =>
-    request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")),
+    request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Background domain agents")),
   ));
   // 短信偏好不污染 main 系统提示词，短信卡片也不进入普通对话大模型上下文
   assert.ok(firstRequests.every((request) =>
@@ -318,7 +320,7 @@ test("ordinary chat excludes SMS notification cards from model context without r
   ));
 });
 
-test("information prompt, tool and source extension follow current agent settings", async (t) => {
+test("domain_agent stays declared and SMS cards remain excluded regardless of sms toggle", async (t) => {
   const h = await fixture(t);
   const sessionId = "main";
   await h.setupPipeline({ enabled: false, batchWindowSeconds: 3600 });
@@ -328,8 +330,8 @@ test("information prompt, tool and source extension follow current agent setting
   const closedRequests = h.model.requests.slice(closedBaseline);
   assert.ok(closedRequests.length >= 1);
   for (const request of closedRequests) {
-    assert.ok(!request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")));
-    assert.equal(requestToolNames(request).includes("information"), false);
+    assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Background domain agents")));
+    assert.equal(requestToolNames(request).includes("domain_agent"), true);
   }
 
   await h.setupPipeline({ enabled: true, batchWindowSeconds: 3600 });
@@ -346,8 +348,8 @@ test("information prompt, tool and source extension follow current agent setting
   const enabledRequests = h.model.requests.slice(enabledBaseline);
   assert.ok(enabledRequests.length >= 1);
   for (const request of enabledRequests) {
-    assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")));
-    assert.equal(requestToolNames(request).includes("information"), true);
+    assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Background domain agents")));
+    assert.equal(requestToolNames(request).includes("domain_agent"), true);
     assert.ok(request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")));
   }
 
@@ -355,7 +357,7 @@ test("information prompt, tool and source extension follow current agent setting
   const otherBaseline = h.model.requests.length;
   await h.runChat(other.id, "另一个会话普通回复");
   for (const request of h.model.requests.slice(otherBaseline)) {
-    assert.equal(requestToolNames(request).includes("information"), true);
+    assert.equal(requestToolNames(request).includes("domain_agent"), true);
     assert.ok(!request.messages.some((message) => requestText(message.content).includes("INFORMATION-NOTIFY")));
   }
 
@@ -366,19 +368,22 @@ test("information prompt, tool and source extension follow current agent setting
   await h.runChat(sessionId, "关闭后普通回复");
   const disabledRequests = h.model.requests.slice(disabledBaseline);
   for (const request of disabledRequests) {
-    assert.ok(!request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")));
-    assert.equal(requestToolNames(request).includes("information"), false);
+    assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Background domain agents")));
+    assert.equal(requestToolNames(request).includes("domain_agent"), true);
     assert.ok(request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")));
   }
 
-  await h.setupPipeline({ enabled: true, batchWindowSeconds: 3600 });
-  const reenabledBaseline = h.model.requests.length;
-  await h.runChat(sessionId, "重新启用后普通回复");
-  assert.ok(h.model.requests.slice(reenabledBaseline).some((request) =>
-    request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")) &&
-    requestToolNames(request).includes("information") &&
-    request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")),
-  ));
+  // 主聊天调用 domain_agent(update_rules) 可直接更新 sms / news 规则黑板，且不污染 main/INSTRUCTIONS.md。
+  const instructionsPath = join(h.dataDir, "sessions", "main", "INSTRUCTIONS.md");
+  await writeFile(instructionsPath, "MAIN-ONLY-RULE\n", "utf8");
+  const smsRuleStream = await h.runChat(sessionId, "设定领域规则:sms:信用卡还款必须提醒我");
+  assert.match(smsRuleStream, /RUN_FINISHED/);
+  assert.equal(((await h.call("/api/information/preferences")).body as { notes: string }).notes, "信用卡还款必须提醒我");
+
+  const newsRuleStream = await h.runChat(sessionId, "设定领域规则:news:少推娱乐新闻，关注系统架构");
+  assert.match(newsRuleStream, /RUN_FINISHED/);
+  assert.equal(((await h.call("/api/news/preferences")).body as { notes: string }).notes, "少推娱乐新闻，关注系统架构");
+  assert.equal(await readFile(instructionsPath, "utf8"), "MAIN-ONLY-RULE\n");
 });
 
 test("invalid structured model submissions fail without retry or notification", async (t) => {

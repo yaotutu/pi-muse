@@ -30,8 +30,9 @@ import type { BrowserService } from "../../features/browser/browser-service.js";
 import type { SkillsService } from "../../features/skills/service.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import {
-  createInformationNotificationContextExtension,
-} from "./information-notification-context.js";
+  createDomainNotificationContextExtension,
+} from "./domain-notification-context.js";
+import type { DomainAgentRegistry } from "../../features/domain-agents/registry.js";
 import { createResourceLoader } from "./resource-loader.js";
 import { createTools, skillToToolsMap, registeredToolNames } from "./tools/index.js";
 import type { ReadOnlyFile } from "./tools/path-guard.js";
@@ -81,10 +82,8 @@ export type PiDeps = {
   presentation?: ToolPresentation;
   /** 与手动 HTTP 文件入口共用，保证最终版本检查与提交按物理路径串行。 */
   workspaceCommits?: WorkspaceCommitQueue;
-  /** 普通聊天的会话局部信息查询；后台信息 runner 不装配该入口。 */
-  /** 业务会话中的独立讨论；即使后台自动处理关闭，仍可主动查询本会话已有信息。 */
-  /** 跨会话写入的审批回到原调用者；工作区与实际文件版本仍属于执行会话。 */
-  information?: Pick<import("../../features/information/service.js").InformationService, "getSettings" | "query">;
+  /** 主聊天的领域子 Agent 注册表；后台子 Agent 独立运行且绝不反向读取主会话上下文。 */
+  domainAgents?: DomainAgentRegistry;
   database?: Pick<import("../../features/database/database-service.js").DatabaseService, "execute">;
 };
 
@@ -142,10 +141,10 @@ export async function openPi(deps: PiDeps) {
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
   const cwd = layout.workspaceDir;
   const agentDir = layout.agentDir;
-  // openPi 每轮执行都会重新创建；设置读取失败必须中止本轮，不能伪装成关闭。
-  const informationEnabled = deps.information && deps.sessionId
-    ? child ? child.allowedTools.includes("information") : (await deps.information.getSettings()).enabled
-    : false;
+  const hasDomainAgents = Boolean(deps.domainAgents?.describeForPrompt().length && deps.sessionId);
+  const domainAgentsForSession = hasDomainAgents && (!child || child.allowedTools.includes("domain_agent"))
+    ? deps.domainAgents
+    : undefined;
 
   // 1. 只装配用户已选择的来源身份；关闭、被覆盖以及同名新来源都不会自动加载。
   const selectedSkills = await loadEnabledProductSkills(skills, deps.sessionId, child?.enabledSkillIds);
@@ -196,7 +195,7 @@ export async function openPi(deps: PiDeps) {
     skillsService: skills,
     writableEnabled: deps.config.writable.enabled,
     workspaceCommits: deps.workspaceCommits,
-    information: informationEnabled ? deps.information : undefined,
+    domainAgents: domainAgentsForSession,
     database: deps.database,
   });
 
@@ -259,12 +258,12 @@ export async function openPi(deps: PiDeps) {
   const inlineExtensions: InlineExtension[] = [];
   // 内联 loader 的 runtime 不等于最终会话 runtime；只从实际 AgentSession 读公开工具快照。
   let activeParentTools: () => readonly string[] = () => [];
-  // 对所有主/专题非子会话始终挂载上下文过滤：即使后续关闭短信处理，历史中的短信通知卡片也不会泄漏进主会话上下文。
+  // 对所有主/专题非子会话始终挂载领域卡片上下文隔离：后台子 Agent 通知卡片默认不进入主会话上下文。
   if (!child) {
     inlineExtensions.push({
-      name: "pi-muse-information-notification-context",
+      name: "pi-muse-domain-notification-context",
       hidden: true,
-      factory: createInformationNotificationContextExtension(),
+      factory: createDomainNotificationContextExtension(),
     });
   }
   if (!child && enabledSkillNames.has("task")) {
@@ -360,7 +359,14 @@ export async function openPi(deps: PiDeps) {
   const sessionInstructions = instructionsFile ? await readSessionInstructions(instructionsFile) : undefined;
   const recalledMemories = (deps.userText && memory) ? await memory.recall(deps.userText) : [];
   const systemPrompt = await buildSystemPrompt(
-    { layout, memory, allowedToolNames, sessionInstructions, recalledMemories },
+    {
+      layout,
+      memory,
+      allowedToolNames,
+      sessionInstructions,
+      recalledMemories,
+      domainAgents: domainAgentsForSession?.describeForPrompt(),
+    },
   ) +
     (child ? `\n\n## Subagent role\n${child.role.systemPrompt}\nYou have an isolated context and the same workspace as the caller. Return the result directly. You cannot delegate or schedule work.` : "");
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);

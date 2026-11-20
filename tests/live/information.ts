@@ -117,10 +117,10 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
     current = "main-context-source-and-read-only-query";
     const queryBaseline=proxy.traces.length;
-    const query=await client.run("请实际调用information工具一次，action=overview，核对已有信息与通知来源。不接入新信息，不修改设置，不用其它工具，不重试。","main");
+    const query=await client.run("请实际调用domain_agent工具一次，action=query，domain=sms，queryAction=overview，核对已有信息与通知来源。不接入新信息，不修改设置，不用其它工具，不重试。","main");
     assert.equal(query.at(-1)?.type,"RUN_FINISHED");
     const queryTraces=proxy.traces.slice(queryBaseline);
-    assert.ok(queryTraces.some((trace)=>trace.calls.some((call)=>call.name==="information")));
+    assert.ok(queryTraces.some((trace)=>trace.calls.some((call)=>call.name==="domain_agent")));
     assert.ok(queryTraces.every((trace) => trace.assistants.every((text) => !text.includes(publication.text))));
     const persisted=await client.history("main");
     assert.equal(persisted.messages.find((message:{id:string})=>message.id===publication.receipt!.messageId)?.content,publication.text);

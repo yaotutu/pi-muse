@@ -81,7 +81,7 @@ export function createConversation(
   const notify = (
     text: string,
     id: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; domainId?: string },
   ): Promise<ConversationNotificationReceipt> => {
     if (closed) return Promise.reject(new Error("Conversation is closed"));
     if (options?.signal?.aborted) return Promise.reject(new Error("Notification cancelled"));
@@ -94,7 +94,7 @@ export function createConversation(
       reject = no;
     });
     const pending: PendingNotification = {
-      notification: { id, text },
+      notification: { id, text, ...(options?.domainId ? { domainId: options.domainId } : {}) },
       resolve,
       reject,
       done,

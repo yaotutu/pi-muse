@@ -1,17 +1,16 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ConversationNotification } from "../../features/conversation/types.js";
+import { DOMAIN_ID_PATTERN } from "../../features/domain-agents/types.js";
 
 /**
  * 服务端生成的确定性通知，不代表模型回复，也没有 token 消耗。
- * 使用 pi 的公开 message 写入接口：只有 custom entry 的新会话不会落盘，
- * 因而不能把 custom entry 当成已持久化的投递凭据。稳定 ID 随同一条 message
- * 存入唯一的 JSONL 历史，展示与下轮模型上下文均能读到，不创建第二份通知历史。
+ * 使用 pi 的公开 message 写入接口，把稳定通知 ID 与可选领域 ID 随同一条 message
+ * 存入唯一的 JSONL 历史，展示与模型上下文隔离均基于真实标记，不按正文猜测。
  */
-type NotificationMessage = AssistantMessage & { personalBotNotificationId: string };
-type InformationNotificationSource = { notificationId: string; runId: string };
-
-const informationNotificationIdPattern =
-  /^info-notification-(inforun_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(0|[1-9][0-9]*)$/;
+type NotificationMessage = AssistantMessage & {
+  personalBotNotificationId: string;
+  personalBotDomainId?: string;
+};
 
 export const createNotificationMessage = (notification: ConversationNotification): NotificationMessage => ({
   role: "assistant",
@@ -20,6 +19,7 @@ export const createNotificationMessage = (notification: ConversationNotification
   model: "server-notification",
   api: "openai-completions",
   personalBotNotificationId: notification.id,
+  ...(notification.domainId ? { personalBotDomainId: notification.domainId } : {}),
   usage: {
     input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
@@ -34,10 +34,9 @@ export const notificationIdOf = (message: AssistantMessage): string | undefined 
     ? id : undefined;
 };
 
-/** 只有服务端 marker 与稳定 ID 格式同时成立，才把通知识别为信息后台来源。 */
-export const informationNotificationSourceOf = (message: AssistantMessage): InformationNotificationSource | undefined => {
-  const notificationId = notificationIdOf(message);
-  if (!notificationId) return undefined;
-  const match = informationNotificationIdPattern.exec(notificationId);
-  return match ? { notificationId, runId: match[1]! } : undefined;
+/** 仅当服务端通知标记有效且携带合法领域 ID 时返回所属领域，供上下文隔离与历史投影复用。 */
+export const notificationDomainIdOf = (message: AssistantMessage): string | undefined => {
+  if (!notificationIdOf(message)) return undefined;
+  const domainId = "personalBotDomainId" in message ? message.personalBotDomainId : undefined;
+  return typeof domainId === "string" && DOMAIN_ID_PATTERN.test(domainId) ? domainId : undefined;
 };

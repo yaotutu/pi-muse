@@ -7,7 +7,7 @@ export type CallTrace = {
   calls: { name: string; arguments: string }[]; output: string; disconnected: boolean;
   systemMarkers: {
     subagentRole: boolean;
-    informationBackground: boolean;
+    domainAgents: boolean;
     globalIdentitySentinel: boolean;
     activeGoalSentinel: boolean;
     longTermMemory: boolean;
@@ -71,7 +71,7 @@ export const createLiveModel = async (model: { baseUrl: string; apiKey?: string 
           calls: [], output: "", disconnected: false,
           systemMarkers: {
             subagentRole: systemText.includes("## Subagent role"),
-            informationBackground: systemText.includes("## Information background notifications"),
+            domainAgents: systemText.includes("## Background domain agents"),
             globalIdentitySentinel: normalizedSystemText.includes("LIVE_AGENT_PROMPT_IDENTITY_SENTINEL"),
             activeGoalSentinel: normalizedSystemText.includes("LIVE_AGENT_PROMPT_GOAL_SENTINEL"),
             longTermMemory: normalizedSystemText.includes("## Long-term memory"),

@@ -77,6 +77,8 @@ export const messageMetadataResponse = z.strictObject({
   runId: z.string().nullable().describe("生成该消息的 run ID；通知为 null"),
   jobId: z.string().nullable().describe("定时任务来源 ID；仅 source=job 时可能有值"),
   notificationId: z.string().nullable().describe("服务端通知标记；仅 source=notification 时有值"),
+  domainId: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).nullable()
+    .describe("后台领域子 Agent 来源 ID（如 sms、news）；普通消息与非领域通知为 null"),
   feedbackAvailable: z.boolean().describe("当前消息是否可反馈；正在生成的 run 为 false，历史消息和幂等重放为 true"),
 });
 

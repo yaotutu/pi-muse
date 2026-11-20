@@ -26,6 +26,7 @@ import type { BrowserService } from "../features/browser/browser-service.js";
 import type { BrowserDesktop } from "../http/browser-desktop.js";
 import type { NewsService } from "../features/news/service.js";
 import type { NewsRepository } from "../features/news/types.js";
+import type { DomainAgentRegistry } from "../features/domain-agents/registry.js";
 import type { ManagedSqliteDatabase } from "../adapters/storage/sqlite-database.js";
 import type { DatabaseService } from "../features/database/database-service.js";
 
@@ -59,6 +60,7 @@ export type ServiceContainer = {
   information: InformationService;
   informationScheduler: InformationScheduler;
   news: NewsService;
+  domainAgents: DomainAgentRegistry;
   /** news.sqlite 的聚合仓储与唯一 Managed 连接；AgentSQL 工具复用同一实例。 */
   newsRepository: NewsRepository;
   newsDatabase: ManagedSqliteDatabase;

@@ -21,7 +21,8 @@ import { weatherTool } from "./weather.js";
 import { createBrowserTools } from "./browser.js";
 import { instructionsTool } from "./instructions.js";
 import { createActivityTool, ACTIVITY_TOOL_NAME } from "./activity.js";
-import { createInformationTool, INFORMATION_TOOL_NAME } from "./information.js";
+import { createDomainAgentTool, DOMAIN_AGENT_TOOL_NAME } from "./domain-agent.js";
+import type { DomainAgentRegistry } from "../../../features/domain-agents/registry.js";
 import type { ActivityRun } from "../../../features/activities/types.js";
 import { SUBAGENT_TOOL_NAME } from "../subagent/extension.js";
 import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
@@ -49,7 +50,7 @@ type ToolDependencies = {
   weather?: WeatherService;
   browser?: BrowserService;
   layout?: DataLayout;
-  information?: Pick<import("../../../features/information/service.js").InformationService, "query">;
+  domainAgents?: DomainAgentRegistry;
   database?: Pick<DatabaseService, "execute">;
   readOnlyFiles?: readonly ReadOnlyFile[];
   workspaceCommits?: WorkspaceCommitQueue;
@@ -79,7 +80,7 @@ export const skillToToolsMap: Record<string, string[]> = {
 const registrations = [
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
   { names: ["database"], create: (deps: ToolDependencies) => deps.database ? [databaseTool(deps.database)] : [] },
-  { names: [INFORMATION_TOOL_NAME], create: (deps: ToolDependencies) => deps.information && deps.sessionId ? [createInformationTool(deps.information)] : [] },
+  { names: [DOMAIN_AGENT_TOOL_NAME], create: (deps: ToolDependencies) => deps.domainAgents && deps.sessionId ? [createDomainAgentTool(deps.domainAgents, { sessionId: deps.sessionId, runId: deps.runId, readOnly: isSubagent(deps) })] : [] },
   { names: [ACTIVITY_TOOL_NAME], create: (deps: ToolDependencies) => deps.activity && !isSubagent(deps) ? [createActivityTool(deps.activity)] : [] },
   { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout ? [] : [instructionsTool(deps.layout, deps.sessionId)] },
   { names: ["memory", "memory_search"], create: (deps: ToolDependencies) => [memoryTool(deps.memory), memorySearchTool(deps.memory)] },

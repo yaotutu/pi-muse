@@ -33,8 +33,11 @@ import { createInformationScheduler } from "../features/information/scheduler.js
 import {
   createInformationBriefingRunner,
   createInformationRunner,
-  createInformationSkillTextReader,
 } from "../adapters/pi/information-runner.js";
+import {
+  createDomainAgentRegistry,
+  type DomainAgentRegistry,
+} from "../features/domain-agents/registry.js";
 import { openNewsRepository } from "../adapters/storage/news-repository.js";
 import { openSqliteDatabase, type ManagedSqliteDatabase } from "../adapters/storage/sqlite-database.js";
 import { ensureSqliteModules } from "../adapters/storage/sqlite-modules.js";
@@ -151,6 +154,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   const sessionStorage = createSessionStorage(layout);
   await initializeMainSession(sessionRepository, sessionStorage);
   let information: Awaited<ReturnType<typeof createInformationService>> | undefined;
+  let domainAgents: DomainAgentRegistry | undefined;
 
   // 多会话：每个 agent 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
   // pi runtime 全进程一份：provider 与 runtime key 注册一次，所有线程共用；
@@ -270,7 +274,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
               browser,
               skills,
               workspaceCommits,
-              information,
+              domainAgents,
               database,
             }),
             manager,
@@ -291,11 +295,11 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     retainMain: () => conversationHub.retainSession("main"),
     feedback: messageFeedbackRepository,
     runModel: createInformationRunner({ config, layout, modelRuntime }),
-    enabledSkillTexts: () => createInformationSkillTextReader(skills)("main"),
   };
-  // 短信使用独立 Sub-Agent 偏好与自学习存储，不读写 main 会话 INSTRUCTIONS.md，避免污染全局对话上下文。
+  // 短信使用独立 Sub-Agent 偏好与自学习存储，不注入主聊天技能或 INSTRUCTIONS.md，避免污染全局对话上下文。
   information = createInformationService({
     ...informationDeps,
+    domainId: "sms",
     synthesizeBriefing: createInformationBriefingRunner({ config, layout, modelRuntime }),
     repository: informationRepository,
   });
@@ -323,12 +327,11 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     const pending = [newsStorage.database.close(), mainDatabase.close()];
     return Promise.allSettled(pending);
   };
-  // 新闻与短信复用处理规则，但各有全局事实存储；不借用会话充当数据 owner。
+  // 新闻与短信同样是独立领域子 Agent：使用 news.sqlite 自有偏好与画像，不再借用会话 INSTRUCTIONS.md。
   const newsProcessingRepository = createNewsProcessingRepository(newsRepository);
   const newsProcessing = createInformationService({
     ...informationDeps,
-    readInstructions: () => readSessionInstructions(sessionInstructionsFile(layout, "main")),
-    writeInstructions: (instructions: string) => writeSessionInstructions(sessionInstructionsFile(layout, "main"), instructions).then(() => {}),
+    domainId: "news",
     repository: newsProcessingRepository,
   });
   const informationScheduler = createInformationScheduler(information);
@@ -338,6 +341,63 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     repository: newsRepository,
     information: newsProcessing,
     fetchFeed: (url, signal) => fetchRss2(url, config.web, signal),
+  });
+  domainAgents = createDomainAgentRegistry({
+    defaultRuleUpdateMode: "auto",
+    domains: [
+      {
+        id: "sms",
+        name: "短信助手",
+        summary: "后台分析与过滤手机短信（账单还款、快递取件码、行程航班、安全验证等），屏蔽营销广告并维护短信提醒规则与画像。",
+        isEnabled: async () => (await information!.getSettings()).enabled,
+        rules: {
+          read: () => information!.getPreferences(),
+          write: (notes) => information!.savePreferences({ notes }),
+        },
+        query: (input) => information!.query(input),
+      },
+      {
+        id: "news",
+        name: "新闻助手",
+        summary: "后台抓取 RSS 新闻源并按用户阅读偏好筛选推荐文章，维护新闻筛选规则与兴趣画像。",
+        isEnabled: async () => true,
+        rules: {
+          read: () => news.preferences(),
+          write: (notes) => news.savePreferences(notes),
+        },
+        query: async (input) => {
+          if (input.action === "overview") {
+            const [status, sources, preferences, recentArticles] = await Promise.all([
+              news.status(),
+              news.listSources(),
+              news.preferences(),
+              news.listArticles({ view: "recommended", savedOnly: false, limit: 5 }),
+            ]);
+            return {
+              status,
+              sources: sources.sources,
+              preferences,
+              recentArticles: recentArticles.articles,
+            };
+          }
+          if (input.action === "items") {
+            return news.listArticles({
+              view: input.status === "all" ? "all" : "recommended",
+              savedOnly: false,
+              limit: input.limit ?? 20,
+              cursor: input.cursor,
+            });
+          }
+          if (input.action === "item") {
+            return news.getArticle(input.itemId ?? "");
+          }
+          if (input.action === "runs") {
+            return newsProcessing.listRuns({ status: input.status, limit: input.limit, cursor: input.cursor });
+          }
+          return newsProcessing.getRun(input.runId ?? "");
+        },
+      },
+    ],
   });
 
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
@@ -429,7 +489,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     jobs, monitors, actions, feedback: messageFeedbackRepository, pauseMain: () => information!.pause(), forgetPresence: workspaceEvents.presence.forget });
   // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
   const traces = createModelTraceReader(layout.tracesDir);
-  const dependencies = { companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, browserDesktop, messageFeedbackRepository };
+  const dependencies = { companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, domainAgents, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。

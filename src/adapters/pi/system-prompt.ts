@@ -1,4 +1,5 @@
-import { INFORMATION_BACKGROUND_SYSTEM_PROMPT } from "./information-notification-context.js";
+import { buildDomainAgentsSystemPrompt } from "./domain-notification-context.js";
+import type { DomainAgentPromptSummary } from "../../features/domain-agents/types.js";
 import { ACTIVITY_TOOL_INSTRUCTIONS } from "./tools/activity.js";
 import type { DataLayout } from "../storage/data-layout.js";
 import { readProfileFile } from "../storage/profile-files.js";
@@ -115,6 +116,7 @@ export type SystemPromptOptions = {
   allowedToolNames: readonly string[];
   sessionInstructions?: string;
   recalledMemories?: readonly MemoryItem[];
+  domainAgents?: readonly DomainAgentPromptSummary[];
 };
 
 /** 每轮重新读取 profile 与显式身份；业务说明只跟随本轮实际可用工具。 */
@@ -124,6 +126,7 @@ export const buildSystemPrompt = async ({
   allowedToolNames,
   sessionInstructions,
   recalledMemories,
+  domainAgents,
 }: SystemPromptOptions): Promise<string> => {
   const tools = new Set(allowedToolNames);
   // 组合能力必须整组存在才描述，避免 child 角色裁剪后出现不匹配说明。
@@ -135,7 +138,7 @@ export const buildSystemPrompt = async ({
     has("write", "edit") ? writePrompt : "",
     has("instructions") ? instructionsPrompt : "",
     has("skills") ? skillsPrompt : "",
-    has("information") ? INFORMATION_BACKGROUND_SYSTEM_PROMPT : "",
+    has("domain_agent") && domainAgents?.length ? buildDomainAgentsSystemPrompt(domainAgents) : "",
     has("activity") ? section("Work activity management", ACTIVITY_TOOL_INSTRUCTIONS) : "",
     has("memory", "memory_search") ? memoryPrompt : "",
     has("schedule") ? schedulePrompt : "",

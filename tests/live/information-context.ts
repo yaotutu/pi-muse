@@ -119,20 +119,20 @@ const execute = async (options: { configPath: string }) => {
       assert.equal(result.status, 200, `chat HTTP ${result.status}`);
       assert.ok(sseFinished(result.text), `chat ${marker} did not finish successfully`);
     };
-    const checkCapability = async (label: string, sessionId: string, enabled: boolean, marker: string) => {
+    const checkCapability = async (label: string, sessionId: string, _enabled: boolean, marker: string) => {
       const baseline = proxy!.traces.length;
       await startChat(sessionId, marker);
       const requests = proxy!.traces.slice(baseline);
       assert.ok(requests.length > 0, `${label}: no real model request`);
       for (const request of requests) {
-        assert.equal(request.systemMarkers.informationBackground, enabled, `${label}: wrong upstream system marker`);
-        assert.equal(request.toolNames.includes("information"), enabled, `${label}: wrong information tool declaration`);
+        assert.equal(request.systemMarkers.domainAgents, true, `${label}: missing domainAgents system marker`);
+        assert.equal(request.toolNames.includes("domain_agent"), true, `${label}: missing domain_agent tool declaration`);
       }
       process.stdout.write(`[PASS] ${JSON.stringify({
         label,
         modelRequests: requests.length,
-        systemMarkers: requests.map((request) => request.systemMarkers.informationBackground),
-        informationTool: requests.map((request) => request.toolNames.includes("information")),
+        systemMarkers: requests.map((request) => request.systemMarkers.domainAgents),
+        domainAgentTool: requests.map((request) => request.toolNames.includes("domain_agent")),
       })}\n`);
     };
 

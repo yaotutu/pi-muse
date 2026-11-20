@@ -11,6 +11,7 @@ export type MessageExecutionFact = {
   runId: string | null;
   jobId: string | null;
   notificationId: string | null;
+  domainId: string | null;
   /** PI adapter 判断消息是否已可安全反馈；当前 run 排除在业务层完成。 */
   feedbackAvailable: boolean;
 };
@@ -93,5 +94,6 @@ export type ProjectedMessageMetadata = {
   runId: string | null;
   jobId: string | null;
   notificationId: string | null;
+  domainId: string | null;
   feedbackAvailable: boolean;
 };

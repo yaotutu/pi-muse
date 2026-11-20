@@ -47,6 +47,7 @@ const expectedTools = [
   "activity",
   "currentTime",
   "database",
+  "domain_agent",
   "edit",
   "find",
   "get_weather",
@@ -1560,7 +1561,7 @@ test("subagent: parent delegates to an isolated child and receives its result wi
   const childTools = (children[0].tools as { function: { name: string } }[]).map((tool) => tool.function.name);
   for (const name of ["subagent", "delegate_task", "bash", "schedule", "monitor", "activity", "instructions"])
     assert.ok(!childTools.includes(name), `child must not expose ${name}`);
-  for (const name of ["skills", "information"]) assert.ok(childTools.includes(name), `child inherits ${name}`);
+  for (const name of ["skills", "domain_agent"]) assert.ok(childTools.includes(name), `child inherits ${name}`);
   const childSystem = String(children[0].messages.find((message) => message.role === "system")?.content);
   for (const unavailableGuidance of [
     "Use schedule to create",
@@ -1569,7 +1570,7 @@ test("subagent: parent delegates to an isolated child and receives its result wi
     "## Work activity management",
   ]) assert.ok(!childSystem.includes(unavailableGuidance), `child prompt must not describe ${unavailableGuidance}`);
   assert.match(childSystem, /use the skills\s+tool/);
-  assert.ok(childSystem.includes("## Information background notifications"));
+  assert.ok(childSystem.includes("## Background domain agents"));
   assert.ok(children[0].messages.every((message) => !JSON.stringify(message.content).includes("请用子代理完成一次测试")), "parent message history must not leak into child context");
   assert.ok((await h.getHistory()).some((message) => String(message.content).includes("SUBAGENT-MARKER")));
   await assert.rejects(readFile(join(h.dataDir, "tasks.json")), { code: "ENOENT" });

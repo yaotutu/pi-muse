@@ -53,20 +53,22 @@ type NewsCursor = { publishedAt: string; id: string; view: "recommended" | "all"
 
 export type InformationServiceDependencies = {
   observeWork?: ObserveWork;
+  domainId?: string;
   repository: InformationRepository;
   retainMain: () => Promise<{
     conversation: {
       piSessionId: () => string;
-      notify: (text: string, id: string, options?: { signal?: AbortSignal }) => Promise<{ piSessionId: string; messageId: string }>;
+      notify: (
+        text: string,
+        id: string,
+        options?: { signal?: AbortSignal; domainId?: string },
+      ) => Promise<{ piSessionId: string; messageId: string }>;
     };
     release: () => void;
   } | undefined>;
   feedback: MessageFeedbackRepository;
   runModel: (input: InformationModelInput, signal: AbortSignal) => Promise<InformationModelResult>;
   synthesizeBriefing?: (input: InformationBriefingInput, signal: AbortSignal) => Promise<InformationBriefingResult>;
-  readInstructions?: () => Promise<string>;
-  writeInstructions?: (instructions: string) => Promise<void>;
-  enabledSkillTexts: () => Promise<string[]>;
 };
 
 const now = () => new Date().toISOString();
@@ -292,13 +294,10 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   };
   const getNewsPreferences = async () => {
     const preferences = (await deps.repository.read()).preferences;
-    return { notes: (await deps.readInstructions?.()) ?? preferences.notes, learnedNotes: preferences.learnedNotes };
+    return { notes: preferences.notes, learnedNotes: preferences.learnedNotes };
   };
   const savePreferences = async (preferences: Pick<InformationPreferences, "notes">) => {
     requireOpen();
-    if (deps.writeInstructions) {
-      await deps.writeInstructions(preferences.notes);
-    }
     return deps.repository.update((state) => ({
       state: { ...state, preferences: { notes: preferences.notes, learnedNotes: state.preferences.learnedNotes } },
       result: { notes: preferences.notes },
@@ -888,7 +887,6 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         const items = claimed.itemIds
           .map((id) => state.items.find((item) => item.id === id))
           .filter((item): item is InformationItem => Boolean(item));
-        const sessionInstructions = mode === "recommendations" ? ((await deps.readInstructions?.()) ?? "") : "";
         const analysisKind = claimed.kind ?? (!initialState.initialAnalysisCompleted ? "initial_summary" : "incremental");
         const remainingOnStart = state.items.filter(
           (item) => item.status === "pending" && !claimedIds.has(item.id),
@@ -912,14 +910,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
           mode,
           analysisKind,
           ...(mapOnly ? { mapOnly: true } : {}),
-          instructions: mode === "recommendations" ? sessionInstructions : state.preferences.notes,
-          enabledSkillTexts: await deps.enabledSkillTexts(),
-          preferences: {
-            ...state.preferences,
-            notes: mode === "recommendations"
-              ? (sessionInstructions.trim() || state.preferences.notes)
-              : state.preferences.notes,
-          },
+          preferences: state.preferences,
           items: items.map(({ id, source, externalId, title, content, receivedAt, metadata }) => ({
             id, source, externalId, ...(title ? { title } : {}), content, receivedAt,
             ...(metadata ? { sourceTitle: metadata.sourceTitle, url: metadata.url } : {}),
@@ -1106,7 +1097,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
             const receipt = await retained.conversation.notify(
               publication.text,
               publication.notificationId,
-              { signal: controller.signal },
+              { signal: controller.signal, domainId: deps.domainId ?? "sms" },
             );
             await markPublication(claimed.id, publication.notificationId, {
               status: "published", receipt,

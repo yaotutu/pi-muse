@@ -168,6 +168,22 @@ test("SMS preferences stay decoupled from main instructions without creating hid
   assert.deepEqual((await service.sessions.list()).map((s) => s.id), ["main"]);
 });
 
+test("news preferences stay decoupled from main instructions in news.sqlite and omit skills in background runs", async (t) => {
+  const { service, headers } = await start(t);
+  const instructionsPath = sessionInstructionsFile(service.layout, "main");
+  await mkdir(join(service.layout.sessionsDir, "main"), { recursive: true });
+  await writeFile(instructionsPath, "MAIN-ONLY-INSTRUCTION\n", "utf8");
+
+  const saved = await service.app.request("/api/news/preferences", {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ notes: "关注 AI 工程，屏蔽八卦" }),
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await saved.json(), { notes: "关注 AI 工程，屏蔽八卦", learnedNotes: "" });
+  assert.equal(await readSessionInstructions(instructionsPath), "MAIN-ONLY-INSTRUCTION");
+});
+
 test("initialization preserves explicitly empty main instructions", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(),"pi-muse-main-instructions-"));
   const file = join(dataDir,"sessions","main","INSTRUCTIONS.md");
@@ -200,6 +216,10 @@ for(const scenario of ["valid","object-notifications","duplicate"] as const) {
     const tool=(model.requests[0].tools as {function:{name:string;parameters:{properties:Record<string,unknown>;required:string[]}}}[]).find((tool)=>tool.function.name==="submit_information_result")!;
     assert.deepEqual(Object.keys(tool.function.parameters.properties).sort(),["decisions","learnedNotes"]);
     assert.equal("notifications" in tool.function.parameters.properties,false);
+    const systemText=String(model.requests[0].messages.find((m)=>m.role==="system")?.content ?? "");
+    assert.ok(systemText.includes("## Explicit News preference rules"));
+    assert.ok(!systemText.includes("Enabled skill guidance"));
+    assert.ok(!systemText.includes("Main conversation instructions"));
     if(scenario==="valid")assert.equal((await repo.read()).processing.preferences.learnedNotes,"");
     else assert.equal(run.model?.error,"INVALID_MODEL_RESULT");
   });

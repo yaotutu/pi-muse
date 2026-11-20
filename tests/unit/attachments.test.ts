@@ -46,6 +46,7 @@ const messageMetadata = {
   runId: "run-id",
   jobId: null,
   notificationId: null,
+  domainId: null,
   feedbackAvailable: true,
 } as const;
 const emptyFeedback = { reaction: null, comments: [] } as const;

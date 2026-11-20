@@ -36,7 +36,6 @@ test("global preferences save main rules before retaining main for feedback", as
     },
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    enabledSkillTexts: async () => [],
   });
   const dependencies = {
     conversationHub: {
@@ -95,7 +94,6 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
     },
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-    enabledSkillTexts: async () => [],
   });
   await information.saveSettings({ enabled: true, batchWindowSeconds: 0 });
   await information.ingest([{ source: "rss", externalId: "1", content: "one" }]);
