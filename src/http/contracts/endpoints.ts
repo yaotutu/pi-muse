@@ -94,7 +94,7 @@ export const endpoints: EndpointSpec[] = [
     hint: "取消运行和待审批，清空 pi JSONL 与消息反馈；公开 sessionId 不变，piSessionId 换新。保留标题、INSTRUCTIONS.md、技能覆盖和全局工作区。clearSchedules=true 同时删除该会话任务/监控。历史不可恢复；调用前用户须明确确认。失败不承诺回滚，不能自动重发。" },
   { operationId: "deleteSession", method: "delete", path: "/api/sessions/:sessionId", tag: "会话", summary: "删除专题会话", auth: true, response: resp.deleteSessionResponse,
     hint: "main 不可删除，返回 409 CANNOT_DELETE_MAIN_SESSION。专题会话关闭后删除目录、反馈、技能覆盖及所属任务/监控；不删除全局文件。不可恢复，调用前须明确确认。迟到 Stop/GET 不创建或复活会话。", errorResponses: { 409: { description: "main 不可删除，或会话生命周期正在变化", schema: resp.errorResponse } } },
-  { operationId: "getSessionInstructions", method: "get", path: "/api/sessions/:sessionId/instructions", tag: "会话", summary: "读取会话指令", auth: true, response: resp.instructionsResponse, hint: "当前会话 INSTRUCTIONS.md；缺失为空串，不创建会话。main 也是短信与新闻偏好入口。" },
+  { operationId: "getSessionInstructions", method: "get", path: "/api/sessions/:sessionId/instructions", tag: "会话", summary: "读取会话指令", auth: true, response: resp.instructionsResponse, hint: "当前会话 INSTRUCTIONS.md；缺失为空串，不创建会话。独立于短信与新闻领域偏好。" },
   { operationId: "saveSessionInstructions", method: "put", path: "/api/sessions/:sessionId/instructions", tag: "会话", summary: "保存会话指令", auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse, hint: "整份替换、最后成功保存生效。下一轮重读，仅影响当前会话，不能扩大工具/路径/审批权限。" },
   { operationId: "getSessionSkills", method: "get", path: "/api/sessions/:sessionId/skills", tag: "会话", summary: "读取全部可选技能及来源", auth: true, response: resp.skillsResponse,
     hint: "列出当前可选技能，不限于已启用项。来源 user=DATA_DIR/skills 实例自有、builtin=内置自有、shared=服务端用户 ~/.agents/skills 通用目录。按名称合并，优先级 user > builtin > shared；关闭优先项不会回退同名低优先来源。默认开关：内置技能按随服务端发布的 skills-defaults 清单（当前 9 项默认开启），通用与实例自建技能一律默认关闭；手动保存的选择始终优先并绑定来源。返回 id/name/description/source/defaultEnabled/enabled，不返回物理路径。GET 不创建目录或私有 config.json。开关按会话保存，资产全局共用。" },
@@ -273,7 +273,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateInformationPreferences",
     method: "put", path: "/api/information/preferences", tag: "信息后台", summary: "保存会话信息偏好备注",
-    hint: "保存短信独立过滤偏好 notes（最多 20000 字符；空串清空）。它不写入 main 会话 INSTRUCTIONS.md、不写全局记忆、不触发模型；最后保存生效。",
+    hint: "保存短信独立过滤偏好 notes（最多 20000 字符；空串清空）。它不写入 main 会话 INSTRUCTIONS.md、不写全局记忆、不触发模型；最后保存生效。也可在主聊天通过 domain_agent 调整。",
     auth: true, request: information.informationPreferencesRequestSchema, response: information.informationPreferencesResponse,
     errorResponses: {
       400: { description: "非法请求或超长 notes", schema: resp.errorResponse },
@@ -476,14 +476,14 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getNewsPreferences",
     method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻偏好",
-    hint: "notes 是用户明确保存的偏好；learnedNotes 是模型从逐篇反馈推断的会话局部摘要。两者分离，推断不覆盖明确备注、会话规则或全局 USER。",
+    hint: "notes 是保存在 news.sqlite 的新闻领域独立明确偏好（不耦合 main 的 INSTRUCTIONS.md）；learnedNotes 是模型从逐篇反馈推断的只读兴趣摘要。两者分离，推断不覆盖明确备注、会话规则或全局 USER。",
     auth: true, response: news.newsPreferencesResponseSchema,
     errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
   },
   {
     operationId: "updateNewsPreferences",
     method: "put", path: "/api/news/preferences", tag: "新闻", summary: "保存新闻明确偏好",
-    hint: "notes 最多 20000 字符，空串清空；最后成功保存生效。本接口不触发模型，也不写全局资料。",
+    hint: "notes 最多 20000 字符，空串清空；最后成功保存生效。本接口独立保存在 news.sqlite，不写 main 的 INSTRUCTIONS.md 或全局资料，也不触发模型；也可在主聊天通过 domain_agent 调整。",
     auth: true, request: news.newsPreferencesUpdateRequestSchema, response: news.newsPreferencesResponseSchema,
     errorResponses: {
       400: { description: "非法请求或超长 notes", schema: resp.errorResponse },

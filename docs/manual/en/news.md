@@ -28,7 +28,7 @@ Collection defaults to every 30 minutes. One source's failure does not block oth
 
 Like/dislike are mutually exclusive and removable. Saved state is independent; the server also supports bounded comments. Feedback does not immediately call a model. Later batches read bounded recent examples; saves are weaker signals. A single reaction does not become a permanent rule.
 
-Explicit preferences come from main INSTRUCTIONS.md. Saving news preferences and editing main instructions replace the same full text; the last successful save wins. Inspect the complete content rather than assuming a news-only append. Learned summaries remain separate and do not overwrite explicit instructions or USER.
+Explicit preferences (`notes`) are stored independently in `news.sqlite` without modifying main `INSTRUCTIONS.md` or global profile files. You can replace the full text in Settings → News Preferences (last successful save wins) or ask the assistant in main chat to update them. The model-inferred profile (`learnedNotes`) remains separate and read-only, without overwriting explicit rules, chat instructions, or USER.
 
 Reasons and learned summaries default to concise Simplified Chinese while RSS titles/content retain their original language. Read back unknown writes instead of automatically resending. Client draft behavior depends on the adapted version.
 
@@ -66,4 +66,4 @@ An existing target is refused; do not overwrite or delete it merely to retry. If
 
 ## Boundaries {#boundaries}
 
-News has no separate instructions, workspace, session, Dream or delivery binding. Recommendations do not generate chat system notifications or add a global polling/notification stream. Discussing an article does not change workspace, tool or approval boundaries.
+News maintains its own independent preference rules and learned interest profile without touching main chat instructions, and still has no separate workspace, chat session, Dream state, or chat notification binding. Recommendations do not generate chat system notifications or add a global polling/notification stream. Discussing an article does not change workspace, tool, or approval boundaries.
