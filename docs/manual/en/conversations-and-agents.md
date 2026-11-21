@@ -8,7 +8,7 @@ Follow [Getting started](getting-started.md#connect-mobile-client) and connect t
 
 ## Session boundaries {#session-model}
 
-Open the session list from Messages to create, switch to, rename, or delete a conversation. Switching sessions or opening News or Settings keeps each session’s draft and running turn.
+Open the session list in Messages and tap a row to switch. A check mark indicates the current chat. Use the plus button to create a chat and the row menu to rename or delete a topic chat. Switching sessions or opening News or Settings keeps each session’s draft and running turn.
 
 Main cannot be deleted, but can be reset. Profile, long-term memory and the workspace remain global. Memory is retrieved on demand rather than loaded in full each turn.
 
