@@ -1,3 +1,4 @@
+import { androidReleaseManifest } from "../../shared/android-release.js";
 import { z } from "zod";
 import * as req from "./rest.js";
 import * as resp from "./responses.js";
@@ -46,7 +47,7 @@ export type EndpointSpec = {
   /** 200 响应 schema（生成 io=output；契约测试对真实响应 safeParse） */
   response: z.ZodType;
   /** 非 JSON 响应；默认 application/json */
-  responseContentType?: "application/json" | "text/html" | "image/png";
+  responseContentType?: "application/json" | "text/html" | "image/png" | "application/vnd.android.package-archive";
   /**
    * 200 响应头声明（名称 → 说明）。缓存策略、摘要等响应头语义由端点自己声明，
    * 生成器不按媒体类型猜测；schema 一律为 string。
@@ -132,6 +133,22 @@ export const endpoints: EndpointSpec[] = [
     hint: "需 Bearer 鉴权。两段式只读详情：day 为 yyyy-mm-dd，fileName 为 HHmmss-sss-sessionId-kind-seq.json；" +
       "返回的 fileName 仍为列表使用的日目录加点的单段标识。每段严格校验，拒绝路径穿越、斜杠编码、反斜杠和符号链接；" +
       "格式非法 400，不存在、损坏或不可读 404。完整请求与响应仅供开发者诊断，不进入模型上下文。",
+  },
+  // ---- Android 更新镜像 ----
+  {
+    operationId: "getLatestAndroidUpdate", method: "get", path: "/updates/android/latest", tag: "应用更新", summary: "读取已同步的 Android 正式版",
+    auth: false, response: androidReleaseManifest,
+    hint: "无需登录。返回镜像上的已校验安装包和同源下载路径。没有已同步版本返回 503，并在后台尝试同步。",
+  },
+  {
+    operationId: "refreshAndroidUpdate", method: "post", path: "/updates/android/refresh", tag: "应用更新", summary: "通知服务端同步 Android 正式版",
+    auth: false, successStatus: 202, response: z.object({ accepted: z.literal(true) }),
+    hint: "只接受发布提醒。同步来源固定为官方 GitHub 仓库，服务端不使用请求中的地址、内容或凭据；重复通知会合并。",
+  },
+  {
+    operationId: "downloadAndroidUpdate", method: "get", path: "/updates/android/apk/:tag/:name", tag: "应用更新", summary: "下载指定版本的 Android 安装包",
+    auth: false, response: z.string(), responseContentType: "application/vnd.android.package-archive",
+    hint: "下载已同步版本的完整 APK。包名和版本只接受发布清单中的值，不存在返回 404。",
   },
   // ---- 基础 ----
   {

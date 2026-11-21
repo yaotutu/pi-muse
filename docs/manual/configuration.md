@@ -132,10 +132,16 @@ DATA_DIR/
     news.sqlite            新闻数据和学习画像
     monitors.json          网页监控
   assets/                  companions/、skills/、subagents/
-  runtime/                 auth/、pi/、browser/、traces/
+  runtime/                 auth/、pi/、browser/、traces/、android-updates/
 ```
 
 「工作区文件」显示助手资料、领域规则与普通文件。下拉刷新目录。点右上角的菜单可新建文本或跳转目录。设置和文件页读写同一份 Markdown。主聊天与专题会话共用助手资料，新闻和短信只读取各自的规则，子代理只持有当轮上下文。新布局从空状态初始化，旧目录中的数据不导入。
+
+## Android 更新镜像
+
+GitHub 发布成功后可向 `POST /updates/android/refresh` 发送空请求，通知服务端从固定的官方仓库同步。请求无需登录，也无需发送任何密钥。服务端在 `runtime/android-updates/` 保存近期版本，校验所有 APK 的大小和 SHA-256 后才发布新清单。同步失败时继续提供原有版本。
+
+支持镜像的 Android 客户端会优先访问已保存服务器的 `/updates/android/latest`。镜像不可用或校验不通过时，客户端使用官方 GitHub。镜像可以走现有 HTTP 地址，更新包的包名与签名仍须匹配已安装的应用。首次安装请使用官方 HTTPS 发布页。
 
 ## 数据存储与安全边界 {#data-storage-and-security-boundaries}
 

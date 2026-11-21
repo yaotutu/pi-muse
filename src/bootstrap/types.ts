@@ -67,10 +67,11 @@ export type ServiceContainer = {
   database: DatabaseService;
   browser?: BrowserService;
   browserDesktop: BrowserDesktop;
+  androidUpdates: import("../adapters/releases/android-release-mirror.js").AndroidReleaseMirror;
   messageFeedbackRepository: MessageFeedbackRepository;
 };
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "companions" | "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "information" | "news" | "sessions" | "browser" | "browserDesktop" | "messageFeedbackRepository"
+  "androidUpdates" | "companions" | "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "information" | "news" | "sessions" | "browser" | "browserDesktop" | "messageFeedbackRepository"
 >;

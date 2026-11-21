@@ -16,7 +16,7 @@ export type DataLayout = {
   monitorsFile: string;
   mainDatabaseFile: string; newsDatabaseFile: string;
   soulFile: string; userFile: string; dreamFile: string; authKeyFile: string;
-  browserProfileDir: string; browserDownloadsDir: string; skillsDir: string; subagentsDir: string; tracesDir: string;
+  androidUpdatesDir: string; browserProfileDir: string; browserDownloadsDir: string; skillsDir: string; subagentsDir: string; tracesDir: string;
 };
 export const createDataLayout = (dataDir: string): DataLayout => {
   const root = resolve(dataDir);
@@ -41,6 +41,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     mainDatabaseFile: join(stateDir, "main.sqlite"), newsDatabaseFile: join(stateDir, "news.sqlite"),
     soulFile: join(assistant, "SOUL.md"), userFile: join(assistant, "USER.md"), dreamFile: join(profileDir, "DREAM.md"),
     authKeyFile: join(runtime, "auth", "auth.key"),
+    androidUpdatesDir: join(runtime, "android-updates"),
     browserProfileDir: join(runtime, "browser", "profile"),
     browserDownloadsDir: join(runtime, "browser", "downloads"),
     skillsDir: join(assets, "skills"), subagentsDir: join(assets, "subagents"), tracesDir: join(runtime, "traces"),

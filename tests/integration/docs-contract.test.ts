@@ -1089,6 +1089,7 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
     .filter((e) => e.method === "get" && !e.path.includes(":") || e.path === "/api/health")
     .filter((e) => !e.sse) // SSE 端点响应是流，不是 JSON schema；safeParse 不适用
     .filter((e) => e.path !== "/api/runs/status")
+    .filter((e) => e.path !== "/updates/android/latest") // 缓存可为空；镜像专项测试覆盖成功与 503。
     .filter((e) => e.path !== "/browser/desktop/launch") // 需票据，下方单独验证 401 契约。
     .filter((e) => e.responseContentType !== "text/html") // 调试页与桌面静态页是 HTML/二进制，不参与 JSON response safeParse。
     // 工作区文件 GET 需要显式 selector/path，且 content 需要先准备现存文件；下方单独覆盖。

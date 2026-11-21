@@ -134,10 +134,16 @@ DATA_DIR/
     news.sqlite            News data and learned preferences
     monitors.json          Webpage monitors
   assets/                  companions/, skills/, subagents/
-  runtime/                 auth/, pi/, browser/, traces/
+  runtime/                 auth/, pi/, browser/, traces/, android-updates/
 ```
 
 Workspace Files shows assistant documents, domain rules, and ordinary files. Pull down to refresh the directory. Open the menu at the top right to create a text file or jump to another directory. Settings and the workspace editor use the same Markdown files. Main and topic chats share assistant documents. News and SMS each read their own rules. A delegated subagent holds context for its current run. The layout starts fresh and does not import old instance data.
+
+## Android update mirror
+
+After a successful GitHub release, an empty `POST /updates/android/refresh` requests a sync from the fixed official repository. The request requires neither login nor a secret. The server keeps recent packages under `runtime/android-updates/` and publishes a new manifest after verifying the size and SHA-256 of every APK. A failed sync leaves the previous release available.
+
+Supported Android clients check `/updates/android/latest` on their saved server first and fall back to official GitHub if the mirror or APK validation fails. The mirror can use the existing HTTP address. The package name and signing certificate must match the installed app. For a first installation, use the official HTTPS release page.
 
 ## Data Storage and Security Boundaries {#data-storage-and-security-boundaries}
 

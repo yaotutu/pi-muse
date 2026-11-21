@@ -1,3 +1,4 @@
+import { createAndroidUpdateRoutes } from "./routes/android-updates.js";
 import { createCompanionRoutes } from "./routes/companions.js";
 import { CompanionError } from "../features/companions/types.js";
 import { UnknownSkillError } from "../features/skills/service.js";
@@ -93,6 +94,8 @@ export async function createHttpApp(dependencies: HttpDependencies) {
       ? c.body(file, 200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" })
       : c.text("Scalar bundle not installed; run pnpm install", 404);
   });
+
+  app.route("/updates/android", createAndroidUpdateRoutes(dependencies.androidUpdates));
 
   app.get("/api/health", (c) =>
     c.json({

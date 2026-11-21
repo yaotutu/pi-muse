@@ -217,7 +217,7 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
       const contentType = endpoint.responseContentType ?? "application/json";
       operation.responses = {
         // 重定向无 body：只声明语义头，不写 content，与实际响应一致。
-        [endpoint.successStatus ?? 200]: endpoint.successStatus
+        [endpoint.successStatus ?? 200]: (endpoint.successStatus ?? 200) >= 300
           ? {
               description: "成功（重定向）",
               headers: {
@@ -231,8 +231,8 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
               ...(endpoint.responseHeaders ? { headers: Object.fromEntries(
                 Object.entries(endpoint.responseHeaders).map(([name, description]) => [name, { description, schema: { type: "string" as const } }]),
               ) } : {}),
-              content: { [contentType]: { schema: contentType === "image/png"
-                ? { ...toSchema(endpoint.response, "output"), format: "binary", contentMediaType: "image/png" }
+              content: { [contentType]: { schema: contentType === "image/png" || contentType === "application/vnd.android.package-archive"
+                ? { ...toSchema(endpoint.response, "output"), format: "binary", contentMediaType: contentType }
                 : toSchema(endpoint.response, "output") } },
             },
         ...errorResponses(endpoint),

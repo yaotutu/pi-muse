@@ -1,3 +1,4 @@
+import { createAndroidReleaseMirror } from "../adapters/releases/android-release-mirror.js";
 import { createCompanionService } from "../features/companions/service.js";
 import { createCompanionStore } from "../adapters/storage/companions-store.js";
 import { createSessionRepository, createSessionStorage, initializeMainSession } from "../adapters/storage/session-repository.js";
@@ -489,7 +490,8 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     settleMonitorDeliveries: monitorScheduler.settleDeliveriesFor });
   // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
   const traces = createModelTraceReader(layout.tracesDir);
-  const dependencies = { companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, domainAgents, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, browserDesktop, messageFeedbackRepository };
+  const androidUpdates = createAndroidReleaseMirror(layout.androidUpdatesDir);
+  const dependencies = { androidUpdates, companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, domainAgents, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
@@ -498,7 +500,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     clearInterval(approvalTimer);
     // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
     workspaceEvents.close();
-    const stopped = [scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), newsProcessing.close(), newsProcessingScheduler.close(), conversationHub.closeAll()];
+    const stopped = [androidUpdates.close(), scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), newsProcessing.close(), newsProcessingScheduler.close(), conversationHub.closeAll()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
