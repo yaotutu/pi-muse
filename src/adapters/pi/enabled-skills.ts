@@ -9,11 +9,10 @@ export type EnabledProductSkill = Skill & { catalogId: string; catalogSource: Sk
 /** 目录优先级与开关只由技能服务决定；运行装配不再独立重扫另一套来源。 */
 export async function loadEnabledProductSkills(
   service: SkillsService | undefined,
-  sessionId: string,
   inheritedIds?: readonly string[],
 ): Promise<EnabledProductSkill[]> {
   if (!service) return [];
-  const definitions = await service.getEnabledSkillDefinitions(sessionId);
+  const definitions = await service.getEnabledSkillDefinitions();
   const inherited = inheritedIds ? new Set(inheritedIds) : undefined;
   const result: EnabledProductSkill[] = [];
   for (const definition of definitions) {

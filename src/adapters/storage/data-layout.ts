@@ -8,6 +8,7 @@ export { isSessionId } from "../../features/conversation/session-id.js";
 /** 路径唯一声明；新布局不读取、转换或删除旧实例数据。 */
 export type DataLayout = {
   root: string; companionsDir: string; profileDir: string; workspaceDir: string; sessionsDir: string; sessionIndexFile: string;
+  assistantInstructionsFile: string; assistantSkillOverridesFile: string;
   messageFeedbackDir: string; agentDir: string; piAuthFile: string;
   /** 长期记忆是给人读写的纯文本；身份设置是配置 JSON。 */
   memoryMarkdownFile: string; identityFile: string;
@@ -22,6 +23,9 @@ export const createDataLayout = (dataDir: string): DataLayout => {
   const profileDir = join(root, "profile");
   return {
     root, companionsDir: join(root, "companions"), profileDir, workspaceDir: join(root, "workspace"), sessionsDir: join(root, "sessions"),
+    // 固定为实例级配置路径，沿用已保存的助手设置。会话生命周期不处理这两个文件。
+    assistantInstructionsFile: join(root, "sessions", "main", "INSTRUCTIONS.md"),
+    assistantSkillOverridesFile: join(root, "sessions", "main", "skills.json"),
     sessionIndexFile: join(root, "sessions.json"), messageFeedbackDir: join(root, "messages"),
     agentDir: join(root, "agent"), piAuthFile: join(root, "agent", "auth.json"),
     memoryMarkdownFile: join(profileDir, "memory.md"), identityFile: join(profileDir, "identity.json"),
@@ -43,8 +47,6 @@ export const sessionDir = (layout: DataLayout, sessionId: string): string => {
   if (!isSessionId(sessionId)) throw new Error("Invalid sessionId");
   return join(layout.sessionsDir, sessionId);
 };
-export const sessionInstructionsFile = (layout: DataLayout, sessionId: string): string => join(sessionDir(layout, sessionId), "INSTRUCTIONS.md");
-export const sessionSkillsFile = (layout: DataLayout, sessionId: string): string => join(sessionDir(layout, sessionId), "skills.json");
 export const messageFeedbackFile = (layout: DataLayout, sessionId: string, piSessionId: string): string => {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(piSessionId)) throw new Error("Invalid piSessionId");
   sessionDir(layout, sessionId);

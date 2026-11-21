@@ -105,7 +105,7 @@ export const createSkillsTool = ({
   name: "skills",
   label: "Manage skills",
   description:
-    "List and read the available skill catalog with builtin/user/shared sources and the current session's manual selections, without physical paths. read accepts SKILL.md or supported text files under references/ or assets/. save writes one Pi Muse instance file after explicit human approval, creating an instance override when a skill has the same name. Shared and built-in files are never modified. New skills and new source overrides remain disabled until the user manually enables them; an existing enabled instance skill is reread next turn. Use save only on an explicit user request.",
+    "List and read the available skill catalog with builtin/user/shared sources and the assistant's shared manual selections, without physical paths. read accepts SKILL.md or supported text files under references/ or assets/. save writes one Pi Muse instance file after explicit human approval, creating an instance override when a skill has the same name. Shared and built-in files are never modified. New skills and new source overrides remain disabled until the user manually enables them; an existing enabled instance skill is reread next turn. Use save only on an explicit user request.",
   parameters: Type.Object({
     action: Type.Union([Type.Literal("list"), Type.Literal("read"), Type.Literal("save")]),
     name: Type.Optional(Type.String({
@@ -121,8 +121,7 @@ export const createSkillsTool = ({
   }, { additionalProperties: false }),
   async execute(_id, params, signal) {
     if (params.action === "list") {
-      if (!sessionId) return deniedResult("Skills are unavailable without an agent context.");
-      const view = await skills.describeAuthoring(sessionId);
+      const view = await skills.describe();
       return {
         content: [{ type: "text" as const, text: JSON.stringify(view, null, 2) }],
         details: { denied: false },
@@ -140,9 +139,7 @@ export const createSkillsTool = ({
       try {
         const target = await resolveSkillTarget(skill.path, file, dirname(skill.path));
         const snapshot = await readTargetText(target);
-        const enabled = sessionId
-          ? (await skills.describeAuthoring(sessionId)).skills.find((skill) => skill.name === name)?.enabled ?? false
-          : false;
+        const enabled = (await skills.describe()).skills.find((skill) => skill.name === name)?.enabled ?? false;
         return {
           content: [{ type: "text" as const, text: snapshot.content }],
           details: { denied: false, name, file, source: skill.source, enabled },
@@ -218,9 +215,7 @@ export const createSkillsTool = ({
     }).then(async (result) => {
       if ((result as { isError?: boolean }).isError === true) return result;
       const saved = (await skills.findSkill(name))?.defaultEnabled ?? false;
-      const enabledInAgent = sessionId
-        ? (await skills.describeAuthoring(sessionId)).skills.find((skill) => skill.name === name)?.enabled ?? false
-        : false;
+      const enabledInAgent = (await skills.describe()).skills.find((skill) => skill.name === name)?.enabled ?? false;
       return {
         ...result,
         details: { denied: false },

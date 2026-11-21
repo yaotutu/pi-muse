@@ -199,7 +199,7 @@ test("message feedback persists full events, coordinates sessions, and never cha
 
   // reset 生成新 piSessionId；旧反馈代次拒绝且文件不迁移到新会话。
   const reset = await h.request(`/api/sessions/${sessionId}/reset`, {
-    method: "POST", body: JSON.stringify({ clearSchedules: false }),
+    method: "POST", body: JSON.stringify({}),
   });
   assert.equal(reset.status, 200);
   const newPiSessionId = (await h.get(sessionId)).piSessionId!;
@@ -213,7 +213,9 @@ test("message feedback persists full events, coordinates sessions, and never cha
   assert.equal(newSnapshot.piSessionId, newPiSessionId);
   assert.deepEqual(newSnapshot.messages, []);
 
-  const deleteResult = await h.request(`/api/sessions/${sessionId}`, { method: "DELETE" });
+  const preview = await h.request(`/api/sessions/${sessionId}/schedules`);
+  const { scheduleRevision } = await preview.json();
+  const deleteResult = await h.request(`/api/sessions/${sessionId}`, { method: "DELETE", body: JSON.stringify({ scheduleDisposition: "delete", scheduleRevision }) });
   assert.equal(deleteResult.status, 200);
   const missing = await h.feedback(reactionPath(user.id), {
     method: "PUT", body: JSON.stringify({ piSessionId: newPiSessionId, reaction: "like" }),

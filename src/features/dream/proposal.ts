@@ -1,5 +1,3 @@
-import { INSTRUCTIONS_LIMIT } from "./prompt.js";
-import { PURPOSE_HEADING, purposeChanged, readPurpose } from "./purpose.js";
 import type { DreamPending, DreamTarget } from "./types.js";
 
 /**
@@ -57,17 +55,12 @@ export type Rejected = { change: ProposedChange; reason: string };
 
 /** 校验的上下文：当前内容与会话身份，全部来自服务端读取，不来自模型。 */
 export type ProposalContext = {
-  isMain: boolean;
-  /** 会话是否声明了用途；没有用途就不能对 INSTRUCTIONS 作直接修改。 */
-  hasPurpose: boolean;
   existingMemoryIds: ReadonlySet<string>;
-  /** 当前整份指令文本，用于检查用途段与长度。 */
-  instructions: string;
 };
 
 export type ProposalPlan = {
   /** 可以直接写入的变更。 */
-  apply: Exclude<ProposedChange, { target: "pending" }>[];
+  apply: Extract<ProposedChange, { target: "memory" }>[];
   /** 需要用户决定的条目，来自模型主动标记或服务端降级。 */
   pending: Omit<DreamPending, "id" | "createdAt">[];
   /** 被服务端拒绝的建议，只进入报告计数，不写入。 */
@@ -76,8 +69,7 @@ export type ProposalPlan = {
 
 /**
  * 服务端对建议的唯一裁决点：能直接写的、必须交给用户的、直接拒绝的。
- * 规则按“不确定就不写”的方向收紧：非主会话的全局写入降级为待确认，
- * 无用途会话的指令写入降级为待确认，引用不存在的记忆 id 直接拒绝。
+ * 规则按“不确定就不写”的方向收紧：全局说明与资料写入必须确认，引用不存在的记忆 id 直接拒绝。
  */
 export const planProposal = (
   changes: readonly ProposedChange[],
@@ -89,27 +81,11 @@ export const planProposal = (
       plan.pending.push({ text: change.text, suggestedTarget: change.suggestedTarget, reason: "ambiguous" });
       continue;
     }
-    if ((change.target === "user" || change.target === "soul") && !context.isMain) {
+    if (change.target !== "memory") {
       plan.pending.push({ text: change.text, suggestedTarget: change.target, reason: "global_from_session" });
       continue;
     }
-    if (change.target === "instructions") {
-      if (!context.hasPurpose) {
-        plan.pending.push({ text: change.text, suggestedTarget: "instructions", reason: "no_purpose" });
-        continue;
-      }
-      // 用途段不可被改写；指令总长也要受控，两项都在这里挡住。
-      const next = appendInstructions(context.instructions, change.text);
-      if (change.text.includes(PURPOSE_HEADING) || purposeChanged(context.instructions, next)) {
-        plan.rejected.push({ change, reason: "would change session purpose" });
-        continue;
-      }
-      if (next.length > INSTRUCTIONS_LIMIT) {
-        plan.rejected.push({ change, reason: "instructions too long" });
-        continue;
-      }
-    }
-    if (change.target === "memory" && change.op !== "add" && !context.existingMemoryIds.has(change.id)) {
+    if (change.op !== "add" && !context.existingMemoryIds.has(change.id)) {
       plan.rejected.push({ change, reason: "unknown memory id" });
       continue;
     }
@@ -119,7 +95,7 @@ export const planProposal = (
 };
 
 /**
- * 把一条新指令并入现有指令文本：追加到末尾，保持用途段在开头不变。
+ * 把一条新指令并入现有指令文本：追加到末尾。
  * 去重支持单行与多行完整块：已存在的块或单行不重复追加。
  */
 export const appendInstructions = (current: string, addition: string): string => {
@@ -139,12 +115,8 @@ export const appendInstructions = (current: string, addition: string): string =>
     if (isDuplicate) return base;
   }
 
-  // 若当前文本只有 `## 会话用途` 段落而尚无空行分隔，先空一行再追加规则，避免新规则并入用途段。
-  const separator = base.includes(PURPOSE_HEADING) && !base.includes("\n\n") ? "\n\n" : "\n";
-  return `${base}${separator}${normalizedAddition}`;
+  return `${base}\n${normalizedAddition}`;
 };
 
 /** 把一条新笔记并入 USER/SOUL 的纯文本；按块/行去重，其余内容原样保留。 */
 export const appendNote = appendInstructions;
-
-export { readPurpose };

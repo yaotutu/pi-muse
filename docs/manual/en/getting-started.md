@@ -101,7 +101,7 @@ While testing or verifying before a save, close the panel to cancel without savi
 1. Tap 消息 (Messages) to enter main chat directly; there is no default-session selection step.
 2. Enter text and optionally attach images/text with that message. The model configuration and client must match the new server contract.
 3. Responses stream. File changes wait for complete preview and human approval; Stop binds main's current run.
-4. Synchronize authoritative history after unknown results rather than resending automatically. Messages, News and Settings are separate primary entries. Topic controls are deferred; check the corresponding release notes for the installed app.
+4. Synchronize authoritative history after unknown results rather than resending automatically. Messages, News and Settings are separate primary entries. Open the session list from Messages to start or switch conversations.
 
 See [Files and approvals](files-and-approvals.md) and [Conversations](conversations-and-agents.md).
 

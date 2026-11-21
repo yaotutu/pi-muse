@@ -18,8 +18,8 @@
 
 ## 状态所有权
 
-- 实例全局：模型配置、SOUL/USER、长期记忆、目标、技能资产、浏览器、新闻、短信、Dream 和唯一工作区。
-- 公开会话：元数据、pi JSONL、会话指令、技能开关覆盖、消息反馈，以及任务/监控/审批/活动的来源归属。
+- 实例全局：模型配置、SOUL/USER、长期记忆、目标、助手指令、技能资产及开关、浏览器、新闻、短信、Dream 和唯一工作区。
+- 公开会话：元数据、pi JSONL、消息反馈，以及任务/监控/审批/活动的来源归属。
 - 单次运行：active run、取消信号、临时工具装配与当轮审批授权。新运行不能继承旧审批。
 - 客户端：服务器地址、Session Token 与本地 UI 草稿；不保存模型 Key，也不是业务事实来源。
 
@@ -29,18 +29,18 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 
 `main` 首次启动创建、永久常驻、标题固定为“默认会话”，不可删除，可重置。专题会话由服务端生成 UUID，缺省标题“新会话”。列表中 main 第一，其余按更新时间倒序。公开 `sessionId` 与内部 `piSessionId` 始终区分。
 
-`SessionHub` 每个公开会话只缓存一个协调器，初始化 Promise 也缓存。短生命周期锁串行协调规则/技能保存、来源绑定、重置与删除；运行锁只属于该会话。不同会话上下文独立，可并行运行。缓存回收只处理闲置且无运行/引用的专题会话；main 不回收。
+`SessionHub` 每个公开会话只缓存一个协调器，初始化 Promise 也缓存。短生命周期锁串行协调任务来源绑定、重置与删除；运行锁只属于该会话。不同会话上下文独立，可并行运行。缓存回收只处理闲置且无运行/引用的专题会话；main 不回收。
 
 - 读取、迟到 Stop 或删除后的请求不得创建或复活会话。
-- reset 取消运行/审批、清空 JSONL 与消息反馈、生成新 pi 身份；保留公开 id、标题、INSTRUCTIONS、技能覆盖和工作区。可选清理该会话任务/监控。
-- remove 先关闭旧引用，级联删除目录、反馈、技能覆盖、任务和监控；全局工作区、新闻、短信和记忆不随会话删除。
+- reset 取消运行/审批、清空 JSONL 与消息反馈、生成新 pi 身份；保留公开 id、标题、定时任务、监控与全局助手配置。
+- 删除专题会话前确认任务清单。持久化删除意图后关闭旧引用，清理目录与反馈，并按选项删除任务和监控或转到 main；部分完成的删除在启动时恢复。
 - 取消不回滚已完成副作用；写入结果未明先读取状态，不自动重放业务操作。
 
 ## 提示词与技能
 
-每轮装配顺序是基础安全说明、本轮实际工具说明（含主聊天通过 `domain_agent` 管理的已注册领域清单）、SOUL、USER、当前会话 INSTRUCTIONS、memory 检索说明。会话指令每轮重读，只影响本会话，不能扩权或泄露到后台领域子 Agent。
+每轮装配顺序是基础安全说明、本轮实际工具说明（含主聊天通过 `domain_agent` 管理的已注册领域清单）、SOUL、USER、共享助手 INSTRUCTIONS、memory 检索说明。助手指令在各聊天会话每轮重读，不能扩大工具权限。后台领域子 Agent 各自读取本领域规则。
 
-技能资产全局共用，开关按会话保存并绑定 `source/name`；默认值只来自随服务端发布的内置清单 `assets/skills-defaults.json`（当前 9 项内置默认开启），通用与自建来源一律默认关闭，最终装配以手动选择优先。目录优先级为实例 `DATA_DIR/skills/` > 内置技能 > 服务端用户 `~/.agents/skills/`，来源在目录、维护视图和 HTTP 清单中一致；关闭不回退，同名新来源不继承旧选择。复用 pi loader 解析标准 SKILL.md，不写私有技能 config，也不发现个人 CLI 的其他配置、扩展或凭据。通用技能目录只读，入口链接规范化为真实技能根，内部链接与超限正文拒绝；共享脚本/extension.ts 不执行。自有可信扩展仍是服务端代码，路径 guard 不是操作系统沙箱。只有本轮启用技能的精确 SKILL.md 与支持的文本资源可作为 read 的额外只读例外；不扩大目录、代码或配置访问。子代理继承的是父轮来源身份与实际工具上限，不因同名来源变化获得新的技能。
+技能资产全局共用，开关全局保存并绑定 `source/name`；默认值只来自随服务端发布的内置清单 `assets/skills-defaults.json`（当前 9 项内置默认开启），通用与自建来源一律默认关闭，最终装配以手动选择优先。目录优先级为实例 `DATA_DIR/skills/` > 内置技能 > 服务端用户 `~/.agents/skills/`，来源在目录、维护视图和 HTTP 清单中一致；关闭不回退，同名新来源不继承旧选择。复用 pi loader 解析标准 SKILL.md，不写私有技能 config，也不发现个人 CLI 的其他配置、扩展或凭据。通用技能目录只读，入口链接规范化为真实技能根，内部链接与超限正文拒绝；共享脚本/extension.ts 不执行。自有可信扩展仍是服务端代码，路径 guard 不是操作系统沙箱。只有本轮启用技能的精确 SKILL.md 与支持的文本资源可作为 read 的额外只读例外；不扩大目录、代码或配置访问。子代理继承的是父轮来源身份与实际工具上限，不因同名来源变化获得新的技能。
 
 ## 子代理纯函数
 
@@ -61,7 +61,7 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 - **统一注册表与最小扩展点**：`src/features/domain-agents/` 定义 `DomainAgentRegistration`（`id`、`name`、`summary`、`isEnabled?`、`ruleUpdateMode?`、`rules: { read, write }` 及可选 `query`），在 `src/bootstrap/create-service.ts` 集中注册（当前为 `sms`、`news`）。新增后台领域子 Agent 只需实现并注册该接口，无需修改主协作工具或上下文隔离逻辑。
 - **规则写入授权策略（可插拔）**：注册表支持 `ruleUpdateMode: "auto" | "confirm"` 与异步 `authorizeRuleUpdate` 钩子。当前默认 `"auto"` 即刻更新并在回复中简述变更；后续接入统一用户确认/审批交互时，只需注入 `authorizeRuleUpdate` 或切换模式，无需重写工具与业务存储。
 - **主对话统一协作工具**：`src/adapters/pi/tools/domain-agent.ts` 提供 `domain_agent`（`list | get_rules | update_rules | query`），取代旧只读 `information` 工具；主系统提示词动态注入已注册领域清单与路由纪律（涉及某领域筛选/提醒规则时先 `get_rules` 合并再 `update_rules`，不只写进全局 `memory`）。`subagent` 等只读子代理（`readOnly: true`）拒绝调用 `update_rules`。
-- **后台技能彻底剥离**：聊天 `SKILL.md` 与会话技能开关只服务聊天会话；所有后台领域子 Agent 绝不注入主聊天技能、也不读取 `main/INSTRUCTIONS.md` 或全局 `memory.md`，只依赖各自领域的提示词、独立显式规则板与自学习画像。
+- **后台技能彻底剥离**：聊天 `SKILL.md` 与全局技能开关只服务聊天会话；所有后台领域子 Agent 绝不注入主聊天技能、也不读取 `main/INSTRUCTIONS.md` 或全局 `memory.md`，只依赖各自领域的提示词、独立显式规则板与自学习画像。
 - **通知隔离与结构化引用**：重要后台通知携带显式 `domainId`（仅允许 `source === "notification"` 且存在 `notificationId`）写入 `main` 历史并发送失效通知，不额外启动一轮主聊天模型。`src/adapters/pi/domain-notification-context.ts` 默认将未被引用的领域通知卡片从主对话模型上下文剔除；用户通过移动端统一结构化格式 `【领域引用:<domainId>】...【引用结束】` 显式引用后，该卡片才进入当轮上下文。
 
 短信是一条全局信息管线，设置默认关闭，批量校验、幂等键、结构化精确覆盖、批量上限、全局执行槽与无自动重试边界保持不变。原始条目、模型决策、显式偏好规则（`preferences_notes`）、自学习画像（`preferences_learned_notes`）与投递事实存入 `main.sqlite` 的 `sms_*` 关系表；后台分析使用受限内存 pi 轮，只开放 `submit_information_result` 结构化提交工具，不接入技能或工作区工具。专题会话不接收通知，silent 或失败不制造通知；disable/reset/shutdown 取消未落盘投递，已落盘通知不回滚。
@@ -86,7 +86,7 @@ Activity 与真实步骤保存在对应会话 JSONL custom entries，不建立�
 
 ## 数据布局与校验
 
-路径唯一来源是 `src/adapters/storage/data-layout.ts`。全局 profile 包含 SOUL、USER、DREAM、memory.md 与 identity.json；workspace 是唯一文件根；sessions.json 保存元数据，sessions/<sessionId>/ 保存 JSONL、INSTRUCTIONS 和技能覆盖；messages/<sessionId>/<piSessionId>.json 保存反馈；定时任务、目标、审批记录、短信与 Dream 机器状态保存在默认业务库 `main.sqlite`，新闻使用独立 `news.sqlite`；网页监控暂留 `monitors.json`。存储边界与判据见 [SQLite 存储约定](sqlite-storage.md)。
+路径唯一来源是 `src/adapters/storage/data-layout.ts`。全局 profile 包含 SOUL、USER、DREAM、memory.md 与 identity.json；workspace 是唯一文件根；sessions.json 保存元数据，sessions/<sessionId>/ 保存各会话 JSONL，sessions/main/ 的 INSTRUCTIONS 和技能覆盖是助手全局设置；messages/<sessionId>/<piSessionId>.json 保存反馈；定时任务、目标、审批记录、短信与 Dream 机器状态保存在默认业务库 `main.sqlite`，新闻使用独立 `news.sqlite`；网页监控暂留 `monitors.json`。存储边界与判据见 [SQLite 存储约定](sqlite-storage.md)。
 
 SQLite 表和字段采用 snake_case，领域表以模块名前缀区分，迁移版本单独登记。新闻文章、反馈、评论、批次和决定关系化保存，不以整份 JSON 文档替代关系表。保持原始业务 ID、顺序、时间及删除语义；来源是历史快照的关联不应错误级联删除文章。数据库内更新使用短事务，不在 SQL 事务内等待模型、网络或人工决定。
 

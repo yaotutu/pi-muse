@@ -180,10 +180,10 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     results.push(phase1Outcome);
 
     // -------------------------------------------------------------------------
-    // 阶段 2：PATCH 改绑到原本不存在的 targetSessionId；省略归属修改验证绑定保持
+    // 阶段 2：校验 PATCH 保持归属，删除会话并保留任务
     // -------------------------------------------------------------------------
     const phase2Outcome: ScenarioOutcome = {
-      name: "patch-rebind-and-preserve",
+      name: "session-delete-moves-schedule",
       passed: false,
       modelCalls: 0,
       toolCalls: [],
@@ -193,53 +193,34 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     if (!targetJobId) {
       phase2Outcome.error = "缺少前置任务 ID，跳过阶段 2";
       results.push(phase2Outcome);
-      process.stdout.write("[FAIL] patch-rebind-and-preserve: 缺少前置任务\n");
+      process.stdout.write("[FAIL] session-delete-moves-schedule: 缺少前置任务\n");
     } else {
       try {
-        // 1. 确认 targetSessionId 目前不存在
-        const agentsBefore = (await client.json("/api/sessions")).sessions as { id: string }[];
-        assert.equal(agentsBefore.some((s) => s.id === targetSessionId), true, "binding target must already exist");
-
-        // 2. PATCH 将 originSessionId 改绑到 targetSessionId
-        const patchRes = await client.request(`/api/jobs/${targetJobId}`, { originSessionId: targetSessionId }, "PATCH");
-        assert.equal(patchRes.status, 200, "PATCH 改绑智能体必须返回 200");
-        const patchedJob = (await patchRes.json()) as { id: string; originSessionId: string };
-        assert.equal(patchedJob.originSessionId, targetSessionId, "patchedJob.originSessionId 必须为 targetSessionId");
-
-        // 验证 targetSessionId 被自动创建
-        const agentsAfter = (await client.json("/api/sessions")).sessions as { id: string }[];
-        assert.ok(agentsAfter.some((s) => s.id === targetSessionId), "改绑后 targetSessionId 必须出现在 agents 列表中");
-
-        // 3. 省略 originSessionId 的 PATCH 修改（如只改 prompt），验证 originSessionId 保持不变且不新建额外智能体
-        const agentsCountBefore = agentsAfter.length;
+        const patch = await client.request(`/api/jobs/${targetJobId}`, { originSessionId: targetSessionId }, "PATCH");
+        assert.equal(patch.status, 400, "PATCH cannot change a job's session");
         const updatedPrompt = `${jobPrompt}。只返回标记，不补充说明。`;
-        const patchPromptRes = await client.request(
-          `/api/jobs/${targetJobId}`,
-          { prompt: updatedPrompt },
-          "PATCH",
-        );
-        assert.equal(patchPromptRes.status, 200);
-        const preservedJob = (await patchPromptRes.json()) as { id: string; prompt: string; originSessionId: string };
-        assert.equal(preservedJob.prompt, updatedPrompt);
-        assert.equal(preservedJob.originSessionId, targetSessionId, "省略 originSessionId 时必须保留既有绑定");
-
-        const agentsCountAfter = ((await client.json("/api/sessions")).sessions as { id: string }[]).length;
-        assert.equal(agentsCountAfter, agentsCountBefore, "省略 originSessionId 的更新不得新建额外智能体");
+        const edited = jobItem.parse(await client.json(`/api/jobs/${targetJobId}`, { prompt: updatedPrompt }, "PATCH"));
+        assert.equal(edited.originSessionId, initialSessionId);
+        assert.equal(edited.prompt, updatedPrompt);
+        const moved = await client.deleteSession(initialSessionId, "move-to-main");
+        assert.equal(moved.moved.jobs, 1);
+        const detail = await client.json(`/api/jobs/${targetJobId}`);
+        assert.equal(jobItem.parse(detail.job).originSessionId, "main");
 
         phase2Outcome.passed = true;
-        phase2Outcome.evidence = { reboundAgent: targetSessionId, targetSessionAlreadyExisted: true, bindingPreserved: true };
-        process.stdout.write("[PASS] patch-rebind-and-preserve\n");
+        phase2Outcome.evidence = { newOwner: "main", manualRebindRejected: true };
+        process.stdout.write("[PASS] session-delete-moves-schedule\n");
       } catch (err) {
         phase2Outcome.passed = false;
         phase2Outcome.error = err instanceof Error ? err.message : String(err);
-        process.stdout.write(`[FAIL] patch-rebind-and-preserve: ${phase2Outcome.error}\n`);
+        process.stdout.write(`[FAIL] session-delete-moves-schedule: ${phase2Outcome.error}\n`);
       }
       results.push(phase2Outcome);
     }
 
     // -------------------------------------------------------------------------
     // 阶段 3：将一次性任务排到近未来，等待真实 scheduler 到点派发调用真实模型，
-    //        验证 job 终态 status=succeeded、结果落在 targetSessionId 历史、initial 与 main 无误投
+    //        验证 job 终态 status=succeeded、结果落在主会话，原会话与其他会话无误投
     // -------------------------------------------------------------------------
     const phase3Outcome: ScenarioOutcome = {
       name: "scheduler-dispatch-and-isolation",
@@ -259,14 +240,14 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         const initialBefore = conversationResponse.parse(await client.history(initialSessionId));
         const mainBefore = conversationResponse.parse(await client.history("main"));
         const targetBefore = conversationResponse.parse(await client.history(targetSessionId));
-        const previousTargetIds = new Set(targetBefore.messages.map((message) => message.id));
+        const previousMainIds = new Set(mainBefore.messages.map((message) => message.id));
         const baseline = proxy.traces.length;
         // 将排期设定在 1 秒后（近未来）
         const nearFuture = new Date(Date.now() + 1000).toISOString();
         const patchScheduleRes = await client.request(`/api/jobs/${targetJobId}`, { at: nearFuture }, "PATCH");
         assert.equal(patchScheduleRes.status, 200);
         const scheduled = jobItem.parse(await patchScheduleRes.json());
-        assert.equal(scheduled.originSessionId, targetSessionId, "省略 originSessionId 的排期修改仍须保持归属");
+        assert.equal(scheduled.originSessionId, "main");
         assert.equal(scheduled.at, nearFuture);
 
         // 留出扫描时间以及完整的 120s 模型运行窗口。
@@ -292,26 +273,22 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         phase3Outcome.modelCalls = newTraces.length;
         assert.ok(newTraces.length >= 1, "调度器触发必须产生真实模型请求");
 
-        // 检查 targetSessionId 的历史记录：assistant 回复中必须包含 uniqueMarker
-        const targetHistory = conversationResponse.parse(await client.history(targetSessionId));
-        const assistantReply = targetHistory.messages.find(
-          (m) => !previousTargetIds.has(m.id) && m.role === "assistant" && m.content?.includes(uniqueMarker),
-        );
-        assert.ok(assistantReply, `目标智能体 targetSessionId 历史必须包含任务触发助手回复 (${uniqueMarker})`);
-
-        const initialHistory = conversationResponse.parse(await client.history(initialSessionId));
-        assert.deepEqual(initialHistory.messages, initialBefore.messages, "派发不得改变原智能体 messages");
         const mainHistory = conversationResponse.parse(await client.history("main"));
-        assert.deepEqual(mainHistory.messages, mainBefore.messages, "派发不得改变主智能体 messages");
+        const assistantReply = mainHistory.messages.find(
+          (m) => !previousMainIds.has(m.id) && m.role === "assistant" && m.content?.includes(uniqueMarker),
+        );
+        assert.ok(assistantReply, "moved job reply should appear in main");
+        assert.deepEqual(conversationResponse.parse(await client.history(initialSessionId)).messages, initialBefore.messages);
+        assert.deepEqual(conversationResponse.parse(await client.history(targetSessionId)).messages, targetBefore.messages);
 
         phase3Outcome.passed = true;
         phase3Outcome.evidence = {
           status: finalJobState.status,
           lastRunAt: finalJobState.lastRunAt,
-          targetHistoryVerified: true,
+          mainHistoryVerified: true,
           assistantMessageId: assistantReply.id,
           noLeakInitial: true,
-          noLeakMain: true,
+          noLeakOtherSession: true,
         };
         process.stdout.write("[PASS] scheduler-dispatch-and-isolation\n");
       } catch (err) {
@@ -360,11 +337,12 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       }
       for (const sessionId of createdSessionIds) {
         try {
-          const res = await fetch(`${baseUrl}/api/sessions/${sessionId}`, {
-            method: "DELETE",
-            headers: { Authorization: `Bearer ${authToken}` },
-            signal: AbortSignal.timeout(5000),
-          });
+          const cleanupClient = createTestClient(() => baseUrl, authToken, 5000);
+          const preview = await cleanupClient.request(`/api/sessions/${sessionId}/schedules`);
+          if (preview.status === 404) continue;
+          assert.equal(preview.status, 200);
+          const { scheduleRevision } = await preview.json();
+          const res = await cleanupClient.request(`/api/sessions/${sessionId}`, { scheduleDisposition: "delete", scheduleRevision }, "DELETE");
           if (res.ok || res.status === 404) {
             // 确认智能体已被删除
             const verifyRes: Response = await fetch(`${baseUrl}/api/sessions`, {

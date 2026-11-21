@@ -46,7 +46,6 @@ import { createDatabaseToolStore } from "../adapters/storage/database-tool-store
 import { createDatabaseService } from "../features/database/database-service.js";
 import { fetchRss2 } from "../adapters/news/rss.js";
 import { createNewsService } from "../features/news/service.js";
-import { sessionInstructionsFile } from "../adapters/storage/data-layout.js";
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout, ensureLayout, sessionDir } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
@@ -71,7 +70,7 @@ import { createWorkspaceCommitQueue } from "../adapters/workspace/file-commit-qu
 import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
 import { createActivityService } from "../features/activities/service.js";
 import { createDreamRepository, createDreamPromptPort } from "../adapters/storage/dream-repository.js";
-import { readSessionInstructions, writeSessionInstructions } from "../adapters/storage/session-instructions.js";
+import { readAssistantInstructions, writeAssistantInstructions } from "../adapters/storage/assistant-instructions.js";
 import { createDreamService } from "../features/dream/service.js";
 import { createDreamScheduler } from "../features/dream/scheduler.js";
 import { createDreamProposer } from "../adapters/pi/dream-runner.js";
@@ -212,7 +211,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     sessions: sessions.map((session) => session.id === id ? { ...session, updatedAt: new Date().toISOString() } : session),
     result: undefined,
   }));
-  const listSessionSnapshots = async () => Promise.all((await sessionRepository.read()).map(async (session) => {
+  const listSessionSnapshots = async () => Promise.all((await sessionRepository.read()).filter((session) => !session.deletion).map(async (session) => {
     let files: string[];
     try { files = (await readdir(sessionDir(layout, session.id))).filter((file) => file.endsWith(".jsonl")); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return session; throw error; }
@@ -264,11 +263,11 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
               layout,
               sessionManager: manager,
               memory,
-              jobs,
+              jobs: { ...jobs, add: (prompt, daily, at) => conversationHub.withSession(sessionId, () => jobs.add(prompt, daily, at, sessionId)) },
               goals,
               actions,
               actionTimeoutMs: config.writable.actionTimeoutMs,
-              monitors,
+              monitors: { ...monitors, create: (input) => conversationHub.withSession(sessionId, () => monitors.create({ ...input, originSessionId: sessionId })) },
               web,
               weather,
               browser,
@@ -420,10 +419,12 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     await closeDatabases();
     throw error;
   }
-  const scheduler = createScheduler(config, jobs, mainConversation, (sessionId) => conversationHub.findSession(sessionId));
+  const scheduleBlocked = (sessionId: string, id: string): boolean =>
+    conversationHub.isDeleting(sessionId) || sessions.isScheduleBlocked(id);
+  const scheduler = createScheduler(config, jobs, mainConversation, (sessionId) => conversationHub.findSession(sessionId), scheduleBlocked);
   const monitorScheduler = createMonitorScheduler(
     { monitorScanIntervalMs: config.monitorScanIntervalMs, web }, monitors,
-    mainConversation, (sessionId) => conversationHub.findSession(sessionId),
+    mainConversation, (sessionId) => conversationHub.findSession(sessionId), scheduleBlocked,
   );
   let closed = false;
   let approvalExpiry: Promise<unknown> | undefined;
@@ -451,18 +452,12 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     repository: dreamRepository,
     notes: {
       readUser: () => readProfileFile(layout.userFile),
-      writeUser: async (content) => { await identity.saveProfile({ user: content }); },
       writeUserIfUnchanged: (content, expected) => identity.writeIfUnchanged("user", content, expected),
       readSoul: () => readProfileFile(layout.soulFile),
-      writeSoul: async (content) => { await identity.saveProfile({ soul: content }); },
       writeSoulIfUnchanged: (content, expected) => identity.writeIfUnchanged("soul", content, expected),
-      readInstructions: (sessionId) => readSessionInstructions(sessionInstructionsFile(layout, sessionId)),
-      writeInstructions: async (sessionId, content) => {
-        const written = await conversationHub.withExistingSession(sessionId, () => writeSessionInstructions(sessionInstructionsFile(layout, sessionId), content));
-        if (written === undefined) throw new Error("Source session no longer exists");
-      },
-      writeInstructionsIfUnchanged: async (sessionId, content, expected) =>
-        (await conversationHub.withExistingSession(sessionId, () => writeSessionInstructions(sessionInstructionsFile(layout, sessionId), content, expected))) ?? false,
+      readInstructions: () => readAssistantInstructions(layout.assistantInstructionsFile),
+      writeInstructionsIfUnchanged: (content, expected) =>
+        writeAssistantInstructions(layout.assistantInstructionsFile, content, expected),
     },
     memory,
     conversations: {
@@ -486,7 +481,9 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     desktopPort: config.browser.desktopPort,
   });
   const sessions = createSessionService({ repository: sessionRepository, storage: sessionStorage, hub: conversationHub,
-    jobs, monitors, actions, feedback: messageFeedbackRepository, pauseMain: () => information!.pause(), forgetPresence: workspaceEvents.presence.forget });
+    jobs, monitors, actions, feedback: messageFeedbackRepository, pauseMain: () => information!.pause(),
+    forgetPresence: workspaceEvents.presence.forget, isJobRunning: scheduler.isRunningFor,
+    settleMonitorDeliveries: monitorScheduler.settleDeliveriesFor });
   // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
   const traces = createModelTraceReader(layout.tracesDir);
   const dependencies = { companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, domainAgents, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, browserDesktop, messageFeedbackRepository };
@@ -519,6 +516,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     return closing;
   };
   try {
+    await sessions.recoverDeletions();
     await dream.describeAll();
     const app = await createHttpApp(dependencies);
     scheduler.start();

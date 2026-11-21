@@ -230,7 +230,7 @@ const execute = async (options: NewsLiveOptions) => {
     assert.equal(coldPreferences.learnedNotes, "");
     const sessions = (await expect("sessions", "/api/sessions", 200)) as { sessions: Array<{ id: string }> };
     assert.deepEqual(sessions.sessions.map((session)=>session.id),["main"]);
-    const instructions = (await expect("main instructions", "/api/sessions/main/instructions", 200)) as { instructions:string };
+    const instructions = (await expect("main instructions", "/api/assistant/instructions", 200)) as { instructions:string };
     assert.equal(coldPreferences.notes,instructions.instructions);
     // 合成新闻验收明确给出偏好，不把生产默认短信规则或默认技能开关当作推荐前提。
     const newsTestNotes = [

@@ -24,7 +24,7 @@ The home page groups controls under 「助手」 (Assistant), 「内容与信息
 2. Choose one of the 「温暖」 (warm), 「简洁」 (concise), or 「周到」 (thoughtful) tones. If the server returns a legacy tone unknown to this client, the page shows that value and asks you to choose a supported one.
 3. Tap 「保存助手设置」. Success shows 「身份已保存」, and the change marker disappears.
 
-The name and tone are global and take effect from the next turn without rewriting existing history or changing main's identity. Main instructions and skills are maintained under Assistant in Settings; tapping the centered avatar in Messages also opens main chat actions. Topic controls are deferred, so there is no session-management selection step.
+The name and tone are global and take effect from the next turn without rewriting existing history or changing main's identity. Assistant instructions and skills are shared across sessions and managed under Assistant in Settings. Tap the centered avatar in Messages for the current session’s activity and approvals. Use the session list to create, switch, or manage sessions.
 
 ### Save SOUL and USER {#save-soul-and-user}
 

@@ -20,7 +20,8 @@ export type SessionHub = {
   /** 只在会话确实存在时执行；查找到写入与 reset/delete 共享同一短生命周期锁。 */
   withExistingSession: <T>(sessionId: string, change: (conversation: Conversation) => Promise<T>) => Promise<T | undefined>;
   resetSession: <T>(sessionId: string, onReset: (hooks: SessionResetHooks) => Promise<T>) => Promise<T>;
-  deleteSession: <T>(sessionId: string, remove: () => Promise<T>) => Promise<T>;
+  deleteSession: <T>(sessionId: string, remove: () => Promise<T>, beforeClose?: () => Promise<void>) => Promise<T>;
+  isDeleting: (sessionId: string) => boolean;
   /** 内部任务结束后释放缓存；历史仍由 pi JSONL 保留。 */
   release: (sessionId: string) => Promise<void>;
   closeAll: () => Promise<void>;
@@ -172,11 +173,13 @@ export const createSessionHub = (
         return onReset({ closeCurrent, reopen });
       });
     },
-    deleteSession(id, remove) {
+    isDeleting: (id) => deleting.has(id),
+    deleteSession(id, remove, beforeClose) {
       writable(id);
       // 同步关门：不能只把删除排到队尾，否则新来源绑定会插到清理之后。
       deleting.add(id);
       return serial(id, async () => {
+        await beforeClose?.();
         const entry = cache.get(id);
         cache.delete(id);
         piSessionIds.delete(id);

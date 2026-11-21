@@ -96,7 +96,7 @@ const execute = async (options: { configPath: string }) => {
         body: JSON.stringify({ enabled, batchWindowSeconds: 3600 }),
       });
     const establishAgent = (sessionId: string) =>
-      expectApi(`/api/sessions/${sessionId}/instructions`, {
+      expectApi(`/api/assistant/instructions`, {
         method: "PUT",
         body: JSON.stringify({ instructions: "Information context live test agent." }),
       });

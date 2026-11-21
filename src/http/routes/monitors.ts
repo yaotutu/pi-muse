@@ -94,7 +94,6 @@ export const createMonitorsRoutes = (
       return c.json({ error: "contains condition needs a keyword", code: "KEYWORD_REQUIRED" }, 400);
     }
 
-    const targetAgent = parsed.data.originSessionId;
     const update = async () => {
       const updated = await monitors.update(c.req.param("id"), {
         title: parsed.data.title,
@@ -102,15 +101,12 @@ export const createMonitorsRoutes = (
         condition: parsed.data.condition,
         value: parsed.data.value,
         intervalMinutes: parsed.data.intervalMinutes,
-        originSessionId: targetAgent,
       });
       if (!updated) return c.json({ error: "Monitor not found", code: "MONITOR_NOT_FOUND" }, 404);
       return c.json(presentMonitor(updated));
     };
 
-    return targetAgent
-      ? conversationHub.withSession(targetAgent, update)
-      : update();
+    return conversationHub.withSession(existing.originSessionId ?? "main", update);
   });
 
   app.delete("/api/monitors/:id", async (c) => {

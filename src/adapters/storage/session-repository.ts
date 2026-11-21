@@ -1,11 +1,19 @@
 import { readFile, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { isSessionId, sessionDir, sessionInstructionsFile, type DataLayout } from "./data-layout.js";
+import { isSessionId, sessionDir, type DataLayout } from "./data-layout.js";
 import { writeJsonDocument } from "./json-document.js";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
-import type { SessionRecord, SessionRepository, SessionStorage } from "../../features/sessions/types.js";
+import type { SessionDeletion, SessionRepository, SessionStorage, StoredSessionRecord } from "../../features/sessions/types.js";
 
-const validate = (value: unknown): SessionRecord[] => {
+const validDeletion = (deletion: SessionDeletion | undefined) => {
+  if (deletion === undefined) return true;
+  const validItems = (items: unknown) => Array.isArray(items) && items.every((item) =>
+    item && typeof item.id === "string" && typeof item.title === "string");
+  return deletion && (deletion.scheduleDisposition === "delete" || deletion.scheduleDisposition === "move-to-main") &&
+    typeof deletion.schedules?.scheduleRevision === "string" && /^[a-f0-9]{64}$/.test(deletion.schedules.scheduleRevision) &&
+    validItems(deletion.schedules.jobs) && validItems(deletion.schedules.monitors);
+};
+const validate = (value: unknown): StoredSessionRecord[] => {
   if (!Array.isArray(value)) throw new Error("Invalid sessions document");
   const ids = new Set<string>();
   for (const record of value) {
@@ -13,10 +21,11 @@ const validate = (value: unknown): SessionRecord[] => {
       typeof record.title !== "string" || !record.title.trim() || record.title.length > 200 ||
       typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt)) ||
       typeof record.updatedAt !== "string" || !Number.isFinite(Date.parse(record.updatedAt)) ||
-      record.isMain !== (record.id === "main") || (record.isMain && record.title !== "默认会话")) throw new Error("Invalid sessions document");
+      !validDeletion(record.deletion) ||
+      record.isMain !== (record.id === "main") || (record.isMain && (record.title !== "默认会话" || record.deletion !== undefined))) throw new Error("Invalid sessions document");
     ids.add(record.id);
   }
-  return value as SessionRecord[];
+  return value as StoredSessionRecord[];
 };
 export const createSessionRepository = (file: string): SessionRepository => {
   const serial = createSerializedWriter();

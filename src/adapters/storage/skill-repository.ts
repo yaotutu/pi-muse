@@ -5,12 +5,10 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
 import type { DataLayout } from "./data-layout.js";
-import { sessionSkillsFile } from "./data-layout.js";
 import { getBuiltinSkillsDefaultsFile, getBuiltinSkillsDir } from "./builtin-skills.js";
 import { writeJsonDocument } from "./json-document.js";
 import { InvalidDocumentError } from "./document-schemas.js";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
-import { isSessionId } from "../../features/conversation/session-id.js";
 import type { SkillCatalog, SkillRepository, SkillSource } from "../../features/skills/port.js";
 
 const overridesSchema = z.strictObject({ overrides: z.record(z.string(), z.boolean()) });
@@ -141,10 +139,7 @@ const readOverrides = async (file: string): Promise<Record<string, boolean>> => 
 export const createSkillRepository = (layout: DataLayout, sharedSkillsDir = join(homedir(), ".agents", "skills")): SkillRepository => {
   const builtinDir = getBuiltinSkillsDir();
   const serialized = createSerializedWriter();
-  const fileFor = (sessionId: string) => {
-    if (!isSessionId(sessionId)) throw new Error("Invalid sessionId");
-    return sessionSkillsFile(layout, sessionId);
-  };
+  const file = layout.assistantSkillOverridesFile;
   const listSkills = async (): Promise<SkillCatalog> => {
     // 清单损坏属于自有资产损坏，直接失败；不静默回退成“内置全关”。
     const builtinDefaults = await readBuiltinDefaults();
@@ -174,9 +169,8 @@ export const createSkillRepository = (layout: DataLayout, sharedSkillsDir = join
         return { skill, content: await readSkillContent(path) };
       } catch { throw new Error("Cannot read skill content"); }
     }),
-    getSessionOverrides: (sessionId) => serialized(() => readOverrides(fileFor(sessionId))),
-    setSessionOverrides: (sessionId, overrides) => serialized(async () => {
-      const file = fileFor(sessionId);
+    getOverrides: () => serialized(() => readOverrides(file)),
+    setOverrides: (overrides) => serialized(async () => {
       await readOverrides(file);
       const document = overridesSchema.parse({ overrides });
       await mkdir(dirname(file), { recursive: true, mode: 0o700 });

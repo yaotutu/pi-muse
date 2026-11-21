@@ -59,7 +59,7 @@ export const saveProfileSchema = z.object({
 // ---------------------------------------------------------------------------
 // 来源会话会被用于通知投递，必须复用会话域的目录安全校验；未指定来源时投递主会话。
 const originSessionIdSchema = z.string().refine(isSessionId, "Invalid originSessionId")
-  .optional().describe("接收结果通知的来源会话：字母数字开头，可含 _ -，最长 64；创建时省略默认 main，PATCH 修改时省略保留原绑定。显式指定 ID 必须是已有会话；不存在返回404；删除进行中返回 409 SESSION_DELETING，客户端刷新会话列表后由用户重新选择，不自动重试旧 ID。删除来源会话将级联清理名下任务；来源不存在或删除后绝不改投主会话，目录不复活。");
+  .optional().describe("接收结果通知的已有会话 ID；省略使用 main。删除会话时由用户选择删除或转移所属任务。");
 
 export const jobsQuerySchema = z.strictObject({
   sessionId: z.string().refine(isSessionId, "Invalid sessionId").optional().describe("按归属会话过滤；省略表示不按会话过滤"),
@@ -77,7 +77,6 @@ export const updateJobSchema = z.strictObject({
   // at 刻意不做 min(1)：空字符串也交给领域排期校验，与其它非法值一样返回
   // 400 INVALID_SCHEDULE_FORMAT，而不是请求结构错误 INVALID_REQUEST。
   at: z.string().trim().max(64).optional().describe("设定时刻：daily=true 时为严格两位 'HH:mm'（00:00 至 23:59，前导零必填，如 '09:00'），按服务端本地时区解释，前端无需转换；daily=false 时为带时区偏移的 ISO 8601 时间戳（如 '2026-10-22T09:00:00+08:00'）。非法日程返回 400 INVALID_SCHEDULE_FORMAT，不自动进位、不写入"),
-  originSessionId: originSessionIdSchema,
 });
 
 // ---------------------------------------------------------------------------
@@ -142,7 +141,6 @@ export const updateMonitorSchema = z.strictObject({
   ),
   value: z.string().max(200).optional().describe("contains 条件的关键词"),
   intervalMinutes: z.number().int().min(5).max(1440).optional().describe("检查间隔（分钟），最小 5"),
-  originSessionId: originSessionIdSchema,
 });
 
 // ---------------------------------------------------------------------------
@@ -160,10 +158,12 @@ export const sessionRequestSchema = z.object({
 const sessionIdSchema = z.string().refine(isSessionId, "Invalid sessionId");
 export const createSessionSchema = z.strictObject({ title: z.string().trim().min(1).max(200).optional() });
 export const renameSessionSchema = z.strictObject({ title: z.string().trim().min(1).max(200) });
-export const resetSessionSchema = z.object({
-  clearSchedules: z.boolean().optional().describe("是否同时清理该会话绑定的定时任务与监控；默认 false 保留并转绑新会话"),
+export const resetSessionSchema = z.strictObject({});
+export const deleteSessionSchema = z.strictObject({
+  scheduleDisposition: z.enum(["delete", "move-to-main"]).describe("删除所属任务与监控，或保留并转到 main"),
+  scheduleRevision: z.string().regex(/^[a-f0-9]{64}$/).describe("最近一次读取该会话任务列表返回的确认值"),
 });
-export type ResetAgentRequestDto = z.infer<typeof resetSessionSchema>;
+export type ResetSessionRequestDto = z.infer<typeof resetSessionSchema>;
 const attachmentIdSchema = z.string().min(1).max(100).regex(/^[A-Za-z0-9._-]+$/);
 const attachmentNameSchema = z.string().min(1).max(200).refine(
   (value) => !value.includes("/") && !value.includes("\\") && !/[\u0000-\u001f\u007f]/.test(value),
@@ -232,14 +232,14 @@ export const stopRequestSchema = z.strictObject({
 });
 
 // ---------------------------------------------------------------------------
-// 技能：会话级开关覆盖
+// 技能：全局开关覆盖
 // ---------------------------------------------------------------------------
 export const updateSkillsSchema = z.object({
   overrides: z.record(z.string(), z.boolean()).describe("用户手动选择的技能开关，整份替换。键优先使用清单中的来源身份 id，也接受当前优先技能的 name；保存后绑定来源，不随同名替代转移。所有技能缺省关闭；未知或被高优先级覆盖的身份返回 400"),
 });
 
-// 会话专属规则/指令：下一轮对话注入生效；空串等于清空。
-export const saveInstructionsSchema = z.strictObject({ instructions: z.string().max(20000).describe("当前会话规则；下一轮重读，不扩大权限。空串清空") });
+// 共享助手指令：下一轮对话注入生效；空串等于清空。
+export const saveInstructionsSchema = z.strictObject({ instructions: z.string().max(20000).describe("共享助手指令；各会话下一轮重读，不扩大权限。空串清空") });
 
 // ---------------------------------------------------------------------------
 // Dream 后台记忆整理

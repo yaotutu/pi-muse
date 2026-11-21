@@ -66,7 +66,7 @@ for (const delegated of [false, true]) {
       runtime: { dataDir, runTimeoutMs: 12_000, schedulerIntervalMs: 60_000, monitorScanIntervalMs: 60_000 },
       tools: { web: { allowPrivateTargets: true, timeoutMs: 30_000 } },
     }));
-    await enableBuiltinSkills(service, "main", delegated ? ["web", "task"] : ["web"]);
+    await enableBuiltinSkills(service, delegated ? ["web", "task"] : ["web"]);
     const headers = { Authorization: `Bearer ${service.auth.login()}`, "content-type": "application/json" };
     const runId = randomUUID();
     const running = Promise.resolve(service.app.request("/api/conversation/run", {

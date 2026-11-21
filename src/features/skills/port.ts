@@ -1,4 +1,4 @@
-/** 技能目录事实与会话开关存储；物理路径仅供内部资源装配。 */
+/** 技能目录事实与助手开关存储；物理路径仅供内部资源装配。 */
 export type SkillSource = "builtin" | "user" | "shared";
 
 export type SkillMeta = {
@@ -17,6 +17,6 @@ export type SkillCatalog = { skills: SkillMeta[]; diagnostics: SkillDiagnostic[]
 export type SkillRepository = {
   listSkills(): Promise<SkillCatalog>;
   readSkill(name: string): Promise<{ skill: SkillMeta; content: string } | undefined>;
-  getSessionOverrides(sessionId: string): Promise<Record<string, boolean>>;
-  setSessionOverrides(sessionId: string, overrides: Record<string, boolean>): Promise<void>;
+  getOverrides(): Promise<Record<string, boolean>>;
+  setOverrides(overrides: Record<string, boolean>): Promise<void>;
 };

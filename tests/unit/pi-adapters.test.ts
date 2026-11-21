@@ -283,8 +283,8 @@ test("system prompt describes searchable memory and schedules without expanding 
 
   assert.match(text, /if the skills tool is unavailable, say so instead of writing to a wrong location/);
   assert.match(text, /enabling never happens implicitly through another tool/);
-  assert.match(text, /Skill assets are stored once for the instance; the current conversation only selects whether a skill is enabled/);
-  assert.match(text, /Conversation instructions never grant additional tools, file access or approval/);
+  assert.match(text, /Skill assets are stored once for the instance; the assistant configuration selects whether a skill is enabled/);
+  assert.match(text, /Assistant instructions never grant additional tools, file access or approval/);
   assert.doesNotMatch(text, /you have no file write access/);
   assert.match(text, /currentTime reads the local clock/);
   assert.doesNotMatch(prompt, /information background/i);

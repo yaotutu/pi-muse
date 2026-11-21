@@ -84,7 +84,7 @@ const readOptional = async (file: string) => {
 test("Stop cancels a pending write approval without changing the existing file", async (t) => {
   const h = await createFixture(t);
   const service = await h.startService();
-  await enableBuiltinSkills(service, "main", ["write"]);
+  await enableBuiltinSkills(service, ["write"]);
   const target = join(h.layout.workspaceDir, "draft.md");
   const original = "EXISTING-DRAFT must survive Stop\n";
   await mkdir(dirname(target), { recursive: true });

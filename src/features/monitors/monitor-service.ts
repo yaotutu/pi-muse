@@ -81,7 +81,6 @@ export const createMonitorService = (repository: MonitorRepository) => {
         condition?: MonitorCondition;
         value?: string;
         intervalMinutes?: number;
-        originSessionId?: string;
       },
     ): Promise<Monitor | undefined> =>
       repository.update((items) => {
@@ -102,9 +101,6 @@ export const createMonitorService = (repository: MonitorRepository) => {
         const urlChanged = input.url !== undefined && input.url.trim() !== monitor.url;
         const conditionChanged = input.condition !== undefined && input.condition !== monitor.condition;
         const valueChanged = input.value !== undefined && nextValue !== monitor.value;
-        const currentOrigin = monitor.originSessionId ?? "main";
-        const nextOrigin = input.originSessionId ?? currentOrigin;
-        const originChanged = input.originSessionId !== undefined && nextOrigin !== currentOrigin;
 
         if (input.url !== undefined) {
           monitor.url = input.url.trim();
@@ -116,17 +112,11 @@ export const createMonitorService = (repository: MonitorRepository) => {
           monitor.intervalMinutes = Math.max(MIN_INTERVAL_MINUTES, input.intervalMinutes);
         }
 
-        if (input.originSessionId !== undefined) {
-          monitor.originSessionId = nextOrigin;
-        }
-
         if (urlChanged || conditionChanged || valueChanged) {
           monitor.lastFingerprint = undefined;
           monitor.lastMatched = undefined;
           monitor.pendingNotification = undefined;
           monitor.error = undefined;
-        } else if (originChanged) {
-          monitor.pendingNotification = undefined;
         }
         return { items, result: monitor };
       }),
@@ -151,19 +141,11 @@ export const createMonitorService = (repository: MonitorRepository) => {
         const count = items.length - next.length;
         return { items: next, result: count };
       }),
-    /** 重置会话会话但保留监控时，清空尚未投递的旧通知，避免污染新会话。 */
-    clearPendingByOriginSessionId: (originSessionId: string): Promise<number> =>
-      repository.update((items) => {
-        let cleared = 0;
-        for (const item of items) {
-          const itemOrigin = item.originSessionId ?? "main";
-          if (itemOrigin === originSessionId && item.pendingNotification) {
-            item.pendingNotification = undefined;
-            cleared++;
-          }
-        }
-        return cleared ? { items, result: cleared } : { result: 0 };
-      }),
+    /** 保留通知 ID 与摘要，待投递结果跟随归属转移。 */
+    moveByOriginSessionId: (from: string, to: string): Promise<void> => repository.update((items) => ({
+      items: items.map((item) => (item.originSessionId ?? "main") === from ? { ...item, originSessionId: to } : item),
+      result: undefined,
+    })),
     /**
      * 执行一次检查并落盘。body 是抓取到的正文（由 scheduler 注入，复用 web
      * 安全边界）；失败时调用方传 error。去重语义在域内：

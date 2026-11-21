@@ -10,11 +10,10 @@ export const createService = (
   ...options,
 });
 
-/** 显式保存本会话测试所需的整份内置技能开关；不继承 main 或改变生产默认。 */
+/** 显式保存测试所需的整份内置技能开关；不改变生产默认。 */
 export const enableBuiltinSkills = async (
   service: Awaited<ReturnType<typeof createProductionService>>,
-  sessionId: string,
   names: readonly string[],
-) => service.skills.updateSessionOverrides(sessionId,
+) => service.skills.updateOverrides(
   Object.fromEntries(names.map((name) => [`builtin/${name}`, true])),
 );

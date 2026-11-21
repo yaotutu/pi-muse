@@ -17,31 +17,29 @@ const metadata = (skill: SkillMeta, overrides: Record<string, boolean>) => ({
   enabled: isEnabled(skill, overrides),
 });
 
-/** 会话只保存覆盖；目录扫描与文件写入由注入的 repository 承担。 */
+/** 助手配置只保存覆盖；目录扫描与文件写入由注入的 repository 承担。 */
 export const createSkillsService = (repository: SkillRepository) => {
-  const describeSession = async (sessionId: string) => {
+  const describe = async () => {
     const { skills, diagnostics } = await repository.listSkills();
-    const overrides = await repository.getSessionOverrides(sessionId);
+    const overrides = await repository.getOverrides();
     return { skills: skills.map((skill) => metadata(skill, overrides)), diagnostics };
   };
   return {
-    describeSession,
-    describeAuthoring: describeSession,
+    describe,
     findSkill: async (name: string) => (await repository.listSkills()).skills.find((skill) => skill.name === name),
-    getEffectiveSkills: async (sessionId: string) => (await describeSession(sessionId)).skills,
-    getEnabledSkillDefinitions: async (sessionId: string): Promise<SkillMeta[]> => {
+    getEnabledSkillDefinitions: async (): Promise<SkillMeta[]> => {
       const { skills } = await repository.listSkills();
-      const overrides = await repository.getSessionOverrides(sessionId);
+      const overrides = await repository.getOverrides();
       return skills.filter((skill) => isEnabled(skill, overrides));
     },
-    describeSkill: async (sessionId: string, name: string) => {
+    describeSkill: async (name: string) => {
       const result = await repository.readSkill(name);
       if (!result) throw new UnknownSkillError("Unknown skill");
-      const overrides = await repository.getSessionOverrides(sessionId);
+      const overrides = await repository.getOverrides();
       return { ...metadata(result.skill, overrides), content: result.content };
     },
     /** 手动整份保存解析当前 winner，绑定来源；旧文件只在用户主动保存时规范化。 */
-    updateSessionOverrides: async (sessionId: string, overrides: Record<string, boolean>) => {
+    updateOverrides: async (overrides: Record<string, boolean>) => {
       const { skills } = await repository.listSkills();
       const winners = new Map(skills.flatMap((skill) => [[skill.name, skill], [skill.id, skill]]));
       const normalized: Record<string, boolean> = {};
@@ -50,7 +48,7 @@ export const createSkillsService = (repository: SkillRepository) => {
         if (!skill) throw new UnknownSkillError("Unknown skill name or source ID");
         normalized[skill.id] = enabled;
       }
-      await repository.setSessionOverrides(sessionId, normalized);
+      await repository.setOverrides(normalized);
     },
   };
 };

@@ -7,16 +7,13 @@ import {
   composePrompt,
   DEFAULT_DREAM_PROMPT,
   fixedRules,
-  INSTRUCTIONS_LIMIT,
 } from "./prompt.js";
 import {
   appendInstructions,
   appendNote,
   planProposal,
-  readPurpose,
   type ProposedChange,
 } from "./proposal.js";
-import { purposeChanged } from "./purpose.js";
 import type {
   DreamMessage,
   DreamPending,
@@ -29,18 +26,11 @@ import { sliceWindow, splitBatches } from "./window.js";
 
 export type DreamNotesPort = {
   readUser: () => Promise<string>;
-  writeUser: (content: string) => Promise<void>;
   writeUserIfUnchanged: (content: string, expected: string) => Promise<boolean>;
   readSoul: () => Promise<string>;
-  writeSoul: (content: string) => Promise<void>;
   writeSoulIfUnchanged: (content: string, expected: string) => Promise<boolean>;
-  readInstructions: (sessionId: string) => Promise<string>;
-  writeInstructions: (sessionId: string, content: string) => Promise<void>;
-  writeInstructionsIfUnchanged: (
-    sessionId: string,
-    content: string,
-    expected: string,
-  ) => Promise<boolean>;
+  readInstructions: () => Promise<string>;
+  writeInstructionsIfUnchanged: (content: string, expected: string) => Promise<boolean>;
 };
 
 export type DreamPromptsPort = {
@@ -209,15 +199,13 @@ export const createDreamService = (deps: DreamDependencies) => {
             repository.readGlobalPrompt(),
             notes.readUser(),
             notes.readSoul(),
-            notes.readInstructions(sessionId),
+            notes.readInstructions(),
             memory.list(),
           ]);
-        const purpose = readPurpose(instructions);
-        const isMain = sessionId === "main";
         const systemPrompt =
           composePrompt(globalPrompt) +
           "\n\n" +
-          fixedRules(purpose, isMain);
+          fixedRules();
         const userPrompt = buildDreamInput(batch, {
           user,
           soul,
@@ -244,59 +232,10 @@ export const createDreamService = (deps: DreamDependencies) => {
         }
 
         const plan = planProposal(proposed.changes, {
-          isMain,
-          hasPurpose: Boolean(purpose),
           existingMemoryIds: new Set(memories.map((item) => item.id)),
-          instructions,
         });
 
-        // 1. USER.md：合并本批全部 user 建议后做一次条件写入，版本不符则放弃覆盖。
-        let nextUser = user;
-        for (const item of plan.apply) {
-          if (item.target === "user") nextUser = appendNote(nextUser, item.text);
-        }
-        if (nextUser !== user) {
-          const ok = await notes.writeUserIfUnchanged(nextUser, user);
-          if (ok) changed.add("user");
-          else fail("USER.md was modified concurrently; skipped overwriting");
-        }
-
-        // 2. SOUL.md：同理按读取版本条件写入。
-        let nextSoul = soul;
-        for (const item of plan.apply) {
-          if (item.target === "soul") nextSoul = appendNote(nextSoul, item.text);
-        }
-        if (nextSoul !== soul) {
-          const ok = await notes.writeSoulIfUnchanged(nextSoul, soul);
-          if (ok) changed.add("soul");
-          else fail("SOUL.md was modified concurrently; skipped overwriting");
-        }
-
-        // 3. INSTRUCTIONS.md：提交前再次核查会话仍存在、用途段未变且未超上限。
-        let nextInstructions = instructions;
-        for (const item of plan.apply) {
-          if (item.target === "instructions") {
-            nextInstructions = appendInstructions(nextInstructions, item.text);
-          }
-        }
-        if (nextInstructions !== instructions) {
-          if (
-            purposeChanged(instructions, nextInstructions) ||
-            nextInstructions.length > INSTRUCTIONS_LIMIT
-          ) {
-            fail("Instructions change rejected by safety check");
-          } else if (await checkAgentExists(sessionId)) {
-            const ok = await notes.writeInstructionsIfUnchanged(
-              sessionId,
-              nextInstructions,
-              instructions,
-            );
-            if (ok) changed.add("instructions");
-            else fail("INSTRUCTIONS.md was modified concurrently; skipped overwriting");
-          }
-        }
-
-        // 4. memory.json：走同一个 MemoryService，按文本去重，上限错误记录为受控失败。
+        // 只有记忆建议可直接写入，助手指令及资料始终经全局待决列表确认。
         const existingMemoryTexts = new Set(
           memories.map((entry) => entry.text.replace(/\s+/g, " ").trim()),
         );
@@ -424,21 +363,28 @@ export const createDreamService = (deps: DreamDependencies) => {
       const sessionId = found.sourceSessionId ?? "main";
       if (decision.action === "apply") {
         const target = decision.target ?? found.suggestedTarget;
-        if (target === "instructions" && !(await checkAgentExists(sessionId))) return { ok: false, code: "not_found", message: "Source session no longer exists" };
         try {
           if (target === "user") {
             const current = await notes.readUser();
-            await notes.writeUser(appendNote(current, found.text));
+            const next = appendNote(current, found.text);
+            if (next !== current && !(await notes.writeUserIfUnchanged(next, current))) {
+              return { ok: false, code: "conflict", message: "User profile changed concurrently; review and retry" };
+            }
           } else if (target === "soul") {
             const current = await notes.readSoul();
-            await notes.writeSoul(appendNote(current, found.text));
+            const next = appendNote(current, found.text);
+            if (next !== current && !(await notes.writeSoulIfUnchanged(next, current))) {
+              return { ok: false, code: "conflict", message: "Assistant persona changed concurrently; review and retry" };
+            }
           } else if (target === "instructions") {
-            const current = await notes.readInstructions(sessionId);
+            const current = await notes.readInstructions();
             const next = appendInstructions(current, found.text);
             if (next.length > 20_000) {
               return { ok: false, code: "conflict", message: "Instructions exceed maximum length" };
             }
-            await notes.writeInstructions(sessionId, next);
+            if (next !== current && !(await notes.writeInstructionsIfUnchanged(next, current))) {
+              return { ok: false, code: "conflict", message: "Assistant instructions changed concurrently; review and retry" };
+            }
           } else {
             await memory.add(found.text, `dream:${sessionId}`);
           }

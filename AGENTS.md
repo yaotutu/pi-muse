@@ -42,7 +42,7 @@ pnpm test:live --config <protected-config-path> --allow-live
 - **组装与执行**：`src/index.ts` 负责配置、监听和信号退出；`src/bootstrap/create-service.ts` 创建唯一服务容器、repository、共享模型 runtime 和调度器。HTTP 和工具复用已注入实例，不能各开一份 writer 或 scheduler。
 - **依赖方向**：`features/` 持有业务规则与最小 ports；`adapters/` 实现 pi、存储、安全网络、浏览器与 AG-UI；`http/` 是薄路由/鉴权/契约/presenter。feature 不依赖 Hono、pi SDK 或具体文件系统 adapter，依赖测试在 `tests/unit/dependencies.test.ts`。新能力先确定权限、审批、取消和失败语义；开发 Agent 能用的工具不等于产品模型可以使用。
 - **执行与历史**：pi `createAgentSession` 负责 agent loop，`SessionManager`/JSONL 是正文、附件与工具事实权威。`adapters/pi/session-factory.ts` 装配工具和资源，`execution.ts` 处理事件/取消/错误脱敏；不自造循环或另一份聊天历史。
-- **助手与会话**：`features/sessions` 管理永久 `main` 与专题会话，`features/conversation` 按公开 `sessionId` 协调运行；`piSessionId` 随重置变化。每会话指令与历史分开，文件使用唯一 `workspace/`。subagent 只是继承父轮实际工具上限的内存执行工具，无独立业务身份、历史或目录。
+- **助手与会话**：`features/sessions` 管理永久 `main` 与专题会话，`features/conversation` 按公开 `sessionId` 协调运行；`piSessionId` 随重置变化。助手指令、技能开关、长期记忆与文件全局共享，聊天历史和运行按会话隔离。定时任务和监控按会话归属，删除时显式删除或转到 `main`。subagent 只是继承父轮实际工具上限的内存执行工具，无独立业务身份、历史或目录。
 - **业务事实**：反馈、信息处理、新闻源、任务等由各自 storage repository 管理；这些不是另一份聊天历史，不为它们复制正文历史或隐式改变聊天 revision。新闻与短信以 `features/domain-agents` 注册为独立后台领域子 Agent，各自维护独立规则板与提示词且后台不注入聊天技能；主会话通过 `domain_agent` 工具协同查看/更新其规则（支持 `auto` / `confirm` 授权策略）。重要短信通知只向默认会话追加通知，携带显式 `domainId`，默认不进入主聊天上下文，仅在用户引用时进入；新闻引用由用户带入主聊天草稿。Dream 为全局整理状态。
 - **文件与审批**：文件路径统一由 `adapters/storage/data-layout.ts` 声明。模型 write/edit 走版本绑定审批，手动 HTTP 文件管理走完整预览确认；共享提交队列，但不能互相绕过授权。
 - **生命周期**：关闭先停止执行源、拒绝新工作，再取消运行并等待副作用和资源清理。取消不回滚已有副作用，不恢复未完成模型轮，不自动重试业务写入。

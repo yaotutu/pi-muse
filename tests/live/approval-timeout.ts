@@ -384,11 +384,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean; ex
     if (baseUrl && service && authToken) {
       for (const sessionId of createdSessionIds) {
         try {
-          const res = await fetch(`${baseUrl}/api/sessions/${sessionId}`, {
-            method: "DELETE",
-            headers: { Authorization: `Bearer ${authToken}` },
-            signal: AbortSignal.timeout(5000),
-          });
+          const res = await createTestClient(() => baseUrl, authToken, 5_000).requestSessionDeletion(sessionId);
           if (res.ok || res.status === 404) {
             // 确认智能体已真正被删除
             const verifyRes: Response = await fetch(`${baseUrl}/api/sessions`, {

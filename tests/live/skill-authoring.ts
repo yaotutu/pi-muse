@@ -146,12 +146,12 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.equal(await readFile(join(dataDir, "skills", skillName, "SKILL.md"), "utf8"), firstSkill);
     assert.equal(await readFile(join(dataDir, "skills", skillName, "references", "seasoning.md"), "utf8"), resource);
     await absent(join(dataDir, "skills", skillName, "config.json"));
-    const beforeEnable = await client.json(`/api/sessions/${sessionId}/skills`) as { skills: { name: string; enabled: boolean }[] };
+    const beforeEnable = await client.json(`/api/assistant/skills`) as { skills: { name: string; enabled: boolean }[] };
     assert.equal(beforeEnable.skills.find((skill) => skill.name === skillName)?.enabled, false);
-    await client.json(`/api/sessions/${sessionId}/skills`, { overrides: {
+    await client.json(`/api/assistant/skills`, { overrides: {
       "builtin/skill-creator": true, [`user/${skillName}`]: true,
     } }, "PUT");
-    const afterEnable = await client.json(`/api/sessions/${sessionId}/skills`) as { skills: { name: string; enabled: boolean }[] };
+    const afterEnable = await client.json(`/api/assistant/skills`) as { skills: { name: string; enabled: boolean }[] };
     assert.equal(afterEnable.skills.find((skill) => skill.name === skillName)?.enabled, true);
     record("real-model-authoring-and-enable", { approvalScope: "skill", savedFiles: 2, defaultEnabled: false, enabled: true });
 

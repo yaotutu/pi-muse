@@ -3,10 +3,10 @@ import { test } from "node:test";
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createDataLayout, sessionSkillsFile, sessionInstructionsFile } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout } from "../../src/adapters/storage/data-layout.js";
 import { createSkillRepository } from "../../src/adapters/storage/skill-repository.js";
 import { createSkillsService, UnknownSkillError } from "../../src/features/skills/service.js";
-import { readSessionInstructions, writeSessionInstructions } from "../../src/adapters/storage/session-instructions.js";
+import { readAssistantInstructions, writeAssistantInstructions } from "../../src/adapters/storage/assistant-instructions.js";
 import { instructionsTool } from "../../src/adapters/pi/tools/instructions.js";
 
 const sessionId = "00000000-0000-4000-8000-000000000001";
@@ -29,14 +29,14 @@ const fixture = async (t: { after: (fn: () => Promise<void>) => void }) => {
 
 test("skill overrides only default on missing files and preserve damaged documents", async (t) => {
   const { layout, repository } = await fixture(t);
-  assert.deepEqual(await repository.getSessionOverrides(sessionId), {});
-  const file = sessionSkillsFile(layout, sessionId);
+  assert.deepEqual(await repository.getOverrides(), {});
+  const file = layout.assistantSkillOverridesFile;
   await assert.rejects(stat(dirname(file)), { code: "ENOENT" });
   await mkdir(dirname(file), { recursive: true });
   for (const original of ["{broken", "[]", '{"overrides":{"cron":"yes"}}', '{"overrides":{},"schemaVersion":1}']) {
     await writeFile(file, original);
-    await assert.rejects(repository.getSessionOverrides(sessionId), /Invalid skills-overrides document/);
-    await assert.rejects(repository.setSessionOverrides(sessionId, { cron: false }), /Invalid skills-overrides document/);
+    await assert.rejects(repository.getOverrides(), /Invalid skills-overrides document/);
+    await assert.rejects(repository.setOverrides({ cron: false }), /Invalid skills-overrides document/);
     assert.equal(await readFile(file, "utf8"), original);
   }
 });
@@ -64,14 +64,12 @@ test("built-ins follow the shipped default manifest; shared and created skills d
   assert.ok(catalog.skills.some((skill) => skill.id === "user/custom-meta"));
   assert.equal(await readFile(join(directory, "config.json"), "utf8"), original);
   assert.deepEqual(await readdir(directory), ["SKILL.md", "config.json"]);
-  const described = await service.describeSession(sessionId);
+  const described = await service.describe();
   assert.ok(described.skills.every((skill) => skill.enabled === skill.defaultEnabled), "无手动选择时按默认值生效");
-  assert.deepEqual((await service.getEnabledSkillDefinitions(sessionId)).map((skill) => skill.id),
+  assert.deepEqual((await service.getEnabledSkillDefinitions()).map((skill) => skill.id),
     described.skills.filter((skill) => skill.enabled).map((skill) => skill.id));
-  assert.deepEqual(await service.describeAuthoring(sessionId), described);
-  assert.deepEqual(await service.getEffectiveSkills(sessionId), described.skills);
   assert.ok(described.skills.every((skill) => !("path" in skill)));
-  await assert.rejects(stat(dirname(sessionSkillsFile(layout, sessionId))), { code: "ENOENT" });
+  await assert.rejects(stat(dirname(layout.assistantSkillOverridesFile)), { code: "ENOENT" });
 });
 
 test("priority is user > builtin > shared and a disabled winner never falls back", async (t) => {
@@ -79,18 +77,18 @@ test("priority is user > builtin > shared and a disabled winner never falls back
   const builtin = (await repository.listSkills()).skills.find((skill) => skill.source === "builtin")!;
   await putSkill(shared, builtin.name);
   assert.equal((await service.findSkill(builtin.name))?.source, "builtin");
-  await service.updateSessionOverrides(sessionId, { [builtin.id]: true });
+  await service.updateOverrides({ [builtin.id]: true });
   const directory = await putSkill(layout.skillsDir, builtin.name);
   assert.equal((await service.findSkill(builtin.name))?.source, "user");
-  assert.equal((await service.describeSkill(sessionId, builtin.name)).enabled, false);
-  assert.ok((await service.getEnabledSkillDefinitions(sessionId)).every((skill) => skill.name !== builtin.name), "关闭的自有覆盖不回退到内置默认开启");
-  await assert.rejects(service.updateSessionOverrides(sessionId, { [builtin.id]: true }), UnknownSkillError);
-  await service.updateSessionOverrides(sessionId, { [builtin.name]: true });
-  assert.deepEqual(await repository.getSessionOverrides(sessionId), { [`user/${builtin.name}`]: true });
+  assert.equal((await service.describeSkill(builtin.name)).enabled, false);
+  assert.ok((await service.getEnabledSkillDefinitions()).every((skill) => skill.name !== builtin.name), "关闭的自有覆盖不回退到内置默认开启");
+  await assert.rejects(service.updateOverrides({ [builtin.id]: true }), UnknownSkillError);
+  await service.updateOverrides({ [builtin.name]: true });
+  assert.deepEqual(await repository.getOverrides(), { [`user/${builtin.name}`]: true });
   await rm(directory, { recursive: true });
   // 选择仍绑定 user 来源；builtin 凭自身默认值恢复生效，不继承 user 的显式开启。
-  assert.equal((await service.describeSkill(sessionId, builtin.name)).enabled, true);
-  assert.deepEqual((await repository.getSessionOverrides(sessionId)), { [`user/${builtin.name}`]: true });
+  assert.equal((await service.describeSkill(builtin.name)).enabled, true);
+  assert.deepEqual((await repository.getOverrides()), { [`user/${builtin.name}`]: true });
   const catalog = await repository.listSkills();
   assert.equal(catalog.skills.filter((skill) => skill.name === builtin.name).length, 1);
   assert.ok(catalog.diagnostics.some((item) => /shadowed/.test(item.message)));
@@ -99,16 +97,16 @@ test("priority is user > builtin > shared and a disabled winner never falls back
 test("manual choices bind to the winning source when sources appear or disappear", async (t) => {
   const { layout, shared, repository, service } = await fixture(t);
   await putSkill(shared, "switchable");
-  await service.updateSessionOverrides(sessionId, { switchable: true });
-  assert.deepEqual(await repository.getSessionOverrides(sessionId), { "shared/switchable": true });
+  await service.updateOverrides({ switchable: true });
+  assert.deepEqual(await repository.getOverrides(), { "shared/switchable": true });
   const own = await putSkill(layout.skillsDir, "switchable");
-  assert.equal((await service.describeSkill(sessionId, "switchable")).enabled, false);
-  await service.updateSessionOverrides(sessionId, { "user/switchable": true });
+  assert.equal((await service.describeSkill("switchable")).enabled, false);
+  await service.updateOverrides({ "user/switchable": true });
   await rm(own, { recursive: true });
-  const described = await service.describeSkill(sessionId, "switchable");
+  const described = await service.describeSkill("switchable");
   assert.equal(described.source, "shared");
   assert.equal(described.enabled, false);
-  const enabledAfterSwitch = await service.getEnabledSkillDefinitions(sessionId);
+  const enabledAfterSwitch = await service.getEnabledSkillDefinitions();
   assert.ok(enabledAfterSwitch.every((skill) => skill.name !== "switchable"), "来源切换后目标技能不再装配");
   assert.ok(enabledAfterSwitch.some((skill) => skill.source === "builtin"), "内置默认开启不受来源切换影响");
 });
@@ -118,28 +116,28 @@ test("legacy name overrides retain own choices without authorizing shared skills
   const builtin = (await repository.listSkills()).skills.find((skill) => skill.source === "builtin")!;
   const own = await putSkill(layout.skillsDir, "legacy");
   await putSkill(shared, "legacy");
-  await repository.setSessionOverrides(sessionId, { [builtin.name]: true, legacy: true });
-  const file = sessionSkillsFile(layout, sessionId);
+  await repository.setOverrides({ [builtin.name]: true, legacy: true });
+  const file = layout.assistantSkillOverridesFile;
   const before = await readFile(file, "utf8");
-  assert.equal((await service.describeSkill(sessionId, builtin.name)).enabled, true);
-  assert.equal((await service.describeSkill(sessionId, "legacy")).enabled, true);
+  assert.equal((await service.describeSkill(builtin.name)).enabled, true);
+  assert.equal((await service.describeSkill("legacy")).enabled, true);
   assert.equal(await readFile(file, "utf8"), before);
   await rm(own, { recursive: true });
-  assert.equal((await service.describeSkill(sessionId, "legacy")).enabled, false);
+  assert.equal((await service.describeSkill("legacy")).enabled, false);
   assert.equal(await readFile(file, "utf8"), before);
-  await service.updateSessionOverrides(sessionId, { [builtin.name]: true, legacy: false });
-  assert.deepEqual(await repository.getSessionOverrides(sessionId), { [builtin.id]: true, "shared/legacy": false });
+  await service.updateOverrides({ [builtin.name]: true, legacy: false });
+  assert.deepEqual(await repository.getOverrides(), { [builtin.id]: true, "shared/legacy": false });
 });
 
 test("prototype-like names stay disabled and an explicit source choice takes precedence over legacy state", async (t) => {
   const { layout, repository, service } = await fixture(t);
   await putSkill(layout.skillsDir, "constructor");
-  assert.equal((await service.describeSkill(sessionId, "constructor")).enabled, false);
-  assert.ok((await service.getEnabledSkillDefinitions(sessionId)).every((skill) => skill.source === "builtin"));
-  await repository.setSessionOverrides(sessionId, { constructor: true, "user/constructor": false });
-  assert.equal((await service.describeSkill(sessionId, "constructor")).enabled, false);
-  await service.updateSessionOverrides(sessionId, { constructor: true });
-  assert.equal((await service.describeSkill(sessionId, "constructor")).enabled, true);
+  assert.equal((await service.describeSkill("constructor")).enabled, false);
+  assert.ok((await service.getEnabledSkillDefinitions()).every((skill) => skill.source === "builtin"));
+  await repository.setOverrides({ constructor: true, "user/constructor": false });
+  assert.equal((await service.describeSkill("constructor")).enabled, false);
+  await service.updateOverrides({ constructor: true });
+  assert.equal((await service.describeSkill("constructor")).enabled, true);
 });
 
 test("shared entry symlinks load their canonical skill root, but linked files and resources are rejected", async (t) => {
@@ -150,7 +148,7 @@ test("shared entry symlinks load their canonical skill root, but linked files an
   const skill = await service.findSkill("portable");
   assert.equal(skill?.path, await realpath(canonical));
   assert.equal(skill?.id, "shared/portable");
-  assert.equal((await service.describeSkill(sessionId, "portable")).content, document("portable"));
+  assert.equal((await service.describeSkill("portable")).content, document("portable"));
   const aliasTarget = await putSkill(join(root, "packages"), "portable-alias");
   await symlink(aliasTarget, join(shared, "Directory_Alias"), "dir");
   assert.equal((await service.findSkill("portable-alias"))?.path, await realpath(aliasTarget));
@@ -202,15 +200,15 @@ test("skill details contain full bounded UTF-8 content and unknown or oversized 
   const prefix = document("bounded", "");
   const content = prefix + "x".repeat(100 * 1024 - Buffer.byteLength(prefix));
   await putSkill(layout.skillsDir, "bounded", content);
-  await service.updateSessionOverrides(sessionId, { bounded: true });
-  const described = await service.describeSkill(sessionId, "bounded");
+  await service.updateOverrides({ bounded: true });
+  const described = await service.describeSkill("bounded");
   assert.equal(described.content, content);
   assert.equal(described.id, "user/bounded");
   assert.equal(described.source, "user");
   assert.equal(described.defaultEnabled, false);
   assert.equal(described.enabled, true);
   assert.ok(!("path" in described));
-  const enabled = await service.getEnabledSkillDefinitions(sessionId);
+  const enabled = await service.getEnabledSkillDefinitions();
   assert.ok(enabled.some((skill) => skill.id === "user/bounded" && skill.path === join(layout.skillsDir, "bounded")));
   assert.ok(enabled.some((skill) => skill.source === "builtin"), "内置默认开启与显式自建选择并存");
   assert.ok(enabled.every((skill) => skill.id === "user/bounded" || skill.source === "builtin"));
@@ -219,8 +217,8 @@ test("skill details contain full bounded UTF-8 content and unknown or oversized 
   await writeFile(join(layout.skillsDir, "invalid-utf8", "SKILL.md"), Buffer.from([0xff]));
   assert.equal(await repository.readSkill("oversized"), undefined);
   assert.equal(await repository.readSkill("missing"), undefined);
-  await assert.rejects(service.describeSkill(sessionId, "oversized"), UnknownSkillError);
-  await assert.rejects(service.describeSkill(sessionId, "missing"), UnknownSkillError);
+  await assert.rejects(service.describeSkill("oversized"), UnknownSkillError);
+  await assert.rejects(service.describeSkill("missing"), UnknownSkillError);
   const catalog = await repository.listSkills();
   assert.ok(catalog.diagnostics.some((item) => item.path === "shared/oversized"));
   assert.ok(!catalog.skills.some((item) => item.name === "invalid-utf8"));
@@ -229,32 +227,32 @@ test("skill details contain full bounded UTF-8 content and unknown or oversized 
 test("overrides replace serially with private permissions and unknown names fail without writing", async (t) => {
   const { layout, repository, service } = await fixture(t);
   const builtin = (await repository.listSkills()).skills.find((skill) => skill.source === "builtin")!;
-  const writes = Array.from({ length: 12 }, (_, index) => service.updateSessionOverrides(sessionId, { [builtin.name]: index % 2 === 0 }));
+  const writes = Array.from({ length: 12 }, (_, index) => service.updateOverrides({ [builtin.name]: index % 2 === 0 }));
   await Promise.all(writes);
-  assert.deepEqual(await repository.getSessionOverrides(sessionId), { [builtin.id]: false });
-  const file = sessionSkillsFile(layout, sessionId);
+  assert.deepEqual(await repository.getOverrides(), { [builtin.id]: false });
+  const file = layout.assistantSkillOverridesFile;
   assert.equal((await stat(file)).mode & 0o777, 0o600);
   assert.deepEqual(await readdir(dirname(file)), ["skills.json"]);
   const before = await readFile(file, "utf8");
-  await assert.rejects(service.updateSessionOverrides(sessionId, { "unknown-skill": true }), UnknownSkillError);
-  await assert.rejects(service.updateSessionOverrides(sessionId, { [`shared/${builtin.name}`]: true }), UnknownSkillError);
+  await assert.rejects(service.updateOverrides({ "unknown-skill": true }), UnknownSkillError);
+  await assert.rejects(service.updateOverrides({ [`shared/${builtin.name}`]: true }), UnknownSkillError);
   assert.equal(await readFile(file, "utf8"), before);
-  await service.updateSessionOverrides(sessionId, {});
-  assert.deepEqual(await repository.getSessionOverrides(sessionId), {});
+  await service.updateOverrides({});
+  assert.deepEqual(await repository.getOverrides(), {});
 });
 
 test("agent instructions share an atomic writer and a missing tool argument cannot clear rules", async (t) => {
   const { layout } = await fixture(t);
-  const file = sessionInstructionsFile(layout, sessionId);
-  assert.equal(await readSessionInstructions(file), "");
-  await Promise.all([writeSessionInstructions(file, "first"), writeSessionInstructions(file, "second")]);
-  assert.equal(await readSessionInstructions(file), "second");
+  const file = layout.assistantInstructionsFile;
+  assert.equal(await readAssistantInstructions(file), "");
+  await Promise.all([writeAssistantInstructions(file, "first"), writeAssistantInstructions(file, "second")]);
+  assert.equal(await readAssistantInstructions(file), "second");
   assert.equal((await stat(file)).mode & 0o777, 0o600);
-  const tool = instructionsTool(layout, sessionId);
+  const tool = instructionsTool(layout);
   const denied = await tool.execute("id", { action: "set" }, undefined, undefined, {} as never);
   assert.equal(denied.isError, true);
-  assert.equal(await readSessionInstructions(file), "second");
+  assert.equal(await readAssistantInstructions(file), "second");
   await tool.execute("clear", { action: "set", content: "" }, undefined, undefined, {} as never);
-  assert.equal(await readSessionInstructions(file), "");
+  assert.equal(await readAssistantInstructions(file), "");
   assert.deepEqual(await readdir(dirname(file)), ["INSTRUCTIONS.md"]);
 });

@@ -105,7 +105,8 @@ test("main is permanent, sessions have server UUIDs, titles and durable empty me
   const after = await (await h.request("/api/sessions")).json();
   assert.equal(after.sessions[0].id, "main");
   assert.equal(after.sessions[1].title, "专题");
-  const removeMain = await h.request("/api/sessions/main", "DELETE");
+  const { scheduleRevision } = await (await h.request("/api/sessions/main/schedules")).json();
+  const removeMain = await h.request("/api/sessions/main", "DELETE", { scheduleDisposition: "delete", scheduleRevision });
   assert.equal(removeMain.status, 409);
   assert.equal((await removeMain.json()).code, "CANNOT_DELETE_MAIN_SESSION");
   for (const id of ["legacy-main", "task-test", "not-a-uuid"]) {
@@ -123,16 +124,17 @@ test("deletion cancels old references, late reads and stops never revive session
   const removeJobs = h.service().jobs.removeByOriginSessionId;
   h.service().jobs.removeByOriginSessionId = async (origin) => { entered.resolve(); await proceed.promise; return removeJobs(origin); };
   h.releaseGates.push(proceed.resolve);
-  const deletion = h.request(`/api/sessions/${id}`, "DELETE");
+  const { scheduleRevision } = await (await h.request(`/api/sessions/${id}/schedules`)).json();
+  const deletion = h.request(`/api/sessions/${id}`, "DELETE", { scheduleDisposition: "delete", scheduleRevision });
   await entered.promise;
   const during = await h.snapshot(id);
   assert.equal(during.piSessionId, null);
   assert.deepEqual(during.messages, []);
   assert.deepEqual(await (await h.request("/api/conversation/stop", "POST", { sessionId:id,runId:"old" })).json(), {stopped:false});
-  const lateWrite = await h.request(`/api/sessions/${id}/instructions`, "PUT", {instructions:"late"});
+  const lateWrite = await h.request("/api/monitors", "POST", { originSessionId: id, url: "https://example.com/", condition: "change" });
   assert.equal(lateWrite.status, 409);
   proceed.resolve();
-  assert.deepEqual(await (await deletion).json(), {ok:true,removed:{sessions:1}});
+  assert.deepEqual(await (await deletion).json(), {ok:true,removed:{sessions:1,jobs:0,monitors:0},moved:{jobs:0,monitors:0}});
   await assertMissing(join(h.dir,"sessions",id));
   assert.equal(await h.listed(id), false);
   assert.equal((await h.snapshot(id)).piSessionId, null);
@@ -142,17 +144,18 @@ test("deletion cancels old references, late reads and stops never revive session
   await assertMissing(join(h.dir,"sessions",id));
 });
 
-test("conversation instructions and JSONL are isolated while workspace stays flat and shared", async (t) => {
+test("instructions and workspace are shared while conversation JSONL is isolated", async (t) => {
   const h = await fixture(t);
   const a = await h.service().sessions.create("A"); const b = await h.service().sessions.create("B");
-  assert.equal((await h.request(`/api/sessions/${a.id}/instructions`, "PUT", {instructions:"A-ONLY-PROMPT"})).status, 200);
+  assert.equal((await h.request(`/api/assistant/instructions`, "PUT", {instructions:"SHARED-PROMPT"})).status, 200);
   await h.run(a.id, "hello-A-ONLY");
   await h.run(b.id, "hello-B-ONLY");
   const prompts = h.model.requests.map((r) => JSON.stringify(r.messages));
-  assert.ok(prompts.some((s) => s.includes("A-ONLY-PROMPT")));
+  assert.ok(prompts.some((s) => s.includes("SHARED-PROMPT")));
   const bRequest = prompts.find((s) => s.includes("hello-B-ONLY"))!;
   assert.ok(bRequest);
-  assert.doesNotMatch(bRequest, /A-ONLY-PROMPT|hello-A-ONLY/);
+  assert.match(bRequest, /SHARED-PROMPT/);
+  assert.doesNotMatch(bRequest, /hello-A-ONLY/);
   assert.doesNotMatch(JSON.stringify(await h.snapshot(b.id)), /hello-A-ONLY/);
   const workspace = h.service().layout.workspaceDir;
   assert.deepEqual(await readdir(workspace), []);
@@ -168,7 +171,7 @@ test("subagent is an in-memory function and creates no workspace or session dire
   const beforeDirs = await readdir(join(h.dir,"sessions"));
   const beforeFiles = await readdir(h.service().layout.workspaceDir);
   await h.service().information.saveSettings({enabled:true,batchWindowSeconds:3600});
-  await enableBuiltinSkills(h.service(), "main", ["task", "skill-creator", "browser"]);
+  await enableBuiltinSkills(h.service(), ["task", "skill-creator", "browser"]);
   await h.run("main", "子代理，问一下现在时间");
   assert.deepEqual(await readdir(join(h.dir,"sessions")), beforeDirs);
   assert.deepEqual(await readdir(h.service().layout.workspaceDir), beforeFiles);
@@ -187,8 +190,8 @@ test("reset rotates only pi identity, cancels approvals and preserves title, rul
   const {id} = await h.service().sessions.create("保留标题");
   await h.run(id,"hello before reset");
   const before = await h.snapshot(id);
-  await h.request(`/api/sessions/${id}/instructions`,"PUT",{instructions:"KEEP-RULE"});
-  await h.request(`/api/sessions/${id}/skills`,"PUT",{overrides:{task:false}});
+  await h.request(`/api/assistant/instructions`,"PUT",{instructions:"KEEP-RULE"});
+  await h.request(`/api/assistant/skills`,"PUT",{overrides:{task:false}});
   await writeFile(join(h.service().layout.workspaceDir,"keep.md"),"KEEP-FILE");
   const pending = await h.service().actions.submit("file_write","pending",{path:"keep.md",content:"new",originalContent:"KEEP-FILE",beforeExists:"true"},{sessionId:id,runId:"pending"});
   const reset = await h.request(`/api/sessions/${id}/reset`,"POST",{});
@@ -196,12 +199,12 @@ test("reset rotates only pi identity, cancels approvals and preserves title, rul
   const result = await reset.json();
   assert.equal(result.session.id,id); assert.equal(result.session.title,"保留标题");
   assert.equal(result.cancelledApprovals,1);
-  assert.deepEqual(result.removed,{jobs:0,monitors:0});
+  assert.equal(result.removed, undefined);
   assert.equal((await h.service().actions.get(pending.id))?.status,"cancelled");
   const after = await h.snapshot(id);
   assert.notEqual(after.piSessionId,before.piSessionId); assert.deepEqual(after.messages,[]);
-  assert.equal((await (await h.request(`/api/sessions/${id}/instructions`)).json()).instructions,"KEEP-RULE");
-  assert.equal((await h.service().skills.describeSession(id)).skills.find((s)=>s.name==="task")?.enabled,false);
+  assert.equal((await (await h.request(`/api/assistant/instructions`)).json()).instructions,"KEEP-RULE");
+  assert.equal((await h.service().skills.describe()).skills.find((s)=>s.name==="task")?.enabled,false);
   assert.equal(await readFile(join(h.service().layout.workspaceDir,"keep.md"),"utf8"),"KEEP-FILE");
 });
 test("missing-file diagnostics are safe in SSE, next model request, JSONL and reopened history", async (t) => {
@@ -235,7 +238,7 @@ test("subagent uses the SDK active-tool snapshot and extension hooks cannot reac
   const skill=join(h.service().layout.skillsDir,"snapshot-scope");
   await mkdir(skill,{recursive:true});
   await writeFile(join(skill,"SKILL.md"),"---\nname: snapshot-scope\ndescription: Isolated extension permission regression.\n---\nUse the current tool set.\n");
-  await h.service().skills.updateSessionOverrides("main", {
+  await h.service().skills.updateOverrides({
     "builtin/task": true, "builtin/write": true, "builtin/skill-creator": true,
     "user/snapshot-scope": true,
   });

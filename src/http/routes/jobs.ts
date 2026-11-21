@@ -74,7 +74,6 @@ export const createJobsRoutes = (
     const existing = await jobs.get(c.req.param("id"));
     if (!existing) return c.json({ error: "Job not found", code: "JOB_NOT_FOUND" }, 404);
 
-    const originSessionId = parsed.data.originSessionId;
     const nextDaily = parsed.data.daily !== undefined ? parsed.data.daily : existing.daily;
     const nextAt = parsed.data.at !== undefined ? parsed.data.at.trim() : existing.at;
 
@@ -94,7 +93,6 @@ export const createJobsRoutes = (
           prompt: parsed.data.prompt,
           daily: parsed.data.daily,
           at: parsed.data.at,
-          originSessionId,
         });
         if (!updated) return c.json({ error: "Job not found", code: "JOB_NOT_FOUND" }, 404);
         return c.json(presentJob(updated));
@@ -106,9 +104,7 @@ export const createJobsRoutes = (
       }
     };
 
-    return originSessionId
-      ? conversationHub.withSession(originSessionId, update)
-      : update();
+    return conversationHub.withSession(existing.originSessionId ?? "main", update);
   });
 
   app.delete("/api/jobs/:id", async (c) => {

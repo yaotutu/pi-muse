@@ -24,7 +24,7 @@ const fixture = async (t: TestContext) => {
   assert.equal(response.status, 200);
   const { token } = await response.json();
   const client = createTestClient(() => service!.baseUrl, token, 45_000, t.signal);
-  await client.enableSkills("main", ["memory", "task", "write", "web"]);
+  await client.enableSkills(["memory", "task", "write", "web"]);
   return { service, model, token: token as string, client };
 };
 const terminalSuccess = (events: { type: string }[]) => assert.equal(events.at(-1)?.type, "RUN_FINISHED");
@@ -52,7 +52,7 @@ test("e2e: built entry authenticates, streams tools, persists state and restarts
   const memoriesList = (await client.json("/api/memories")) as { memories: Array<{ id: string; text: string }> };
   assert.ok(memoriesList.memories.some((memory) => memory.text.includes("E2E记忆")));
   assert.equal(Object.hasOwn(snapshot, "worker"), false);
-  await client.json("/api/sessions/main/instructions", { instructions: "E2E-INSTRUCTIONS" }, "PUT");
+  await client.json("/api/assistant/instructions", { instructions: "E2E-INSTRUCTIONS" }, "PUT");
   const before = await client.history("main");
   await service.restart();
   assert.deepEqual(await client.history("main"), before);
@@ -84,7 +84,7 @@ test("e2e: parent dispatches single, concurrent and chained subagents without a 
   }
   assert.ok((await readdir(join(service.dataDir, "sessions"))).every((name) => !name.startsWith("subagent-")));
   await assert.rejects(stat(join(service.dataDir, "tasks.json")), { code: "ENOENT" });
-  await client.json("/api/sessions/main/skills", { overrides: { task: false } }, "PUT");
+  await client.json("/api/assistant/skills", { overrides: { task: false } }, "PUT");
   const disabledStart = model.requests.length;
   terminalSuccess(await client.run("plain check", "main"));
   assert.ok(!(model.requests[disabledStart].tools as { function: { name: string } }[]).some((tool) => tool.function.name === "subagent"));
@@ -167,14 +167,14 @@ test("e2e: Stop interrupts the child model and real slow HTTP socket, then the s
 test("e2e: chat contexts are isolated, files are global and deleted sessions never revive", {timeout:90_000}, async(t)=>{
   const {service,client}=await fixture(t);
   const owner=await client.createSession("owner");const other=await client.createSession("other");
-  await client.json(`/api/sessions/${owner.id}/instructions`,{instructions:"OWNER-CONTEXT"},"PUT");
+  await client.json(`/api/assistant/instructions`,{instructions:"OWNER-CONTEXT"},"PUT");
   await writeFile(join(service.dataDir,"workspace","common.md"),"COMMON-WORKSPACE");
   const read=await client.run("读 common.md",other.id);
   assert.match(JSON.stringify(read),/COMMON-WORKSPACE/);
   terminalSuccess(await client.run("hello owner",owner.id));
   assert.doesNotMatch(JSON.stringify(await client.history(other.id)),/hello owner/);
-  const removed=await client.json(`/api/sessions/${owner.id}`,undefined,"DELETE");
-  assert.deepEqual(removed,{ok:true,removed:{sessions:1}});
+  const removed=await client.deleteSession(owner.id);
+  assert.deepEqual(removed,{ok:true,removed:{sessions:1,jobs:0,monitors:0},moved:{jobs:0,monitors:0}});
   assert.deepEqual(await client.history(owner.id),{sessionId:owner.id,piSessionId:null,messages:[],revision:"empty"});
   assert.deepEqual(await client.json("/api/conversation/stop",{sessionId:owner.id,runId:"late"}),{stopped:false});
   assert.ok(!(await client.json("/api/sessions")).sessions.some((s:{id:string})=>s.id===owner.id));

@@ -594,7 +594,7 @@ test("docs: source routing, deletion, safe errors and deployed code identity are
     assert.match(text, /已有会话/);
     assert.match(text, /(409 SESSION_DELETING|409 THREAD_DELETING)/);
     assert.match(text, /不自动重试/);
-    assert.match(text, /不[\s\S]*改投主(会话|会话)/);
+    assert.match(text, /选择保留时才迁移到主会话/);
     assert.doesNotMatch(text, /通知进主聊天流|结果以 📡 进主聊天流/);
   }
   const controlText = description("/api/jobs/{id}/control", "post");
@@ -638,18 +638,16 @@ test("docs: subagent stays inside the parent run and no background task creation
     requestBody?: { content: Record<string, { schema: JsonSchema }> };
   } | undefined;
   const updateJobDesc = updateJobOp?.description ?? "";
-  assert.match(updateJobDesc, /originSessionId 省略时保留原绑定/);
-  assert.match(updateJobDesc, /已有会话/);
+  assert.match(updateJobDesc, /修改任务不改变归属/);
   assert.match(updateJobDesc, /409 SESSION_DELETING/);
-  assert.match(updateJobDesc, /随新会话删除级联清理/);
-  assert.match(updateJobDesc, /来源删除后绝不改投主会话/);
   const patchBody = updateJobOp?.requestBody?.content?.["application/json"]?.schema;
-  const originFieldDesc = patchBody?.properties?.originSessionId?.description ?? "";
-  assert.match(originFieldDesc, /创建时省略默认 main，PATCH 修改时省略保留原绑定/);
-  assert.match(originFieldDesc, /已有会话/);
-  assert.match(originFieldDesc, /409 SESSION_DELETING/);
-  assert.match(originFieldDesc, /删除来源会话将级联清理名下任务/);
-  assert.match(originFieldDesc, /绝不改投主会话/);
+  assert.equal(patchBody?.properties?.originSessionId, undefined);
+  const deleteOp = doc.paths["/api/sessions/{sessionId}"]?.delete as {
+    requestBody?: { content: Record<string, { schema: JsonSchema }> };
+  } | undefined;
+  const deleteBody = deleteOp?.requestBody?.content?.["application/json"]?.schema;
+  assert.deepEqual(deleteBody?.required, ["scheduleDisposition", "scheduleRevision"]);
+  assert.ok(doc.paths["/api/sessions/{sessionId}/schedules"]?.get);
 
   // A03: updateJob description 与 at 字段必须说明严格两位 HH:mm、00:00 至 23:59、
   // 非法日程 400 INVALID_SCHEDULE_FORMAT 且不自动进位、不写入；合法日程按服务器时区。
@@ -1011,7 +1009,7 @@ test("docs: memory and Dream endpoints pin layering, capacity, prompt inheritanc
   assert.match(dreamRun.description ?? "",/409/);
   assert.deepEqual(pending.requestBody?.content["application/json"]?.schema.properties?.action?.enum,["apply","dismiss"]);
   assert.deepEqual(pending.requestBody?.content["application/json"]?.schema.properties?.target?.enum,["user","soul","instructions","memory"]);
-  const instructionsPut = paths["/api/sessions/{sessionId}/instructions"]?.put;
+  const instructionsPut = paths["/api/assistant/instructions"]?.put;
   assert.ok(instructionsPut);
   assert.deepEqual(Object.keys(instructionsPut.requestBody?.content["application/json"]?.schema.properties ?? {}),["instructions"]);
   assert.match(instructionsPut.description ?? "",/不能扩大/);

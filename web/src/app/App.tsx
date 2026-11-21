@@ -10,6 +10,8 @@ import {
   createSession,
   renameSession,
   deleteSession,
+  listSessionSchedules,
+  type SessionSchedules,
   decideApproval,
   subscribeAuth,
   isLoggedIn,
@@ -321,6 +323,14 @@ export const App = () => {
   const authed = useSyncExternalStore(subscribeAuth, isLoggedIn);
   const [sessions, setSessions] = useState<SessionDto[]>([]);
   const [active, setActive] = useState("main");
+  const [openedSessions, setOpenedSessions] = useState<string[]>(["main"]);
+  const [deletePreview, setDeletePreview] = useState<{ id: string; schedules: SessionSchedules }>();
+  const [deletingSession, setDeletingSession] = useState(false);
+
+  const openSession = (id: string) => {
+    setOpenedSessions((opened) => opened.includes(id) ? opened : [...opened, id]);
+    setActive(id);
+  };
   const [newTitle, setNewTitle] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [error, setError] = useState("");
@@ -374,7 +384,9 @@ export const App = () => {
     void listSessions()
       .then((list) => {
         setSessions(list);
-        if (list.length && !list.some((x) => x.id === active)) setActive(list[0]!.id);
+        const available = new Set(list.map((session) => session.id));
+        setOpenedSessions((opened) => opened.filter((id) => id === "main" || available.has(id)));
+        setActive((selected) => available.has(selected) ? selected : "main");
       })
       .catch((e: Error) => setError(e.message));
   };
@@ -429,11 +441,10 @@ export const App = () => {
   // 只展示一行当前运行状态；优先当前会话，其次任意进行中的运行，不构造活动列表。
   const currentStatus =
     workspace.statuses.find((status) => status.sessionId === active) ?? workspace.statuses[0];
-  const activeConversationUpdate = workspace.conversationUpdates.findLast(
-    (update) => update.data.sessionId === active,
-  );
-  const conversationRefreshKey =
-    `${workspace.conversationSyncVersion}:${activeConversationUpdate?.sequence ?? 0}`;
+  const conversationRefreshKey = (id: string) => {
+    const update = workspace.conversationUpdates.findLast((entry) => entry.data.sessionId === id);
+    return `${workspace.conversationSyncVersion}:${update?.sequence ?? 0}`;
+  };
 
   return (
     <div className="flex h-screen bg-stone-100">
@@ -475,7 +486,7 @@ export const App = () => {
             <button
               key={agent.id}
               onClick={() => {
-                setActive(agent.id);
+                openSession(agent.id);
                 setView("chat");
                 setDrawer(false);
               }}
@@ -490,7 +501,11 @@ export const App = () => {
           ))}
         </div>
         {active !== "main" && view === "chat" && <button onClick={() => {
-          if (window.confirm("删除该会话及其历史、反馈、任务与监控？此操作不可恢复，工作区文件保留。")) void deleteSession(active).then(() => { setActive("main"); refreshSessions(); }, (e: Error) => setError(e.message));
+          const id = active;
+          void listSessionSchedules(id).then(
+            (schedules) => setDeletePreview({ id, schedules }),
+            (failure: Error) => setError(failure.message),
+          );
         }}>删除会话</button>}
         {active !== "main" && view === "chat" && <button onClick={() => {
           const title = window.prompt("会话新标题", sessions.find((s) => s.id === active)?.title);
@@ -505,7 +520,7 @@ export const App = () => {
               try {
                 const session = await createSession(newTitle.trim());
                 setSessions((current) => [...current, session]);
-                setActive(session.id);
+                openSession(session.id);
                 setNewTitle("");
                 setError("");
               } catch (error) {
@@ -582,22 +597,57 @@ export const App = () => {
           <span className="ml-auto truncate text-xs text-stone-400">{active}</span>
         </header>
         <div className="min-h-0 flex-1">
-        {view === "chat" && (
-          <ChatView
-            key={active}
-            sessionId={active}
-                        conversationRefreshKey={conversationRefreshKey}
-            conversationUpdates={workspace.conversationUpdates.map((update) => update.data)}
-            onReset={refreshSessions}
-          />
-        )}
+        {openedSessions.map((id) => (
+          <div key={id} className={view === "chat" && id === active ? "h-full" : "hidden"}>
+            <ChatView
+              sessionId={id}
+              conversationRefreshKey={conversationRefreshKey(id)}
+              conversationUpdates={workspace.conversationUpdates.map((update) => update.data)}
+              onReset={refreshSessions}
+            />
+          </div>
+        ))}
         {view === "news" && <NewsView />}
         {view === "jobs" && <JobsView />}
         {view === "goals" && <GoalsView />}
         {view === "traces" && <TracesView />}
-        {view === "settings" && <SettingsView sessionId={active} />}
+        {view === "settings" && <SettingsView />}
         </div>
       </main>
+      {deletePreview && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+          <section role="dialog" aria-modal="true" aria-labelledby="delete-session-title" className="w-full max-w-md space-y-3 rounded-xl bg-white p-5">
+            <h2 id="delete-session-title" className="font-semibold">删除会话</h2>
+            <p className="text-sm">历史与反馈将永久删除。</p>
+            {[...deletePreview.schedules.jobs, ...deletePreview.schedules.monitors].length > 0 && (
+              <ul className="max-h-60 list-disc overflow-y-auto pl-5 text-sm">
+                {[...deletePreview.schedules.jobs, ...deletePreview.schedules.monitors].map((item) => <li key={item.id}>{item.title}</li>)}
+              </ul>
+            )}
+            <div className="flex flex-wrap gap-3 text-sm">
+              <button disabled={deletingSession} onClick={() => setDeletePreview(undefined)}>取消</button>
+              {(["delete", "move-to-main"] as const).filter((policy) =>
+                policy === "delete" || deletePreview.schedules.jobs.length + deletePreview.schedules.monitors.length > 0).map((policy) => (
+                <button key={policy} disabled={deletingSession} onClick={() => {
+                  const { id, schedules } = deletePreview;
+                  setDeletingSession(true);
+                  void deleteSession(id, policy, schedules.scheduleRevision).then(() => {
+                    setOpenedSessions((opened) => opened.filter((openId) => openId !== id));
+                    setActive((current) => current === id ? "main" : current);
+                    refreshSessions();
+                  }, (failure: Error) => {
+                    setError(failure.message);
+                    refreshSessions();
+                  }).finally(() => {
+                    setDeletePreview(undefined);
+                    setDeletingSession(false);
+                  });
+                }}>{policy === "delete" ? "删除会话和任务" : "删除会话，任务移至主聊天"}</button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 };

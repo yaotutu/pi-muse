@@ -149,7 +149,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
     scenario = "isolation";
     const isolated = await client.createSession("live-isolation", ["task"]);
-    await client.json(`/api/sessions/${isolated.id}/instructions`,{instructions:"PARENT-RULE-NOT-COPIED-582c"},"PUT");
+    await client.json(`/api/assistant/instructions`,{instructions:"PARENT-RULE-NOT-COPIED-582c"},"PUT");
     await writeFile(join(dataDir,"workspace","parent.txt"),"COMMON-WORKSPACE-421e",{mode:0o600});
     await writeFile(join(dataDir,"workspace","live-common.txt"),"LIVE-COMMON-OK-a7cd",{mode:0o600});
     const isolation = await begin(scenario,delegate({mode:"single",tasks:[{agent:"worker",task:"实际调用read三次：parent.txt、live-common.txt、../config.json。仅根据工具结果报告，不猜测，不写文件。"}]}),isolated.id);

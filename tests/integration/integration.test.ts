@@ -166,7 +166,7 @@ async function harness(
       },
     });
     service = await createService(config);
-    await enableBuiltinSkills(service, "main", harnessSkills);
+    await enableBuiltinSkills(service, harnessSkills);
     let base = await startServer();
     const login = await fetch(base + "/api/session", {
       method: "POST",
@@ -1255,16 +1255,14 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed one-sh
   assert.equal(reply.at(-1)?.type, "RUN_FINISHED");
 });
 
-test("session skills: GET/PUT overrides, validation and agent isolation", {
+test("assistant skills: shared GET/PUT overrides and validation", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
-  const topic0 = await h.service().sessions.create("agent-skills-test");
-  const topic1 = await h.service().sessions.create("agent-other");
   t.after(h.close);
 
-  // 1. 新会话按发布清单默认开启内置技能，不继承 main 的手动选择。
-  const res1 = await h.request(`/api/sessions/${topic0.id}/skills`);
+  // 1. 助手设置默认使用内置清单。
+  const res1 = await h.request(`/api/assistant/skills`);
   assert.equal(res1.status, 200);
   const data1 = (await res1.json()) as { skills: { name: string; source: string; defaultEnabled: boolean; enabled: boolean }[] };
   const cronSkill = data1.skills.find((s) => s.name === "cron");
@@ -1275,8 +1273,8 @@ test("session skills: GET/PUT overrides, validation and agent isolation", {
   assert.ok(data1.skills.every((skill) => skill.enabled === skill.defaultEnabled));
 
   // 2. 显式开启原工具集，再覆盖关闭 cron 和 web。
-  await enableBuiltinSkills(h.service(), topic0.id, harnessSkills);
-  const res2 = await h.request(`/api/sessions/${topic0.id}/skills`, {
+  await enableBuiltinSkills(h.service(), harnessSkills);
+  const res2 = await h.request(`/api/assistant/skills`, {
     overrides: { ...Object.fromEntries(harnessSkills.map((name) => [name, true])), cron: false, web: false },
   }, "PUT");
   assert.equal(res2.status, 200);
@@ -1285,24 +1283,24 @@ test("session skills: GET/PUT overrides, validation and agent isolation", {
   assert.equal(data2.skills.find((s) => s.name === "web")?.enabled, false);
   assert.equal(data2.skills.find((s) => s.name === "memory")?.enabled, true);
 
-  // 3. 验证另外一个 agent-other 不受影响
-  const res3 = await h.request(`/api/sessions/${topic1.id}/skills`);
+  // 3. GET 返回同一个全局选择。
+  const res3 = await h.request(`/api/assistant/skills`);
   const data3 = (await res3.json()) as { skills: { name: string; enabled: boolean }[] };
-  assert.equal(data3.skills.find((s) => s.name === "cron")?.enabled, true, "其他会话保持默认开启，不继承 topic0 的关闭");
+  assert.equal(data3.skills.find((s) => s.name === "cron")?.enabled, false);
 
   // 4. PUT 未知技能名返回 400
-  const res4 = await h.request(`/api/sessions/${topic0.id}/skills`, {
+  const res4 = await h.request(`/api/assistant/skills`, {
     overrides: { non_existent_skill: true },
   }, "PUT");
   assert.equal(res4.status, 400);
 
-  // 5. 非法 sessionId 返回 400
-  const res5 = await h.request("/api/sessions/@invalid/skills");
-  assert.equal(res5.status, 400);
+  // 5. 旧会话级路由不再挂载。
+  const res5 = await h.request("/api/sessions/main/skills");
+  assert.equal(res5.status, 404);
 
 });
 
-test("session skills: tool trimming in model call", {
+test("assistant skills: tool trimming in model call", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
@@ -1310,10 +1308,9 @@ test("session skills: tool trimming in model call", {
   const topic1 = await h.service().sessions.create("agent-with-cron");
   t.after(h.close);
 
-  // 1. 两个新会话分别显式开启原工具集，再在 agent-no-cron 中关闭 cron 和 web。
-  await enableBuiltinSkills(h.service(), topic0.id, harnessSkills);
-  await enableBuiltinSkills(h.service(), topic1.id, harnessSkills);
-  await h.request(`/api/sessions/${topic0.id}/skills`, {
+  // 1. 全局关闭 cron 和 web。
+  await enableBuiltinSkills(h.service(), harnessSkills);
+  await h.request(`/api/assistant/skills`, {
     overrides: { ...Object.fromEntries(harnessSkills.map((name) => [name, true])), cron: false, web: false },
   }, "PUT");
 
@@ -1335,7 +1332,8 @@ test("session skills: tool trimming in model call", {
   assert.ok(tools1.includes("currentTime"), "currentTime is always-on");
   assert.ok(tools1.includes("read"), "read is always-on");
 
-  // 2. 在显式开启技能的 agent-with-cron 中发送消息
+  // 2. 切换全局设置后，另一会话下一轮装配新技能。
+  await enableBuiltinSkills(h.service(), harnessSkills);
   const run2 = input([user("hello")], "run-2");
   run2.sessionId = topic1.id;
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
@@ -1351,7 +1349,7 @@ test("session skills: tool trimming in model call", {
   assert.match(system2, /## Work activity management/);
 });
 
-test("session skills: user custom skill with extension.ts and conflict rejection", {
+test("assistant skills: user custom skill with extension.ts and conflict rejection", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness(undefined, {}, async ({ dataDir }) => {
@@ -1388,7 +1386,7 @@ export default function (api) {
   });
   const topic0 = await h.service().sessions.create("custom-ext-agent");
   t.after(h.close);
-  await h.service().skills.updateSessionOverrides(topic0.id, { "user/custom-ping": true });
+  await h.service().skills.updateOverrides({ "user/custom-ping": true });
 
   // 1. 发起对话，验证 ping_custom 工具存在，且同名的 fake read 没有覆盖内置 read
   const run1 = input([user("hello")], "run-ext-1");
@@ -1406,7 +1404,7 @@ export default function (api) {
   assert.notEqual(readTool.description, "Fake read tool", "Builtin read must not be overwritten by extension");
 
   // 2. 关闭 custom-ping 技能后，ping_custom 工具应该消失
-  await h.request(`/api/sessions/${topic0.id}/skills`, {
+  await h.request(`/api/assistant/skills`, {
     overrides: { "custom-ping": false },
   }, "PUT");
 
@@ -1421,7 +1419,7 @@ export default function (api) {
   assert.ok(!toolNames2.includes("ping_custom"), "ping_custom should disappear when custom-ping is disabled");
 });
 
-test("session skills: enable loads skill text and only supported resources on the next turn", {
+test("assistant skills: enable loads skill text and only supported resources on the next turn", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness(undefined, {}, async ({ dataDir }) => {
@@ -1443,7 +1441,7 @@ test("session skills: enable loads skill text and only supported resources on th
   assert.match(firstEvents.map((event) => JSON.stringify(event)).join(""), /Access denied/);
   assert.ok(!h.model.requests.at(-1)!.messages.some((message) => String(message.content).includes("RESOURCE_SKILL_MARKER")));
 
-  const enabled = await h.request("/api/sessions/main/skills", {
+  const enabled = await h.request("/api/assistant/skills", {
     overrides: { "resource-skill": true, "builtin/skill-creator": true },
   }, "PUT");
   assert.equal(enabled.status, 200);
@@ -1464,7 +1462,7 @@ test("session skills: enable loads skill text and only supported resources on th
   assert.ok(!thirdEvents.map((event) => JSON.stringify(event)).join("").includes("OTHER_SKILL_TEXT"));
 });
 
-test("agent instructions: GET/PUT REST endpoints and prompt injection per agent", {
+test("assistant instructions: GET/PUT global settings and prompt injection in both conversations", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
@@ -1473,12 +1471,12 @@ test("agent instructions: GET/PUT REST endpoints and prompt injection per agent"
   t.after(h.close);
 
   // 1. GET 初始为空
-  const res1 = await h.request(`/api/sessions/${topic0.id}/instructions`);
+  const res1 = await h.request(`/api/assistant/instructions`);
   assert.equal(res1.status, 200);
   assert.deepEqual(await res1.json(), { instructions: "" });
 
-  // 2. PUT 设置会话专属规则
-  const res2 = await h.request(`/api/sessions/${topic0.id}/instructions`, {
+  // 2. PUT 设置全局助手规则
+  const res2 = await h.request(`/api/assistant/instructions`, {
     instructions: "RULE: Every email reply must sign as Chief Assistant.",
   }, "PUT");
   assert.equal(res2.status, 200);
@@ -1492,10 +1490,10 @@ test("agent instructions: GET/PUT REST endpoints and prompt injection per agent"
   const req1 = h.model.requests.at(-1);
   assert.ok(req1);
   const systemMsg1 = req1.messages.find((m) => m.role === "system")?.content as string;
-  assert.ok(systemMsg1.includes("Current conversation instructions"));
+  assert.ok(systemMsg1.includes("Assistant instructions"));
   assert.ok(systemMsg1.includes("Chief Assistant"));
 
-  // 4. 在另一个会话 code-agent 发起对话，System Prompt 不包含 email-agent 的规则
+  // 4. 在另一个会话 code-agent 发起对话，System Prompt 包含同一份规则
   const run2 = input([user("hello code")], "run-inst-2");
   run2.sessionId = topic1.id;
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
@@ -1503,10 +1501,10 @@ test("agent instructions: GET/PUT REST endpoints and prompt injection per agent"
   const req2 = h.model.requests.at(-1);
   assert.ok(req2);
   const systemMsg2 = req2.messages.find((m) => m.role === "system")?.content as string;
-  assert.ok(!systemMsg2.includes("Chief Assistant"));
+  assert.ok(systemMsg2.includes("Chief Assistant"));
 });
 
-test("agent instructions: conversation can modify its own instructions via instructions tool", {
+test("assistant instructions: conversation can update shared instructions via instructions tool", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
@@ -1521,8 +1519,8 @@ test("agent instructions: conversation can modify its own instructions via instr
   const toolCall = ev1.find((e) => e.type === "TOOL_CALL_START") as any;
   assert.equal(toolCall?.toolCallName, "instructions");
 
-  // 2. 检查会话 INSTRUCTIONS.md 文件与 GET 接口
-  const res = await h.request(`/api/sessions/${topic0.id}/instructions`);
+  // 2. 检查全局指令 GET 接口
+  const res = await h.request(`/api/assistant/instructions`);
   assert.equal(res.status, 200);
   const data = (await res.json()) as { instructions: string };
   assert.ok(data.instructions.includes("RULE-FROM-CHAT: Always be polite."));
@@ -1585,7 +1583,7 @@ test("subagent: permissions inherit parent ceilings and shared reads preserve pr
   t.after(h.close);
   await mkdir(join(h.dataDir, "workspace"), { recursive: true });
   await writeFile(join(h.dataDir, "workspace", "subagent-test.md"), "SUBAGENT-WORKSPACE-CONTENT");
-  await h.request("/api/sessions/main/skills", { overrides: { task: true, memory: false, write: false, web: false } }, "PUT");
+  await h.request("/api/assistant/skills", { overrides: { task: true, memory: false, write: false, web: false } }, "PUT");
   const events = await h.events(input([user("请让只读子代理读取共享文件")], "child-read"));
   assert.equal(events.at(-1)?.type, "RUN_FINISHED");
   const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: ")));

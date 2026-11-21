@@ -1,6 +1,6 @@
 # Long-term memory and Dream
 
-Memory, SOUL/USER and Dream are global instance resources. Chat text and instructions remain session-specific. This page describes current server semantics; native client and real-model paths still require coordinated acceptance. Check the installed release.
+Memory, SOUL/USER and Dream are global instance resources. Chat text remains session-specific. Assistant instructions and skill switches are shared. This page describes current server semantics; native client and real-model paths still require coordinated acceptance. Check the installed release.
 
 ## Prerequisites {#prerequisites}
 
@@ -17,7 +17,7 @@ Deletion is irreversible and affects all sessions without deleting chat. Never s
 ## Memory and profile boundaries {#memory-and-profile-boundaries}
 
 - USER, SOUL, identity and memory are global. SOUL/USER are reread each turn; memory is retrieved on demand rather than injected in full.
-- Each session has independent instructions and skill overrides. Main instructions also guide news/SMS preferences.
+- Chat sessions share assistant instructions and skill switches. News and SMS have their own preferences.
 - There is one shared workspace root. Shared files do not merge chat histories.
 - Feedback itself does not start Dream, a model or training. Information processing may explicitly read bounded current main feedback examples.
 
@@ -37,19 +37,19 @@ Save or explicitly discard configuration drafts first. An immediate request proc
 - partial: some writes/proposals succeeded but an error occurred. The cursor stays unchanged and completed writes are not rolled back.
 - failed: execution failed or startup reconciled an interrupted round. This status alone does not prove that nothing was written earlier.
 
-Extraction uses new messages and bounded overlapping context. USER/SOUL/memory are global targets; global profile proposals from non-main sources require confirmation. Source-specific rules go only to that source's instructions. Writes compare the read version and purpose so concurrent user edits are not overwritten. Existing memory edit/delete must cite an exact id; an uncertain edit must not become an addition.
+Extraction uses new messages and bounded overlapping context. User profile, persona, assistant instructions and memory are global. Applying a profile or instruction proposal always requires confirmation. The write compares the version read during confirmation to protect concurrent edits. Existing memory edit/delete must cite an exact id; an uncertain edit must not become an addition.
 
 Leaving the page or a client timeout does not establish remote cancellation. Read results and target contents before running again. Shutdown cancels active model work; restart marks running records failed without resuming them.
 
 ## Resolve pending suggestions {#resolve-dream-suggestions}
 
-Up to 50 deduplicated pending proposals are kept globally with their source session. Before applying, inspect the full text, reason, source and target. Choose USER, SOUL, source instructions or new memory, or explicitly dismiss.
+Up to 50 deduplicated pending proposals are kept globally with their source session. Before applying, inspect the full text, reason, source and target. Choose USER, SOUL, assistant instructions or new memory, or explicitly dismiss.
 
-Instruction application uses the proposal's source rather than the currently viewed chat. Deleted sources cannot be recreated. Global targets affect all sessions. Dismissal only removes the proposal, not chat. Read the list and target after an unknown write rather than automatically resending.
+The source identifies where a proposal came from. Applying changes to a global target affects all sessions. Dismissal only removes the proposal, not chat. Read the list and target after an unknown write rather than automatically resending.
 
 ## Reset and delete effects {#dream-reset-and-delete}
 
-Session reset/deletion does not delete global Dream configuration or previously written profile/memory. Deleted sources cannot receive new instruction proposals; inspect global pending proposals and dismiss or explicitly choose a valid target. See [Session management](conversations-and-agents.md#reset-and-delete-sessions) for irreversible history/feedback effects.
+Session reset/deletion does not delete global Dream configuration or previously written profile/memory. Pending proposals remain available for review after a source session is deleted. See [Session management](conversations-and-agents.md#reset-and-delete-sessions) for irreversible history/feedback effects.
 
 ## Limits and failures {#limits-and-failures}
 

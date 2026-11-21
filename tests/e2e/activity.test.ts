@@ -30,7 +30,7 @@ const fixture = async (t: TestContext, options: Partial<Omit<ServiceProcessOptio
   assert.equal(login.status, 200);
   const { token } = await login.json();
   const client = createTestClient(() => service!.baseUrl, token, 45_000, t.signal);
-  await client.enableSkills("main", ["task", "write"]);
+  await client.enableSkills(["task", "write"]);
   const list = async (query = "") => activitiesResponse.parse(await client.json("/api/activities" + query));
   const detail = async (id: string) => activityDetailResponse.parse(await client.json(`/api/activities/${id}`));
   const one = async (sessionId: string) => {
@@ -414,7 +414,7 @@ test("activity e2e: cursor pagination, filters, malformed queries and deletion/r
   }
   const removed = all.filter((item) => item.sessionId === a.id);
   await writeFile(join(service.dataDir, "workspace/kept.md"), "SHARED-SURVIVES", { mode: 0o600 });
-  await client.json(`/api/sessions/${a.id}`, undefined, "DELETE");
+  await client.deleteSession(a.id);
   assert.deepEqual((await list(`?sessionId=${a.id}`)).activities, []);
   for (const item of removed) assert.equal((await client.request(`/api/activities/${item.id}`)).status, 404);
   await assert.rejects(stat(join(service.dataDir, "sessions",a.id)), { code: "ENOENT" });
@@ -436,7 +436,7 @@ test("activity e2e: deleting an in-flight activity cancels its provider and cann
   await waitForTest(() => model.requests.length >= baseline + 2, "in-flight activity to delete");
   const record = await one(running.sessionId);
   const disconnected = model.slowClosed();
-  await client.json(`/api/sessions/${running.sessionId}`, undefined, "DELETE");
+  await client.deleteSession(running.sessionId);
   failed(await running.done);
   await waitForTest(() => model.slowClosed() > disconnected, "deleted activity provider disconnect");
   assert.equal((await client.request(`/api/activities/${record.activity.id}`)).status, 404);

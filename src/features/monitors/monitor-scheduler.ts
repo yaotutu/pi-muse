@@ -6,6 +6,7 @@ import type { WebService } from "../web/types.js";
 export type MonitorScheduler = {
   start: () => void;
   isBusy: () => boolean;
+  settleDeliveriesFor: (sessionId: string) => Promise<void>;
   close: () => Promise<void>;
 };
 
@@ -15,6 +16,7 @@ export const createMonitorScheduler = (
   monitors: Pick<MonitorService, "list" | "check" | "markNotified">,
   mainConversation: Pick<Conversation, "notify">,
   destination?: (sessionId: string) => Promise<Pick<Conversation, "notify"> | undefined>,
+  isBlocked: (sessionId: string, monitorId: string) => boolean = () => false,
 ): MonitorScheduler => {
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
@@ -22,16 +24,17 @@ export const createMonitorScheduler = (
   let current: Promise<void> = Promise.resolve();
   let closing: Promise<void> | undefined;
   // 这里只跟踪进程内在途投递；持久待办仍由 monitor.pendingNotification 唯一持有。
-  const deliveries = new Map<string, Promise<void>>();
+  const deliveries = new Map<string, { sessionId: string; work: Promise<void> }>();
   const deliver = async (monitor: Monitor) => {
     const pending = monitor.pendingNotification;
     if (!pending || closed) return;
-    const conversation = monitor.originSessionId && destination
-      ? await destination(monitor.originSessionId) : mainConversation;
+    const sessionId = monitor.originSessionId ?? "main";
+    const conversation = destination ? await destination(sessionId) : mainConversation;
     if (closed || !conversation) return;
     // 目的地解析可能跨越删除/重建；旧扫描不能向新同名会话投递已删除的绑定物。
     const latest = (await monitors.list()).find((item) => item.id === monitor.id);
-    if (closed || latest?.pendingNotification?.id !== pending.id || latest.status !== "active") return;
+    if (closed || isBlocked(sessionId, monitor.id) || latest?.pendingNotification?.id !== pending.id ||
+      latest.status !== "active" || (latest.originSessionId ?? "main") !== sessionId) return;
     await conversation.notify(
       `📡 [监控] ${monitor.title}（${monitor.url}）` +
         (monitor.condition === "contains" ? ` 命中关键词"${monitor.value}"` : " 内容有变化") +
@@ -47,10 +50,10 @@ export const createMonitorScheduler = (
     if (deliveries.has(key)) return;
     // 不等待忙碌会话释放；失败保留 pending，下次扫描以同一通知 ID 补投递。
     const delivery = deliver(monitor).catch(() => undefined).finally(() => deliveries.delete(key));
-    deliveries.set(key, delivery);
+    deliveries.set(key, { sessionId: monitor.originSessionId ?? "main", work: delivery });
   };
   const inspect = async (monitor: Monitor) => {
-    if (monitor.status !== "active") return;
+    if (monitor.status !== "active" || isBlocked(monitor.originSessionId ?? "main", monitor.id)) return;
     if ([...deliveries.keys()].some((key) => key.startsWith(`${monitor.id}:`))) return;
     // 未确认的变化禁止被新抓取覆盖，即便本次投递很快成功也等下次扫描再检查。
     if (monitor.pendingNotification) { dispatch(monitor); return; }
@@ -90,6 +93,9 @@ export const createMonitorScheduler = (
       }, config.monitorScanIntervalMs);
     },
     isBusy: () => scanning,
+    settleDeliveriesFor: async (sessionId) => {
+      await Promise.all([...deliveries.values()].filter((delivery) => delivery.sessionId === sessionId).map(({ work }) => work));
+    },
     close: () => {
       if (closing) return closing;
       closed = true;
@@ -97,7 +103,7 @@ export const createMonitorScheduler = (
       return closing = (async () => {
         // 先等扫描停止生成投递，再等待已发出的通知及其确认写入；hub 负责释放忙会话。
         await current;
-        await Promise.all(deliveries.values());
+        await Promise.all([...deliveries.values()].map(({ work }) => work));
       })();
     },
   };

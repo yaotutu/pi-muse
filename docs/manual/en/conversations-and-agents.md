@@ -1,22 +1,20 @@
 # Conversations and sessions
 
-Pi Muse has one assistant identity. The mobile app currently focuses on the default main chat: tapping 消息 (Messages) opens chat directly, without choosing or creating a session. This page describes the current source; check the corresponding release for the installed app's controls.
-
-Open Settings → Session instructions to see the current text. Tap Edit, then Done to return to Settings, and select Save instructions. Assistant persona, personal profile, and domain rules use the same editing flow.
+Pi Muse has one assistant and multiple chat sessions. Messages starts in the permanent main chat. You can create or switch to another session without carrying over chat history.
 
 ## Prerequisites {#prerequisites}
 
 Follow [Getting started](getting-started.md#connect-mobile-client) and connect to a matching server version. Chat requires a configured external model.
 
-## Main chat {#session-model}
+## Session boundaries {#session-model}
 
-Messages directly uses the permanent `main` session, showing messages and a composer instead of a session list. Switching to News or Settings keeps the draft and does not stop the running stream merely because chat is hidden.
+Open the session list from Messages to create, switch to, rename, or delete a conversation. Switching sessions or opening News or Settings keeps each session’s draft and running turn.
 
 Main cannot be deleted, but can be reset. Profile, long-term memory and the workspace remain global. Memory is retrieved on demand rather than loaded in full each turn.
 
 The companion and a compact status label float together at the top center of the chat content area without reserving a full-width header row. The character stays transparent rather than sitting inside a large backing card. The short label shows current execution, pending approval, or synchronization state; its full text is also available to screen readers. The beginning of the chat content includes matching spacing so the first message does not collide with the companion. This spacing scrolls with the messages rather than acting as a fixed header.
 
-Tap the character or its status to expand main-chat information around the same character's original position, rather than opening a separate bottom sheet. The expanded view is a full page: the character stays centered at the top without moving, followed directly by Activity/Approvals/History. Close is the ✕ in the top-right corner. History shows all registered activities as a timeline without status filter chips. Reset, instructions, and skills live in the Settings assistant group. Close it with the close button or Android Back; reduced-motion settings switch the view immediately. Expanding, collapsing, and switching pages do not recreate the chat or clear its draft. The floating character does not appear over News or Settings.
+Tap the character or its status to expand information for the active chat around the same character's original position, rather than opening a separate bottom sheet. The expanded view is a full page: the character stays centered at the top without moving, followed directly by Activity/Approvals/History. Close is the ✕ in the top-right corner. History shows all registered activities as a timeline without status filter chips. Assistant instructions and skills are managed in Settings. Close it with the close button or Android Back; reduced-motion settings switch the view immediately. Expanding, collapsing, and switching pages do not recreate the chat or clear its draft. The floating character does not appear over News or Settings.
 
 ## Local history and background synchronization {#local-history-and-sync}
 
@@ -32,7 +30,7 @@ Copies are isolated by server and session. Changing servers clears old local bus
 
 Enter text directly in Messages, or attach images/text with that message as explained in [Attachments](files-and-approvals.md#send-attachments). Responses stream; tool and approval views show actual execution facts.
 
-Main has at most one active run. Stop targets that run, not later turns. Disconnecting the chat stream, stopping, timeout or server shutdown cancels the run and child calls and revokes pending approvals; completed side effects are not rolled back. Disconnecting the notification stream does not stop chat.
+Each session has at most one active run. Stop targets that run, not later turns. Disconnecting the chat stream, stopping, timeout or server shutdown cancels the run and child calls and revokes pending approvals; completed side effects are not rolled back. Disconnecting the notification stream does not stop chat.
 
 When sending or writing has an unknown outcome, synchronize authoritative history/state before acting again. Page changes do not automatically resend messages. Execution after application process termination is not promised.
 
@@ -42,33 +40,31 @@ Saved user/assistant messages support like, dislike, reaction removal and commen
 
 Feedback binds the public session, internal pi session and message id. Raw operations are stored separately; feedback does not change chat revision, start a model or train preferences. Old internal identities cannot receive feedback after reset. Read back unknown writes instead of retrying automatically.
 
-## Main chat instructions and skills {#session-rules-and-skills}
+## Assistant instructions and skills {#session-rules-and-skills}
 
-Use the instruction and skill controls in chat actions or Settings to configure main. Instructions are stored in main INSTRUCTIONS.md and reread next turn. The limit is 20,000 characters; an empty string explicitly clears them. The last successful save wins without merging. Instructions cannot add tools, expand paths or bypass approval.
+Assistant instructions, skill switches, profile, long-term memory, permissions, and workspace are shared by all conversations. Open Assistant instructions in Settings. Tap Edit, then Done, then Save instructions. The last successful save takes effect on the next turn in every conversation. The instruction limit is 20,000 characters. An empty value clears the instructions.
 
-Skill texts are global assets, with selections saved per session and applied next turn. Every skill defaults to off. The catalog distinguishes instance-owned, built-in owned, and shared `~/.agents/skills/` sources. Instance-owned names take priority, with no fallback when disabled. Selections bind to sources instead of moving automatically to a namesake; reading instructions or approving creation does not enable a skill. See [Skill directories and default switches](configuration.md#skill-directories) for directories, read-only boundaries, and maintenance; consult the current server `/docs` for source fields and instruction-detail endpoints. Session instructions and skills apply only to chat sessions; background domain sub-agents such as News and SMS do not inject chat skills and maintain their own independent rule boards.
+Skill selections are bound to their source identity. See [Skill directories and default switches](configuration.md#skill-directories) for more. Background domains such as News and SMS retain their own rules.
 
 ## News and SMS {#background-services}
 
-News and SMS run as independent background domain sub-agents without chat skills, chat history access, or global memory access. You can edit their preference rules directly in Settings or ask the assistant in main chat to update them.
+News and SMS run as independent background domain sub-agents without chat skills, chat history access, or global memory access. You can edit their preference rules directly in Settings or ask the assistant in chat to update them.
 
-- News collection and reading are described in [News](news.md). Discussing an article directly appends an explicitly untrusted reference to the existing main draft. It remains editable, is not sent automatically, and does not open a session picker. You can return to the original article.
+- News collection and reading are described in [News](news.md). Discussing an article directly appends an explicitly untrusted reference to the existing draft of the active chat. It remains editable, is not sent automatically, and does not open a session picker. You can return to the original article.
 - SMS is one global pipeline, disabled initially. After analysis, important SMS results are appended as system notifications to main history without an additional main-chat model response. Domain notification cards remain excluded from main chat model context unless you explicitly quote them into the conversation. Silent or failed batches do not manufacture notifications.
 
 SMS collection requires the Android native module, system permission, enablement and a running application process. Collection after process termination and OS push are not promised. Check item/run records before retrying an import or execution with an unknown result.
 
 ## Subagent {#subagent}
 
-The assistant can call `subagent` for a bounded single/parallel/chain operation. It has in-memory context only, creates no session or directory, uses the same workspace and returns its result directly to the caller. It cannot recursively delegate, schedule, monitor, register independent activity or change conversation instructions. Roles only narrow permissions. File changes still require individual approval; stopping the parent cancels child execution.
+The assistant can call `subagent` for a bounded single/parallel/chain operation. It has in-memory context only, creates no session or directory, uses the same workspace and returns its result directly to the caller. It cannot recursively delegate, schedule, monitor, register independent activity or change assistant instructions. Roles only narrow permissions. File changes still require individual approval; stopping the parent cancels child execution.
 
-## Reset main chat {#reset-and-delete-sessions}
+## Reset and delete sessions {#reset-and-delete-sessions}
 
-### Confirm the reset scope {#reset-current-session}
+### Reset chat history {#reset-current-session}
 
-The entry is Settings → Danger zone → Reset main chat. Confirm the irreversible scope before submitting. Reset stops execution, cancels approvals, clears chat JSONL and message feedback, and rotates the internal pi identity. The public id, instructions, skill overrides and workspace remain. Optionally remove jobs and monitors; they are retained by default.
+Reset cancels the current run and its approvals, clears chat history and feedback, and rotates the internal chat identity. The public session ID, shared settings, jobs, and web monitors are retained. If the result is unknown, read back session state before acting again.
 
-Reset does not delete news, SMS, global memory or global Dream configuration. If the result is unknown, reread history and state; do not repeat reset automatically.
+### Delete a conversation {#delete-session}
 
-### Topic controls are deferred {#delete-session}
-
-The mobile app currently provides no topic creation, selection, switching, renaming or deletion controls. The server's multi-session foundation remains. Hiding client controls does not delete existing topic data or change the rule that main cannot be deleted.
+Scheduled jobs and web monitors deliver results to their owning conversation. When deleting a conversation, review its schedules and choose whether to delete them or move them to the permanent main chat. Moving retains schedules and their run records. Old messages are removed with the conversation. If a job is still running in the conversation, wait for it to finish before moving its schedules. Main chat can be reset and remains available.

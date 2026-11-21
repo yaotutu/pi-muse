@@ -2,6 +2,7 @@ import { createCompanionRoutes } from "./routes/companions.js";
 import { CompanionError } from "../features/companions/types.js";
 import { UnknownSkillError } from "../features/skills/service.js";
 import { SessionError } from "../features/sessions/types.js";
+import { createAssistantRoutes } from "./routes/assistant.js";
 import { createSessionRoutes } from "./routes/sessions.js";
 import { ConversationError } from "../features/conversation/errors.js";
 import { Hono } from "hono";
@@ -122,6 +123,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/api/sessions", createMessageRoutes(dependencies));
   app.route("/api/information", createInformationRoutes(dependencies));
   app.route("/api/sessions", createSessionRoutes(dependencies));
+  app.route("/api/assistant", createAssistantRoutes(dependencies));
   app.route("/api/companions", createCompanionRoutes(dependencies.companions));
   app.route("/api/news", createNewsRoutes(dependencies));
   app.route("/", createTracesRoutes(dependencies));

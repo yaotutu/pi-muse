@@ -166,7 +166,7 @@ test("information batch records its own kind, sessionId and informationRunId", a
   const h = await fixture();
   try {
     const sessionId = "main";
-    assert.equal((await h.call(`/api/sessions/${sessionId}/instructions`, {
+    assert.equal((await h.call(`/api/assistant/instructions`, {
       method: "PUT",
       body: JSON.stringify({ instructions: "Always be concise." }),
     })).status, 200);

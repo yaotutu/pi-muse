@@ -18,7 +18,7 @@ Absolute paths, parent traversal and symlinks cannot bypass the workspace bounda
 The exact SKILL.md and supported text resource paths listed for enabled skills
 are an additional read-only exception; this does not grant directory listing or
 access to neighboring code/config files.
-Conversation instructions never grant additional tools, file access or approval.
+Assistant instructions never grant additional tools, file access or approval.
 Product skills are instance assets. Ordinary file operations and workspace paths never install or modify product skills; if the skills tool is
 unavailable, say so instead of writing to a wrong location.
 No shell, email, or calendar tools are available. Never claim to have performed an
@@ -50,12 +50,12 @@ arbitrary filesystem access or bypass file-tool approval. Stop does not undo a
 committed SQL change or guarantee interruption of a synchronous statement.`;
 
 const instructionsPrompt = `
-instructions reads or replaces only this conversation's rules on explicit user
+instructions reads or replaces shared assistant instructions on explicit user
 requests; changes apply next turn.`;
 
 const skillsPrompt = `
 For maintaining Pi Muse product skills, consult skill-creator and use the skills
-tool. Skill assets are stored once for the instance; the current conversation only
+tool. Skill assets are stored once for the instance; the assistant configuration
 selects whether a skill is enabled; enabling never happens implicitly through
 another tool.`;
 
@@ -114,7 +114,7 @@ export type SystemPromptOptions = {
   memory: Pick<MemoryService, "renderForPrompt">;
   /** 最终模型工具名单：已经包含会话技能与 child 角色过滤。 */
   allowedToolNames: readonly string[];
-  sessionInstructions?: string;
+  assistantInstructions?: string;
   recalledMemories?: readonly MemoryItem[];
   domainAgents?: readonly DomainAgentPromptSummary[];
 };
@@ -124,7 +124,7 @@ export const buildSystemPrompt = async ({
   layout,
   memory,
   allowedToolNames,
-  sessionInstructions,
+  assistantInstructions,
   recalledMemories,
   domainAgents,
 }: SystemPromptOptions): Promise<string> => {
@@ -153,6 +153,6 @@ export const buildSystemPrompt = async ({
     capabilityPrompt +
     section("Your identity (SOUL)", await readProfileFile(layout.soulFile)) +
     section("The user (USER)", await readProfileFile(layout.userFile)) +
-    section("Current conversation instructions", sessionInstructions ?? "") +
+    section("Assistant instructions", assistantInstructions ?? "") +
     (await memory.renderForPrompt({ includeMemory: has("memory_search"), recalledMemories }));
 };

@@ -47,6 +47,8 @@ test("DataLayout describes the current paths without migrating legacy data", () 
     workspaceDir: join(root, "workspace"),
     sessionsDir: join(root, "sessions"),
     sessionIndexFile: join(root, "sessions.json"),
+    assistantInstructionsFile: join(root, "sessions", "main", "INSTRUCTIONS.md"),
+    assistantSkillOverridesFile: join(root, "sessions", "main", "skills.json"),
     messageFeedbackDir: join(root, "messages"),
     agentDir: join(root, "agent"),
     piAuthFile: join(root, "agent", "auth.json"),
@@ -499,7 +501,7 @@ test("HTTP and pi tools use the same composed stores; conversation exposes no st
       finally { await rm(dataDir, { recursive: true, force: true }); }
     }
   });
-  await enableBuiltinSkills(service, "main", ["memory", "cron"]);
+  await enableBuiltinSkills(service, ["memory", "cron"]);
   const main = await service.conversationHub.forSession("main");
   assert.equal("memory" in main, false);
   assert.equal("jobs" in main, false);

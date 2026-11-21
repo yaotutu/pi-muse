@@ -1,4 +1,4 @@
-import { sessionRecordResponse } from "../../src/http/contracts/responses.js";
+import { sessionRecordResponse, sessionSchedulesResponse, deleteSessionResponse } from "../../src/http/contracts/responses.js";
 import { randomUUID } from "node:crypto";
 import { sseEventSchema, type SseEvent } from "../../src/http/contracts/sse-events.js";
 import {
@@ -114,16 +114,28 @@ export const createTestClient = (baseUrl: () => string, token: string, timeoutMs
     return { sessionId, runId, events, done, cancel: () => reader.cancel() };
   };
   const run = async (content: string, sessionId?: string) => (await startRun(content, sessionId)).done;
-  // 测试会话初始化：按真实 PUT 语义整份保存，不偷偷合并或替新会话继承 main。
-  const enableSkills = (sessionId: string, names: readonly string[]) => json(
-    `/api/sessions/${encodeURIComponent(sessionId)}/skills`,
+  // 测试助手设置：按真实 PUT 语义整份保存。
+  const enableSkills = (names: readonly string[]) => json(
+    `/api/assistant/skills`,
     { overrides: Object.fromEntries(names.map((name) => [`builtin/${name}`, true])) }, "PUT",
   );
+  const requestSessionDeletion = async (sessionId: string, scheduleDisposition: "delete" | "move-to-main" = "delete") => {
+    const path = `/api/sessions/${encodeURIComponent(sessionId)}`;
+    const preview = await request(`${path}/schedules`);
+    if (!preview.ok) return preview;
+    const { scheduleRevision } = sessionSchedulesResponse.parse(await preview.json());
+    return request(path, { scheduleDisposition, scheduleRevision }, "DELETE");
+  };
   return {
-    request, json, history, startRun, run, enableSkills,
+    request, json, history, startRun, run, enableSkills, requestSessionDeletion,
+    deleteSession: async (sessionId: string, scheduleDisposition: "delete" | "move-to-main" = "delete") => {
+      const response = await requestSessionDeletion(sessionId, scheduleDisposition);
+      if (!response.ok) throw new Error(`Test session deletion returned ${response.status}`);
+      return deleteSessionResponse.parse(await response.json());
+    },
     createSession: async (title?: string, enabledBuiltinSkills: readonly string[] = []) => {
       const session = sessionRecordResponse.parse(await json("/api/sessions", {title})).session;
-      if (enabledBuiltinSkills.length) await enableSkills(session.id, enabledBuiltinSkills);
+      if (enabledBuiltinSkills.length) await enableSkills(enabledBuiltinSkills);
       return session;
     },
     // 通知流与审批新协议 helper；pending 保留“当前待审批集合”语义，内部走 ready。

@@ -15,8 +15,7 @@ import {
   type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 import type { DataLayout } from "../storage/data-layout.js";
-import { sessionInstructionsFile } from "../storage/data-layout.js";
-import { readSessionInstructions } from "../storage/session-instructions.js";
+import { readAssistantInstructions } from "../storage/assistant-instructions.js";
 import { loadEnabledProductSkills } from "./enabled-skills.js";
 import type { Config } from "../../config/load-config.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
@@ -147,7 +146,7 @@ export async function openPi(deps: PiDeps) {
     : undefined;
 
   // 1. 只装配用户已选择的来源身份；关闭、被覆盖以及同名新来源都不会自动加载。
-  const selectedSkills = await loadEnabledProductSkills(skills, deps.sessionId, child?.enabledSkillIds);
+  const selectedSkills = await loadEnabledProductSkills(skills, child?.enabledSkillIds);
   const enabledSkillNames = new Set(selectedSkills.map((skill) => skill.name));
   const activeSkills = selectedSkills.filter((s) =>
     (!child || !["task", "cron", "monitor"].includes(s.name)) &&
@@ -354,16 +353,15 @@ export async function openPi(deps: PiDeps) {
     extensionResult.extensions.push(...inline.extensions);
   }
 
-  // 4. 构建 System Prompt 并注入技能、专属会话指令与 Extension
-  const instructionsFile = !child && deps.sessionId ? sessionInstructionsFile(layout, deps.sessionId) : undefined;
-  const sessionInstructions = instructionsFile ? await readSessionInstructions(instructionsFile) : undefined;
+  // 4. 构建 System Prompt 并注入技能、全局助手指令与 Extension
+  const assistantInstructions = !child ? await readAssistantInstructions(layout.assistantInstructionsFile) : undefined;
   const recalledMemories = (deps.userText && memory) ? await memory.recall(deps.userText) : [];
   const systemPrompt = await buildSystemPrompt(
     {
       layout,
       memory,
       allowedToolNames,
-      sessionInstructions,
+      assistantInstructions,
       recalledMemories,
       domainAgents: domainAgentsForSession?.describeForPrompt(),
     },

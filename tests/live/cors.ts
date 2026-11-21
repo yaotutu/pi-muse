@@ -132,11 +132,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         cleanup.memoryDeleted = cleanup.memoryDeleted && delMem?.status === 200;
       }
       if (sessionId) {
-        const delAgent = await fetch(`${baseUrl}/api/sessions/${sessionId}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(10_000),
-        }).catch(() => null);
+        const delAgent = await createTestClient(() => baseUrl, token, 10_000).requestSessionDeletion(sessionId).catch(() => null);
         cleanup.agentDeleted = delAgent?.status === 200;
       }
     }

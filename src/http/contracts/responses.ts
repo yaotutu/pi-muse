@@ -43,8 +43,17 @@ export const errorResponse = z.object({
 export const sessionRecord = z.strictObject({ id: z.string(), title: z.string(), createdAt: z.string().datetime(), updatedAt: z.string().datetime(), isMain: z.boolean() });
 export const sessionsResponse = z.object({ sessions: z.array(sessionRecord).describe("main 第一，其余按 updatedAt 倒序") });
 export const sessionRecordResponse = z.object({ session: sessionRecord });
-export const resetSessionResponse = z.object({ session: sessionRecord, cancelledApprovals: z.number().int().nonnegative(), removed: z.object({ jobs: z.number().int().nonnegative(), monitors: z.number().int().nonnegative() }) });
-export const deleteSessionResponse = z.object({ ok: z.literal(true), removed: z.object({ sessions: z.number().int().nonnegative() }) });
+const scheduleCount = z.number().int().nonnegative();
+const scheduleCounts = z.object({ jobs: scheduleCount, monitors: scheduleCount });
+const scheduleSummary = z.object({ id: z.string(), title: z.string() });
+export const sessionSchedulesResponse = z.object({
+  jobs: z.array(scheduleSummary), monitors: z.array(scheduleSummary),
+  scheduleRevision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export const resetSessionResponse = z.object({ session: sessionRecord, cancelledApprovals: scheduleCount });
+export const deleteSessionResponse = z.object({
+  ok: z.literal(true), removed: scheduleCounts.extend({ sessions: scheduleCount }), moved: scheduleCounts,
+});
 export type ResetSessionDto = z.infer<typeof resetSessionResponse>;
 export type DeleteSessionDto = z.infer<typeof deleteSessionResponse>;
 export const conversationAttachment = z.strictObject({
@@ -103,7 +112,7 @@ export const profileResponse = z.object({
   user: z.string().describe("USER.md 内容；空串表示未设置"),
 });
 export const instructionsResponse = z.object({
-  instructions: z.string().describe("该会话当前生效的专属指令文本（INSTRUCTIONS.md）"),
+  instructions: z.string().describe("各聊天会话共用的助手指令文本（INSTRUCTIONS.md）"),
 });
 export type InstructionsDto = z.infer<typeof instructionsResponse>;
 
@@ -229,14 +238,14 @@ export const deleteMemoryResponse = z.object({
 export type DeleteMemoryResponseDto = z.infer<typeof deleteMemoryResponse>;
 export const dreamTargetView = z.enum(["user", "soul", "instructions", "memory"]);
 export const dreamPendingItem = z.object({
-  sourceSessionId: z.string().optional().describe("建议来源会话；应用 instructions 时使用，已删除来源不能复活"),
+  sourceSessionId: z.string().optional().describe("建议来源会话，仅用于溯源。应用时仍写入全局目标"),
   id: z.string().describe("待决建议 ID"),
   text: z.string().describe("建议保存的纯文本内容"),
   suggestedTarget: dreamTargetView.describe("模型建议归属"),
   reason: z
     .enum(["ambiguous", "global_from_session", "no_purpose"])
     .describe(
-      "未直接落盘的原因：ambiguous=模型不确定归属，global_from_session=非主会话提出的全局 USER/SOUL 建议，no_purpose=会话未声明 `## 会话用途`",
+      "未直接落盘的原因：ambiguous=模型不确定归属，global_from_session=会话提出的全局资料或助手指令建议，no_purpose=会话未声明 `## 会话用途`",
     ),
   createdAt: z.string().describe("生成时间（ISO 8601）"),
 });

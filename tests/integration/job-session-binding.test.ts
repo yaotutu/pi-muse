@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { once } from "node:events";
@@ -39,7 +39,7 @@ const until = async (condition: () => Promise<boolean>) => {
 
 const assertMissing = async (path: string) => assert.rejects(stat(path), { code: "ENOENT" });
 
-const fixture = async (t: TestContext) => {
+const fixture = async (t: TestContext, schedulerIntervalMs = 60000) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-muse-job-binding-"));
   let model: Awaited<ReturnType<typeof createFakeModel>> | undefined;
   let service: Awaited<ReturnType<typeof createService>> | undefined;
@@ -65,7 +65,7 @@ const fixture = async (t: TestContext) => {
   const config = createConfig({
     server: { host: "127.0.0.1" },
     model: { baseUrl: model.baseUrl, id: "test-model", apiKey: "fake-test-key" },
-    runtime: { dataDir: dir, runTimeoutMs: 5000, schedulerIntervalMs: 60000, monitorScanIntervalMs: 60000 },
+    runtime: { dataDir: dir, runTimeoutMs: 5000, schedulerIntervalMs, monitorScanIntervalMs: 60000 },
   });
 
   service = await createService(config);
@@ -92,274 +92,135 @@ const fixture = async (t: TestContext) => {
     return (body.sessions || []).some((agent: { id: string }) => agent.id === id);
   };
 
-  return { dir, model, service: () => service!, request, snapshot, listed, releaseGates };
+  const schedules = async (id: string) => {
+    const response = await request(`/api/sessions/${id}/schedules`);
+    assert.equal(response.status, 200);
+    return response.json() as Promise<{ scheduleRevision: string; jobs: { id: string; title: string }[]; monitors: { id: string; title: string }[] }>;
+  };
+  const remove = async (id: string, scheduleDisposition: "delete" | "move-to-main" = "delete") =>
+    request(`/api/sessions/${id}`, "DELETE", { scheduleDisposition, scheduleRevision: (await schedules(id)).scheduleRevision });
+  return { dir, model, config, stop, service: () => service!, request, snapshot, listed, schedules, remove, releaseGates };
+
 };
 
-test("existing job rebound to a valid new originSessionId creates target agent and runs in that agent", async (t) => {
+test("move-to-main preserves the original schedules and runs the task only in main", async (t) => {
   const h = await fixture(t);
-  const initialJob = await h.service().jobs.add("test rebound prompt", false, "2030-01-01T00:00:00.000Z", "main");
-  const missingId = "00000000-0000-4000-8000-000000000001";
-  assert.equal(await h.listed(missingId), false);
-  const missing = await h.request(`/api/jobs/${initialJob.id}`, "PATCH", { originSessionId:missingId });
-  assert.equal(missing.status,404,"binding may not create a missing public session");
-  const targetSessionId = (await h.service().sessions.create("rebound-target")).id;
-
-  assert.equal(await h.listed(targetSessionId), true);
-
-  const modelCallsBefore = h.model.requests.length;
-
-  const patchResp = await h.request(`/api/jobs/${initialJob.id}`, "PATCH", {
-    originSessionId: targetSessionId,
+  const { id } = await h.service().sessions.create("move-source");
+  const at = "2030-01-01T00:00:00.000Z";
+  const job = await h.service().jobs.add("test moved prompt", false, at, id);
+  const monitor = await h.service().monitors.create({
+    originSessionId: id, url: "https://example.com/", condition: "contains", value: "ALERT",
   });
-  assert.equal(patchResp.status, 200);
-  const patchedJob = await patchResp.json() as { id: string; originSessionId?: string };
-  assert.equal(patchedJob.originSessionId, targetSessionId);
+  await h.service().monitors.check(monitor.id, { body: "ALERT" });
+  await h.service().monitors.control(monitor.id, "pause");
+  const monitorBefore = await h.service().monitors.get(monitor.id);
 
-  // 1. 真实智能体列表与 sessions 目录已建立
-  assert.equal(await h.listed(targetSessionId), true);
-  const targetDirStat = await stat(join(h.dir, "sessions", targetSessionId));
-  assert.ok(targetDirStat.isDirectory());
+  assert.equal((await h.request(`/api/jobs/${job.id}`, "PATCH", { originSessionId: "main" })).status, 400);
+  assert.equal((await h.request(`/api/monitors/${monitor.id}`, "PATCH", { originSessionId: "main" })).status, 400);
+  assert.deepEqual((await h.schedules(id)).jobs, [{ id: job.id, title: job.prompt }]);
+  const response = await h.remove(id, "move-to-main");
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, removed: { sessions: 1, jobs: 0, monitors: 0 }, moved: { jobs: 1, monitors: 1 } });
+  assert.deepEqual(await h.service().jobs.get(job.id), { ...job, originSessionId: "main" });
+  assert.deepEqual(await h.service().monitors.get(monitor.id), { ...monitorBefore, originSessionId: "main" });
+  assert.equal(await h.listed(id), false);
+  await assertMissing(join(h.dir, "sessions", id));
 
-  // 再改绑已存在智能体也成功
-  const secondPatch = await h.request(`/api/jobs/${initialJob.id}`, "PATCH", {
-    originSessionId: targetSessionId,
-  });
-  assert.equal(secondPatch.status, 200);
-
-  // 调度器触发该任务，等待 jobs.get(id).lastStatus === "completed"
-  const pastIso = new Date(Date.now() - 1000).toISOString();
-  await h.service().jobs.update(initialJob.id, { at: pastIso });
+  await h.service().jobs.update(job.id, { at: new Date(Date.now() - 1000).toISOString() });
   const scheduler = createScheduler(
-    { schedulerIntervalMs: 10 },
-    h.service().jobs,
-    await h.service().conversationHub.forSession("main"),
-    (id) => h.service().conversationHub.findSession(id),
+    { schedulerIntervalMs: 10 }, h.service().jobs, await h.service().conversationHub.forSession("main"),
+    (sessionId) => h.service().conversationHub.findSession(sessionId),
   );
   scheduler.start();
   try {
-    await until(async () => {
-      const stored = await h.service().jobs.get(initialJob.id);
-      return stored?.lastStatus === "completed";
-    });
-
-    // 目标智能体历史中包含 assistant 的 JOB-RAN 输出
-    const targetSnap = await h.snapshot(targetSessionId);
-    assert.ok(
-      targetSnap.messages.some(
-        (m) => m.role === "assistant" && m.content?.includes("JOB-RAN") && m.content?.includes("test rebound prompt"),
-      ),
-      "target agent history must include assistant JOB-RAN reply",
-    );
-
-    // 本地 provider 发生调用
-    assert.ok(h.model.requests.length > modelCallsBefore, "model requests count must increase");
-
-    // 主智能体无误投
-    const mainSnap = await h.snapshot("main");
-    assert.equal(mainSnap.messages.some((m) => m.content?.includes("test rebound prompt")), false);
-  } finally {
-    await scheduler.close();
-  }
+    await until(async () => (await h.service().jobs.get(job.id))?.lastStatus === "completed");
+    assert.ok((await h.snapshot("main")).messages.some((message) =>
+      message.role === "assistant" && message.content?.includes("test moved prompt")));
+    assert.deepEqual((await h.snapshot(id)).messages, []);
+  } finally { await scheduler.close(); }
 });
 
-test("omitting originSessionId on update preserves existing originSessionId and does not open extra agents", async (t) => {
+test("schedule confirmation is rechecked after admitted creations and expires if the list changes", async (t) => {
   const h = await fixture(t);
-  const targetSessionId = (await h.service().sessions.create("custom-origin")).id;
-  // 先通过 explicit withSession 建立智能体并添加任务
-  await h.service().conversationHub.withSession(targetSessionId, async () => undefined);
-  const job = await h.service().jobs.add("prompt to preserve", false, "2030-01-01T00:00:00.000Z", targetSessionId);
+  const { id } = await h.service().sessions.create("changed-schedules");
+  const preview = await h.schedules(id);
+  const newlyAdmitted = deferred();
+  const allowCreation = deferred();
+  h.releaseGates.push(allowCreation.resolve);
+  const creating = h.service().conversationHub.withSession(id, async () => {
+    newlyAdmitted.resolve();
+    await waitGate(allowCreation.promise, t.signal);
+    return h.service().jobs.add("new job after confirmation", false, "2030-01-01T00:00:00.000Z", id);
+  });
+  await newlyAdmitted.promise;
+  const deleting = h.request(`/api/sessions/${id}`, "DELETE", { scheduleDisposition: "delete", scheduleRevision: preview.scheduleRevision });
+  await until(async () => h.service().conversationHub.isDeleting(id));
+  assert.equal((await h.request("/api/monitors", "POST", {
+    originSessionId: id, url: "https://example.com/", condition: "change",
+  })).status, 409);
+  allowCreation.resolve();
+  const job = await creating;
+  const conflict = await deleting;
+  assert.equal(conflict.status, 409);
+  assert.equal((await conflict.json()).code, "SESSION_SCHEDULES_CHANGED");
+  assert.ok(await h.service().jobs.get(job.id));
+  assert.equal(await h.listed(id), true);
+  const removed = await h.remove(id);
+  assert.equal(removed.status, 200);
+  assert.deepEqual(await removed.json(), { ok: true, removed: { sessions: 1, jobs: 1, monitors: 0 }, moved: { jobs: 0, monitors: 0 } });
+  assert.equal(await h.service().jobs.get(job.id), undefined);
+});
 
-  // 捕获更新前的智能体列表与 sessions 目录集合
-  const beforeAgentsResp = await h.request("/api/sessions");
-  const beforeAgents = ((await beforeAgentsResp.json()) as { sessions?: { id: string }[] }).sessions?.map((s) => s.id).sort();
-  const beforeDirs = (await readdir(join(h.dir, "sessions"))).sort();
+test("retaining schedules waits for the source job, while delete cancels it", async (t) => {
+  const h = await fixture(t, 10);
+  const { id } = await h.service().sessions.create("running-job");
+  const job = await h.service().jobs.add(
+    'wait\n\nE2E activity {"calls":[],"end":"hold"}',
+    false, new Date(Date.now() - 1000).toISOString(), id,
+  );
+  await until(async () => h.model.requests.length > 0 && h.service().scheduler.isRunningFor(id));
+  const before = await h.schedules(id);
+  const keep = await h.remove(id, "move-to-main");
+  assert.equal(keep.status, 409);
+  assert.equal((await keep.json()).code, "SESSION_JOB_RUNNING");
+  assert.deepEqual(await h.schedules(id), before);
+  assert.equal(h.service().scheduler.isRunningFor(id), true);
+  assert.equal((await h.remove(id)).status, 200);
+  await until(async () => !h.service().scheduler.isRunningFor(id));
+  assert.equal(await h.service().jobs.get(job.id), undefined);
+  assert.equal(await h.listed(id), false);
+  assert.deepEqual((await h.snapshot("main")).messages, []);
+});
 
-  // 监听 withSession 调用次数
-  let withSessionCalls = 0;
-  const originalWithAgent = h.service().conversationHub.withSession;
-  h.service().conversationHub.withSession = async (...args) => {
-    withSessionCalls++;
-    return originalWithAgent(...args);
-  };
+test("startup completes a partially applied move without losing the schedule or resurrecting the old session", async (t) => {
+  const h = await fixture(t);
+  const { id } = await h.service().sessions.create("recover-move");
+  const job = await h.service().jobs.add("retained job", false, "2030-01-01T00:00:00.000Z", id);
+  const monitor = await h.service().monitors.create({ originSessionId: id, url: "https://example.com/", condition: "change" });
+  h.service().monitors.moveByOriginSessionId = async () => { throw new Error("injected monitor write failure"); };
+  const interrupted = await h.remove(id, "move-to-main");
+  assert.equal(interrupted.status, 500);
+  assert.equal((await h.service().jobs.get(job.id))?.originSessionId, "main");
+  assert.equal((await h.service().monitors.get(monitor.id))?.originSessionId, id);
+  assert.equal(h.service().sessions.isScheduleBlocked(job.id), true);
+  assert.deepEqual((await h.snapshot(id)).messages, []);
+  await h.stop();
+  const reopened = await createService(h.config);
   try {
-    const patchResp = await h.request(`/api/jobs/${job.id}`, "PATCH", {
-      prompt: "updated prompt text",
-    });
-    assert.equal(patchResp.status, 200);
-    const patchedJob = await patchResp.json() as { id: string; prompt: string; originSessionId?: string };
-    assert.equal(patchedJob.prompt, "updated prompt text");
-    assert.equal(patchedJob.originSessionId, targetSessionId);
-
-    // 验证 withSession 调用为零，原绑定不变
-    assert.equal(withSessionCalls, 0, "withSession must not be called when originSessionId is omitted");
-
-    // 智能体列表与 sessions 目录前后完全一致，没有打开或创建任何额外智能体
-    const afterAgentsResp = await h.request("/api/sessions");
-    const afterAgents = ((await afterAgentsResp.json()) as { sessions?: { id: string }[] }).sessions?.map((s) => s.id).sort();
-    const afterDirs = (await readdir(join(h.dir, "sessions"))).sort();
-
-    assert.deepEqual(afterAgents, beforeAgents);
-    assert.deepEqual(afterDirs, beforeDirs);
-  } finally {
-    h.service().conversationHub.withSession = originalWithAgent;
-  }
-});
-
-test("invalid schedule format, bad input or missing job is rejected before creating target agent", async (t) => {
-  const h = await fixture(t);
-  const nonExistentAgent = "00000000-0000-4000-8000-000000000099";
-
-  // 1. 任务不存在 404，不创建智能体
-  const missingJobResp = await h.request("/api/jobs/missing-id", "PATCH", {
-    originSessionId: nonExistentAgent,
-  });
-  assert.equal(missingJobResp.status, 404);
-  assert.equal(await h.listed(nonExistentAgent), false);
-  await assertMissing(join(h.dir, "sessions", nonExistentAgent));
-
-  // 2. 存在任务，但更新 payload 无效（如非法时刻格式）400，不创建智能体
-  const job = await h.service().jobs.add("valid prompt", false, "2030-01-01T00:00:00.000Z", "main");
-  const badScheduleResp = await h.request(`/api/jobs/${job.id}`, "PATCH", {
-    daily: true,
-    at: "invalid-hh-mm",
-    originSessionId: nonExistentAgent,
-  });
-  assert.equal(badScheduleResp.status, 400);
-  assert.equal(await h.listed(nonExistentAgent), false);
-  await assertMissing(join(h.dir, "sessions", nonExistentAgent));
-
-  // 3. 非法 originSessionId 400
-  const badSessionIdResp = await h.request(`/api/jobs/${job.id}`, "PATCH", {
-    originSessionId: "invalid agent name with agents",
-  });
-  assert.equal(badSessionIdResp.status, 400);
-});
-
-test("deterministic gate: PATCH returns 409 SESSION_DELETING while target agent is being deleted, job remains unchanged and no resurrection occurs", async (t) => {
-  const h = await fixture(t);
-  const targetSessionId = (await h.service().sessions.create("agent-to-delete")).id;
-  await h.service().conversationHub.withSession(targetSessionId, async () => undefined);
-  assert.equal(await h.listed(targetSessionId), true);
-
-  const job = await h.service().jobs.add("prompt original", false, "2030-01-01T00:00:00.000Z", "main");
-
-  const deleteEntered = deferred();
-  const deleteProceed = deferred();
-  const originalRemoveJobs = h.service().jobs.removeByOriginSessionId;
-  h.service().jobs.removeByOriginSessionId = async (origin) => {
-    deleteEntered.resolve();
-    await waitGate(deleteProceed.promise, t.signal);
-    return originalRemoveJobs(origin);
-  };
-  h.releaseGates.push(deleteProceed.resolve);
-
-  // 开始删除 targetSessionId
-  const deleteReq = h.request(`/api/sessions/${targetSessionId}`, "DELETE");
-  await waitGate(deleteEntered.promise, t.signal);
-
-  // 删除进行中，尝试将任务改绑到该智能体 -> 必须返回 409 SESSION_DELETING
-  const patchResp = await h.request(`/api/jobs/${job.id}`, "PATCH", {
-    originSessionId: targetSessionId,
-  });
-  assert.equal(patchResp.status, 409);
-  const patchBody = await patchResp.json() as { code?: string; error?: string };
-  assert.equal(patchBody.code, "SESSION_DELETING");
-
-  // 原任务及其归属不变
-  const currentJob = await h.service().jobs.get(job.id);
-  assert.equal(currentJob?.originSessionId, "main");
-
-  // 放行删除完成
-  deleteProceed.resolve();
-  assert.equal((await deleteReq).status, 200);
-  h.service().jobs.removeByOriginSessionId = originalRemoveJobs;
-
-  // 删除完成后无目标智能体复活，原任务仍属 main
-  assert.equal(await h.listed(targetSessionId), false);
-  await assertMissing(join(h.dir, "sessions", targetSessionId));
-});
-
-test("deterministic gate: rebinding enters withSession first, then DELETE starts; upon rebind completion DELETE cascades the job, directory does not resurrect", async (t) => {
-  const h = await fixture(t);
-  const targetSessionId = (await h.service().sessions.create("rebind-then-delete")).id;
-  const job = await h.service().jobs.add("prompt to cascade", false, "2030-01-01T00:00:00.000Z", "main");
-
-  const updateEntered = deferred();
-  const updateProceed = deferred();
-  const originalUpdate = h.service().jobs.update;
-  h.service().jobs.update = async (...args) => {
-    updateEntered.resolve();
-    await waitGate(updateProceed.promise, t.signal);
-    return originalUpdate(...args);
-  };
-  h.releaseGates.push(updateProceed.resolve);
-
-  // 包裹 deleteSession，确保 DELETE 已进入服务端并同步设置了 deleting 门
-  const deleteEntered = deferred();
-  const originalDeleteAgent = h.service().conversationHub.deleteSession;
-  h.service().conversationHub.deleteSession = ((id: string, remove: () => Promise<unknown>) => {
-    const promise = originalDeleteAgent(id, remove);
-    deleteEntered.resolve();
-    return promise;
-  }) as typeof originalDeleteAgent;
-
-  let removeJobsCalled = false;
-  const originalRemoveJobs = h.service().jobs.removeByOriginSessionId;
-  h.service().jobs.removeByOriginSessionId = async (origin) => {
-    removeJobsCalled = true;
-    return originalRemoveJobs(origin);
-  };
-
-  try {
-    // 发起改绑 PATCH，改绑会先进入 withSession 并挂起在 jobs.update
-    const patchReq = h.request(`/api/jobs/${job.id}`, "PATCH", {
-      originSessionId: targetSessionId,
-    });
-    await waitGate(updateEntered.promise, t.signal);
-
-    // 发起 DELETE 该智能体
-    const deleteReq = h.request(`/api/sessions/${targetSessionId}`, "DELETE");
-
-    // 等待 DELETE 到达服务端并进入 deleteSession（deleting 门已设）
-    await waitGate(deleteEntered.promise, t.signal);
-
-    // 证明级联等待改绑：此时 withSession 尚未完成，deleteSession 内部排队等待，removeByOriginSessionId 尚未被调用
-    assert.equal(removeJobsCalled, false, "removeByOriginSessionId must wait for in-flight withSession rebind");
-
-    // 放行 jobs.update
-    updateProceed.resolve();
-
-    const [patchResp, deleteResp] = await Promise.all([patchReq, deleteReq]);
-    assert.equal(patchResp.status, 200);
-    assert.equal(deleteResp.status, 200);
-
-    // 改绑完成后由于 deleteSession 紧接着执行，该任务被级联删除
-    assert.equal(removeJobsCalled, true, "removeByOriginSessionId must be called during agent deletion");
-    const jobAfterCascade = await h.service().jobs.get(job.id);
-    assert.equal(jobAfterCascade, undefined);
-
-    // 目录不复活
-    assert.equal(await h.listed(targetSessionId), false);
-    await assertMissing(join(h.dir, "sessions", targetSessionId));
-  } finally {
-    updateProceed.resolve();
-    h.service().jobs.update = originalUpdate;
-    h.service().jobs.removeByOriginSessionId = originalRemoveJobs;
-    h.service().conversationHub.deleteSession = originalDeleteAgent;
-  }
+    assert.equal(await reopened.sessions.get(id), undefined);
+    assert.equal((await reopened.jobs.get(job.id))?.originSessionId, "main");
+    assert.equal((await reopened.monitors.get(monitor.id))?.originSessionId, "main");
+    assert.equal(reopened.sessions.isScheduleBlocked(job.id), false);
+    await assertMissing(join(h.dir, "sessions", id));
+  } finally { await reopened.close(); }
 });
 
 test("deterministic gate: in-flight stale scan snapshot cannot execute after origin agent is deleted", async (t) => {
   const h = await fixture(t);
   const targetSessionId = (await h.service().sessions.create("stale-scan-origin")).id;
 
-  // 创建并改绑一个已到期任务到 targetSessionId
   const pastIso = new Date(Date.now() - 1000).toISOString();
-  const job = await h.service().jobs.add("stale scan prompt", false, pastIso, "main");
-  const patchResp = await h.request(`/api/jobs/${job.id}`, "PATCH", {
-    originSessionId: targetSessionId,
-  });
-  assert.equal(patchResp.status, 200);
+  const job = await h.service().jobs.add("stale scan prompt", false, pastIso, targetSessionId);
   assert.equal(await h.listed(targetSessionId), true);
 
   const modelCallsBefore = h.model.requests.length;
@@ -392,7 +253,7 @@ test("deterministic gate: in-flight stale scan snapshot cannot execute after ori
 
     // 此时调度器持有该任务快照并已拿到 targetAgent 的 conversation，但在返回给调度器前挂起；
     // 发起真实 HTTP DELETE 删除该智能体并级联清理该任务
-    const deleteResp = await h.request(`/api/sessions/${targetSessionId}`, "DELETE");
+    const deleteResp = await h.remove(targetSessionId);
     assert.equal(deleteResp.status, 200);
 
     // 确认智能体已删除，任务已级联清理

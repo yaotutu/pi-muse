@@ -114,7 +114,7 @@ By default, the `.pi-muse/` directory containing `.pi-muse/config.json` is also 
 
 `runtime.dataDir: "."` also denotes the configuration file's directory, regardless of the starting process's cwd. If `".pi-muse"` is placed inside `.pi-muse/config.json`, it points to a nested `.pi-muse/` beneath it, not the identically named directory at the project root.
 
-Public session ids and internal pi ids are distinct. Main is permanent, topic sessions are explicit, history/instructions are isolated and the workspace is one global root.
+Public session ids and internal pi ids are distinct. Main is permanent, topic sessions are explicit, history is isolated, assistant instructions are shared and the workspace is one global root.
 
 ## Instance directory structure {#instance-directory-structure}
 
@@ -123,7 +123,8 @@ DATA_DIR/
   profile/          SOUL.md USER.md DREAM.md memory.md identity.json
   workspace/
   sessions.json
-  sessions/<sessionId>/  pi JSONL, INSTRUCTIONS.md, skills.json
+  sessions/<sessionId>/  conversation pi JSONL
+  sessions/main/         shared INSTRUCTIONS.md and skills.json
   messages/<sessionId>/<piSessionId>.json
   main.sqlite       scheduled tasks, goals, approvals, SMS, Dream state and agent tables
   news.sqlite       relational news tables
@@ -152,13 +153,13 @@ Names resolve in the order instance-owned > built-in > shared. The catalog ident
 
 The shared directory is read-only. Pi Muse does not copy or modify its skills or generate private configuration there. Standard skills need no extra `config.json`; historical skill configuration files are left untouched and no longer control default activation. Existing name-based selections remain readable for owned skills but never authorize a shared namesake; the next manual save binds the explicit source. The server exposes a unified catalog, full instruction details, and selection-saving endpoints; consult the current `/docs` for fields and errors. This does not imply that older clients already display source groups.
 
-In Settings → 会话技能 (Session skills), use the switches to choose which skills main chat can use, then save your changes. Tap a skill name to view its source and instructions. Shared skills come from the server’s shared directory, are read-only, and are off by default.
+In Settings → 助手技能 (Assistant skills), use the switches to choose which skills chat sessions can use, then save your changes. Tap a skill name to view its source and instructions. Shared skills come from the server’s shared directory, are read-only, and are off by default.
 
 After editing switches, tap 保存技能 (Save skills); changes take effect next turn and bind to source identities. When a refreshed catalog selects a different namesake source, the old draft and instructions are not applied to it; select again from the current catalog. Older APKs without these client changes can still use their existing list and switch controls but may not show sources or instructions.
 
 Shared skill-folder entry links are supported by resolving the actual skill root. Internal links, out-of-bound files, and oversized instructions are diagnosed rather than loaded. Shared scripts and `extension.ts` are never executed. Enabling a skill does not enable bash, install dependencies, or expand tool permissions. Ordinary `read` receives only the exact enabled skill instructions and supported text resources, not access to the entire home directory.
 
-These `SKILL.md` skills and session switches apply only to chat sessions; background domain sub-agents such as SMS, News, and future domains never inject chat skills and rely solely on their domain prompts, independent explicit rule boards, and learned profiles.
+These `SKILL.md` skills and shared switches apply only to chat sessions; background domain sub-agents such as SMS, News, and future domains never inject chat skills and rely solely on their domain prompts, independent explicit rule boards, and learned profiles.
 
 ## File Write Approvals {#file-write-approvals}
 
@@ -168,13 +169,13 @@ These `SKILL.md` skills and session switches apply only to chat sessions; backgr
 - Rejection, approval expiration, or cancellation of the run prevents that modification from being committed. A service restart cancels pending approvals left by the previous process. Approval validity is fixed by the `expiresAt` recorded when it is created, and expiry and cancellation state are checked again before commit.
 - The `skills` tool takes `action=list|read|save`, `name`, optional `file` (default `SKILL.md`), and the complete `content` required by save. A name may contain only lowercase letters, digits, or single hyphens and is limited to 64 characters. Allowed files are `SKILL.md` and supported UTF-8 text under `references/` or `assets/` with `.md`, `.txt`, `.json`, `.csv`, `.yaml`, or `.yml` extensions; each file is limited to 100KB.
 - Use `skills.save` only for an explicit user request. It writes only `DATA_DIR/skills/<name>`; saving a built-in or shared name creates an instance-owned override without changing the original source, and the new source still requires manual activation. A resource can be saved only after a valid instance `SKILL.md` exists. Its approval preview uses `scope=skill`, and path `<name>/<file>`, with the same version binding and pre-commit path, cancellation, expiry, and file-change checks.
-- New skills default to off; no skill `config.json` is created or modified. After the user manually enables a skill for a session, its definition, references, and assets take effect on the next model turn—the current turn does not gain new instructions or extension capabilities. Rejection, expiry, Stop, or a file change while waiting writes nothing, and an unknown result is never resent automatically.
+- New skills default to off; no skill `config.json` is created or modified. After the user manually enables a skill, its definition, references, and assets take effect on the next model turn—the current turn does not gain new instructions or extension capabilities. Rejection, expiry, Stop, or a file change while waiting writes nothing, and an unknown result is never resent automatically.
 - Skill maintenance refuses deletion, directory operations, direct `config.json` edits, scripts/code, binaries, nested `SKILL.md`, absolute paths, traversal, and symlinks. For an enabled skill, ordinary `read` additionally exposes only its `SKILL.md` and supported resource text—not ls/grep/find or neighboring files. Subagents inherit only the parent turn's actual tool and source-identity upper bounds; roles may only narrow them, and each skill write still requires approval.
 - Disabling `tools.writable.enabled` removes `write` / `edit` and refuses `skills.save` in a controlled way while retaining `skills.list/read`. Tool presentation policy cannot skip approval or enable write capability that has been disabled.
 
 To create and use a skill:
 
-1. Manually enable `skill-creator` for the current session and ensure that the server permits approval-protected file writes; without that skill, the model has no skill-maintenance tool. Selection and instruction-detail endpoints are documented in the server's `/docs`; client controls depend on the installed version.
+1. Manually enable `skill-creator` in assistant settings and ensure that the server permits approval-protected file writes; without that skill, the model has no skill-maintenance tool. Selection and instruction-detail endpoints are documented in the server's `/docs`; client controls depend on the installed version.
 2. Explicitly tell the assistant which skill to create or revise, for example, "Create a Linux news filtering skill that prioritizes kernel and distribution updates."
 3. Inspect the complete approval preview for each skill-file change. Approve only after checking the target and before/after content, then verify the actual write receipt; approval alone does not mean the save succeeded.
 4. Manually enable the new instance-owned skill and use it on the next turn. Editing an already enabled skill of the same source also takes effect next turn; creating an override or approving a save does not enable a new source.

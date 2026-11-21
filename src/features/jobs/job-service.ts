@@ -114,6 +114,12 @@ export const createJobService = (repository: JobRepository) => ({
     return { items: remaining, result: count };
   }),
 
+  /** 转移时只改归属，原排期与运行记录仍由同一任务持有。 */
+  moveByOriginSessionId: (from: string, to: string): Promise<void> => repository.update((items) => ({
+    items: items.map((item) => (item.originSessionId ?? "main") === from ? { ...item, originSessionId: to } : item),
+    result: undefined,
+  })),
+
   /** 彻底删除单项定时任务；成功返回 true，不存在返回 false。 */
   remove: (id: string): Promise<boolean> => repository.update((items) => {
     const exists = items.some((item) => item.id === id);
@@ -122,21 +128,20 @@ export const createJobService = (repository: JobRepository) => ({
   }),
 
   /**
-   * 修改定时任务的提示词、执行时刻（daily/at）或归属会话。
+   * 修改定时任务的提示词或执行时刻（daily/at）。
    * 无论任务是否处于调度中（包含 paused/cancelled 任务），最终合并后的 schedule
    * 必须通过领域排期校验，在 repository 读改写事务内校验防并发绕过；
    * 若设定时刻改变且任务处于调度中（enabled），基于当前时间重算 nextRunAt。
    */
   update: (
     id: string,
-    updates: { prompt?: string; daily?: boolean; at?: string; originSessionId?: string },
+    updates: { prompt?: string; daily?: boolean; at?: string },
   ): Promise<Job | undefined> => repository.update((items) => {
     const job = items.find((item) => item.id === id);
     if (!job) return { result: undefined };
     const prompt = updates.prompt !== undefined ? updates.prompt.trim() : job.prompt;
     const daily = updates.daily !== undefined ? updates.daily : job.daily;
     const at = updates.at !== undefined ? updates.at.trim() : job.at;
-    const originSessionId = updates.originSessionId !== undefined ? updates.originSessionId : job.originSessionId;
 
     // 校验合并后的排期设定；无论 enabled 与否都拒绝非法排期
     assertValidSchedule(daily, at);
@@ -150,7 +155,6 @@ export const createJobService = (repository: JobRepository) => ({
       daily,
       at,
       nextRunAt,
-      originSessionId,
       updatedAt,
     };
     return { items: items.map((item) => item === job ? updated : item), result: updated };

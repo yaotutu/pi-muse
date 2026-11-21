@@ -137,7 +137,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     pass(current);
 
     // 用实际文件审批占住 main，而非用 fake provider 或伪造模型返回值制造队列。
-    await client.enableSkills("main", ["write"]);
+    await client.enableSkills(["write"]);
     for (const boundary of ["disable", "reset"] as const) {
       current = `queued-publication-${boundary}`;
       await client.json("/api/information/settings", { enabled: true, batchWindowSeconds: 3600 }, "PUT");
@@ -168,8 +168,9 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     await client.json("/api/information/settings", { enabled: true, batchWindowSeconds: 3600 }, "PUT");
     await ingest("restart-pending", "LIVE-SILENT pending state must persist without replay");
     const pendingBefore = informationItemsResponse.parse(await client.json("/api/information/items?limit=100"));
-    await client.json(`/api/sessions/${topic.id}`, undefined, "DELETE");
-    assert.equal((await client.request("/api/sessions/main", undefined, "DELETE")).status, 409);
+    await client.deleteSession(topic.id);
+    const { scheduleRevision } = await client.json("/api/sessions/main/schedules");
+    assert.equal((await client.request("/api/sessions/main", { scheduleDisposition: "delete", scheduleRevision }, "DELETE")).status, 409);
     const calls = proxy.traces.length;
     await stop(); await start();
     assert.equal(proxy.traces.length, calls);

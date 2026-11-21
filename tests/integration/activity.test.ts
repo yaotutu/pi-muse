@@ -138,7 +138,7 @@ test("activity-integration: activity with subagent step nesting", async (t) => {
       runtime: { dataDir, runTimeoutMs: 3000, schedulerIntervalMs: 60000, monitorScanIntervalMs: 60000 },
     }),
   );
-  await enableBuiltinSkills(service, "main", ["task"]);
+  await enableBuiltinSkills(service, ["task"]);
   const token = service.auth.login();
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -286,9 +286,11 @@ test("activity-integration: agent deletion cascade deletes its activities", asyn
   const actId = list.activities[0]!.id;
 
   // 删除该会话
+  const { scheduleRevision } = await service.sessions.schedules(customAgent);
   const delRes = await service.app.request(`/api/sessions/${customAgent}`, {
     method: "DELETE",
-    headers,
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ scheduleDisposition: "delete", scheduleRevision }),
   });
   assert.equal(delRes.status, 200);
 
@@ -322,7 +324,7 @@ test("activity-integration: activity with write approval records approval and fi
   const token = service.auth.login();
   const headers = { Authorization: `Bearer ${token}` };
 
-  await enableBuiltinSkills(service, "main", ["write"]);
+  await enableBuiltinSkills(service, ["write"]);
   // 触发活动交办 + 写文件
   const runPromise = service.app.request("/api/conversation/run", {
     method: "POST",

@@ -97,7 +97,7 @@ test("skills save validates with pi, creates default-off instance skill, and pre
   assert.notEqual(result.isError, true);
   assert.equal(await readFile(join(layout.skillsDir, "recipe-helper", "SKILL.md"), "utf8"), validSkill);
   await assert.rejects(stat(join(layout.skillsDir, "recipe-helper", "config.json")), { code: "ENOENT" });
-  const listed = await service.describeAuthoring("main");
+  const listed = await service.describe();
   assert.deepEqual(listed.skills.find((skill) => skill.name === "recipe-helper"), {
     name: "recipe-helper",
     description: "Collect and apply the user's recipe preferences.",
@@ -118,7 +118,7 @@ test("shared skills stay read-only and an approved own override does not inherit
   const shared = join(root, "shared-skills", "recipe-helper");
   await mkdir(shared, { recursive: true });
   await writeFile(join(shared, "SKILL.md"), validSkill);
-  await service.updateSessionOverrides("main", { "shared/recipe-helper": true });
+  await service.updateOverrides({ "shared/recipe-helper": true });
   const tool = createSkillsTool({ layout, skills: service, actions: approving(actions), timeoutMs: 5_000, saveEnabled: true, sessionId: "main" });
   const read = await call(tool, { action: "read", name: "recipe-helper" });
   assert.equal((read.details as { source: string }).source, "shared");
@@ -127,7 +127,7 @@ test("shared skills stay read-only and an approved own override does not inherit
   assert.notEqual(saved.isError, true);
   assert.equal(await readFile(join(shared, "SKILL.md"), "utf8"), validSkill);
   assert.equal(await readFile(join(layout.skillsDir, "recipe-helper", "SKILL.md"), "utf8"), ownContent);
-  const selected = (await service.describeSession("main")).skills.find((skill) => skill.name === "recipe-helper")!;
+  const selected = (await service.describe()).skills.find((skill) => skill.name === "recipe-helper")!;
   assert.equal(selected.source, "user");
   assert.equal(selected.enabled, false);
   await assert.rejects(stat(join(layout.skillsDir, "recipe-helper", "config.json")), { code: "ENOENT" });

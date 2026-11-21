@@ -158,7 +158,6 @@ export const ChatView = ({
   const [error, setError] = useState("");
   const [activePiSessionId, setActivePiSessionId] = useState(initialPiSessionId || "");
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
-  const [clearSchedules, setClearSchedules] = useState(false);
   const [resetting, setResetting] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<ChatSession | null>(null);
@@ -369,7 +368,7 @@ export const ChatView = ({
     const session = sessionRef.current;
     setResetting(true);
     try {
-      await resetSession(currentSessionId, clearSchedules);
+      await resetSession(currentSessionId);
       const res = await loadHistory(currentSessionId);
       if (res.piSessionId) seenPiSessionIds.current.add(res.piSessionId);
       setActivePiSessionId(res.piSessionId ?? "");
@@ -415,8 +414,8 @@ export const ChatView = ({
           <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
             <h2 className="text-base font-semibold text-stone-800">重置当前会话</h2>
             <p className="mt-2 text-xs leading-relaxed text-stone-500">
-              重置将清空当前会话的聊天历史及其消息反馈（喜欢、不喜欢、评论与操作记录），并生成全新的会话 ID。<br />
-              <strong>会话的私有工作区文件、INSTRUCTIONS.md 指令、技能开关与 Dream 配置均完整保留。</strong>
+              重置将清空当前会话的聊天历史及其消息反馈（喜欢、不喜欢、评论与操作记录），并更新内部聊天身份。<br />
+              <strong>公开会话 ID、定时任务和网页监控保留。</strong>
             </p>
 
             {running && (
@@ -424,21 +423,6 @@ export const ChatView = ({
                 ⚠️ 当前会话正在执行中，重置将立即终止正在进行的运行。
               </div>
             )}
-
-            <div className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs">
-              <label className="flex items-start gap-2 cursor-pointer text-stone-700">
-                <input
-                  type="checkbox"
-                  checked={clearSchedules}
-                  onChange={(e) => setClearSchedules(e.target.checked)}
-                  className="mt-0.5"
-                />
-                <span>
-                  同时清理该会话名下的定时任务与网页监控<br />
-                  <span className="text-stone-400">（默认不勾选：定时任务与监控自动保留并转绑到新会话）</span>
-                </span>
-              </label>
-            </div>
 
             <div className="mt-5 flex justify-end gap-2">
               <button

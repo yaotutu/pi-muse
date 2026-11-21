@@ -7,8 +7,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
-import { sessionInstructionsFile } from "../../src/adapters/storage/data-layout.js";
-import { readSessionInstructions } from "../../src/adapters/storage/session-instructions.js";
+import { readAssistantInstructions } from "../../src/adapters/storage/assistant-instructions.js";
 import { openNewsRepository } from "../../src/adapters/storage/news-repository.js";
 import {
   newsArticleListResponseSchema,
@@ -156,7 +155,7 @@ test("ordinary information HTTP contracts do not expose internal recommendation 
 
 test("SMS preferences stay decoupled from main instructions without creating hidden sessions", async (t) => {
   const { service, headers } = await start(t);
-  const instructions = await readSessionInstructions(sessionInstructionsFile(service.layout, "main"));
+  const instructions = await readAssistantInstructions(service.layout.assistantInstructionsFile);
   assert.equal(instructions, "");
   const saved = await service.app.request("/api/information/preferences", {
     method: "PUT",
@@ -164,13 +163,13 @@ test("SMS preferences stay decoupled from main instructions without creating hid
     body: JSON.stringify({ notes: "只提醒验证码与账单" }),
   });
   assert.equal(saved.status, 200);
-  assert.equal(await readSessionInstructions(sessionInstructionsFile(service.layout, "main")), "");
+  assert.equal(await readAssistantInstructions(service.layout.assistantInstructionsFile), "");
   assert.deepEqual((await service.sessions.list()).map((s) => s.id), ["main"]);
 });
 
 test("news preferences stay decoupled from main instructions in news.sqlite and omit skills in background runs", async (t) => {
   const { service, headers } = await start(t);
-  const instructionsPath = sessionInstructionsFile(service.layout, "main");
+  const instructionsPath = service.layout.assistantInstructionsFile;
   await mkdir(join(service.layout.sessionsDir, "main"), { recursive: true });
   await writeFile(instructionsPath, "MAIN-ONLY-INSTRUCTION\n", "utf8");
 
@@ -181,7 +180,7 @@ test("news preferences stay decoupled from main instructions in news.sqlite and 
   });
   assert.equal(saved.status, 200);
   assert.deepEqual(await saved.json(), { notes: "关注 AI 工程，屏蔽八卦", learnedNotes: "" });
-  assert.equal(await readSessionInstructions(instructionsPath), "MAIN-ONLY-INSTRUCTION");
+  assert.equal(await readAssistantInstructions(instructionsPath), "MAIN-ONLY-INSTRUCTION");
 });
 
 test("initialization preserves explicitly empty main instructions", async (t) => {

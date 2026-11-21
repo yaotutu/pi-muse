@@ -5,6 +5,7 @@ export type Scheduler = {
   start: () => void;
   /** 只读保护控制入口；完整 tick 或已执行结果待补存期间均不可重新安排。 */
   isBusy: () => boolean;
+  isRunningFor: (sessionId: string) => boolean;
   close: () => Promise<void>;
 };
 
@@ -20,6 +21,7 @@ export const createScheduler = (
   jobs: Pick<JobService, "list" | "markRun">,
   conversation: Pick<Conversation, "isRunning" | "trigger">,
   forSession?: (sessionId: string) => Promise<Pick<Conversation, "isRunning" | "trigger"> | undefined>,
+  isBlocked: (sessionId: string, jobId: string) => boolean = () => false,
 ): Scheduler => {
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
@@ -29,6 +31,7 @@ export const createScheduler = (
   // 覆盖完整 tick，避免下一次扫描读到尚未推进的任务并重复执行；不增加
   // 队列或跨进程 claim，也不承诺崩溃恢复后的 exactly-once。
   let ticking = false;
+  let runningSessionId: string | undefined;
   // 对齐 nanobot 的 _store_dirty 安全原则：模型已结束的结果只有保存成功才能
   // 放行后续扫描。串行 tick 保证最多一个待保存结果；仅驻留内存，不保证崩溃恢复。
   let pendingOutcome: {
@@ -87,8 +90,9 @@ export const createScheduler = (
           if (closed || !latest?.enabled || latestAgent !== targetSessionId ||
             latest.nextRunAt !== current.nextRunAt) continue;
         }
-        if (targetConversation.isRunning()) continue;
+        if (isBlocked(targetSessionId, current.id) || targetConversation.isRunning()) continue;
 
+        runningSessionId = targetSessionId;
         const outcome = await targetConversation.trigger(
           `⏰ [定时任务] ${current.prompt}`,
           `job-${current.id}-${Date.now()}`,
@@ -100,11 +104,13 @@ export const createScheduler = (
         // 完成时间在模型返回时固定，补写延迟不改变 lastRunAt 或 daily 下一轮。
         pendingOutcome = { id: current.id, ...outcome, completedAt: new Date() };
         await savePendingOutcome();
+        runningSessionId = undefined;
       }
     } catch {
       // 单次 tick 失败不打断调度；保存失败保留 pendingOutcome，绝不重跑模型。
     } finally {
       ticking = false;
+      runningSessionId = undefined;
     }
   };
 
@@ -118,6 +124,7 @@ export const createScheduler = (
       }, config.schedulerIntervalMs);
     },
     isBusy: () => closed || ticking || pendingOutcome !== undefined,
+    isRunningFor: (id) => runningSessionId === id,
     close: () => {
       if (closing) return closing;
       closed = true;

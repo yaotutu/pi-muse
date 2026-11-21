@@ -92,9 +92,15 @@ test("Dream integration: main agent consolidates USER/SOUL/MEMORY, advances curs
   const state = dreamOverviewResponse.parse(runRes.body);
   assert.equal(state.lastRun?.status, "completed");
   assert.equal(state.cursors.main, "assistant-run-main-1");
-  assert.deepEqual(state.lastRun?.changed.sort(), ["memory", "soul", "user"]);
+  assert.deepEqual(state.lastRun?.changed, ["memory"]);
+  assert.equal(state.pending.length, 2);
 
-  // 4. 核对 USER.md、SOUL.md 与按需检索 memory.json 真实写入。
+  // 4. main 同样需要人工确认资料建议。
+  assert.deepEqual((await json("/api/profile")).body, { user: "", soul: "" });
+  for (const proposal of state.pending) {
+    assert.equal((await json(`/api/dream/pending/${proposal.id}`, "POST", { action: "apply" })).status, 200);
+  }
+  // 核对资料与长期记忆的真实写入。
   const profile = (await json("/api/profile")).body as { soul: string; user: string };
   assert.equal(profile.user, "每天早起喝黑咖啡");
   assert.equal(profile.soul, "回答直接不寒暄");
@@ -110,16 +116,16 @@ test("Dream integration: main agent consolidates USER/SOUL/MEMORY, advances curs
   assert.equal(dreamOverviewResponse.parse(secondRun.body).lastRun?.processed, 0);
 });
 
-test("Dream integration: non-main agent routes session rules via purpose, holds global notes in pending, and respects failure cursor boundary", async (t) => {
+test("Dream integration: non-main chat holds shared instruction and profile suggestions in pending, and respects failure cursor boundary", async (t) => {
   const { json, chat, dataDir, service } = await createFixture(t);
   const {id} = await service.sessions.create("邮件");
 
-  // 1. 为邮件智能体设置会话用途与初始规则，并开启 Dream + 自定义补充提示词。
-  const savedInst = await json(`/api/sessions/${id}/instructions`, "PUT", {
-    instructions: "## 会话用途\n处理外部商务邮件\n\n保持礼貌。",
+  // 1. 设置共享指令并开启 Dream。
+  const savedInst = await json(`/api/assistant/instructions`, "PUT", {
+    instructions: "保持礼貌。",
   });
   assert.equal(savedInst.status, 200);
-  assert.match((savedInst.body as { instructions: string }).instructions, /^## 会话用途\n处理外部商务邮件/);
+  assert.deepEqual(savedInst.body, { instructions: "保持礼貌。" });
 
   const savedDream = await json("/api/dream", "PUT", { enabled:true, prompt: "只提取与商务邮件格式相关的规则。" });
   assert.equal(savedDream.status,200);
@@ -132,35 +138,39 @@ test("Dream integration: non-main agent routes session rules via purpose, holds 
     "run-mail-1",
   );
 
-  // 3. 运行邮件会话 Dream：会话规则直接进该会话 INSTRUCTIONS.md，全局偏好进入 pending。
+  // 3. 运行会话 Dream：共享指令和用户偏好须等待确认。
   const mailRun = await json("/api/dream/run", "POST", {});
   assert.equal(mailRun.status, 200);
   const mailState = dreamOverviewResponse.parse(mailRun.body);
   assert.equal(mailState.lastRun?.status, "completed");
-  assert.deepEqual(mailState.lastRun?.changed, ["instructions"]);
-  assert.equal(mailState.pending.length, 1);
-  assert.equal(mailState.pending[0]?.reason, "global_from_session");
-  assert.equal(mailState.pending[0]?.text, "周末不看工作消息");
+  assert.deepEqual(mailState.lastRun?.changed, []);
+  assert.equal(mailState.pending.length, 2);
+  const profileSuggestion = mailState.pending.find((entry) => entry.suggestedTarget === "user")!;
+  const instructionsSuggestion = mailState.pending.find((entry) => entry.suggestedTarget === "instructions")!;
+  assert.equal(profileSuggestion.reason, "global_from_session");
+  assert.equal(profileSuggestion.text, "周末不看工作消息");
 
   // 全局 USER.md 未被非主会话直接污染。
   assert.equal(((await json("/api/profile")).body as { user: string }).user, "");
-  // 会话指令已写入，且 `## 会话用途` 保持不变。
-  const afterInst = (await json(`/api/sessions/${id}/instructions`)).body as {
+  // 用户确认前，共享指令不变。
+  const afterInst = (await json(`/api/assistant/instructions`)).body as {
     instructions: string;
   };
-  assert.match(afterInst.instructions, /## 会话用途\n处理外部商务邮件/);
-  assert.match(afterInst.instructions, /邮件落款统一写 Best regards/);
+  assert.equal(afterInst.instructions, "保持礼貌。");
 
   // 4. 全局概览能看到待决项；用户确认写入 USER.md 后生效并清空 pending。
   const overview = dreamOverviewResponse.parse((await json("/api/dream")).body);
-  assert.equal(overview.pending.length, 1);
+  assert.equal(overview.pending.length, 2);
   const resolved = await json(
-    `/api/dream/pending/${mailState.pending[0]!.id}`,
+    `/api/dream/pending/${profileSuggestion.id}`,
     "POST",
     { action: "apply", target: "user" },
   );
   assert.equal(resolved.status, 200);
-  assert.equal(dreamOverviewResponse.parse(resolved.body).pending.length, 0);
+  assert.equal(dreamOverviewResponse.parse(resolved.body).pending.length, 1);
+  const applied = await json(`/api/dream/pending/${instructionsSuggestion.id}`, "POST", { action: "apply" });
+  assert.equal(applied.status, 200);
+  assert.match(((await json("/api/assistant/instructions")).body as { instructions: string }).instructions, /邮件落款统一写 Best regards/);
   assert.equal(((await json("/api/profile")).body as { user: string }).user, "周末不看工作消息");
 
   // 5. 模拟整理轮模型失败（DREAM-FAIL）：状态诚实记为 failed，游标不推进。

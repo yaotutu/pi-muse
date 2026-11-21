@@ -76,11 +76,7 @@ const execute = async (options: { configPath: string }) => {
 
     const agentA = (await client.createSession("live-agent-tool-a", ["cron", "monitor"])).id;
     const agentB = (await client.createSession("live-agent-tool-b")).id;
-    for (const sessionId of [agentA, agentB]) {
-      await client.json(`/api/sessions/${sessionId}/instructions`, {
-        instructions: "Agent tool scope live test.",
-      }, "PUT");
-    }
+    await client.json("/api/assistant/instructions", { instructions: "Agent tool scope live test." }, "PUT");
 
     // B 的敏感标题与任务内容只在服务端状态和 REST 聚合中存在，不进入任何模型提示。
     const bJobPrompt = "LIVE_SCOPE_B_JOB_SECRET_CONTENT";

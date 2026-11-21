@@ -1,35 +1,35 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import { sessionInstructionsFile, type DataLayout } from "../../storage/data-layout.js";
-import { readSessionInstructions, writeSessionInstructions } from "../../storage/session-instructions.js";
+import { type DataLayout } from "../../storage/data-layout.js";
+import { readAssistantInstructions, writeAssistantInstructions } from "../../storage/assistant-instructions.js";
 
 /**
- * 会话专属指令工具：允许助手在对话中读取或修改当前会话的指令/规则（INSTRUCTIONS.md）。
+ * 助手指令工具：按用户明确请求读取或更新全局助手指令（INSTRUCTIONS.md）。
  * 修改后在下一轮对话开始时自动注入 System Prompt 生效。
  */
-export const instructionsTool = (layout: DataLayout, sessionId = "main") =>
+export const instructionsTool = (layout: DataLayout) =>
   defineTool({
     name: "instructions",
-    label: "Conversation instructions",
+    label: "Assistant instructions",
     description:
-      "Read or update the custom instructions/rules for the current conversation. " +
-      "Use it when the user asks you to follow specific guidelines, rules, tone, or workflows for this conversation. " +
+      "Read or update the custom instructions/rules shared by all conversations. " +
+      "Only update when the user explicitly asks you to follow specific guidelines, rules, tone, or workflows across all conversations. " +
       "Action 'get' returns current rules; 'set' replaces the rules with the provided content.",
     parameters: Type.Object({
       action: Type.Union([Type.Literal("get"), Type.Literal("set")]),
       content: Type.Optional(
-        Type.String({ maxLength: 20000, description: "Required for 'set': the complete instructions text to set for this conversation. Empty text explicitly clears the rules." }),
+        Type.String({ maxLength: 20000, description: "Required for 'set': the complete instructions text to set across all conversations. Empty text explicitly clears the rules." }),
       ),
     }, { additionalProperties: false }),
     async execute(_id, params) {
-      const file = sessionInstructionsFile(layout, sessionId);
+      const file = layout.assistantInstructionsFile;
       if (params.action === "get") {
-        const text = await readSessionInstructions(file);
+        const text = await readAssistantInstructions(file);
         return {
           content: [
             {
               type: "text",
-              text: text ? `Current conversation instructions:\n\n${text}` : "No custom instructions set for this conversation.",
+              text: text ? `Current assistant instructions:\n\n${text}` : "No custom instructions set across all conversations.",
             },
           ],
           details: undefined,
@@ -42,14 +42,14 @@ export const instructionsTool = (layout: DataLayout, sessionId = "main") =>
           details: { denied: true }, isError: true,
         };
         const content = params.content;
-        await writeSessionInstructions(file, content);
+        await writeAssistantInstructions(file, content);
         return {
           content: [
             {
               type: "text",
               text: content.trim()
-                ? "Conversation instructions updated successfully. They will take effect on the next turn."
-                : "Conversation instructions cleared.",
+                ? "Assistant instructions updated successfully. They will take effect on the next turn."
+                : "Assistant instructions cleared.",
             },
           ],
           details: undefined,

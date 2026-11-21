@@ -77,7 +77,7 @@ const fixture = async (t: TestContext) => {
   });
 
   service = await createService(config);
-  await enableBuiltinSkills(service, "main", ["cron"]);
+  await enableBuiltinSkills(service, ["cron"]);
   server = serve({ fetch: service.app.fetch, hostname: "127.0.0.1", port: 0 });
   if (!server.listening) await once(server, "listening");
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -399,7 +399,7 @@ test("pi schedule tool over real HTTP rejects invalid daily time with preserved 
     tools: { presentation: { default: "summary" } },
   });
   service = await createService(config);
-  await enableBuiltinSkills(service, "main", ["cron"]);
+  await enableBuiltinSkills(service, ["cron"]);
   server = serve({ fetch: service.app.fetch, hostname: "127.0.0.1", port: 0 });
   if (!server.listening) await once(server, "listening");
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

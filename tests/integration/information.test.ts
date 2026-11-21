@@ -546,7 +546,8 @@ test("disable and main reset cancel queued notifications; topic deletion preserv
 
   // 专题删除不触碰全局信息状态；只有 main reset/关闭才能取消其未落盘投递。
   const topic = await h.service().sessions.create("删除专题");
-  assert.equal((await h.call(`/api/sessions/${topic.id}`, {method:"DELETE"})).status,200);
+  const { scheduleRevision } = (await h.call(`/api/sessions/${topic.id}/schedules`)).body as { scheduleRevision: string };
+  assert.equal((await h.call(`/api/sessions/${topic.id}`, { method: "DELETE", body: JSON.stringify({ scheduleDisposition: "delete", scheduleRevision }) })).status, 200);
   assert.deepEqual((await h.call("/api/information/settings")).body,{enabled:true,batchWindowSeconds:3600});
   assert.ok((await h.call("/api/information/items")).status===200);
 });

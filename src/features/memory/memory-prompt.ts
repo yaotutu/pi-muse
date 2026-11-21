@@ -4,7 +4,7 @@ import type { MemoryItem, MemoryPromptState } from "./types.js";
 /**
  * 纯 prompt 渲染函数：不读文件、不改状态，只把已读取的业务数据格式化。
  * 长期记忆是沉淀库，不再逐条携带进每轮上下文，只告知数量与检索入口；
- * 始终携带的内容由 SOUL/USER/会话指令三份短文本承担。
+ * 始终携带的内容由 SOUL/USER/助手指令三份短文本承担。
  */
 export type MemoryPromptOptions = {
   /** false 时仅渲染身份设置；关闭 memory 工具的轮次不能继续建议 memory_search。 */

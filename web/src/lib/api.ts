@@ -165,11 +165,10 @@ export const createSession = async (title?: string): Promise<SessionDto> => {
 
 export const resetSession = async (
   sessionId: string,
-  clearSchedules?: boolean,
 ): Promise<ResetSessionDto> => {
   const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
     method: "POST",
-    body: JSON.stringify({ clearSchedules }),
+    body: JSON.stringify({}),
   });
   if (!response.ok) {
     const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
@@ -178,9 +177,26 @@ export const resetSession = async (
   return response.json();
 };
 
-export const deleteSession = async (sessionId: string): Promise<DeleteSessionDto> => {
+export type SessionSchedules = {
+  scheduleRevision: string;
+  jobs: { id: string; title: string }[];
+  monitors: { id: string; title: string }[];
+};
+
+export const listSessionSchedules = async (sessionId: string): Promise<SessionSchedules> => {
+  const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}/schedules`);
+  if (!response.ok) throw new ApiError(response.status, "无法读取会话的任务和监控");
+  return response.json();
+};
+
+export const deleteSession = async (
+  sessionId: string,
+  scheduleDisposition: "delete" | "move-to-main",
+  scheduleRevision: string,
+): Promise<DeleteSessionDto> => {
   const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
     method: "DELETE",
+    body: JSON.stringify({ scheduleDisposition, scheduleRevision }),
   });
   if (!response.ok) {
     const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
@@ -393,7 +409,7 @@ export const controlTask = controlJob;
 
 export const updateJob = async (
   id: string,
-  updates: { prompt?: string; daily?: boolean; at?: string; originSessionId?: string },
+  updates: { prompt?: string; daily?: boolean; at?: string },
 ): Promise<JobDto> => {
   const response = await request(`/api/jobs/${encodeURIComponent(id)}`, {
     method: "PATCH",
@@ -484,21 +500,20 @@ export const saveProfile = async (patch: {
   return response.json();
 };
 
-export const getSessionInstructions = async (sessionId: string): Promise<InstructionsDto> => {
-  const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}/instructions`);
-  if (!response.ok) throw new ApiError(response.status, "无法加载会话指令");
+export const getAssistantInstructions = async (): Promise<InstructionsDto> => {
+  const response = await request("/api/assistant/instructions");
+  if (!response.ok) throw new ApiError(response.status, "无法加载助手指令");
   return response.json();
 };
 
-export const saveSessionInstructions = async (
-  sessionId: string,
+export const saveAssistantInstructions = async (
   instructions: string,
 ): Promise<InstructionsDto> => {
-  const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}/instructions`, {
+  const response = await request("/api/assistant/instructions", {
     method: "PUT",
     body: JSON.stringify({ instructions }),
   });
-  if (!response.ok) throw new ApiError(response.status, "保存会话指令失败");
+  if (!response.ok) throw new ApiError(response.status, "保存助手指令失败");
   return response.json();
 };
 
@@ -705,7 +720,6 @@ export const updateMonitor = async (
     condition?: "change" | "contains";
     value?: string;
     intervalMinutes?: number;
-    originSessionId?: string;
   },
 ): Promise<MonitorDto> => {
   const response = await request(`/api/monitors/${id}`, {

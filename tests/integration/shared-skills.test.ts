@@ -77,7 +77,7 @@ async function fixture(t: TestContext) {
 
 test("shared skills HTTP: source-tagged catalog with shipped builtin defaults and authenticated full detail", async (t) => {
   const h = await fixture(t);
-  const response = await h.request("/api/sessions/main/skills");
+  const response = await h.request("/api/assistant/skills");
   assert.equal(response.status, 200);
   const catalog = skillsResponse.parse(await response.json());
   assert.ok(catalog.skills.length >= 10);
@@ -89,15 +89,15 @@ test("shared skills HTTP: source-tagged catalog with shipped builtin defaults an
   assert.equal(catalog.skills.find((skill) => skill.name === "general-note")?.id, "shared/general-note");
   assert.ok(catalog.diagnostics?.some((item) => item.path === "shared/same-name"));
   assert.ok(!JSON.stringify(catalog).includes(h.root));
-  const detail = await h.request("/api/sessions/main/skills/general-note");
+  const detail = await h.request("/api/assistant/skills/general-note");
   assert.equal(detail.status, 200);
   const body = skillDetailResponse.parse(await detail.json());
   assert.equal(body.source, "shared");
   assert.equal(body.content, document("general-note", "SHARED_DISCOVERY_SENTINEL_93b"));
   assert.equal(body.enabled, false);
-  assert.equal((await fetch(h.base + "/api/sessions/main/skills/general-note")).status, 401);
-  assert.equal((await h.request("/api/sessions/main/skills/no-such-skill")).status, 404);
-  assert.equal((await h.request("/api/sessions/main/skills/Bad_Name")).status, 400);
+  assert.equal((await fetch(h.base + "/api/assistant/skills/general-note")).status, 401);
+  assert.equal((await h.request("/api/assistant/skills/no-such-skill")).status, 404);
+  assert.equal((await h.request("/api/assistant/skills/Bad_Name")).status, 400);
   assert.equal((await h.request(`/api/sessions/${randomUUID()}/skills/general-note`)).status, 404);
   assert.equal(await readFile(join(h.own.path, "config.json"), "utf8"), h.historicalConfig);
   assert.deepEqual((await readdir(join(h.sharedDir, "general-note"))).sort(), ["SKILL.md", "extension.ts"]);
@@ -107,7 +107,7 @@ test("shared skills runtime: explicit enable only, no shared code execution, and
   const h = await fixture(t);
   await h.run("hello before selection");
   assert.ok(!JSON.stringify(h.model.requests[0]).includes("SHARED_DISCOVERY_SENTINEL_93b"));
-  let response = await h.request("/api/sessions/main/skills", { overrides: { "shared/general-note": true } });
+  let response = await h.request("/api/assistant/skills", { overrides: { "shared/general-note": true } });
   assert.equal(response.status, 200);
   let view = skillsResponse.parse(await response.json());
   assert.equal(view.skills.find((skill) => skill.id === "shared/general-note")?.enabled, true);
@@ -118,14 +118,14 @@ test("shared skills runtime: explicit enable only, no shared code execution, and
   const stored = JSON.parse(await readFile(join(h.dataDir, "sessions", "main", "skills.json"), "utf8"));
   assert.deepEqual(stored.overrides, { "shared/general-note": true });
   await h.putSkill(join(h.dataDir, "skills"), "general-note", "NEW_OWN_SOURCE");
-  view = skillsResponse.parse(await (await h.request("/api/sessions/main/skills")).json());
+  view = skillsResponse.parse(await (await h.request("/api/assistant/skills")).json());
   assert.equal(view.skills.find((skill) => skill.name === "general-note")?.source, "user");
   assert.equal(view.skills.find((skill) => skill.name === "general-note")?.enabled, false);
-  response = await h.request("/api/sessions/main/skills", { overrides: { "shared/general-note": true } });
+  response = await h.request("/api/assistant/skills", { overrides: { "shared/general-note": true } });
   assert.equal(response.status, 400);
-  response = await h.request("/api/sessions/main/skills", { overrides: { "user/general-note": true } });
+  response = await h.request("/api/assistant/skills", { overrides: { "user/general-note": true } });
   assert.equal(response.status, 200);
-  await h.request("/api/sessions/main/skills", { overrides: {} });
+  await h.request("/api/assistant/skills", { overrides: {} });
   await h.run("hello after disabling");
   assert.ok(!JSON.stringify(h.model.requests.at(-1)).includes("NEW_OWN_SOURCE"));
 });
@@ -138,13 +138,13 @@ test("shared skills HTTP: unsafe and oversized entries remain unavailable withou
   await mkdir(linked);
   await symlink(secret, join(linked, "SKILL.md"));
   await h.putSkill(h.sharedDir, "huge-body", "OVERSIZED", "x".repeat(102401));
-  const view = skillsResponse.parse(await (await h.request("/api/sessions/main/skills")).json());
+  const view = skillsResponse.parse(await (await h.request("/api/assistant/skills")).json());
   assert.ok(!view.skills.some((skill) => ["linked-file", "huge-body"].includes(skill.name)));
   assert.ok(!JSON.stringify(view).includes(h.root));
   assert.ok(!JSON.stringify(view).includes("PRIVATE_OUTSIDE_SENTINEL"));
-  assert.equal((await h.request("/api/sessions/main/skills/linked-file")).status, 404);
-  assert.equal((await h.request("/api/sessions/main/skills/huge-body")).status, 404);
-  const unknown = await h.request("/api/sessions/main/skills", { overrides: { "shared/missing": true } });
+  assert.equal((await h.request("/api/assistant/skills/linked-file")).status, 404);
+  assert.equal((await h.request("/api/assistant/skills/huge-body")).status, 404);
+  const unknown = await h.request("/api/assistant/skills", { overrides: { "shared/missing": true } });
   assert.equal(unknown.status, 400);
   await assert.rejects(stat(join(h.dataDir, "sessions", "main", "skills.json")), { code: "ENOENT" });
 });

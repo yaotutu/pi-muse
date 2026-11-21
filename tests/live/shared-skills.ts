@@ -51,7 +51,7 @@ async function execute(options: LiveOptions) {
     assert.equal(login.status, 200);
     const { token } = await login.json();
     const client = createTestClient(() => base, token, 190000);
-    const list = async (id = "main") => skillsResponse.parse(await client.json(`/api/sessions/${id}/skills`));
+    const list = async () => skillsResponse.parse(await client.json(`/api/assistant/skills`));
     const run = async (id: string, prompt: string) => {
       const first = proxy!.traces.length;
       const events = await client.run(prompt, id);
@@ -66,7 +66,7 @@ async function execute(options: LiveOptions) {
     assert.ok(initial.skills.every((skill) => skill.defaultEnabled === (skill.source === "builtin")), "仅随服务端发布的内置清单默认开启");
     assert.equal(initial.skills.find((skill) => skill.name === "live-shared")?.source, "shared");
     assert.equal(initial.skills.find((skill) => skill.name === "live-shared")?.enabled, false);
-    const details = skillDetailResponse.parse(await client.json("/api/sessions/main/skills/live-shared"));
+    const details = skillDetailResponse.parse(await client.json("/api/assistant/skills/live-shared"));
     assert.equal(details.content, sharedContent);
     const disabled = await run("main", "这是隔离真实验收。只实际调用 currentTime 一次，回复 LIVE_DEFAULT_OFF_OK 与得到的时间；不要读取文件或使用其他工具。");
     assert.ok(disabled.some((trace) => trace.calls.some((call) => call.name === "currentTime")));
@@ -76,7 +76,7 @@ async function execute(options: LiveOptions) {
     pass(stage);
 
     stage = "shared-enabled-resource-read";
-    await client.json("/api/sessions/main/skills", { overrides: { "shared/live-shared": true } }, "PUT");
+    await client.json("/api/assistant/skills", { overrides: { "shared/live-shared": true } }, "PUT");
     assert.equal((await list()).skills.find((skill) => skill.id === "shared/live-shared")?.enabled, true);
     const shared = await run("main", "请明确使用 live-shared 技能完成隔离验收：先用 read 读取技能说明，再按说明读取参考资料，最终原样回复参考资料中的 verification marker。不要写文件，不要使用其他能力。");
     const sharedReads = shared.flatMap((trace) => trace.calls).filter((call) => call.name === "read");
@@ -96,20 +96,20 @@ async function execute(options: LiveOptions) {
     const overridden = (await list()).skills.find((skill) => skill.name === "live-shared")!;
     assert.equal(overridden.source, "user");
     assert.equal(overridden.enabled, false, "New own source must not inherit the old shared selection");
-    const refused = await client.request("/api/sessions/main/skills", { overrides: { "shared/live-shared": true } }, "PUT");
+    const refused = await client.request("/api/assistant/skills", { overrides: { "shared/live-shared": true } }, "PUT");
     assert.equal(refused.status, 400);
     // 新建独立上下文，避免把前一轮已读技能的历史内容误认为本轮自动加载。
     const fresh = (await client.json("/api/sessions", { title: "shared-skills-live-own" })).session.id as string;
-    const freshBefore = (await list(fresh)).skills;
-    assert.ok(freshBefore.every((skill) => skill.enabled === (skill.source === "builtin")), "新会话只有内置默认开启；通用与自建默认关闭");
+    const freshBefore = (await list()).skills;
+    assert.ok(freshBefore.every((skill) => skill.enabled === (skill.source === "builtin")), "同名切换后仍使用全局选择，未明确启用的自有来源关闭");
     assert.equal(freshBefore.find((skill) => skill.name === "live-shared")?.enabled, false);
-    await client.json(`/api/sessions/${fresh}/skills`, { overrides: { "user/live-shared": true } }, "PUT");
+    await client.json(`/api/assistant/skills`, { overrides: { "user/live-shared": true } }, "PUT");
     const own = await run(fresh, "请使用 live-shared 技能：先实际读取技能正文，严格按正文回复其中的验收串。不要写文件，不要读取共享技能或其他资料。");
     assert.ok(own.flatMap((trace) => trace.calls).some((call) => call.name === "read" && call.arguments.includes("SKILL.md")));
     assert.ok(own.some((trace) => trace.output.includes(ownMarker)));
     assert.ok(own.flatMap((trace) => trace.toolResults).join("\n").includes(ownMarker));
-    await client.json(`/api/sessions/${fresh}/skills`, { overrides: {} }, "PUT");
-    assert.ok((await list(fresh)).skills.every((skill) => skill.enabled === skill.defaultEnabled), "清空选择后回到发布默认：内置开、通用/自建关");
+    await client.json(`/api/assistant/skills`, { overrides: {} }, "PUT");
+    assert.ok((await list()).skills.every((skill) => skill.enabled === skill.defaultEnabled), "清空选择后回到发布默认：内置开、通用/自建关");
     await assert.rejects(stat(extensionSentinel), { code: "ENOENT" });
     assert.equal(await readFile(join(skillDir, "SKILL.md"), "utf8"), sharedContent);
     pass(stage);

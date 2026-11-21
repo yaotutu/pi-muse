@@ -9,11 +9,11 @@ import {
   runDream,
   resolveDreamPending,
   getProfile,
-  getSessionInstructions,
+  getAssistantInstructions,
   listMemories,
   saveIdentity,
   saveProfile,
-  saveSessionInstructions,
+  saveAssistantInstructions,
   type DreamOverviewDto,
   type IdentityDto,
   type MemoryDto,
@@ -28,13 +28,12 @@ const TONES: { value: string; label: string }[] = [
 const TARGET_LABELS: Record<"user" | "soul" | "instructions" | "memory", string> = {
   user: "USER.md（用户画像）",
   soul: "SOUL.md（助手人设）",
-  instructions: "本会话 INSTRUCTIONS.md",
+  instructions: "助手指令",
   memory: "memory.json（长期记忆）",
 };
 
-/** 设置页：身份、按需检索记忆、SOUL/USER 人设、会话指令与 Dream 后台记忆整理。 */
-export const SettingsView = ({ sessionId = "main" }: { sessionId?: string }) => {
-  const currentSessionId = sessionId;
+/** 设置页：身份、按需检索记忆、SOUL/USER 人设、助手指令与 Dream 后台记忆整理。 */
+export const SettingsView = () => {
   const [identity, setIdentity] = useState<IdentityDto | null>(null);
   const [memories, setMemories] = useState<MemoryDto[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -64,12 +63,12 @@ export const SettingsView = ({ sessionId = "main" }: { sessionId?: string }) => 
     });
     reloadMemories();
     void getProfile().then(setProfile);
-    void getSessionInstructions(currentSessionId).then((data) => setInstructions(data.instructions));
+    void getAssistantInstructions().then((data) => setInstructions(data.instructions));
     void getDreamOverview().then(setDreamOverview);
 
   };
 
-  useEffect(reload, [currentSessionId]);
+  useEffect(reload, []);
 
   return (
     <div className="h-full overflow-y-auto px-6 py-5">
@@ -122,10 +121,10 @@ export const SettingsView = ({ sessionId = "main" }: { sessionId?: string }) => 
         )}
 
         <section className="rounded-2xl border border-stone-200 bg-white p-5 space-y-3">
-          <h2>当前会话指令</h2>
-          <p className="text-xs">仅作用于当前会话；main 同时承载新闻与短信偏好。不能扩大权限。</p>
+          <h2>助手指令</h2>
+          <p className="text-xs">所有会话从下一轮起使用已保存的指令。</p>
           <textarea className="w-full border p-2" rows={8} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
-          <button onClick={() => void saveSessionInstructions(currentSessionId, instructions).then(() => flash("已保存"), (e: Error) => flash(e.message))}>保存指令</button>
+          <button onClick={() => void saveAssistantInstructions(instructions).then(() => flash("已保存"), (e: Error) => flash(e.message))}>保存指令</button>
         </section>
         {dreamOverview && (
           <section className="rounded-2xl border border-stone-200 bg-white p-5 space-y-3">

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
@@ -109,19 +109,8 @@ const execute = async ({ configPath, scenario }: Options) => {
         "cron", "monitor", "goal", "memory", "web", "write", "skill-creator", "task", "browser",
       ])).id;
       const closedAgent = (await client.createSession("live-prompt-closed")).id;
-      await client.json(`/api/sessions/${openAgent}/instructions`, {
+      await client.json(`/api/assistant/instructions`, {
         instructions: "Prompt scope open agent.",
-      }, "PUT");
-      await client.json(`/api/sessions/${closedAgent}/skills`, {
-        overrides: {
-          cron: false,
-          monitor: false,
-          goal: false,
-          memory: false,
-          web: false,
-          write: false,
-          "skill-creator": false,
-        },
       }, "PUT");
       const goal = await client.json("/api/goals", {
         title: goalSentinel,
@@ -164,6 +153,17 @@ const execute = async ({ configPath, scenario }: Options) => {
       assert.equal(parent.calls.some((call) => call.name === "subagent"), true);
       assert.match(proxy.traces.flatMap((trace) => trace.toolResults).join("\n"), /LIVE_AGENT_PROMPT_CHILD_OK/);
 
+      await client.json(`/api/assistant/skills`, {
+        overrides: {
+          cron: false,
+          monitor: false,
+          goal: false,
+          memory: false,
+          web: false,
+          write: false,
+          "skill-creator": false,
+        },
+      }, "PUT");
       const beforeClosed = proxy.traces.length;
       const closedRun = await client.startRun("请不调用任何工具，只回复LIVE_AGENT_PROMPT_CLOSED_OK。", closedAgent);
       terminalEvent(await closedRun.done);
@@ -178,7 +178,7 @@ const execute = async ({ configPath, scenario }: Options) => {
       for (const tool of ["schedule", "monitor", "goal", "memory", "memory_search", "skills", "search_web", "web_fetch", "write", "edit"])
         assert.equal(closed.toolNames.includes(tool), false, `closed agent must not expose ${tool}`);
 
-      await client.json(`/api/sessions/${closedAgent}/skills`, {
+      await client.json(`/api/assistant/skills`, {
         overrides: {
           cron: true,
           monitor: true,
@@ -227,19 +227,11 @@ const execute = async ({ configPath, scenario }: Options) => {
       })}\n`);
     } else {
       const dreamAgent = (await client.createSession("live-dream-scope")).id;
-      const otherAgent = (await client.createSession("live-dream-other")).id;
-      const otherInstructions = "Other agent rules remain unchanged.";
-      const otherInstructionsFile = join(dataDir, "sessions", otherAgent, "INSTRUCTIONS.md");
-      await client.json(`/api/sessions/${dreamAgent}/instructions`, {
-        instructions: "## 会话用途\nDream scope verification\n\nDream scope base rule.",
-      }, "PUT");
-      await client.json(`/api/sessions/${otherAgent}/instructions`, {
-        instructions: otherInstructions,
-      }, "PUT");
-      const otherInstructionsBaseline = await readFile(otherInstructionsFile, "utf8");
+      const baseline = "Dream scope base rule.";
+      await client.json("/api/assistant/instructions", { instructions: baseline }, "PUT");
 
       const chat = await client.startRun(
-        `请不调用任何工具，只回复LIVE_DREAM_SOURCE_OK。本条消息包含三条待整理事实，三个标记字符串必须原样出现在对应建议正文中：1. 本智能体只整理新能源政策与电池行业信息，忽略娱乐新闻，结果用中文要点；规则正文包含${localDreamSentinel}。2. 书房打印机型号是${globalDreamSentinel}，这是跨智能体按需查询的设备事实，请保存在长期记忆，不放进每轮必读的用户资料。3. 我还没有确定${pendingDreamSentinel}是否在所有智能体长期适用。`,
+        `请不调用任何工具，只回复LIVE_DREAM_SOURCE_OK。本条消息包含三条待整理事实，三个标记字符串必须原样出现在对应建议正文中：1. 所有会话都应先给结论再补证据，请提议把这个全局规则加入助手指令并等待我确认；规则正文包含${localDreamSentinel}。2. 书房打印机型号是${globalDreamSentinel}，这是跨智能体按需查询的设备事实，请保存在长期记忆，不放进每轮必读的用户资料。3. 我还没有确定${pendingDreamSentinel}是否在所有智能体长期适用。`,
         dreamAgent,
       );
       terminalEvent(await chat.done);
@@ -256,30 +248,34 @@ const execute = async ({ configPath, scenario }: Options) => {
       assert.equal(dreamRequest.calls.filter((call) => call.name === "propose_notes").length, 1);
       assert.equal(dreamState.lastRun.status, "completed");
       assert.ok(dreamState.cursors[dreamAgent],"the source cursor advances only after a complete successful source round");
-      assert.equal(dreamState.pending.length, 1);
-      assert.match(dreamState.pending[0]!.text, new RegExp(pendingDreamSentinel));
-
+      const proposedInstructions = dreamState.pending.find((item) =>
+        item.suggestedTarget === "instructions" && item.text.includes(localDreamSentinel));
+      const ambiguous = dreamState.pending.find((item) => item.text.includes(pendingDreamSentinel));
+      assert.ok(proposedInstructions);
+      assert.ok(ambiguous);
       const profile = (await client.json("/api/profile")) as { soul: string; user: string };
-      const instructions = await readFile(join(dataDir, "sessions", dreamAgent, "INSTRUCTIONS.md"), "utf8");
+      const instructions = (await client.json("/api/assistant/instructions")).instructions;
       const memories = (await client.json("/api/memories")) as { memories: { text: string }[] };
       assert.equal(profile.user, "");
       assert.equal(profile.soul, "");
-      assert.match(instructions, new RegExp(localDreamSentinel));
-      assert.doesNotMatch(instructions, new RegExp(`${globalDreamSentinel}|${pendingDreamSentinel}`));
+      assert.equal(instructions, baseline, "Dream may only propose shared instructions");
       assert.equal(memories.memories.length, 1);
       assert.match(memories.memories[0]!.text, new RegExp(globalDreamSentinel));
       assert.doesNotMatch(memories.memories[0]!.text, new RegExp(localDreamSentinel));
-      const persistedOtherInstructions = await readFile(otherInstructionsFile, "utf8");
-      assert.equal(persistedOtherInstructions, otherInstructionsBaseline);
-      await assert.rejects(stat(join(dataDir, "information", `${dreamAgent}.json`)), { code: "ENOENT" });
+      await client.json(
+        `/api/dream/pending/${proposedInstructions.id}`,
+        { action: "apply" },
+        "POST",
+      );
+      assert.match((await client.json("/api/assistant/instructions")).instructions, new RegExp(localDreamSentinel));
 
       const resolved = await client.json(
-        `/api/dream/pending/${dreamState.pending[0]!.id}`,
+        `/api/dream/pending/${ambiguous.id}`,
         { action: "apply", target: "memory" },
         "POST",
       ) as { pending: unknown[] };
       const afterMemories = (await client.json("/api/memories")) as { memories: { text: string }[] };
-      assert.equal(resolved.pending.length, 0);
+      assert.equal(resolved.pending.length, dreamState.pending.length - 2);
       assert.equal(afterMemories.memories.length, 2);
       assert.match(afterMemories.memories.map((item) => item.text).join("\n"), new RegExp(pendingDreamSentinel));
 
@@ -288,7 +284,7 @@ const execute = async ({ configPath, scenario }: Options) => {
         dreamModelRequests: dreamTraces.length,
         changed: dreamState.lastRun.changed,
         pendingResolvedAsAdd: true,
-        otherAgentUnchanged: true,
+        instructionsRequireConfirmation: true,
       })}\n`);
     }
   } catch (error) {

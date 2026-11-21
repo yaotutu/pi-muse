@@ -29,7 +29,7 @@ The current client provides activity history only for main in the main-chat acti
 
 ## Create and Control Scheduled Jobs {#scheduled-jobs}
 
-1. Open Messages to enter main chat. A new job binds to its origin session; reset keeps it and rebinds it to the new history by default.
+1. Open Messages to enter main chat. A new job belongs to the session that creates it. Resetting chat keeps the job.
 2. State the job content and its one-time or daily time in a message. For example: “Create a daily job at 09:00 to summarize today's todo items” or “Create a one-time job tomorrow at 09:00 Shanghai time to remind me to review the checklist.”
 3. Wait for the model to actually call the `schedule` tool. A successful result should include the job ID and next execution time; a natural-language promise is not a scheduled job.
 4. Open Settings → Records and tasks → Scheduled jobs, tap 「刷新任务」 (Refresh jobs), then select a job to inspect its prompt, time, and events. Edit the prompt, or pause, resume, cancel, or retry failed work as its state allows. These controls and deletion require confirmation. The current form does not edit the schedule time, and scheduling controls are not a Stop button for a running model.
@@ -68,4 +68,4 @@ The default scan period means execution may start slightly later. If a tool resu
 | The old task aggregate page is missing | The primary tabs are Messages, News, and Settings | Manage jobs and monitors under Settings → Records and tasks; activity history is in the main-chat actions panel's History page. |
 | An operation result is unknown | Tool result and current-session state | Verify whether the record still exists and its state before retrying. Do not resend automatically. |
 
-Deleting a topic session on the server irreversibly deletes its activity history, bound jobs, and monitors. The mobile app currently provides neither topic-session controls nor main deletion. To clear only main chat, use reset and decide on its confirmation card whether to clear jobs and monitors too.
+When you delete a topic session, review its jobs and monitors before confirming. Delete them with the session or keep them and move them to the main chat. Kept schedules retain their timing, control state, latest result, and pending monitor notifications. If a job is running in the topic, wait for it to finish before choosing to keep the schedules. Resetting the main chat clears its history and keeps its schedules.

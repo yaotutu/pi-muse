@@ -377,10 +377,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       // 清理本次测试创建的独立测试智能体
       for (const sessionId of createdSessionIds) {
         try {
-          const res = await fetch(`${baseUrl}/api/sessions/${sessionId}`, {
-            method: "DELETE",
-            headers: { Authorization: `Bearer ${authToken}` },
-          });
+          const res = await createTestClient(() => baseUrl, authToken, 45_000).requestSessionDeletion(sessionId);
           if (res.ok || res.status === 404) {
             // 确认智能体已被删除
             const verifyRes = await fetch(`${baseUrl}/api/sessions`, {

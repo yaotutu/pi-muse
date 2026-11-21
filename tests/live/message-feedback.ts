@@ -114,6 +114,13 @@ const expectStatus = async (label: string, status: number, expected: number, bod
 const feedbackPath = (sessionId: string, messageId: string, suffix = "") =>
   `/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/feedback${suffix}`;
 
+const deleteSession = async (sessionId: string) => {
+  const path = `/api/sessions/${encodeURIComponent(sessionId)}`;
+  const preview = await api(`${path}/schedules`);
+  await expectStatus("preview schedules", preview.status, 200, preview.body);
+  const { scheduleRevision } = preview.body as { scheduleRevision: string };
+  return api(path, { method: "DELETE", body: JSON.stringify({ scheduleDisposition: "delete", scheduleRevision }) });
+};
 const conversation = async (sessionId: string, requirePiSessionId = true) => {
   const result = await api(`/api/conversation?sessionId=${encodeURIComponent(sessionId)}`);
   await expectStatus(`GET conversation ${sessionId}`, result.status, 200, result.body);
@@ -315,7 +322,7 @@ try {
 
     const reset = await api(`/api/sessions/${encodeURIComponent(context.sessionId)}/reset`, {
       method: "POST",
-      body: JSON.stringify({ clearSchedules: false }),
+      body: "{}",
     });
     await expectStatus("reset live test agent", reset.status, 200, reset.body);
     const newPiSessionId = (await conversation(context.sessionId)).piSessionId!;
@@ -326,7 +333,7 @@ try {
     });
     await expectStatus("old session is rejected after reset", oldSession.status, 409, oldSession.body);
 
-    const deleted = await api(`/api/sessions/${encodeURIComponent(context.sessionId)}`, { method: "DELETE" });
+    const deleted = await deleteSession(context.sessionId);
     await expectStatus("delete live test agent", deleted.status, 200, deleted.body);
     const revived = await api(`${feedbackPath(context.sessionId, context.assistantMessageId)}?piSessionId=${encodeURIComponent(newPiSessionId)}`);
     await expectStatus("deleted agent feedback cannot revive", revived.status, 404, revived.body);
@@ -334,7 +341,7 @@ try {
   }
 } catch (error) {
   if (createdSessionId && args.phase === "record") {
-    await api(`/api/sessions/${encodeURIComponent(createdSessionId)}`, { method: "DELETE" }).catch(() => undefined);
+    await deleteSession(createdSessionId).catch(() => undefined);
   }
   console.error(`[FAIL] ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;

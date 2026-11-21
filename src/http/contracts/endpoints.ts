@@ -91,19 +91,21 @@ export const endpoints: EndpointSpec[] = [
   { operationId: "getSession", method: "get", path: "/api/sessions/:sessionId", tag: "会话", summary: "读取会话", auth: true, response: resp.sessionRecordResponse, hint: "sessionId 只接受 main 或 UUID。不存在返回 404，不隐式创建。" },
   { operationId: "renameSession", method: "patch", path: "/api/sessions/:sessionId", tag: "会话", summary: "修改会话标题", auth: true, request: req.renameSessionSchema, response: resp.sessionRecordResponse, hint: "title trim 后 1–200 字符。main 的标题固定为默认会话。最后成功保存生效。" },
   { operationId: "resetSession", method: "post", path: "/api/sessions/:sessionId/reset", tag: "会话", summary: "重置会话历史", auth: true, request: req.resetSessionSchema, response: resp.resetSessionResponse,
-    hint: "取消运行和待审批，清空 pi JSONL 与消息反馈；公开 sessionId 不变，piSessionId 换新。保留标题、INSTRUCTIONS.md、技能覆盖和全局工作区。clearSchedules=true 同时删除该会话任务/监控。历史不可恢复；调用前用户须明确确认。失败不承诺回滚，不能自动重发。" },
-  { operationId: "deleteSession", method: "delete", path: "/api/sessions/:sessionId", tag: "会话", summary: "删除专题会话", auth: true, response: resp.deleteSessionResponse,
-    hint: "main 不可删除，返回 409 CANNOT_DELETE_MAIN_SESSION。专题会话关闭后删除目录、反馈、技能覆盖及所属任务/监控；不删除全局文件。不可恢复，调用前须明确确认。迟到 Stop/GET 不创建或复活会话。", errorResponses: { 409: { description: "main 不可删除，或会话生命周期正在变化", schema: resp.errorResponse } } },
-  { operationId: "getSessionInstructions", method: "get", path: "/api/sessions/:sessionId/instructions", tag: "会话", summary: "读取会话指令", auth: true, response: resp.instructionsResponse, hint: "当前会话 INSTRUCTIONS.md；缺失为空串，不创建会话。独立于短信与新闻领域偏好。" },
-  { operationId: "saveSessionInstructions", method: "put", path: "/api/sessions/:sessionId/instructions", tag: "会话", summary: "保存会话指令", auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse, hint: "整份替换、最后成功保存生效。下一轮重读，仅影响当前会话，不能扩大工具/路径/审批权限。" },
-  { operationId: "getSessionSkills", method: "get", path: "/api/sessions/:sessionId/skills", tag: "会话", summary: "读取全部可选技能及来源", auth: true, response: resp.skillsResponse,
-    hint: "列出当前可选技能，不限于已启用项。来源 user=DATA_DIR/skills 实例自有、builtin=内置自有、shared=服务端用户 ~/.agents/skills 通用目录。按名称合并，优先级 user > builtin > shared；关闭优先项不会回退同名低优先来源。默认开关：内置技能按随服务端发布的 skills-defaults 清单（当前 9 项默认开启），通用与实例自建技能一律默认关闭；手动保存的选择始终优先并绑定来源。返回 id/name/description/source/defaultEnabled/enabled，不返回物理路径。GET 不创建目录或私有 config.json。开关按会话保存，资产全局共用。" },
-  { operationId: "getSessionSkill", method: "get", path: "/api/sessions/:sessionId/skills/:name", tag: "会话", summary: "读取技能正文及来源", auth: true, response: resp.skillDetailResponse,
-    hint: "读取当前优先来源的完整 SKILL.md 及来源、会话启用状态，最多 100 KiB；合法名称为 1–64 位小写字母/数字与单连字符。共享目录与内置技能只读，读取正文不启用技能，不加载脚本或扩展。不存在的会话或技能返回 404；非法技能名返回 400。" },
-  { operationId: "saveSessionSkills", method: "put", path: "/api/sessions/:sessionId/skills", tag: "会话", summary: "保存会话技能选择", auth: true, request: req.updateSkillsSchema, response: resp.skillsResponse,
+    hint: "取消运行和待审批，清空 pi JSONL 与消息反馈；公开 sessionId 不变，piSessionId 换新。保留标题、任务、监控和全局资料。历史不可恢复；调用前用户须明确确认。结果未明先回读，不自动重发。" },
+  { operationId: "getSessionSchedules", method: "get", path: "/api/sessions/:sessionId/schedules", tag: "会话", summary: "列出删除会话时受影响的任务", auth: true, response: resp.sessionSchedulesResponse,
+    hint: "列出会话所属的定时任务和网页监控，包括暂停和已完成项。scheduleRevision 用于绑定删除确认时的任务清单。GET 不创建会话。" },
+  { operationId: "deleteSession", method: "delete", path: "/api/sessions/:sessionId", tag: "会话", summary: "删除专题会话", auth: true, request: req.deleteSessionSchema, response: resp.deleteSessionResponse,
+    hint: "显式选择删除任务/监控，或保留并转归 main。主会话不可删除。任务列表有变化时返回 409 SESSION_SCHEDULES_CHANGED，保留任务而原会话任务正在执行时返回 409 SESSION_JOB_RUNNING。删除会话历史、反馈并关闭在途聊天。保留任务时待投递监控通知随任务转移。", errorResponses: { 409: { description: "确认清单有变化、原会话的任务仍在执行，或会话不可删除", schema: resp.errorResponse } } },
+  { operationId: "getAssistantInstructions", method: "get", path: "/api/assistant/instructions", tag: "助手设置", summary: "读取助手指令", auth: true, response: resp.instructionsResponse, hint: "所有聊天会话共用 INSTRUCTIONS.md；缺失为空串。独立于短信与新闻领域偏好。" },
+  { operationId: "saveAssistantInstructions", method: "put", path: "/api/assistant/instructions", tag: "助手设置", summary: "保存助手指令", auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse, hint: "整份替换、最后成功保存生效。所有聊天会话从下一轮重读，不能扩大工具/路径/审批权限。" },
+  { operationId: "getAssistantSkills", method: "get", path: "/api/assistant/skills", tag: "助手设置", summary: "读取全部可选技能及来源", auth: true, response: resp.skillsResponse,
+    hint: "列出当前可选技能，不限于已启用项。来源 user=DATA_DIR/skills 实例自有、builtin=内置自有、shared=服务端用户 ~/.agents/skills 通用目录。按名称合并，优先级 user > builtin > shared；关闭优先项不会回退同名低优先来源。默认开关：内置技能按随服务端发布的 skills-defaults 清单（当前 9 项默认开启），通用与实例自建技能一律默认关闭；手动保存的选择始终优先并绑定来源。返回 id/name/description/source/defaultEnabled/enabled，不返回物理路径。GET 不创建目录或私有 config.json。开关和资产由所有聊天会话共用。" },
+  { operationId: "getAssistantSkill", method: "get", path: "/api/assistant/skills/:name", tag: "助手设置", summary: "读取技能正文及来源", auth: true, response: resp.skillDetailResponse,
+    hint: "读取当前优先来源的完整 SKILL.md 及来源、助手启用状态，最多 100 KiB；合法名称为 1–64 位小写字母/数字与单连字符。共享目录与内置技能只读，读取正文不启用技能，不加载脚本或扩展。不存在的技能返回 404；非法技能名返回 400。" },
+  { operationId: "saveAssistantSkills", method: "put", path: "/api/assistant/skills", tag: "助手设置", summary: "保存助手技能选择", auth: true, request: req.updateSkillsSchema, response: resp.skillsResponse,
     hint: "overrides 整份替换，最后成功保存生效；键推荐使用来源 id，也接受当前优先项 name。保存绑定来源，同名来源新增/替换不继承旧授权；未知或被覆盖的来源身份返回 400。不会修改共享技能文件，也不会自动启用其他技能；下一轮按保存的选择装配，技能不扩大工具、路径或审批权限。" },
   { operationId: "runDream", method: "post", path: "/api/dream/run", tag: "记忆", summary: "立即执行全局记忆整理", auth: true, response: resp.dreamOverviewResponse, hint: "全局单执行槽，逐会话整理；忙时 409，不自动重试。" },
-  { operationId: "resolveDreamPending", method: "post", path: "/api/dream/pending/:pendingId", tag: "记忆", summary: "处理全局待决建议", auth: true, request: req.resolveDreamPendingSchema, response: resp.dreamOverviewResponse, hint: "明确应用或忽略；instructions 归建议的来源会话，已删除来源不可复活。" },
+  { operationId: "resolveDreamPending", method: "post", path: "/api/dream/pending/:pendingId", tag: "记忆", summary: "处理全局待决建议", auth: true, request: req.resolveDreamPendingSchema, response: resp.dreamOverviewResponse, hint: "明确应用或忽略；instructions 写入共享助手指令；来源会话仅用于溯源。" },
 
   {
     operationId: "listTraces",
@@ -494,7 +496,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "runConversation",
     method: "post", path: "/api/conversation/run", tag: "会话", summary: "提交一条用户消息（SSE 流）",
-    hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。首次合法 ID 建立新会话；删除进行中返回 409 SESSION_DELETING，客户端不自动重试旧 ID。事件顺序：${SSE_EVENT_ORDER}。` +
+    hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。仅接受已存在的会话；删除进行中返回 409 SESSION_DELETING，客户端不自动重试旧 ID。事件顺序：${SSE_EVENT_ORDER}。` +
       "message.attachments 最多 4 项，随本条消息一次性提交：PNG/JPEG/GIF/WebP 单图最大 8MiB，全部原始字节合计最大 8MiB，严格 UTF-8 文本合计最大 100000 字节；请求体上限 12MiB，超限在 SSE/历史/模型开始前返回 413 REQUEST_TOO_LARGE。图片需要当前单业务模型支持视觉，服务端不自动换模型、不静默丢图；PDF/Office/压缩包及其他二进制拒绝，SVG/HTML 只按不可信文本处理。completed 重放或失败显式重试必须保持附件顺序与字节 SHA-256 身份一致。" +
       "主模型可调用 database 工具自主操作 main/news 托管 SQLite：可查询、写入、建表、改列和删表，无逐次 SQL 审批或表级权限。news 与新闻 API 共用同一数据库；main 是默认库，不表示其他业务已全部迁入。该工具不接受任意文件路径、不附加外部数据库或加载扩展；文件 write/edit 的审批边界不变。" +
       "database 的调用/结果按现有 tools.presentation 的 hidden/summary 投影，工具帧隐藏 SQL 参数和原始行；模型仍可能在最终回答中引用结果。Stop 不保证中断已开始的同步 SQL，已提交修改不会因稍后取消而撤销。结果未明先查询核对，不自动重放。" +
@@ -653,7 +655,7 @@ export const endpoints: EndpointSpec[] = [
     operationId: "updateJob",
     method: "patch", path: "/api/jobs/:id", tag: "任务", summary: "修改定时任务",
     hint:
-      "修改定时任务的提示词（prompt）、执行周期与时刻（daily、at）或归属会话（originSessionId）。时刻设定规则：daily=true 时 at 必须为严格两位 HH:mm（00:00 至 23:59，前导零不可省略），按服务端本地时区解释，前端无需换算；daily=false 时 at 必须为带时区偏移的完整 ISO 8601 时间戳。非法日程返回 400 INVALID_SCHEDULE_FORMAT，不自动进位、不写入；合法日程按服务端本地时区计算并保存。修改时刻且任务处于调度中时，将自动重算下次触发时刻 nextRunAt（ISO 8601 UTC）。任务不存在返回 404。originSessionId 省略时保留原绑定（不改投主会话也不创建新会话）；显式改绑必须指向已有会话，不存在返回404，并与目标会话的删除串行协调。目标会话正在删除中返回 409 SESSION_DELETING，客户端不自动重试旧 ID；改绑成功后随新会话删除级联清理，来源删除后绝不改投主会话，目录不复活。",
+      "修改定时任务的提示词（prompt）、执行周期与时刻（daily、at）。时刻设定规则：daily=true 时 at 必须为严格两位 HH:mm（00:00 至 23:59，前导零不可省略），按服务端本地时区解释，前端无需换算；daily=false 时 at 必须为带时区偏移的完整 ISO 8601 时间戳。非法日程返回 400 INVALID_SCHEDULE_FORMAT，不自动进位、不写入；合法日程按服务端本地时区计算并保存。修改时刻且任务处于调度中时，将自动重算下次触发时刻 nextRunAt（ISO 8601 UTC）。任务不存在返回 404。修改任务不改变归属。会话正在删除时返回 409 SESSION_DELETING。",
     auth: true, request: req.updateJobSchema, response: resp.jobItem,
   },
   {
@@ -759,13 +761,13 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getMonitor",
     method: "get", path: "/api/monitors/:id", tag: "监控", summary: "网页监控详情",
-    hint: "读取指定网页监控的配置与检查状态；监控项不存在返回 404。",
+    hint: "读取指定网页监控的配置与检查状态；监控项不存在返回 404。修改监控不改变归属。",
     auth: true, response: resp.monitorItem,
   },
   {
     operationId: "createMonitor",
     method: "post", path: "/api/monitors", tag: "监控", summary: "创建网页监控",
-    hint: "创建网页周期监控。change=页面变化通知（首检建基线不通知）；contains=关键词命中通知。📡 结果投递 originSessionId 指定来源，仅省略时投递 main。显式 ID 必须指向已有会话；不存在返回404；删除中返回 409 SESSION_DELETING，客户端刷新列表后由用户重新选择，不自动重试。删除来源会话会删除绑定监控，旧扫描不重建会话或改投主会话。",
+    hint: "创建网页周期监控。change=页面变化通知（首检建基线不通知）；contains=关键词命中通知。📡 结果投递 originSessionId 指定来源，仅省略时投递 main。显式 ID 必须指向已有会话；不存在返回404；删除中返回 409 SESSION_DELETING，客户端刷新列表后由用户重新选择，不自动重试。只有用户删除会话并选择保留时才迁移到主会话。旧扫描不重建会话。",
     auth: true, request: req.createMonitorSchema, response: resp.monitorItem,
   },
   {
@@ -777,13 +779,13 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateMonitor",
     method: "patch", path: "/api/monitors/:id", tag: "监控", summary: "修改网页监控",
-    hint: "修改网页监控的标题（title）、URL、触发条件（condition）、关键词（value）、检查间隔（intervalMinutes）或归属会话（originSessionId）。若修改了 URL、触发条件或关键词，将自动重置内容指纹与命中基线。监控项不存在返回 404。",
+    hint: "修改网页监控的标题（title）、URL、触发条件（condition）、关键词（value）、检查间隔（intervalMinutes）。若修改了 URL、触发条件或关键词，将自动重置内容指纹与命中基线。监控项不存在返回 404。修改监控不改变归属。",
     auth: true, request: req.updateMonitorSchema, response: resp.monitorItem,
   },
   {
     operationId: "deleteMonitor",
     method: "delete", path: "/api/monitors/:id", tag: "监控", summary: "删除网页监控",
-    hint: "彻底删除指定的网页监控项；监控项不存在返回 404。",
+    hint: "彻底删除指定的网页监控项；监控项不存在返回 404。修改监控不改变归属。",
     auth: true, response: resp.deleteMonitorResponse,
   },
   // ---- 审批 ----
