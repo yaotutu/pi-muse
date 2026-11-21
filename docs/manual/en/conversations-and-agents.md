@@ -42,7 +42,9 @@ Feedback binds the public session, internal pi session and message id. Raw opera
 
 ## Assistant instructions and skills {#session-rules-and-skills}
 
-Assistant instructions, skill switches, profile, long-term memory, permissions, and workspace are shared by all conversations. Open Assistant instructions in Settings. Tap Edit, then Done, then Save instructions. The last successful save takes effect on the next turn in every conversation. The instruction limit is 20,000 characters. An empty value clears the instructions.
+Assistant instructions, skill switches, profile, long-term memory, permissions, and workspace are shared by all conversations. Open Settings → Assistant instructions and tap the text to read it. Tap Edit when you want to make changes. An empty field opens the editor directly. Tap Save at the bottom of the editor. The last successful save takes effect on the next turn in every conversation. The instruction limit is 20,000 characters. An empty value clears the instructions.
+
+Long text in Settings starts with a preview. Save news recommendation rules and SMS alert rules from the editor. Profile and Dream have multiple settings. Keep text edits as a draft, then save on the settings page.
 
 If saving instructions or skills has an unknown outcome, read back the server settings before deciding whether to submit the retained draft.
 
