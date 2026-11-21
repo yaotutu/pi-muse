@@ -155,13 +155,13 @@ const execute = async ({ configPath, scenario }: Options) => {
 
       await client.json(`/api/assistant/skills`, {
         overrides: {
-          cron: false,
-          monitor: false,
-          goal: false,
-          memory: false,
-          web: false,
-          write: false,
-          "skill-creator": false,
+          "builtin/cron": false,
+          "builtin/monitor": false,
+          "builtin/goal": false,
+          "builtin/memory": false,
+          "builtin/web": false,
+          "builtin/write": false,
+          "builtin/skill-creator": false,
         },
       }, "PUT");
       const beforeClosed = proxy.traces.length;
@@ -180,13 +180,13 @@ const execute = async ({ configPath, scenario }: Options) => {
 
       await client.json(`/api/assistant/skills`, {
         overrides: {
-          cron: true,
-          monitor: true,
-          goal: true,
-          memory: true,
-          web: true,
-          write: true,
-          "skill-creator": true,
+          "builtin/cron": true,
+          "builtin/monitor": true,
+          "builtin/goal": true,
+          "builtin/memory": true,
+          "builtin/web": true,
+          "builtin/write": true,
+          "builtin/skill-creator": true,
         },
       }, "PUT");
       const beforeReopen = proxy.traces.length;

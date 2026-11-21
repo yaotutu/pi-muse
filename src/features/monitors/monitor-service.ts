@@ -153,7 +153,7 @@ export const createMonitorService = (repository: MonitorRepository) => {
      * contains——从"未命中"进入"命中"才通知。
      */
     check: (
-      id: string,
+      observed: Pick<Monitor, "id" | "url" | "condition" | "value" | "intervalMinutes">,
       result: { body?: string; error?: string },
     ): Promise<{ monitor?: Monitor; outcome: MonitorCheckOutcome }> =>
       repository.update(
@@ -161,8 +161,11 @@ export const createMonitorService = (repository: MonitorRepository) => {
           items?: Monitor[];
           result: { monitor?: Monitor; outcome: MonitorCheckOutcome };
         } => {
-          const monitor = items.find((x) => x.id === id);
-          if (!monitor || monitor.status !== "active")
+          const monitor = items.find((x) => x.id === observed.id);
+          // 抓取跨越网络等待；只有当前检测配置仍匹配，抓取结果才能更新基线。
+          if (!monitor || monitor.status !== "active" || monitor.pendingNotification ||
+            monitor.url !== observed.url || monitor.condition !== observed.condition ||
+            monitor.value !== observed.value || monitor.intervalMinutes !== observed.intervalMinutes)
             return { result: { outcome: { kind: "silent" } } };
           monitor.checks += 1;
           monitor.lastCheckedAt = now();

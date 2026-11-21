@@ -21,8 +21,8 @@ test("moving a monitor preserves the pending notification and leaves other owner
   const { service } = createFixture();
   const topic = await service.create({ url: "https://example.com/topic", condition: "contains", value: "ALERT", originSessionId: "topic" });
   const main = await service.create({ url: "https://example.com/main", condition: "contains", value: "ALERT" });
-  await service.check(topic.id, { body: "ALERT" });
-  await service.check(main.id, { body: "ALERT" });
+  await service.check(topic, { body: "ALERT" });
+  await service.check(main, { body: "ALERT" });
   const topicBefore = await service.get(topic.id);
   const mainBefore = await service.get(main.id);
   assert.ok(topicBefore?.pendingNotification);

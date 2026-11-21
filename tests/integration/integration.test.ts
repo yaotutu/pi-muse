@@ -1275,7 +1275,7 @@ test("assistant skills: shared GET/PUT overrides and validation", {
   // 2. 显式开启原工具集，再覆盖关闭 cron 和 web。
   await enableBuiltinSkills(h.service(), harnessSkills);
   const res2 = await h.request(`/api/assistant/skills`, {
-    overrides: { ...Object.fromEntries(harnessSkills.map((name) => [name, true])), cron: false, web: false },
+    overrides: { ...Object.fromEntries(harnessSkills.map((name) => [`builtin/${name}`, true])), "builtin/cron": false, "builtin/web": false },
   }, "PUT");
   assert.equal(res2.status, 200);
   const data2 = (await res2.json()) as { skills: { name: string; enabled: boolean }[] };
@@ -1311,7 +1311,7 @@ test("assistant skills: tool trimming in model call", {
   // 1. 全局关闭 cron 和 web。
   await enableBuiltinSkills(h.service(), harnessSkills);
   await h.request(`/api/assistant/skills`, {
-    overrides: { ...Object.fromEntries(harnessSkills.map((name) => [name, true])), cron: false, web: false },
+    overrides: { ...Object.fromEntries(harnessSkills.map((name) => [`builtin/${name}`, true])), "builtin/cron": false, "builtin/web": false },
   }, "PUT");
 
   // 发起一轮对话
@@ -1405,7 +1405,7 @@ export default function (api) {
 
   // 2. 关闭 custom-ping 技能后，ping_custom 工具应该消失
   await h.request(`/api/assistant/skills`, {
-    overrides: { "custom-ping": false },
+    overrides: { "user/custom-ping": false },
   }, "PUT");
 
   const extHistory = await h.getHistory(topic0.id);
@@ -1442,7 +1442,7 @@ test("assistant skills: enable loads skill text and only supported resources on 
   assert.ok(!h.model.requests.at(-1)!.messages.some((message) => String(message.content).includes("RESOURCE_SKILL_MARKER")));
 
   const enabled = await h.request("/api/assistant/skills", {
-    overrides: { "resource-skill": true, "builtin/skill-creator": true },
+    overrides: { "user/resource-skill": true, "builtin/skill-creator": true },
   }, "PUT");
   assert.equal(enabled.status, 200);
   const history = await h.getHistory();
@@ -1583,7 +1583,7 @@ test("subagent: permissions inherit parent ceilings and shared reads preserve pr
   t.after(h.close);
   await mkdir(join(h.dataDir, "workspace"), { recursive: true });
   await writeFile(join(h.dataDir, "workspace", "subagent-test.md"), "SUBAGENT-WORKSPACE-CONTENT");
-  await h.request("/api/assistant/skills", { overrides: { task: true, memory: false, write: false, web: false } }, "PUT");
+  await h.request("/api/assistant/skills", { overrides: { "builtin/task": true, "builtin/memory": false, "builtin/write": false, "builtin/web": false } }, "PUT");
   const events = await h.events(input([user("请让只读子代理读取共享文件")], "child-read"));
   assert.equal(events.at(-1)?.type, "RUN_FINISHED");
   const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: ")));

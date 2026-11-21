@@ -96,7 +96,9 @@ export const createDomainAgentRegistry = (options: CreateDomainAgentRegistryOpti
     reason?: string;
     sessionId?: string;
     runId?: string;
+    signal?: AbortSignal;
   }) => {
+    input.signal?.throwIfAborted();
     const domain = requireDomain(input.domainId);
     if (typeof input.notes !== "string" || input.notes.length > DOMAIN_RULES_MAX_LENGTH) {
       throw new DomainAgentError(
@@ -105,6 +107,7 @@ export const createDomainAgentRegistry = (options: CreateDomainAgentRegistryOpti
       );
     }
     const current = await domain.rules.read();
+    input.signal?.throwIfAborted();
     const beforeNotes = current.notes;
     const mode = domain.ruleUpdateMode ?? defaultMode;
     // 授权策略可插拔：默认 auto 直接应用，后续接入统一人工确认流时可在此拦截并返回确认需求。
@@ -130,6 +133,8 @@ export const createDomainAgentRegistry = (options: CreateDomainAgentRegistryOpti
         "Updating rules for this domain requires explicit user confirmation.",
       );
     }
+    // 授权只决定是否准入，停止的轮次不得在授权返回后开始新的写入。
+    input.signal?.throwIfAborted();
     const saved = await domain.rules.write(input.notes);
     return {
       domainId: domain.id,

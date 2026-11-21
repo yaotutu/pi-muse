@@ -103,7 +103,7 @@ export const endpoints: EndpointSpec[] = [
   { operationId: "getAssistantSkill", method: "get", path: "/api/assistant/skills/:name", tag: "助手设置", summary: "读取技能正文及来源", auth: true, response: resp.skillDetailResponse,
     hint: "读取当前优先来源的完整 SKILL.md 及来源、助手启用状态，最多 100 KiB；合法名称为 1–64 位小写字母/数字与单连字符。共享目录与内置技能只读，读取正文不启用技能，不加载脚本或扩展。不存在的技能返回 404；非法技能名返回 400。" },
   { operationId: "saveAssistantSkills", method: "put", path: "/api/assistant/skills", tag: "助手设置", summary: "保存助手技能选择", auth: true, request: req.updateSkillsSchema, response: resp.skillsResponse,
-    hint: "overrides 整份替换，最后成功保存生效；键推荐使用来源 id，也接受当前优先项 name。保存绑定来源，同名来源新增/替换不继承旧授权；未知或被覆盖的来源身份返回 400。不会修改共享技能文件，也不会自动启用其他技能；下一轮按保存的选择装配，技能不扩大工具、路径或审批权限。" },
+    hint: "overrides 整份替换，最后成功保存生效；键必须使用来源 id。保存绑定来源，同名来源新增/替换不继承旧授权；未知或被覆盖的来源身份返回 400。不会修改共享技能文件，也不会自动启用其他技能；下一轮按保存的选择装配，技能不扩大工具、路径或审批权限。" },
   { operationId: "runDream", method: "post", path: "/api/dream/run", tag: "记忆", summary: "立即执行全局记忆整理", auth: true, response: resp.dreamOverviewResponse, hint: "全局单执行槽，逐会话整理；忙时 409，不自动重试。" },
   { operationId: "resolveDreamPending", method: "post", path: "/api/dream/pending/:pendingId", tag: "记忆", summary: "处理全局待决建议", auth: true, request: req.resolveDreamPendingSchema, response: resp.dreamOverviewResponse, hint: "明确应用或忽略；instructions 写入共享助手指令；来源会话仅用于溯源。" },
 

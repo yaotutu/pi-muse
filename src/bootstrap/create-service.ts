@@ -236,8 +236,8 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
         messages,
         beginStatus: (input) => workspaceEvents.beginRun(input),
         publishActivity: (overview) => workspaceEvents.activityChanged(overview),
-        publishNotification: (identity) => {
-          workspaceEvents.conversationNotificationAppended(identity);
+        publishHistoryChange: (identity) => {
+          workspaceEvents.conversationHistoryChanged(identity);
           void touchSession(identity.sessionId).catch(() => undefined);
         },
         cancelApprovals: async (ownerSessionId, runId) => {
@@ -482,7 +482,8 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   });
   const sessions = createSessionService({ repository: sessionRepository, storage: sessionStorage, hub: conversationHub,
     jobs, monitors, actions, feedback: messageFeedbackRepository, pauseMain: () => information!.pause(),
-    forgetPresence: workspaceEvents.presence.forget, isJobRunning: scheduler.isRunningFor,
+    forgetPresence: workspaceEvents.presence.forget, publishHistoryChange: workspaceEvents.conversationHistoryChanged,
+    isJobRunning: scheduler.isRunningFor,
     settleMonitorDeliveries: monitorScheduler.settleDeliveriesFor });
   // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
   const traces = createModelTraceReader(layout.tracesDir);

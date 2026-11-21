@@ -11,6 +11,7 @@ export type WorkspaceUpdate =
   | { event: "session_status_updated"; status: SessionStatus }
   | { event: "approval_pending" | "approval_updated"; approval: PendingAction }
   | { event: "activity_updated"; activity: ActivityOverview }
+  | { event: "session_directory_updated" }
   | { event: "conversation_updated"; conversation: { sessionId: string; piSessionId: string } };
 type Subscriber = { notify: (event: WorkspaceUpdate) => void; close: () => void };
 export class ExecutionCapacityError extends Error {
@@ -74,11 +75,9 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
       const targetAgent = item.sessionId;
       if (targetAgent && item.runId) liveRuns.get(runKey(targetAgent, item.runId))?.refreshApprovals();
     },
-    /**
-     * 通知成功落盘后的瞬时失效信号。这里不保存通知内容或运行状态；
-     * 客户端按载荷身份重读权威历史，断线漏帧由新连接 ready 后重读恢复。
-     */
-    conversationNotificationAppended: (conversation: { sessionId: string; piSessionId: string }) => {
+    sessionDirectoryChanged: () => publish({ event: "session_directory_updated" }),
+    /** 权威历史提交后发出身份失效信号，客户端按会话重读。 */
+    conversationHistoryChanged: (conversation: { sessionId: string; piSessionId: string }) => {
       if (closed) return;
       publish({ event: "conversation_updated", conversation });
     },

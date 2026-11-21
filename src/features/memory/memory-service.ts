@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { renderMemoryPrompt, type MemoryPromptOptions } from "./memory-prompt.js";
-import type { IdentityReader, MemoryItem, MemoryRepository } from "./types.js";
+import { MEMORY_TEXT_LIMIT, type IdentityReader, type MemoryItem, type MemoryRepository } from "./types.js";
 
 /** 记忆条数上限。写满后拒绝新增，由用户或 Dream 先合并/删除旧条目，绝不静默丢弃最老的一条。 */
 export const MEMORY_LIMIT = 500;
@@ -13,6 +13,34 @@ export class MemoryLimitError extends Error {
     this.name = "MemoryLimitError";
   }
 }
+
+export class MemoryTextError extends Error {
+  constructor() {
+    super(`Memory text must contain 1–${MEMORY_TEXT_LIMIT} characters`);
+    this.name = "MemoryTextError";
+  }
+}
+
+const normalizeMemoryText = (text: string): string => {
+  const normalized = text.trim();
+  if (!normalized || normalized.length > MEMORY_TEXT_LIMIT) throw new MemoryTextError();
+  return normalized;
+};
+
+export class MemoryChangedError extends Error {
+  constructor() {
+    super("Memory changed during consolidation; kept the latest user edit");
+    this.name = "MemoryChangedError";
+  }
+}
+
+type MemoryVersion = Pick<MemoryItem, "text" | "updatedAt">;
+
+const requireMemoryVersion = (item: MemoryItem, expected?: MemoryVersion) => {
+  if (expected && (item.updatedAt !== expected.updatedAt || item.text !== expected.text)) {
+    throw new MemoryChangedError();
+  }
+};
 
 /**
  * 记忆业务层只处理条目规则和 prompt 渲染；文件格式与串行写入由 repository 负责。
@@ -78,12 +106,15 @@ export const createMemoryService = (repository: MemoryRepository, identityReader
       const size = Math.max(1, Math.min(5, Math.floor(limit)));
       return scored.slice(0, size).map((s) => s.item);
     },
-    add: (text: string, source: string): Promise<MemoryItem> =>
+    add: (text: string, source: string, id: string = randomUUID()): Promise<MemoryItem> =>
       repository.update((state) => {
+        // 已应用的 Dream 建议可能在清理待决项前中断；以同一条目 ID 重试。
+        const existing = state.memories.find((item) => item.id === id);
+        if (existing) return { result: existing };
         if (state.memories.length >= MEMORY_LIMIT) throw new MemoryLimitError();
         const item: MemoryItem = {
-          id: randomUUID(),
-          text: text.trim(),
+          id,
+          text: normalizeMemoryText(text),
           source,
           createdAt: now(),
           updatedAt: now(),
@@ -93,11 +124,14 @@ export const createMemoryService = (repository: MemoryRepository, identityReader
           result: item,
         };
       }),
-    edit: (id: string, text: string): Promise<MemoryItem | undefined> =>
+    edit: (id: string, text: string, expected?: MemoryVersion): Promise<MemoryItem | undefined> =>
       repository.update((state) => {
         const found = state.memories.find((item) => item.id === id);
         if (!found) return { result: undefined };
-        const edited = { ...found, text: text.trim(), updatedAt: now() };
+        const normalized = normalizeMemoryText(text);
+        if (expected && found.text === normalized) return { result: found };
+        requireMemoryVersion(found, expected);
+        const edited = { ...found, text: normalized, updatedAt: now() };
         return {
           state: {
             ...state,
@@ -108,11 +142,13 @@ export const createMemoryService = (repository: MemoryRepository, identityReader
           result: edited,
         };
       }),
-    forget: (id: string): Promise<boolean> =>
+    forget: (id: string, expected?: MemoryVersion): Promise<boolean> =>
       repository.update((state) => {
-        const memories = state.memories.filter((item) => item.id !== id);
         // 未命中不写回文件，避免无变化的写入触发通知或覆盖并发修改。
-        if (memories.length === state.memories.length) return { result: false };
+        const found = state.memories.find((item) => item.id === id);
+        if (!found) return { result: false };
+        requireMemoryVersion(found, expected);
+        const memories = state.memories.filter((item) => item.id !== id);
         return { state: { ...state, memories }, result: true };
       }),
     renderForPrompt: async (options?: MemoryPromptOptions) =>

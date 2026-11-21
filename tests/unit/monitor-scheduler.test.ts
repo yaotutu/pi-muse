@@ -60,14 +60,14 @@ test("busy notification does not block other monitors, duplicate delivery, or sc
 test("failed delivery and failed check leave other monitors running", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval"] });
   const { monitors, first, second } = await fixture();
-  await monitors.check(first.id, { body: "yes" });
+  await monitors.check(first, { body: "yes" });
   let attempts = 0;
   let delivered = 0;
   const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => fetchedPage("yes") } }, {
     ...monitors,
-    check: async (id, result) => {
-      if (id === first.id) throw new Error("write failed");
-      return monitors.check(id, result);
+    check: async (observed, result) => {
+      if (observed.id === first.id) throw new Error("write failed");
+      return monitors.check(observed, result);
     },
   }, { notify: async () => ({ notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" }) }, async (agent) => ({ notify: async () => {
     if (agent === "first" && ++attempts === 1) throw new Error("delivery failed");
@@ -91,10 +91,10 @@ test("one monitor check write failure does not stop the remaining scan", async (
   let checks = 0;
   const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => fetchedPage("yes") } }, {
     ...monitors,
-    check: async (id, result) => {
+    check: async (observed, result) => {
       checks++;
-      if (id === first.id) throw new Error("write failed");
-      return monitors.check(id, result);
+      if (observed.id === first.id) throw new Error("write failed");
+      return monitors.check(observed, result);
     },
   }, { notify: async () => ({ notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" }) });
   scheduler.start();
@@ -109,7 +109,7 @@ test("deleted monitor snapshots never notify a recreated source or fall back to 
   t.mock.timers.enable({ apis: ["setInterval"] });
   const { monitors, first, second } = await fixture();
   await monitors.remove(second.id);
-  await monitors.check(first.id, { body: "yes" });
+  await monitors.check(first, { body: "yes" });
   let resolving = false;
   let resume!: () => void;
   const gate = new Promise<void>((resolve) => { resume = resolve; });
@@ -134,7 +134,7 @@ test("missing explicit monitor source preserves pending notification without usi
   t.mock.timers.enable({ apis: ["setInterval"] });
   const { monitors, first, second } = await fixture();
   await monitors.remove(second.id);
-  await monitors.check(first.id, { body: "yes" });
+  await monitors.check(first, { body: "yes" });
   let resolutions = 0;
   let notifications = 0;
   const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10 }, monitors,
@@ -151,4 +151,42 @@ test("missing explicit monitor source preserves pending notification without usi
 const fetchedPage = (text: string) => ({
   url: "https://example.com/", finalUrl: "https://example.com/", status: 200,
   extractor: "text", truncated: false, length: text.length, untrusted: true as const, text,
+});
+
+test("a fetch from an edited URL cannot become the new monitor baseline", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const { monitors, first, second } = await fixture();
+  await monitors.remove(second.id);
+  let fetching = false;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const notifications: string[] = [];
+  const scheduler = createMonitorScheduler({
+    monitorScanIntervalMs: 10,
+    web: { fetch: async (url) => {
+      if (url === first.url) {
+        fetching = true;
+        await gate;
+        return fetchedPage("old site says yes");
+      }
+      return fetchedPage("new site has no matches");
+    } },
+  }, monitors, { notify: async (text) => {
+    notifications.push(text);
+    return { notificationId: "test-notification", piSessionId: "test-session", messageId: "test-message" };
+  } });
+  t.after(async () => { release(); await scheduler.close(); });
+  scheduler.start();
+  t.mock.timers.tick(10);
+  await until(() => fetching);
+  await monitors.update(first.id, { url: "https://example.com/replaced" });
+  release();
+  await until(() => !scheduler.isBusy());
+  assert.equal((await monitors.get(first.id))?.checks, 0);
+  assert.deepEqual(notifications, []);
+
+  t.mock.timers.tick(10);
+  await until(() => !scheduler.isBusy());
+  assert.equal((await monitors.get(first.id))?.checks, 1);
+  assert.deepEqual(notifications, []);
 });

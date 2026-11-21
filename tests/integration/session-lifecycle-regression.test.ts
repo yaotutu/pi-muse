@@ -191,7 +191,7 @@ test("reset rotates only pi identity, cancels approvals and preserves title, rul
   await h.run(id,"hello before reset");
   const before = await h.snapshot(id);
   await h.request(`/api/assistant/instructions`,"PUT",{instructions:"KEEP-RULE"});
-  await h.request(`/api/assistant/skills`,"PUT",{overrides:{task:false}});
+  await h.request(`/api/assistant/skills`,"PUT",{overrides:{"builtin/task":false}});
   await writeFile(join(h.service().layout.workspaceDir,"keep.md"),"KEEP-FILE");
   const pending = await h.service().actions.submit("file_write","pending",{path:"keep.md",content:"new",originalContent:"KEEP-FILE",beforeExists:"true"},{sessionId:id,runId:"pending"});
   const reset = await h.request(`/api/sessions/${id}/reset`,"POST",{});
@@ -259,4 +259,41 @@ test("subagent uses the SDK active-tool snapshot and extension hooks cannot reac
   assert.deepEqual(names(child),["currentTime"]);
   assert.deepEqual(await h.service().actions.list(),[]);
   assert.deepEqual(await readdir(h.service().layout.workspaceDir),[]);
+});
+
+test("an admitted reset finishes before a queued delete validates its preview", async (t) => {
+  const h = await fixture(t);
+  const { id } = await h.service().sessions.create("reset before delete");
+  await h.run(id, "hello before reset");
+  const original = await h.snapshot(id);
+  const entered = deferred();
+  const proceed = deferred();
+  h.releaseGates.push(proceed.resolve);
+  const hub = h.service().conversationHub;
+  const resetSession = hub.resetSession;
+  hub.resetSession = (sessionId, onReset) => resetSession(sessionId, ({ closeCurrent, reopen }) => onReset({
+    closeCurrent: async () => {
+      await closeCurrent();
+      entered.resolve();
+      await proceed.promise;
+    },
+    reopen,
+  }));
+
+  const reset = h.request(`/api/sessions/${id}/reset`, "POST", {});
+  await entered.promise;
+  const deletion = h.request(`/api/sessions/${id}`, "DELETE", {
+    scheduleDisposition: "delete",
+    scheduleRevision: "0".repeat(64),
+  });
+  await until(async () => hub.isDeleting(id));
+  proceed.resolve();
+  assert.equal((await reset).status, 200);
+  const rejected = await deletion;
+  assert.equal(rejected.status, 409);
+  assert.equal((await rejected.json()).code, "SESSION_SCHEDULES_CHANGED");
+  const after = await h.snapshot(id);
+  assert.ok(after.piSessionId);
+  assert.notEqual(after.piSessionId, original.piSessionId);
+  assert.deepEqual(after.messages, []);
 });

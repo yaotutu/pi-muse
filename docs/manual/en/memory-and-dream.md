@@ -37,13 +37,13 @@ Save or explicitly discard configuration drafts first. An immediate request proc
 - partial: some writes/proposals succeeded but an error occurred. The cursor stays unchanged and completed writes are not rolled back.
 - failed: execution failed or startup reconciled an interrupted round. This status alone does not prove that nothing was written earlier.
 
-Extraction uses new messages and bounded overlapping context. User profile, persona, assistant instructions and memory are global. Applying a profile or instruction proposal always requires confirmation. The write compares the version read during confirmation to protect concurrent edits. Existing memory edit/delete must cite an exact id; an uncertain edit must not become an addition.
+Extraction uses new messages and bounded overlapping context. User profile, persona, assistant instructions and memory are global. Applying a profile or instruction proposal always requires confirmation. The write compares the version read during confirmation to protect concurrent edits. Automatic memory edits and deletions compare the version read during consolidation and preserve concurrent changes.
 
 Leaving the page or a client timeout does not establish remote cancellation. Read results and target contents before running again. Shutdown cancels active model work; restart marks running records failed without resuming them.
 
 ## Resolve pending suggestions {#resolve-dream-suggestions}
 
-Up to 50 deduplicated pending proposals are kept globally with their source session. Before applying, inspect the full text, reason, source and target. Choose USER, SOUL, assistant instructions or new memory, or explicitly dismiss.
+Up to 50 deduplicated pending proposals are kept globally with their source session. If the queue fills up, the affected session keeps its cursor so consolidation can continue after you review proposals. Before applying, inspect the full text, reason, source and target. Choose USER, SOUL, assistant instructions or new memory, or explicitly dismiss.
 
 The source identifies where a proposal came from. Applying changes to a global target affects all sessions. Dismissal only removes the proposal, not chat. Read the list and target after an unknown write rather than automatically resending.
 

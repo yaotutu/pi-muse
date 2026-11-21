@@ -1,3 +1,5 @@
+export const ASSISTANT_TEXT_LIMIT = 20_000;
+
 /**
  * Apps 页可编辑的助手身份设置。
  *

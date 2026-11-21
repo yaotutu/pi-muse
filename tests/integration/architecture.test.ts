@@ -581,3 +581,34 @@ test("service close cancels a running scheduled pi turn before draining its stat
     archReader.close();
   }
 });
+
+test("scheduler runs the latest prompt after resolving the owning conversation", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const lookup = deferred();
+  const entered = deferred();
+  let job = { ...dueJob("updated-prompt"), prompt: "before edit" };
+  const calls: string[] = [];
+  const conversation = {
+    isRunning: () => false,
+    trigger: async (prompt: string) => {
+      calls.push(prompt);
+      return { status: "completed" as const, text: "done" };
+    },
+  };
+  const scheduler = createScheduler(schedulerConfig, {
+    list: async () => [job],
+    markRun: async () => job,
+  }, conversation, async () => {
+    entered.finish();
+    await lookup.promise;
+    return conversation;
+  });
+  t.after(async () => { lookup.finish(); await scheduler.close(); });
+  scheduler.start();
+  t.mock.timers.tick(10);
+  await entered.promise;
+  job = { ...job, prompt: "after edit" };
+  lookup.finish();
+  await flush();
+  assert.deepEqual(calls, ["⏰ [定时任务] after edit"]);
+});

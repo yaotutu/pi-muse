@@ -64,7 +64,7 @@ const conversationFixture = async (t: TestContext) => {
       history,
       messages: messageFeedback.messages,
       openSession: async () => session,
-      publishNotification: (identity) => { published.push(identity); },
+      publishHistoryChange: (identity) => { published.push(identity); },
     },
   );
   return { conversation, calls, facts, published, done, history, session, messages: messageFeedback.messages };

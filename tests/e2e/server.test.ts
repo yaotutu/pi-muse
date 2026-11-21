@@ -84,7 +84,7 @@ test("e2e: parent dispatches single, concurrent and chained subagents without a 
   }
   assert.ok((await readdir(join(service.dataDir, "sessions"))).every((name) => !name.startsWith("subagent-")));
   await assert.rejects(stat(join(service.dataDir, "tasks.json")), { code: "ENOENT" });
-  await client.json("/api/assistant/skills", { overrides: { task: false } }, "PUT");
+  await client.json("/api/assistant/skills", { overrides: { "builtin/task": false } }, "PUT");
   const disabledStart = model.requests.length;
   terminalSuccess(await client.run("plain check", "main"));
   assert.ok(!(model.requests[disabledStart].tools as { function: { name: string } }[]).some((tool) => tool.function.name === "subagent"));
@@ -214,6 +214,19 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
   terminalSuccess(await running.done);
   assert.equal(terminal.phase, null);
   assert.ok(terminal.endedAt);
+  const readHistoryInvalidation = async () => {
+    let next = await stream.next();
+    while (next?.event === "session_presence_updated") {
+      workspaceEvents.session_presence_updated.parse(next.data);
+      next = await stream.next();
+    }
+    assert.equal(next?.event, "conversation_updated");
+    const changed = workspaceEvents.conversation_updated.parse(next!.data);
+    assert.equal(changed.sessionId, "main");
+    assert.equal(changed.instanceId, ready.instanceId);
+    assert.equal(changed.piSessionId, (await client.history("main")).piSessionId);
+  };
+  await readHistoryInvalidation();
   // 记忆写入不再发失效通知；下一条业务帧应属于新 run 而不是 memory/workspace_updated。
   await client.json("/api/memories", { text: "SSE-E2E" });
   const nextRun = await client.startRun("现在几点", "main");
@@ -233,9 +246,10 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
     if (status.runId === nextRun.runId && status.status !== "running") break;
   }
   terminalSuccess(await nextRun.done);
+  await readHistoryInvalidation();
   const spec = await client.json("/openapi.json");
   assert.deepEqual(Object.keys(spec.paths["/api/events"].get.responses["200"]["x-sse-events"]).sort(),
-    ["activity_updated", "session_presence_updated", "session_status_updated", "approval_pending", "approval_updated", "conversation_updated", "ready"].sort());
+    ["activity_updated", "session_presence_updated", "session_status_updated", "approval_pending", "approval_updated", "conversation_updated", "session_directory_updated", "ready"].sort());
   // 结束服务应关闭长连接，客户端读到 EOF。
   await service.stop();
   // 运行终态后还可能有最新的空闲头像帧；必须校验后排空，而非把它误认成额外业务操作。

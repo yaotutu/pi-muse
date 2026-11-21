@@ -68,7 +68,7 @@ export const createDomainAgentTool = (
       },
       { additionalProperties: false },
     ),
-    execute: async (_id, params): Promise<AgentToolResult<DomainAgentToolResult>> => {
+    execute: async (_id, params, signal): Promise<AgentToolResult<DomainAgentToolResult>> => {
       try {
         if (params.action === "list") {
           const result = await registry.list();
@@ -101,6 +101,7 @@ export const createDomainAgentTool = (
             reason: params.reason,
             sessionId: context?.sessionId,
             runId: context?.runId,
+            signal,
           });
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],

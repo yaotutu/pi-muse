@@ -1,5 +1,7 @@
 import type { Identity } from "../identity/types.js";
 
+export const MEMORY_TEXT_LIMIT = 2_000;
+
 export type MemoryItem = {
   id: string;
   text: string;

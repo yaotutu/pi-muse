@@ -54,8 +54,8 @@ export type ConversationDependencies = {
   beginStatus?: (input: { sessionId: string; runId: string; source: "chat" | "job"; jobId?: string; initialRevision: number }) => StatusRun;
   /** 活动概览状态变化时的展示推送（SSE 直推通道）；不拥有活动持久化，权威记录仍是会话 JSONL。 */
   publishActivity?: (overview: ActivityOverview) => void;
-  /** 通知成功 append 到 PI 历史后的失效推送；只在真正新增时调用，幂等 noop 不发。 */
-  publishNotification?: (identity: { sessionId: string; piSessionId: string }) => void;
+  /** 权威会话历史提交后的失效推送。 */
+  publishHistoryChange?: (identity: { sessionId: string; piSessionId: string }) => void;
   cancelApprovals?: (sessionId: string, runId: string) => Promise<void>;
   /** 只订阅本轮真实审批的等待变化；不传载荷，也不依赖展示状态或推断文件执行成功。 */
   subscribeApprovals?: (

@@ -290,3 +290,76 @@ test("live HTTP event connections end on service close and reject new subscripti
   await service.close();
   assert.equal((await next).done, true);
 });
+
+test("remote chat, scheduled output, and reset invalidate their persisted session history", { timeout: 8000 }, async (t) => {
+  const { service, headers } = await fixture(t, true);
+  const { id } = await service.sessions.create("invalidation test");
+  const conversation = await service.conversationHub.forSession(id);
+  const stream = await connect(t, service, headers);
+  const readHistory = async () => {
+    const response = await service.app.request(`/api/conversation?sessionId=${id}`, { headers });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const invalidation = async () => {
+    let frame;
+    do { frame = await stream.nextFrame(); } while (frame.event !== "conversation_updated");
+    assert.equal(frame.data.sessionId, id);
+    return frame.data.piSessionId;
+  };
+
+  await post(service, headers, "/api/conversation/run", {
+    sessionId: id, runId: randomUUID(), expectedRevision: "empty",
+    message: { id: randomUUID(), content: "remote chat history" },
+  }).then(drain);
+  const oldPiSessionId = await invalidation();
+  const chatHistory = await readHistory();
+  assert.equal(chatHistory.piSessionId, oldPiSessionId);
+  assert.ok(chatHistory.messages.some((message: { content: string }) => message.content === "remote chat history"));
+
+  const result = await conversation.trigger("scheduled chat history", randomUUID(), { jobId: randomUUID() });
+  assert.equal(result.status, "completed");
+  assert.equal(await invalidation(), oldPiSessionId);
+  assert.ok((await readHistory()).messages.some((message: { content: string }) => message.content === "scheduled chat history"));
+
+  assert.equal((await post(service, headers, `/api/sessions/${id}/reset`, {})).status, 200);
+  const newPiSessionId = await invalidation();
+  assert.notEqual(newPiSessionId, oldPiSessionId);
+  const resetHistory = await readHistory();
+  assert.equal(resetHistory.piSessionId, newPiSessionId);
+  assert.deepEqual(resetHistory.messages, []);
+});
+
+test("committed session directory changes invalidate other signed-in clients", { timeout: 5000 }, async (t) => {
+  const { service, headers } = await fixture(t);
+  const stream = await connect(t, service, headers);
+  const nextDirectoryChange = async () => {
+    for (;;) {
+      const frame = await stream.nextFrame();
+      if (frame.event === "session_directory_updated") {
+        assert.deepEqual(frame.data, { instanceId: stream.ready.instanceId });
+        return;
+      }
+    }
+  };
+  const created = await post(service, headers, "/api/sessions", { title: "Shared directory test" });
+  assert.equal(created.status, 200);
+  const { session } = await created.json();
+  await nextDirectoryChange();
+  const path = `/api/sessions/${session.id}`;
+  const jsonHeaders = { ...headers, "Content-Type": "application/json" };
+  const renamed = await service.app.request(path, {
+    method: "PATCH", headers: jsonHeaders, body: JSON.stringify({ title: "Renamed from another client" }),
+  });
+  assert.equal(renamed.status, 200);
+  await nextDirectoryChange();
+  const preview = await service.app.request(`${path}/schedules`, { headers });
+  const { scheduleRevision } = await preview.json();
+  const removed = await service.app.request(path, {
+    method: "DELETE", headers: jsonHeaders, body: JSON.stringify({ scheduleDisposition: "delete", scheduleRevision }),
+  });
+  assert.equal(removed.status, 200);
+  await nextDirectoryChange();
+  const directory = await service.app.request("/api/sessions", { headers });
+  assert.deepEqual((await directory.json()).sessions.map((item: { id: string }) => item.id), ["main"]);
+});

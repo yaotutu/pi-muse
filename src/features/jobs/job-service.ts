@@ -169,14 +169,17 @@ export const createJobService = (repository: JobRepository) => ({
     status: "completed" | "failed",
     result: string,
     completedAt: Date = new Date(),
+    dispatched?: Pick<Job, "daily" | "at" | "nextRunAt">,
   ): Promise<Job | undefined> => repository.update((items) => {
     const job = items.find((item) => item.id === id);
     if (!job) return { result: undefined };
+    // 上一轮保留结果。运行中重新排期时，下一次调度仍按用户新配置生效。
+    const sameSchedule = !dispatched || (job.daily === dispatched.daily && job.at === dispatched.at && job.nextRunAt === dispatched.nextRunAt);
     const updated: Job = {
       ...job,
       lastRunAt: completedAt.toISOString(), lastStatus: status, lastResult: result.slice(0, 2000),
-      ...(job.controlState === "retry_pending" ? { controlState: undefined } : {}),
-      ...(job.daily ? { nextRunAt: nextRunAfter(true, job.at, completedAt) } : { enabled: false }),
+      ...(sameSchedule && job.controlState === "retry_pending" ? { controlState: undefined } : {}),
+      ...(sameSchedule && (job.daily ? { nextRunAt: nextRunAfter(true, job.at, completedAt) } : { enabled: false })),
     };
     return { items: items.map((item) => item === job ? updated : item), result: updated };
   }),

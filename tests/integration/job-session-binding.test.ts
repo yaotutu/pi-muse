@@ -111,7 +111,7 @@ test("move-to-main preserves the original schedules and runs the task only in ma
   const monitor = await h.service().monitors.create({
     originSessionId: id, url: "https://example.com/", condition: "contains", value: "ALERT",
   });
-  await h.service().monitors.check(monitor.id, { body: "ALERT" });
+  await h.service().monitors.check(monitor, { body: "ALERT" });
   await h.service().monitors.control(monitor.id, "pause");
   const monitorBefore = await h.service().monitors.get(monitor.id);
 

@@ -27,6 +27,7 @@ type Dependencies = {
   jobs: JobService; monitors: MonitorService; actions: ActionService; feedback: MessageFeedbackRepository;
   pauseMain: () => { stopped: Promise<void>; resume(): void };
   forgetPresence: (sessionId: string) => void;
+  publishHistoryChange: (identity: { sessionId: string; piSessionId: string }) => void;
   isJobRunning: (sessionId: string) => boolean;
   settleMonitorDeliveries: (sessionId: string) => Promise<void>;
 };
@@ -119,14 +120,16 @@ export const createSessionService = (deps: Dependencies): SessionService => {
           await deps.actions.cancelBySessionId(id);
           await deps.storage.clearHistory(id);
           await deps.feedback.removeSession(id);
-          await reopen();
+          const conversation = await reopen();
           deps.forgetPresence(id);
-          return deps.repository.update((sessions) => {
+          const record = await deps.repository.update((sessions) => {
             const current = sessions.find((s) => s.id === id);
             if (!current) throw new SessionError(404, "SESSION_NOT_FOUND", "Session not found");
             const record = { ...current, updatedAt: new Date().toISOString() };
             return { sessions: sessions.map((s) => s.id === id ? record : s), result: record };
           });
+          deps.publishHistoryChange({ sessionId: id, piSessionId: conversation.piSessionId() });
+          return record;
         });
       } finally { pause?.resume(); }
     },

@@ -320,3 +320,140 @@ test("DreamService keeps a pending proposal when its shared profile target chang
   scheduler.start();
   await scheduler.close();
 });
+
+const setupDreamRun = async (t: TestContext, changes: Parameters<typeof planProposal>[0]) => {
+  const fixture = await setup(t);
+  const { repository, identity, layout, memory } = fixture;
+  const deps = {
+    repository,
+    memory,
+    notes: {
+      readUser: () => readProfileFile(layout.userFile),
+      writeUserIfUnchanged: (text: string, expected: string) => identity.writeIfUnchanged("user", text, expected),
+      readSoul: () => readProfileFile(layout.soulFile),
+      writeSoulIfUnchanged: (text: string, expected: string) => identity.writeIfUnchanged("soul", text, expected),
+      readInstructions: () => readAssistantInstructions(layout.assistantInstructionsFile),
+      writeInstructionsIfUnchanged: (text: string, expected: string) => writeAssistantInstructions(layout.assistantInstructionsFile, text, expected),
+    },
+    conversations: {
+      listSessionIds: async () => ["main"],
+      sessionExists: async () => true,
+      isSessionBusy: async () => false,
+      readTranscript: async () => ({
+        messages: [{ id: "m-1", role: "user" as const, text: "Example transcript" }],
+      }),
+    },
+    propose: async () => ({ ok: true as const, changes: [...changes] }),
+  };
+  return { ...fixture, deps, service: createDreamService(deps) };
+};
+
+test("Dream does not advance the cursor when a full queue prevents storing a new proposal", async (t) => {
+  const { repository, service } = await setupDreamRun(t, [
+    { target: "user", text: "Unstored proposal", source: "m-1" },
+  ]);
+  await repository.update((state) => ({
+    state: {
+      ...state,
+      pending: Array.from({ length: 50 }, (_, index) => ({
+        id: `item-${index}`,
+        text: `Existing proposal ${index}`,
+        suggestedTarget: "user" as const,
+        reason: "ambiguous" as const,
+        createdAt: new Date().toISOString(),
+      })),
+    },
+    result: undefined,
+  }));
+  await service.runNow();
+  const blocked = await repository.read();
+  assert.equal(blocked.cursors.main, undefined);
+  assert.equal(blocked.lastRun?.status, "failed");
+  assert.match(blocked.lastRun?.error ?? "", /pending.*full/i);
+  await service.resolvePending("item-0", { action: "dismiss" });
+  await service.runNow();
+  const recovered = await repository.read();
+  assert.equal(recovered.cursors.main, "m-1");
+  assert.ok(recovered.pending.some((item) => item.text === "Unstored proposal"));
+});
+
+test("retrying an applied Dream memory proposal after pending removal fails adds only one memory", async (t) => {
+  const { deps, repository, memory, service } = await setupDreamRun(t, [
+    { target: "pending", suggestedTarget: "memory", text: "Remember this once", source: "m-1" },
+  ]);
+  await service.runNow();
+  const [pending] = (await repository.read()).pending;
+  assert.ok(pending);
+  const failingService = createDreamService({
+    ...deps,
+    repository: {
+      ...repository,
+      update: async () => { throw new Error("Unable to remove pending"); },
+    },
+  });
+  await assert.rejects(failingService.resolvePending(pending.id, { action: "apply" }), /Unable to remove pending/);
+  assert.equal((await memory.list()).length, 1);
+  assert.equal((await service.resolvePending(pending.id, { action: "apply" })).ok, true);
+  assert.equal((await memory.list()).length, 1);
+  assert.deepEqual((await repository.read()).pending, []);
+});
+
+test("Dream keeps the proposal queued if applying it would put a shared profile beyond its editing limit", async (t) => {
+  const { layout, repository, service } = await setupDreamRun(t, [
+    { target: "user", text: "Append this", source: "m-1" },
+  ]);
+  const baseline = "x".repeat(19_999);
+  await writeProfileFile(layout.userFile, baseline);
+  await writeProfileFile(layout.soulFile, baseline);
+  await service.runNow();
+  const [pending] = (await repository.read()).pending;
+  assert.ok(pending);
+  for (const target of ["user", "soul"] as const) {
+    const result = await service.resolvePending(pending.id, { action: "apply", target });
+    assert.equal(result.ok, false);
+    assert.equal(await readProfileFile(target === "user" ? layout.userFile : layout.soulFile), baseline);
+    assert.equal((await repository.read()).pending[0]?.id, pending.id);
+  }
+});
+
+test("Dream does not overwrite or remove memories edited while a proposal was running", async (t) => {
+  const { deps, memory, repository } = await setupDreamRun(t, []);
+  const edit = await memory.add("Before edit", "user");
+  const remove = await memory.add("Before removal", "user");
+  const service = createDreamService({
+    ...deps,
+    propose: async () => {
+      await memory.edit(edit.id, "Keep user edit");
+      await memory.edit(remove.id, "Keep user replacement");
+      return {
+        ok: true,
+        changes: [
+          { target: "memory", op: "edit", id: edit.id, text: "Stale replacement", source: "m-1" },
+          { target: "memory", op: "delete", id: remove.id, source: "m-1" },
+        ],
+      };
+    },
+  });
+  await service.runNow();
+  assert.deepEqual((await memory.list()).map((item) => item.text), ["Keep user edit", "Keep user replacement"]);
+  const state = await repository.read();
+  assert.equal(state.cursors.main, undefined);
+  assert.equal(state.lastRun?.status, "failed");
+  assert.match(state.lastRun?.error ?? "", /memory.*changed/i);
+});
+
+test("Dream keeps oversized memories out of the shared store", async (t) => {
+  const { memory, repository, service } = await setupDreamRun(t, [
+    { target: "memory", op: "add", text: "x".repeat(2_001), source: "m-1" },
+    { target: "pending", suggestedTarget: "memory", text: "y".repeat(2_001), source: "m-1" },
+  ]);
+  await service.runNow();
+  assert.deepEqual(await memory.list(), []);
+  const state = await repository.read();
+  assert.equal(state.cursors.main, undefined);
+  assert.equal(state.lastRun?.status, "partial");
+  const [pending] = state.pending;
+  assert.ok(pending);
+  assert.equal((await service.resolvePending(pending.id, { action: "apply" })).ok, false);
+  assert.equal((await repository.read()).pending[0]?.id, pending.id);
+});

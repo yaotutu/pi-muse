@@ -744,6 +744,7 @@ export type WorkspaceEvent =
   | { type: "approval_pending"; data: ApprovalPendingEventDto }
   | { type: "approval_updated"; data: ApprovalUpdatedEventDto }
   | { type: "activity_updated"; data: ActivityUpdatedEventDto }
+  | { type: "session_directory_updated"; data: { instanceId: string } }
   | { type: "conversation_updated"; data: ConversationUpdatedEventDto };
 
 /**
@@ -828,6 +829,12 @@ export const subscribeWorkspaceEvents = async (
             const parsed = workspaceEvents.activity_updated.safeParse(payload);
             if (!parsed.success) throw invalid();
             event = { type: "activity_updated", data: parsed.data };
+            break;
+          }
+          case "session_directory_updated": {
+            const parsed = workspaceEvents.session_directory_updated.safeParse(payload);
+            if (!parsed.success) throw invalid();
+            event = { type: "session_directory_updated", data: parsed.data };
             break;
           }
           case "conversation_updated": {

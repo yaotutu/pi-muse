@@ -51,6 +51,14 @@ export function createConversation(
     for (const pending of [...notifications.values()]) removeQueued(pending, error);
     notifications.clear();
   };
+  const publishHistoryChange = () => {
+    try {
+      dependencies.publishHistoryChange?.({
+        sessionId: dependencies.sessionId ?? "main",
+        piSessionId: historyPort.piSessionId(),
+      });
+    } catch { /* 失效推送不改变已成功的持久化结果。 */ }
+  };
   const flushNotifications = () => {
     for (const [id, pending] of [...notifications]) {
       if (pending.signal?.aborted) {
@@ -61,13 +69,8 @@ export function createConversation(
       try {
         if (!history().some((message) => message.id === id)) {
           historyPort.appendNotification(pending.notification);
-          // 先落盘后推送；同 ID 幂等 noop、取消和 append 失败都不能产生实时帧。
-          try {
-            dependencies.publishNotification?.({
-              sessionId: dependencies.sessionId ?? "main",
-              piSessionId: historyPort.piSessionId(),
-            });
-          } catch { /* 展示失效推送不改变已成功的持久化结果。 */ }
+          // 同 ID 幂等 noop、取消和 append 失败不产生失效事件。
+          publishHistoryChange();
         }
         notifications.delete(id);
         pending.resolve(receiptOf(id));
@@ -374,6 +377,7 @@ export function createConversation(
       } finally {
         // SDK 清理异常也不能悬挂已排队通知，否则 monitor.close 会永远等待投递。
         activity?.close();
+        if (historyPort.checkpoint() !== checkpoint) publishHistoryChange();
         flushNotifications();
         active = undefined;
         dependencies.messages.setActiveRun(null);
@@ -382,7 +386,7 @@ export function createConversation(
     }
   };
   // P4 定时任务触发的服务端轮次：与客户端 run 互斥共用一把锁，但不走 AG-UI
-  // emit、不做客户端校验；turn 与结果照常落 pi 历史，用户刷新/下一轮同步可见。
+  // emit、不做客户端校验；turn 与结果照常落 pi 历史，并通知客户端读取。
   // 崩溃哲学：失败只诚实标记（result entry），不做断点续跑。
   const trigger = async (
     text: string,
@@ -419,6 +423,7 @@ export function createConversation(
       ...(options.jobId ? { jobId: options.jobId } : {}),
     };
     const sourceSessionId = dependencies.sessionId ?? options.sessionId ?? "main";
+    const checkpoint = historyPort.checkpoint();
     try {
       running.status = beginStatus(sourceSessionId, running.runId, "job", options.jobId);
       activity = statusActivity(dependencies.activities?.beginRun(running.runId), running.status);
@@ -465,6 +470,7 @@ export function createConversation(
         running.session?.dispose();
       } finally {
         activity?.close();
+        if (historyPort.checkpoint() !== checkpoint) publishHistoryChange();
         flushNotifications();
         active = undefined;
         dependencies.messages.setActiveRun(null);

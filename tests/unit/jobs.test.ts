@@ -428,3 +428,18 @@ test("reconcileOnStart strictly validates existing records (including disabled) 
     { id: "corrupt-disabled", at: "24:00", enabled: 0 },
   ]);
 });
+
+test("a prior one-time completion records its result without consuming a newer schedule", async (t) => {
+  const { repository } = await tempDatabase(t);
+  const service = createJobService(repository);
+  const job = await service.add("reminder", false, "2030-01-01T00:00:00.000Z");
+  const at = "2030-01-02T00:00:00.000Z";
+  await service.update(job.id, { at });
+  const completedAt = new Date("2030-01-01T00:00:01.000Z");
+
+  const result = (await service.markRun(job.id, "completed", "prior result", completedAt, job))!;
+  assert.equal(result.enabled, true);
+  assert.equal(result.nextRunAt, at);
+  assert.equal(result.lastResult, "prior result");
+  assert.equal(result.lastRunAt, completedAt.toISOString());
+});

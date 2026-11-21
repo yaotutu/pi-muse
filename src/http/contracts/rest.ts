@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { MEMORY_TEXT_LIMIT } from "../../features/memory/types.js";
+import { ASSISTANT_TEXT_LIMIT } from "../../features/identity/types.js";
 import { isSessionId } from "../../features/conversation/session-id.js";
 
 export const conversationQuerySchema = z.strictObject({
@@ -34,11 +36,11 @@ export const memoriesQuerySchema = z.strictObject({
   order: z.enum(["asc", "desc"]).optional().describe("排序方向，默认 desc"),
 });
 export const createMemorySchema = z.object({
-  text: z.string().trim().min(1).max(2000).describe("要记住的事实，用户语言，简明"),
+  text: z.string().trim().min(1).max(MEMORY_TEXT_LIMIT).describe("要记住的事实，用户语言，简明"),
   source: z.string().max(200).optional().describe("来源标记，默认 Apps UI"),
 });
 export const updateMemorySchema = z.object({
-  text: z.string().trim().min(1).max(2000).describe("修改后的记忆文本"),
+  text: z.string().trim().min(1).max(MEMORY_TEXT_LIMIT).describe("修改后的记忆文本"),
 });
 export const editMemorySchema = updateMemorySchema;
 export const identitySchema = z.object({
@@ -50,8 +52,8 @@ export const identitySchema = z.object({
 
 // SOUL/USER 自由文本：下一轮对话注入生效；空串等于清空。
 export const saveProfileSchema = z.object({
-  soul: z.string().max(20000).optional().describe("助手人设自由文本（SOUL.md）"),
-  user: z.string().max(20000).optional().describe("用户画像自由文本（USER.md）"),
+  soul: z.string().max(ASSISTANT_TEXT_LIMIT).optional().describe("助手人设自由文本（SOUL.md）"),
+  user: z.string().max(ASSISTANT_TEXT_LIMIT).optional().describe("用户画像自由文本（USER.md）"),
 });
 
 // ---------------------------------------------------------------------------
@@ -235,11 +237,11 @@ export const stopRequestSchema = z.strictObject({
 // 技能：全局开关覆盖
 // ---------------------------------------------------------------------------
 export const updateSkillsSchema = z.object({
-  overrides: z.record(z.string(), z.boolean()).describe("用户手动选择的技能开关，整份替换。键优先使用清单中的来源身份 id，也接受当前优先技能的 name；保存后绑定来源，不随同名替代转移。所有技能缺省关闭；未知或被高优先级覆盖的身份返回 400"),
+  overrides: z.record(z.string(), z.boolean()).describe("用户手动选择的技能开关，整份替换。键使用清单中的来源身份 id；保存后绑定来源，不随同名替代转移。默认值由清单提供；未知或被高优先级覆盖的身份返回 400"),
 });
 
 // 共享助手指令：下一轮对话注入生效；空串等于清空。
-export const saveInstructionsSchema = z.strictObject({ instructions: z.string().max(20000).describe("共享助手指令；各会话下一轮重读，不扩大权限。空串清空") });
+export const saveInstructionsSchema = z.strictObject({ instructions: z.string().max(ASSISTANT_TEXT_LIMIT).describe("共享助手指令；各会话下一轮重读，不扩大权限。空串清空") });
 
 // ---------------------------------------------------------------------------
 // Dream 后台记忆整理
@@ -247,7 +249,7 @@ export const saveInstructionsSchema = z.strictObject({ instructions: z.string().
 export const dreamTargetSchema = z
   .enum(["user", "soul", "instructions", "memory"])
   .describe(
-    "笔记归属目标：user=全局 USER.md，soul=全局 SOUL.md，instructions=本会话 INSTRUCTIONS.md，memory=按需检索的 memory.json",
+    "笔记归属目标：user=全局 USER.md，soul=全局 SOUL.md，instructions=全局助手指令 INSTRUCTIONS.md，memory=按需检索的长期记忆",
   );
 export const saveGlobalDreamSchema = z.object({
   globalPrompt: z

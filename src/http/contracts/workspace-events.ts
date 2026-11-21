@@ -18,7 +18,7 @@ import {
  * - approval_pending：新增待审批项的完整不可变内容；
  * - approval_updated：审批进入终态与执行回执变化时的轻量投影。
  * - activity_updated：活动状态变化时的概览快照（仅状态变化时推送，progress 过程更新不推）。
- * - conversation_updated：服务端通知已成功 append 到会话历史后的瞬时失效信号。
+ * - conversation_updated：权威会话历史提交后的瞬时失效信号。
  *
  * 协议边界：
  * - 单向推送，不接收批准/拒绝/停止等操作；用户操作走独立 HTTP 接口。
@@ -122,21 +122,23 @@ export const workspaceEvents = {
         "progress 文本的过程性更新不推送，查看最新进展读取 GET /api/activities/:id。" +
         "completed 时 result 为结果摘要；按 id 更新本地活动，逐步明细仍读取详情接口。",
     ),
+  session_directory_updated: z.strictObject({ instanceId: instanceIdSchema })
+    .describe("会话创建、改名或删除成功后发布。客户端重读 GET /api/sessions 恢复权威目录；ready 后同样核对目录以恢复漏帧。"),
   conversation_updated: z
     .strictObject({
       instanceId: instanceIdSchema,
-      sessionId: z.string().min(1).describe("通知成功落盘的目标会话 ID。"),
-      piSessionId: z.string().min(1).describe("通知成功落盘时的 PI 会话 ID，用于过滤旧会话迟到帧。"),
+      sessionId: z.string().min(1).describe("历史失效的公开会话 ID。"),
+      piSessionId: z.string().min(1).describe("最新权威历史的 PI 会话 ID，用于过滤旧会话迟到帧。"),
     })
     .describe(
-      "服务端通知成功 append 到 PI 历史后的瞬时失效信号。data 只包含身份字段，不含消息正文、通知状态或 session status；" +
+      "聊天轮次、定时任务、通知或重置更新 PI 权威历史后的瞬时失效信号。data 只包含身份字段，不含消息正文、通知状态或 session status；" +
         "客户端只应对对应 sessionId/piSessionId 标记历史失效并读取 GET /api/conversation 权威历史，不得伪造状态事件。" +
-        "该帧只在新增通知落盘后发布一次；排队、取消、append 失败和同 ID 幂等 noop 不发布。",
+        "没有实际历史变更的重放、排队或同 ID 幂等 noop 不产生失效事件。",
     ),
 } as const;
 
 export const WORKSPACE_SSE_DESCRIPTION = [
-  "这是单用户工作区的实时状态推送流：连接建立时直接给出当前进行中的运行和待审批项的完整内容，之后推送最新变化。它与 POST /api/conversation/run 的 AG-UI 聊天文字流完全独立；不是聊天增量，不负责锁屏系统推送，也不接收任何操作命令。除 conversation_updated 是明确要求客户端重读权威历史的失效信号外，其他事件可直接更新界面，不需要为每条事件再拉一次快照。",
+  "这是单用户工作区的实时状态推送流：连接建立时直接给出当前进行中的运行和待审批项的完整内容，之后推送最新变化。它与 POST /api/conversation/run 的 AG-UI 聊天文字流完全独立；不是聊天增量，不负责锁屏系统推送，也不接收任何操作命令。conversation_updated 和 session_directory_updated 分别要求回读历史和会话目录；其余增量可直接更新界面。",
   "### 会话头像状态与排序\n\nready.sessionPresences 是头像状态的完整替换集合；session_presence_updated 直接更新对应会话，不另建连接或逐头像轮询。状态包含普通运行、独立讨论、RSS、后台信息与 Dream 整理，优先级为等待用户、问题、工作中。空闲不显示标记，不生成「全部」聚合状态，也没有数量。连接断开时状态未知，不能展示成空闲。lastActiveAt 只表达最近有效活动：用户发来请求或新的回复、阅读结果、成功投递的通知与可处理建议；背景启动、心跳和流式 token 不更新。服务端独立保存有效活动时间，不保存历史错误；问题在同来源新工作或五分钟后清除。客户端按置顶分组、各组有效活动倒序排列；置顶是设备按服务器保存的显示偏好。",
   "### 连接与鉴权\n\n" +
     "使用支持流式读取和自定义请求头的 fetch 连接 GET /api/events，携带 `Authorization: Bearer <token>`；token 由 POST /api/session 获取。浏览器原生 EventSource 不能设置此请求头，不要改为通过 URL 传递 token。" +
@@ -176,8 +178,8 @@ export const WORKSPACE_SSE_DESCRIPTION = [
     "completed 时 result 为最终结果摘要，客户端可直接展示通知；需要逐步明细时读取 GET /api/activities/:id，需要历史列表时读取 GET /api/activities。活动状态以 id 为身份，用最新收到的帧整体替换本地对应活动；ready.activities 只含未进入终态的活动，终态活动的最终内容以 activity_updated 帧或查询接口为准。" +
     "活动没有独立 revision：同一运行的活动状态由服务端单调推进，后到帧覆盖先到帧；断线重连后以新的 ready 为准。",
   "### 会话历史失效\n\n" +
-    "conversation_updated 只表示一条服务端通知已经成功 append 到指定 (sessionId, piSessionId) 的 PI 历史。不要从事件推断 会话状态，也不要把 payload 当作消息内容；正确处理是把该会话历史标脏并读取 GET /api/conversation。事件没有重放日志，若刷新期间又收到新事件，应再次读取；ready 后的重读同样用于恢复断线漏帧。流式聊天正在占用当前视图时可延后刷新，但流结束后必须完成一次权威历史读取，不能丢失已收到的失效信号。" +
-    "该事件按服务端进程 instanceId 过滤旧实例迟到帧；piSessionId 与当前视图不一致时不得把旧会话数据应用到新会话。非当前会话可保留轻量失效标记，或依赖切换会话时的首次权威读取，不需要轮询。会话列表共用本连接，在 ready 和该事件后重读 GET /api/sessions；不新建通知连接，读取中再次失效则补读。正文以对应会话 pi 历史为准。",
+    "conversation_updated 表示指定 (sessionId, piSessionId) 的权威历史需要刷新，重置时携带新的 piSessionId。不要从事件推断 会话状态，也不要把 payload 当作消息内容；正确处理是把该会话历史标脏并读取 GET /api/conversation。事件没有重放日志，若刷新期间又收到新事件，应再次读取；ready 后的重读同样用于恢复断线漏帧。流式聊天正在占用当前视图时可延后刷新，但流结束后必须完成一次权威历史读取，不能丢失已收到的失效信号。" +
+    "该事件按服务端进程 instanceId 过滤旧实例迟到帧；piSessionId 与当前视图不一致时不得把旧会话数据应用到新会话。非当前会话可保留轻量失效标记，或依赖切换会话时的首次权威读取，不需要轮询。会话列表共用本连接，在 ready 和 session_directory_updated 后重读 GET /api/sessions；不新建通知连接，读取中再次失效则补读。正文以对应会话 pi 历史为准。",
   "### 断线、重连与结束\n\n" +
     "不发送事件 id，不支持历史重放，忽略 Last-Event-ID。网络断线、App 回到前台或切换网络后重连时，一律以新的 ready 为同步边界：整体替换进行中运行与待审批集合，不能从断线前的缓存继续叠加增量。" +
     "流没有 RUN_FINISHED 之类的终止业务事件；服务关闭会结束活跃流并清理订阅与心跳，客户端将 EOF 作为连接结束处理。断开通知连接不会取消聊天、定时任务、子代理或审批等待；停止聊天仍使用原有聊天 Stop 协议，审批只能由运行取消或过期等真实业务事件进入终态。" +

@@ -1,5 +1,6 @@
 import type { Conversation } from "../../features/conversation/conversation-service.js";
 import type { JobService } from "./job-service.js";
+import type { Job } from "./types.js";
 
 export type Scheduler = {
   start: () => void;
@@ -35,7 +36,7 @@ export const createScheduler = (
   // 对齐 nanobot 的 _store_dirty 安全原则：模型已结束的结果只有保存成功才能
   // 放行后续扫描。串行 tick 保证最多一个待保存结果；仅驻留内存，不保证崩溃恢复。
   let pendingOutcome: {
-    id: string;
+    job: Pick<Job, "id" | "daily" | "at" | "nextRunAt">;
     status: "completed" | "failed";
     text: string;
     completedAt: Date;
@@ -43,8 +44,8 @@ export const createScheduler = (
 
   const savePendingOutcome = async () => {
     if (!pendingOutcome) return;
-    const { id, status, text, completedAt } = pendingOutcome;
-    await jobs.markRun(id, status, text, completedAt);
+    const { job, status, text, completedAt } = pendingOutcome;
+    await jobs.markRun(job.id, status, text, completedAt, job);
     // 只有保存成功才清除；异常交给 tick，之后的固定扫描继续保存同一份结果。
     pendingOutcome = undefined;
   };
@@ -84,25 +85,27 @@ export const createScheduler = (
           : conversation;
 
         if (!targetConversation || closed) continue;
+        let dispatch = current;
         if (forSession) {
           const latest = (await jobs.list()).find((item) => item.id === current.id);
           const latestAgent = latest?.originSessionId ?? "main";
           if (closed || !latest?.enabled || latestAgent !== targetSessionId ||
             latest.nextRunAt !== current.nextRunAt) continue;
+          dispatch = latest;
         }
-        if (isBlocked(targetSessionId, current.id) || targetConversation.isRunning()) continue;
+        if (isBlocked(targetSessionId, dispatch.id) || targetConversation.isRunning()) continue;
 
         runningSessionId = targetSessionId;
         const outcome = await targetConversation.trigger(
-          `⏰ [定时任务] ${current.prompt}`,
-          `job-${current.id}-${Date.now()}`,
-          { jobId: current.id, sessionId: targetSessionId },
+          `⏰ [定时任务] ${dispatch.prompt}`,
+          `job-${dispatch.id}-${Date.now()}`,
+          { jobId: dispatch.id, sessionId: targetSessionId },
         );
         // busy 表示尚未开始执行，不是模型失败；不消耗一次性任务，留到
         // 下次普通扫描。真正已执行的失败仍按原规则 markRun，不自动重跑。
         if (outcome.status === "failed" && outcome.text === "busy") break;
         // 完成时间在模型返回时固定，补写延迟不改变 lastRunAt 或 daily 下一轮。
-        pendingOutcome = { id: current.id, ...outcome, completedAt: new Date() };
+        pendingOutcome = { job: dispatch, ...outcome, completedAt: new Date() };
         await savePendingOutcome();
         runningSessionId = undefined;
       }

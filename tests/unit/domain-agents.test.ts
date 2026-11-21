@@ -224,3 +224,39 @@ test("domain_agent tool handles read/write actions and enforces read-only mode i
   const childRead = await childTool.execute("5", { action: "get_rules", domain: "sms" }, undefined, undefined, {} as never);
   assert.equal(childRead.isError, undefined);
 });
+
+test("stopping a turn while the domain rule write is awaiting authorization prevents that write", async () => {
+  let allow!: () => void;
+  let entered!: () => void;
+  const authorizationStarted = new Promise<void>((resolve) => { entered = resolve; });
+  const authorization = new Promise<void>((resolve) => { allow = resolve; });
+  let writes = 0;
+  const registry = createDomainAgentRegistry({
+    domains: [{
+      id: "news",
+      name: "News",
+      summary: "News preferences",
+      rules: {
+        read: async () => ({ notes: "", learnedNotes: "" }),
+        write: async (notes) => { writes++; return { notes }; },
+      },
+    }],
+    authorizeRuleUpdate: async () => {
+      entered();
+      await authorization;
+      return { allowed: true };
+    },
+  });
+  const controller = new AbortController();
+  const tool = createDomainAgentTool(registry);
+  const change = tool.execute("cancelled-update", {
+    action: "update_rules",
+    domain: "news",
+    notes: "Changed",
+  }, controller.signal, undefined, {} as never);
+  await authorizationStarted;
+  controller.abort();
+  allow();
+  await assert.rejects(change, { name: "AbortError" });
+  assert.equal(writes, 0);
+});

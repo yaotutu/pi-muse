@@ -166,10 +166,8 @@ export const createSessionHub = (
             await conversation.close();
           }
         };
-        const reopen = async () => {
-          if (deleting.has(id)) rejectConversation("SESSION_DELETING", "Agent is being deleted");
-          return open(id, randomUUID());
-        };
+        // 已接纳的重置持有串行队列；排队删除先等重置完成，再判断预览是否有效。
+        const reopen = () => open(id, randomUUID());
         return onReset({ closeCurrent, reopen });
       });
     },

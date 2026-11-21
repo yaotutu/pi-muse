@@ -1,7 +1,8 @@
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { ASSISTANT_TEXT_LIMIT } from "../identity/types.js";
 import type { ObserveWork } from "../workspace/session-presence.js";
-import { MemoryLimitError, type MemoryService } from "../memory/memory-service.js";
+import { MemoryChangedError, MemoryLimitError, MemoryTextError, type MemoryService } from "../memory/memory-service.js";
 import {
   buildDreamInput,
   composePrompt,
@@ -231,8 +232,9 @@ export const createDreamService = (deps: DreamDependencies) => {
           return { ok: false, code: "not_found", message: "Agent not found" };
         }
 
+        const memoryAtProposal = new Map(memories.map((item) => [item.id, item]));
         const plan = planProposal(proposed.changes, {
-          existingMemoryIds: new Set(memories.map((item) => item.id)),
+          existingMemoryIds: new Set(memoryAtProposal.keys()),
         });
 
         // 只有记忆建议可直接写入，助手指令及资料始终经全局待决列表确认。
@@ -248,14 +250,17 @@ export const createDreamService = (deps: DreamDependencies) => {
               existingMemoryTexts.add(normalized);
               await memory.add(item.text, `dream:${sessionId}`);
               changed.add("memory");
-            } else if (item.op === "edit") {
-              if (await memory.edit(item.id, item.text)) changed.add("memory");
-            } else if (item.op === "delete") {
-              if (await memory.forget(item.id)) changed.add("memory");
+            } else {
+              const expected = memoryAtProposal.get(item.id);
+              if (!expected) continue;
+              const applied = item.op === "edit"
+                ? await memory.edit(item.id, item.text, expected)
+                : await memory.forget(item.id, expected);
+              if (applied) changed.add("memory");
             }
           } catch (error) {
             fail(
-              error instanceof MemoryLimitError
+              error instanceof MemoryLimitError || error instanceof MemoryTextError || error instanceof MemoryChangedError
                 ? error.message
                 : "Failed to update long-term memory",
             );
@@ -272,43 +277,46 @@ export const createDreamService = (deps: DreamDependencies) => {
         return { ok: false, code: "not_found", message: "Agent not found" };
       }
 
-      const status: DreamRunStatus = !hadFailure
-        ? "completed"
-        : changed.size > 0 || addedPending.length > 0
-          ? "partial"
-          : "failed";
-
-      await repository.update( (state) => {
+      const outcome = await repository.update((state) => {
         const seen = new Set(
           state.pending.map((item) => `${item.suggestedTarget}:${item.text}`),
         );
         const mergedPending = [...state.pending];
+        let pendingFull = false;
         for (const item of addedPending) {
           const key = `${item.suggestedTarget}:${item.text}`;
-          if (!seen.has(key) && mergedPending.length < PENDING_LIMIT) {
-            seen.add(key);
-            mergedPending.push(item);
+          if (seen.has(key)) continue;
+          if (mergedPending.length >= PENDING_LIMIT) {
+            pendingFull = true;
+            break;
           }
+          seen.add(key);
+          mergedPending.push(item);
         }
+        const didWrite = changed.size > 0 || mergedPending.length > state.pending.length;
+        const error = failureMessage ?? (pendingFull ? "Dream pending queue is full; review pending proposals before continuing" : undefined);
+        const status: DreamRunStatus = hadFailure || pendingFull
+          ? didWrite ? "partial" : "failed"
+          : "completed";
         return {
           state: {
             ...state,
-            // 游标只在整轮成功后推进；失败或部分完成保留原游标，下次从原位置重读。
+            // 容量以同次存储更新中的队列为准。缺失建议时保留游标，供下次继续整理。
             cursors: status === "completed" && window.lastId ? { ...state.cursors, [sessionId]: window.lastId } : state.cursors,
             lastRun: {
               at: startedAt,
               status,
               changed: [...changed],
               processed: window.fresh.length,
-              ...(failureMessage ? { error: failureMessage } : {}),
+              ...(error ? { error } : {}),
             },
             pending: mergedPending,
           },
-          result: undefined,
+          result: { status, didWrite },
         };
       });
 
-      finishWork?.(controller.signal.aborted || closed ? "cancelled" : hadFailure ? "failed" : "succeeded", changed.size > 0 || addedPending.length > 0);
+      finishWork?.(controller.signal.aborted || closed ? "cancelled" : outcome.status === "completed" ? "succeeded" : "failed", outcome.didWrite);
       return { ok: true, state: await describeAll() };
     } finally {
       finishWork?.(controller.signal.aborted || closed ? "cancelled" : "failed", false);
@@ -367,29 +375,36 @@ export const createDreamService = (deps: DreamDependencies) => {
           if (target === "user") {
             const current = await notes.readUser();
             const next = appendNote(current, found.text);
+            if (next.length > ASSISTANT_TEXT_LIMIT) {
+              return { ok: false, code: "conflict", message: "User profile exceeds maximum length" };
+            }
             if (next !== current && !(await notes.writeUserIfUnchanged(next, current))) {
               return { ok: false, code: "conflict", message: "User profile changed concurrently; review and retry" };
             }
           } else if (target === "soul") {
             const current = await notes.readSoul();
             const next = appendNote(current, found.text);
+            if (next.length > ASSISTANT_TEXT_LIMIT) {
+              return { ok: false, code: "conflict", message: "Assistant persona exceeds maximum length" };
+            }
             if (next !== current && !(await notes.writeSoulIfUnchanged(next, current))) {
               return { ok: false, code: "conflict", message: "Assistant persona changed concurrently; review and retry" };
             }
           } else if (target === "instructions") {
             const current = await notes.readInstructions();
             const next = appendInstructions(current, found.text);
-            if (next.length > 20_000) {
+            if (next.length > ASSISTANT_TEXT_LIMIT) {
               return { ok: false, code: "conflict", message: "Instructions exceed maximum length" };
             }
             if (next !== current && !(await notes.writeInstructionsIfUnchanged(next, current))) {
               return { ok: false, code: "conflict", message: "Assistant instructions changed concurrently; review and retry" };
             }
           } else {
-            await memory.add(found.text, `dream:${sessionId}`);
+            const memoryId = createHash("sha256").update(`dream:pending:${pendingId}`).digest("hex");
+            await memory.add(found.text, `dream:${sessionId}`, memoryId);
           }
         } catch (error) {
-          if (error instanceof MemoryLimitError) {
+          if (error instanceof MemoryLimitError || error instanceof MemoryTextError) {
             return { ok: false, code: "conflict", message: error.message };
           }
           throw error;

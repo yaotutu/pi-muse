@@ -267,6 +267,7 @@ test("docs: activity GET endpoints are authenticated read-only JSON operations w
     "approval_pending",
     "approval_updated",
     "conversation_updated",
+    "session_directory_updated",
     "ready",
   ].sort());
 });
@@ -727,6 +728,7 @@ test("docs: notification stream documents the client sync protocol and keeps eve
     "approval_pending",
     "approval_updated",
     "conversation_updated",
+    "session_directory_updated",
     "ready",
   ].sort());
   const chat = document.paths["/api/conversation/run"].post as Operation;
@@ -753,6 +755,7 @@ test("docs: /api/events SSE schema carries bounded runtime, presence and invalid
     "approval_pending",
     "approval_updated",
     "conversation_updated",
+    "session_directory_updated",
     "ready",
   ].sort());
   for (const [name, entry] of Object.entries(table)) {

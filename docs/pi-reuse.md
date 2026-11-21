@@ -41,7 +41,7 @@
 
 ## 资源、技能与扩展
 
-- 技能统一由 repository 调用 SDK `loadSkillsFromDir` 发现和解析，再由服务读取全局选择装配；运行层不独立扫描另一份优先级。来源依次为实例 `DATA_DIR/skills/`、内置 `assets/skills/`（构建后 `dist/assets/skills/`）、运行用户 `~/.agents/skills/`；同名实例优先。默认值只来自随服务端发布的 `assets/skills-defaults.json` 内置清单，通用与自建来源一律默认关闭；手动选择保存为来源身份，旧按名称的自有选择只读兼容，不授权通用来源。标准技能无需私有 config.json，读取不初始化配置。普通会话使用共享的助手 `INSTRUCTIONS.md` 显式注入，不交给 SDK 默认目录发现。
+- 技能统一由 repository 调用 SDK `loadSkillsFromDir` 发现和解析，再由服务读取全局选择装配；运行层不独立扫描另一份优先级。来源依次为实例 `DATA_DIR/skills/`、内置 `assets/skills/`（构建后 `dist/assets/skills/`）、运行用户 `~/.agents/skills/`；同名实例优先。默认值只来自随服务端发布的 `assets/skills-defaults.json` 内置清单，通用与自建来源一律默认关闭；手动选择只使用来源身份。标准技能无需私有 config.json，读取不初始化配置。普通会话使用共享的助手 `INSTRUCTIONS.md` 显式注入，不交给 SDK 默认目录发现。
 - `skills` 只维护产品技能文本：实例保存仍由 pi 解析规则验收；允许的 references/assets 文本作为启用技能的 read-only 例外装配。资源必须依附合法实例 `SKILL.md`，不能创建/修改 `extension.ts`、脚本、config 或嵌套技能根。
 - 仅已启用自有技能目录中的可信 `extension.ts` 通过显式路径装配；通用来源一律不执行扩展。保留名或重复工具不会靠加载覆盖已注册工具。全局可选能力、技能开关与子角色约束共同收窄工具，不因发现资源就扩大权限。
 - 技能正文属于模型可读资源，extension 则是可信服务端代码；路径 guard 不是执行 extension 的操作系统沙箱。不能把“复用了 SDK 加载器”表述为恶意代码隔离保证。

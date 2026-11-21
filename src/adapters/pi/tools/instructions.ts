@@ -1,5 +1,6 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
+import { ASSISTANT_TEXT_LIMIT } from "../../../features/identity/types.js";
 import { type DataLayout } from "../../storage/data-layout.js";
 import { readAssistantInstructions, writeAssistantInstructions } from "../../storage/assistant-instructions.js";
 
@@ -18,7 +19,7 @@ export const instructionsTool = (layout: DataLayout) =>
     parameters: Type.Object({
       action: Type.Union([Type.Literal("get"), Type.Literal("set")]),
       content: Type.Optional(
-        Type.String({ maxLength: 20000, description: "Required for 'set': the complete instructions text to set across all conversations. Empty text explicitly clears the rules." }),
+        Type.String({ maxLength: ASSISTANT_TEXT_LIMIT, description: "Required for 'set': the complete instructions text to set across all conversations. Empty text explicitly clears the rules." }),
       ),
     }, { additionalProperties: false }),
     async execute(_id, params) {
@@ -42,6 +43,10 @@ export const instructionsTool = (layout: DataLayout) =>
           details: { denied: true }, isError: true,
         };
         const content = params.content;
+        if (content.length > ASSISTANT_TEXT_LIMIT) return {
+          content: [{ type: "text", text: `Instructions exceed maximum length (${ASSISTANT_TEXT_LIMIT})` }],
+          details: { denied: true }, isError: true,
+        };
         await writeAssistantInstructions(file, content);
         return {
           content: [

@@ -1,5 +1,6 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
+import { MEMORY_TEXT_LIMIT } from "../../../features/memory/types.js";
 import { MemoryLimitError, type MemoryService } from "../../../features/memory/memory-service.js";
 
 const fail = (text: string, denied = false): { content: { type: "text"; text: string }[]; details: unknown; isError: boolean } => ({
@@ -10,7 +11,7 @@ const fail = (text: string, denied = false): { content: { type: "text"; text: st
 });
 
 /**
- * 对话式记忆工具：只写唯一的 memory.json，不触碰文件系统其它位置。
+ * 对话式记忆工具：只写唯一的长期记忆库，不触碰文件系统其它位置。
  * 记忆是不随每轮携带的沉淀库；修改和删除都按条目 id，避免关键词批量误删。
  * 对话里只在用户明确要求时写入；Dream 的自动沉淀走独立的受限提交通道。
  */
@@ -27,13 +28,16 @@ export const memoryTool = (store: Pick<MemoryService, "add" | "edit" | "forget">
       {
         action: Type.Union([Type.Literal("remember"), Type.Literal("edit"), Type.Literal("forget")]),
         text: Type.Optional(
-          Type.String({ description: "The fact to remember, or the corrected text for edit; concise, in the user's language." }),
+          Type.String({ maxLength: MEMORY_TEXT_LIMIT, description: "The fact to remember, or the corrected text for edit; concise, in the user's language." }),
         ),
         id: Type.Optional(Type.String({ description: "Memory item id from memory_search; required for edit and forget." })),
       },
       { additionalProperties: false },
     ),
     execute: async (_id, params) => {
+      if (params.action !== "forget" && (params.text?.trim().length ?? 0) > MEMORY_TEXT_LIMIT) {
+        return fail(`Memory text exceeds maximum length (${MEMORY_TEXT_LIMIT})`, true);
+      }
       if (params.action === "remember") {
         if (!params.text?.trim()) return fail("Nothing to remember: empty text.");
         try {

@@ -301,7 +301,7 @@ test("routes: appended notification emits one strict conversation_updated identi
   const sse = await open(events);
   await sse.take(1);
 
-  events.conversationNotificationAppended({ sessionId: "agent-a", piSessionId: "session-a" });
+  events.conversationHistoryChanged({ sessionId: "agent-a", piSessionId: "session-a" });
   const updated = await sse.until("conversation_updated");
   assert.ok(updated);
   assert.deepEqual(updated.data, {

@@ -68,7 +68,7 @@ export const createMonitorScheduler = (
       }
     } catch { result = { error: "fetch failed" }; }
     if (closed) return;
-    const checked = await monitors.check(monitor.id, result);
+    const checked = await monitors.check(monitor, result);
     if (!closed && checked.monitor) dispatch(checked.monitor);
   };
   const scan = async () => {

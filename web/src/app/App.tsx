@@ -288,6 +288,8 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
         : state.notices;
       return { ...state, activities, notices };
     }
+    case "session_directory_updated":
+      return state;
     case "conversation_updated": {
       const update = action.data;
       if (state.instanceId !== update.instanceId) return state;
@@ -322,6 +324,7 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
 export const App = () => {
   const authed = useSyncExternalStore(subscribeAuth, isLoggedIn);
   const [sessions, setSessions] = useState<SessionDto[]>([]);
+  const sessionRead = useRef(0);
   const [active, setActive] = useState("main");
   const [openedSessions, setOpenedSessions] = useState<string[]>(["main"]);
   const [deletePreview, setDeletePreview] = useState<{ id: string; schedules: SessionSchedules }>();
@@ -363,7 +366,9 @@ export const App = () => {
       while (!controller.signal.aborted) {
         try {
           await subscribeWorkspaceEvents((event) => {
-            if (!controller.signal.aborted) dispatch(event);
+            if (controller.signal.aborted) return;
+            if (event.type === "ready" || event.type === "session_directory_updated") refreshSessions();
+            dispatch(event);
           }, controller.signal);
         } catch (e) {
           // 401 表示凭据失效，登录态变化会清理本 effect；其余错误按固定间隔重连。
@@ -381,18 +386,21 @@ export const App = () => {
 
   const refreshSessions = () => {
     if (!authed) return;
+    const read = ++sessionRead.current;
     void listSessions()
       .then((list) => {
+        if (read !== sessionRead.current) return;
         setSessions(list);
         const available = new Set(list.map((session) => session.id));
         setOpenedSessions((opened) => opened.filter((id) => id === "main" || available.has(id)));
         setActive((selected) => available.has(selected) ? selected : "main");
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => { if (read === sessionRead.current) setError(e.message); });
   };
 
   useEffect(() => {
     refreshSessions();
+    return () => { sessionRead.current++; };
   }, [authed]);
 
   const signIn = async () => {

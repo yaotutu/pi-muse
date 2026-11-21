@@ -2,11 +2,9 @@ import type { SkillMeta, SkillRepository } from "./port.js";
 
 export class UnknownSkillError extends Error {}
 
-/** 来源 ID 优先；旧名称选择只兼容自有技能，绝不授权新发现的通用技能。默认值只来自随服务端发布的内置清单。 */
-const isEnabled = (skill: SkillMeta, overrides: Record<string, boolean>): boolean => {
-  if (Object.hasOwn(overrides, skill.id)) return overrides[skill.id]!;
-  return skill.source !== "shared" && Object.hasOwn(overrides, skill.name) ? overrides[skill.name]! : skill.defaultEnabled;
-};
+/** 选择只绑定完整来源身份，目录同名项变化时不会继承旧授权。 */
+const isEnabled = (skill: SkillMeta, overrides: Record<string, boolean>): boolean =>
+  Object.hasOwn(overrides, skill.id) ? overrides[skill.id]! : skill.defaultEnabled;
 
 const metadata = (skill: SkillMeta, overrides: Record<string, boolean>) => ({
   name: skill.name,
@@ -38,17 +36,13 @@ export const createSkillsService = (repository: SkillRepository) => {
       const overrides = await repository.getOverrides();
       return { ...metadata(result.skill, overrides), content: result.content };
     },
-    /** 手动整份保存解析当前 winner，绑定来源；旧文件只在用户主动保存时规范化。 */
     updateOverrides: async (overrides: Record<string, boolean>) => {
       const { skills } = await repository.listSkills();
-      const winners = new Map(skills.flatMap((skill) => [[skill.name, skill], [skill.id, skill]]));
-      const normalized: Record<string, boolean> = {};
-      for (const [key, enabled] of Object.entries(overrides)) {
-        const skill = winners.get(key);
-        if (!skill) throw new UnknownSkillError("Unknown skill name or source ID");
-        normalized[skill.id] = enabled;
+      const available = new Set(skills.map((skill) => skill.id));
+      for (const id of Object.keys(overrides)) {
+        if (!available.has(id)) throw new UnknownSkillError("Unknown skill source ID");
       }
-      await repository.setOverrides(normalized);
+      await repository.setOverrides(overrides);
     },
   };
 };

@@ -44,6 +44,8 @@ Feedback binds the public session, internal pi session and message id. Raw opera
 
 Assistant instructions, skill switches, profile, long-term memory, permissions, and workspace are shared by all conversations. Open Assistant instructions in Settings. Tap Edit, then Done, then Save instructions. The last successful save takes effect on the next turn in every conversation. The instruction limit is 20,000 characters. An empty value clears the instructions.
 
+If saving instructions or skills has an unknown outcome, read back the server settings before deciding whether to submit the retained draft.
+
 Skill selections are bound to their source identity. See [Skill directories and default switches](configuration.md#skill-directories) for more. Background domains such as News and SMS retain their own rules.
 
 ## News and SMS {#background-services}

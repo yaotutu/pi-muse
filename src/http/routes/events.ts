@@ -53,13 +53,15 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
             : event.event === "session_presence_updated" ? event.presence
             : event.event === "activity_updated" ? event.activity
             : event.event === "conversation_updated" ? event.conversation
+            : event.event === "session_directory_updated" ? {}
             : event.event === "approval_pending" ? presentApproval(event.approval) : presentApprovalResolution(event.approval);
           const bytes = frame(event.event, { instanceId: events.instanceId, ...data });
           if (bytes.byteLength > MAX_EVENT_BYTES) { disconnect(); return; }
           // 同一活动的连续状态帧可合并为最新一条；活动状态单调推进，旧帧无保留价值。
           const key = event.event === "session_status_updated" ? `run:${event.status.sessionId}:${event.status.runId}`
             : event.event === "session_presence_updated" ? `presence:${event.presence.sessionId}`
-            : event.event === "activity_updated" ? `activity:${event.activity.id}` : "";
+            : event.event === "activity_updated" ? `activity:${event.activity.id}`
+            : event.event === "session_directory_updated" ? "session-directory" : "";
           const existing = key ? queue.find((item) => item.key === key) : undefined;
           if (existing) { queuedBytes -= existing.bytes.byteLength; existing.bytes = bytes; }
           else queue.push({ key, bytes });

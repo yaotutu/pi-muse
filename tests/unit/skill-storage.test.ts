@@ -83,7 +83,7 @@ test("priority is user > builtin > shared and a disabled winner never falls back
   assert.equal((await service.describeSkill(builtin.name)).enabled, false);
   assert.ok((await service.getEnabledSkillDefinitions()).every((skill) => skill.name !== builtin.name), "关闭的自有覆盖不回退到内置默认开启");
   await assert.rejects(service.updateOverrides({ [builtin.id]: true }), UnknownSkillError);
-  await service.updateOverrides({ [builtin.name]: true });
+  await service.updateOverrides({ [`user/${builtin.name}`]: true });
   assert.deepEqual(await repository.getOverrides(), { [`user/${builtin.name}`]: true });
   await rm(directory, { recursive: true });
   // 选择仍绑定 user 来源；builtin 凭自身默认值恢复生效，不继承 user 的显式开启。
@@ -97,7 +97,7 @@ test("priority is user > builtin > shared and a disabled winner never falls back
 test("manual choices bind to the winning source when sources appear or disappear", async (t) => {
   const { layout, shared, repository, service } = await fixture(t);
   await putSkill(shared, "switchable");
-  await service.updateOverrides({ switchable: true });
+  await service.updateOverrides({ "shared/switchable": true });
   assert.deepEqual(await repository.getOverrides(), { "shared/switchable": true });
   const own = await putSkill(layout.skillsDir, "switchable");
   assert.equal((await service.describeSkill("switchable")).enabled, false);
@@ -111,32 +111,26 @@ test("manual choices bind to the winning source when sources appear or disappear
   assert.ok(enabledAfterSwitch.some((skill) => skill.source === "builtin"), "内置默认开启不受来源切换影响");
 });
 
-test("legacy name overrides retain own choices without authorizing shared skills or migrating on read", async (t) => {
+test("bare skill names do not enable a source and cannot be saved", async (t) => {
   const { layout, shared, repository, service } = await fixture(t);
-  const builtin = (await repository.listSkills()).skills.find((skill) => skill.source === "builtin")!;
-  const own = await putSkill(layout.skillsDir, "legacy");
-  await putSkill(shared, "legacy");
-  await repository.setOverrides({ [builtin.name]: true, legacy: true });
-  const file = layout.assistantSkillOverridesFile;
-  const before = await readFile(file, "utf8");
-  assert.equal((await service.describeSkill(builtin.name)).enabled, true);
-  assert.equal((await service.describeSkill("legacy")).enabled, true);
-  assert.equal(await readFile(file, "utf8"), before);
+  const own = await putSkill(layout.skillsDir, "by-name");
+  await putSkill(shared, "by-name");
+  await repository.setOverrides({ "by-name": true });
+  assert.equal((await service.describeSkill("by-name")).enabled, false);
   await rm(own, { recursive: true });
-  assert.equal((await service.describeSkill("legacy")).enabled, false);
-  assert.equal(await readFile(file, "utf8"), before);
-  await service.updateOverrides({ [builtin.name]: true, legacy: false });
-  assert.deepEqual(await repository.getOverrides(), { [builtin.id]: true, "shared/legacy": false });
+  assert.equal((await service.describeSkill("by-name")).enabled, false);
+  await assert.rejects(service.updateOverrides({ "by-name": true }), { message: "Unknown skill source ID" });
+  assert.deepEqual(await repository.getOverrides(), { "by-name": true });
 });
 
-test("prototype-like names stay disabled and an explicit source choice takes precedence over legacy state", async (t) => {
+test("prototype-like names stay disabled until explicitly selected by source", async (t) => {
   const { layout, repository, service } = await fixture(t);
   await putSkill(layout.skillsDir, "constructor");
   assert.equal((await service.describeSkill("constructor")).enabled, false);
   assert.ok((await service.getEnabledSkillDefinitions()).every((skill) => skill.source === "builtin"));
   await repository.setOverrides({ constructor: true, "user/constructor": false });
   assert.equal((await service.describeSkill("constructor")).enabled, false);
-  await service.updateOverrides({ constructor: true });
+  await service.updateOverrides({ "user/constructor": true });
   assert.equal((await service.describeSkill("constructor")).enabled, true);
 });
 
@@ -200,7 +194,7 @@ test("skill details contain full bounded UTF-8 content and unknown or oversized 
   const prefix = document("bounded", "");
   const content = prefix + "x".repeat(100 * 1024 - Buffer.byteLength(prefix));
   await putSkill(layout.skillsDir, "bounded", content);
-  await service.updateOverrides({ bounded: true });
+  await service.updateOverrides({ "user/bounded": true });
   const described = await service.describeSkill("bounded");
   assert.equal(described.content, content);
   assert.equal(described.id, "user/bounded");
@@ -227,7 +221,7 @@ test("skill details contain full bounded UTF-8 content and unknown or oversized 
 test("overrides replace serially with private permissions and unknown names fail without writing", async (t) => {
   const { layout, repository, service } = await fixture(t);
   const builtin = (await repository.listSkills()).skills.find((skill) => skill.source === "builtin")!;
-  const writes = Array.from({ length: 12 }, (_, index) => service.updateOverrides({ [builtin.name]: index % 2 === 0 }));
+  const writes = Array.from({ length: 12 }, (_, index) => service.updateOverrides({ [builtin.id]: index % 2 === 0 }));
   await Promise.all(writes);
   assert.deepEqual(await repository.getOverrides(), { [builtin.id]: false });
   const file = layout.assistantSkillOverridesFile;
