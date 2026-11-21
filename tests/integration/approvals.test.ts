@@ -86,7 +86,7 @@ const openServiceWithActions = async (
   });
   dataDir = await mkdtemp(join(tmpdir(), "pi-muse-approvals-"));
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
-  const db = await openSqliteDatabase(join(dataDir, "main.sqlite"));
+  const db = await openSqliteDatabase(join(dataDir, "state", "main.sqlite"));
   await db.serialize(() => ensureSqliteModules(db, mainSqliteModules));
   const repo = createActionRepository(db);
   await repo.update(() => ({ items, result: undefined }));

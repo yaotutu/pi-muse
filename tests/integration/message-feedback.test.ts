@@ -208,7 +208,7 @@ test("message feedback persists full events, coordinates sessions, and never cha
     method: "PUT", body: JSON.stringify({ piSessionId: afterRun.piSessionId, reaction: "like" }),
   });
   assert.equal(oldSessionCall.status, 409);
-  await assert.rejects(stat(join(h.dataDir, "messages", sessionId)), { code: "ENOENT" });
+  await assert.rejects(stat(join(h.dataDir, "sessions", sessionId, "feedback")), { code: "ENOENT" });
   const newSnapshot = await h.get(sessionId);
   assert.equal(newSnapshot.piSessionId, newPiSessionId);
   assert.deepEqual(newSnapshot.messages, []);

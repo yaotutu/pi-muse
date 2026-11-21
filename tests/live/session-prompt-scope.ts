@@ -63,7 +63,7 @@ const execute = async ({ configPath, scenario }: Options) => {
     const dataDir = join(root, "data");
     await mkdir(join(dataDir, "profile"), { recursive: true, mode: 0o700 });
     if (scenario === "prompt")
-      await writeFile(join(dataDir, "profile", "USER.md"), identitySentinel, { mode: 0o600 });
+      await writeFile(join(dataDir, "workspace", "assistant", "USER.md"), identitySentinel, { mode: 0o600 });
     proxy = await createLiveModel({ baseUrl: model.baseUrl, apiKey: model.apiKey });
     const config = createConfig({
       server: { host: "127.0.0.1", accessKey: "live-agent-prompt-scope-access" },

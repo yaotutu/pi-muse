@@ -55,6 +55,7 @@ export type InformationServiceDependencies = {
   observeWork?: ObserveWork;
   domainId?: string;
   repository: InformationRepository;
+  rules: { read: () => Promise<string>; write: (text: string) => Promise<void> };
   retainMain: () => Promise<{
     conversation: {
       piSessionId: () => string;
@@ -276,10 +277,10 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   const getPreferences = async () => {
     const state = await deps.repository.read();
     const learnedNotes = state.preferences.learnedNotes;
+    const notes = await deps.rules.read();
     if (state.settings.mode === "recommendations") {
-      return { notes: state.preferences.notes, learnedNotes, feedbackExamples: [] };
+      return { notes, learnedNotes, feedbackExamples: [] };
     }
-    const notes = state.preferences.notes;
     const retained = await deps.retainMain();
     if (!retained) return { notes, learnedNotes, feedbackExamples: [] };
     try {
@@ -294,14 +295,12 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   };
   const getNewsPreferences = async () => {
     const preferences = (await deps.repository.read()).preferences;
-    return { notes: preferences.notes, learnedNotes: preferences.learnedNotes };
+    return { notes: await deps.rules.read(), learnedNotes: preferences.learnedNotes };
   };
   const savePreferences = async (preferences: Pick<InformationPreferences, "notes">) => {
     requireOpen();
-    return deps.repository.update((state) => ({
-      state: { ...state, preferences: { notes: preferences.notes, learnedNotes: state.preferences.learnedNotes } },
-      result: { notes: preferences.notes },
-    }), { allowCreate: true });
+    await deps.rules.write(preferences.notes);
+    return { notes: preferences.notes };
   };
 
   const emptyFeedbackFor = (itemId: string) => ({ itemId, reaction: null, saved: false, comments: [] });
@@ -910,7 +909,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
           mode,
           analysisKind,
           ...(mapOnly ? { mapOnly: true } : {}),
-          preferences: state.preferences,
+          preferences: { ...state.preferences, notes: await deps.rules.read() },
           items: items.map(({ id, source, externalId, title, content, receivedAt, metadata }) => ({
             id, source, externalId, ...(title ? { title } : {}), content, receivedAt,
             ...(metadata ? { sourceTitle: metadata.sourceTitle, url: metadata.url } : {}),
@@ -973,7 +972,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
               const briefingOutcome = await deps.synthesizeBriefing({
                 runId: claimed.id,
                 preferences: {
-                  ...stateBeforeCommit.preferences,
+                  notes: input.preferences.notes,
                   learnedNotes: effectiveLearnedNotes,
                 },
                 totalScanned: wave.totalScanned,

@@ -31,7 +31,7 @@ async function fixture(t: TestContext) {
     `import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(extensionSentinel)}, 'not allowed');export default function(){};`);
   await putSkill(sharedDir, "same-name", "LOW_PRIORITY_SHARED_BODY");
   await putSkill(sharedDir, "web", "SHARED_MUST_NOT_OVERRIDE_BUILTIN");
-  const own = await putSkill(join(dataDir, "skills"), "same-name", "OWN_PRIORITY_BODY");
+  const own = await putSkill(join(dataDir, "assets", "skills"), "same-name", "OWN_PRIORITY_BODY");
   const historicalConfig = '{"defaultEnabled":true}\n';
   await writeFile(join(own.path, "config.json"), historicalConfig);
   const model = await createFakeModel();
@@ -115,9 +115,9 @@ test("shared skills runtime: explicit enable only, no shared code execution, and
   await h.run("hello after selection");
   assert.ok(JSON.stringify(h.model.requests.at(-1)).includes("SHARED_DISCOVERY_SENTINEL_93b"));
   await assert.rejects(stat(h.extensionSentinel), { code: "ENOENT" });
-  const stored = JSON.parse(await readFile(join(h.dataDir, "sessions", "main", "skills.json"), "utf8"));
+  const stored = JSON.parse(await readFile(join(h.dataDir, "state", "assistant", "skill-overrides.json"), "utf8"));
   assert.deepEqual(stored.overrides, { "shared/general-note": true });
-  await h.putSkill(join(h.dataDir, "skills"), "general-note", "NEW_OWN_SOURCE");
+  await h.putSkill(join(h.dataDir, "assets", "skills"), "general-note", "NEW_OWN_SOURCE");
   view = skillsResponse.parse(await (await h.request("/api/assistant/skills")).json());
   assert.equal(view.skills.find((skill) => skill.name === "general-note")?.source, "user");
   assert.equal(view.skills.find((skill) => skill.name === "general-note")?.enabled, false);
@@ -146,5 +146,5 @@ test("shared skills HTTP: unsafe and oversized entries remain unavailable withou
   assert.equal((await h.request("/api/assistant/skills/huge-body")).status, 404);
   const unknown = await h.request("/api/assistant/skills", { overrides: { "shared/missing": true } });
   assert.equal(unknown.status, 400);
-  await assert.rejects(stat(join(h.dataDir, "sessions", "main", "skills.json")), { code: "ENOENT" });
+  await assert.rejects(stat(join(h.dataDir, "state", "assistant", "skill-overrides.json")), { code: "ENOENT" });
 });

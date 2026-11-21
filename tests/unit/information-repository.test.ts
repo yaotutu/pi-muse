@@ -31,15 +31,15 @@ test("global information repository serializes updates without losing pending wr
   const holding = deferred();
   const writing = repository.update(async (state) => {
     await holding.promise;
-    return { state: { ...state, preferences: { notes: "serialized", learnedNotes: "" } }, result: undefined };
+    return { state: { ...state, preferences: { learnedNotes: "serialized" } }, result: undefined };
   });
-  const next = repository.update((state) => ({ state: { ...state, settings: { ...state.settings, enabled: true } }, result: state.preferences.notes }));
+  const next = repository.update((state) => ({ state: { ...state, settings: { ...state.settings, enabled: true } }, result: state.preferences.learnedNotes }));
   holding.finish();
   await writing;
   assert.equal(await next, "serialized");
   const persisted = await repository.read();
   assert.equal(persisted.settings.enabled, true);
-  assert.equal(persisted.preferences.notes, "serialized");
+  assert.equal(persisted.preferences.learnedNotes, "serialized");
 });
 
 test("startup reconcile closes interrupted models and completed pending publications", async (t) => {
@@ -84,7 +84,7 @@ test("additive information fields default without discarding an existing valid s
     state: parseInformationState({
       schemaVersion: 1,
       settings: { enabled: true, batchWindowSeconds: 0 },
-      preferences: { notes: "keep me" },
+      preferences: {},
       items: [{
         id: "item-1", source: "rss", externalId: "1",
         content: "original", receivedAt: at, acceptedAt: at, status: "pending",
@@ -95,7 +95,6 @@ test("additive information fields default without discarding an existing valid s
   }), { allowCreate: true });
   const state = await repository.read();
   assert.equal(state.settings.mode, "notifications");
-  assert.equal(state.preferences.notes, "keep me");
   assert.equal(state.preferences.learnedNotes, "");
   assert.equal(state.articleFeedback.length, 0);
   assert.equal(state.items[0]?.content, "original");
@@ -111,7 +110,7 @@ test("zero-candidate initial briefing publication with empty itemIds persists cl
     state: parseInformationState({
       schemaVersion: 1,
       settings: { enabled: true, batchWindowSeconds: 15, mode: "notifications" },
-      preferences: { notes: "", learnedNotes: "已整理偏好" },
+      preferences: { learnedNotes: "已整理偏好" },
       items: [{
         id: "item-silent",
         source: "sms",

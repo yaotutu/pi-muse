@@ -99,7 +99,7 @@ export const endpoints: EndpointSpec[] = [
   { operationId: "getAssistantInstructions", method: "get", path: "/api/assistant/instructions", tag: "助手设置", summary: "读取助手指令", auth: true, response: resp.instructionsResponse, hint: "所有聊天会话共用 INSTRUCTIONS.md；缺失为空串。独立于短信与新闻领域偏好。" },
   { operationId: "saveAssistantInstructions", method: "put", path: "/api/assistant/instructions", tag: "助手设置", summary: "保存助手指令", auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse, hint: "整份替换、最后成功保存生效。所有聊天会话从下一轮重读，不能扩大工具/路径/审批权限。" },
   { operationId: "getAssistantSkills", method: "get", path: "/api/assistant/skills", tag: "助手设置", summary: "读取全部可选技能及来源", auth: true, response: resp.skillsResponse,
-    hint: "列出当前可选技能，不限于已启用项。来源 user=DATA_DIR/skills 实例自有、builtin=内置自有、shared=服务端用户 ~/.agents/skills 通用目录。按名称合并，优先级 user > builtin > shared；关闭优先项不会回退同名低优先来源。默认开关：内置技能按随服务端发布的 skills-defaults 清单（当前 9 项默认开启），通用与实例自建技能一律默认关闭；手动保存的选择始终优先并绑定来源。返回 id/name/description/source/defaultEnabled/enabled，不返回物理路径。GET 不创建目录或私有 config.json。开关和资产由所有聊天会话共用。" },
+    hint: "列出当前可选技能，不限于已启用项。来源 user=DATA_DIR/assets/skills 实例自有、builtin=内置自有、shared=服务端用户 ~/.agents/skills 通用目录。按名称合并，优先级 user > builtin > shared；关闭优先项不会回退同名低优先来源。默认开关：内置技能按随服务端发布的 skills-defaults 清单（当前 9 项默认开启），通用与实例自建技能一律默认关闭；手动保存的选择始终优先并绑定来源。返回 id/name/description/source/defaultEnabled/enabled，不返回物理路径。GET 不创建目录或私有 config.json。开关和资产由所有聊天会话共用。" },
   { operationId: "getAssistantSkill", method: "get", path: "/api/assistant/skills/:name", tag: "助手设置", summary: "读取技能正文及来源", auth: true, response: resp.skillDetailResponse,
     hint: "读取当前优先来源的完整 SKILL.md 及来源、助手启用状态，最多 100 KiB；合法名称为 1–64 位小写字母/数字与单连字符。共享目录与内置技能只读，读取正文不启用技能，不加载脚本或扩展。不存在的技能返回 404；非法技能名返回 400。" },
   { operationId: "saveAssistantSkills", method: "put", path: "/api/assistant/skills", tag: "助手设置", summary: "保存助手技能选择", auth: true, request: req.updateSkillsSchema, response: resp.skillsResponse,
@@ -478,14 +478,14 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getNewsPreferences",
     method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻偏好",
-    hint: "notes 是保存在 news.sqlite 的新闻领域独立明确偏好（不耦合 main 的 INSTRUCTIONS.md）；learnedNotes 是模型从逐篇反馈推断的只读兴趣摘要。两者分离，推断不覆盖明确备注、会话规则或全局 USER。",
+    hint: "notes 是保存在 workspace/domains/news/RULES.md 的明确新闻规则；learnedNotes 是模型从逐篇反馈推断的只读兴趣摘要。两者分离，推断不覆盖明确备注、会话规则或全局 USER。",
     auth: true, response: news.newsPreferencesResponseSchema,
     errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
   },
   {
     operationId: "updateNewsPreferences",
     method: "put", path: "/api/news/preferences", tag: "新闻", summary: "保存新闻明确偏好",
-    hint: "notes 最多 20000 字符，空串清空；最后成功保存生效。本接口独立保存在 news.sqlite，不写 main 的 INSTRUCTIONS.md 或全局资料，也不触发模型；也可在主聊天通过 domain_agent 调整。",
+    hint: "notes 最多 20000 字符，空串清空；最后成功保存生效。本接口和工作区文件页编辑同一份 workspace/domains/news/RULES.md，也不触发模型；也可在主聊天通过 domain_agent 调整。",
     auth: true, request: news.newsPreferencesUpdateRequestSchema, response: news.newsPreferencesResponseSchema,
     errorResponses: {
       400: { description: "非法请求或超长 notes", schema: resp.errorResponse },
@@ -583,7 +583,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getProfile",
     method: "get", path: "/api/profile", tag: "人设", summary: "读取 SOUL/USER 人设文本",
-    hint: "读取全局 profile/SOUL.md（助手灵魂与人设定位）与 profile/USER.md（用户画像与背景偏好）的自由文本内容；未设置或文件不存在时对应字段返回空串，不创建任何文件。如需编辑人设，通过 PUT /api/profile 保存。",
+    hint: "读取全局 workspace/assistant/SOUL.md（助手灵魂与人设定位）与 workspace/assistant/USER.md（用户画像与背景偏好）的自由文本内容；未设置或文件不存在时对应字段返回空串，不创建任何文件。如需编辑人设，通过 PUT /api/profile 保存。",
     auth: true, response: resp.profileResponse,
   },
   {

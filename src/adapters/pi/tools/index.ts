@@ -25,6 +25,7 @@ import { createDomainAgentTool, DOMAIN_AGENT_TOOL_NAME } from "./domain-agent.js
 import type { DomainAgentRegistry } from "../../../features/domain-agents/registry.js";
 import type { ActivityRun } from "../../../features/activities/types.js";
 import { SUBAGENT_TOOL_NAME } from "../subagent/extension.js";
+import { managedWorkspaceTexts } from "../../workspace/managed-text.js";
 import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
 import type { DatabaseService } from "../../../features/database/database-service.js";
 import { databaseTool } from "./database.js";
@@ -77,12 +78,34 @@ export const skillToToolsMap: Record<string, string[]> = {
   "skill-creator": ["skills"],
 };
 
+const writableTools = (deps: ToolDependencies) =>
+  deps.actions && deps.writableEnabled !== false
+    ? createWritableFileTools(
+      deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000,
+      { sessionId: deps.sessionId, runId: deps.runId, subagentId: deps.subagentId, activityId: deps.currentActivityId },
+      deps.layout?.workspaceDir, deps.activityObservation, deps.workspaceCommits,
+    )
+    : [];
+
 const registrations = [
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
   { names: ["database"], create: (deps: ToolDependencies) => deps.database ? [databaseTool(deps.database)] : [] },
-  { names: [DOMAIN_AGENT_TOOL_NAME], create: (deps: ToolDependencies) => deps.domainAgents && deps.sessionId ? [createDomainAgentTool(deps.domainAgents, { sessionId: deps.sessionId, runId: deps.runId, readOnly: isSubagent(deps) })] : [] },
+  { names: [DOMAIN_AGENT_TOOL_NAME], create: (deps: ToolDependencies) => {
+    if (!deps.domainAgents || !deps.sessionId) return [];
+    const write = writableTools(deps)[0]?.execute;
+    return [createDomainAgentTool(deps.domainAgents, {
+      readOnly: isSubagent(deps),
+      writeRules: write ? async (domainId, notes, toolCallId, signal, context) => {
+        const path = domainId === "news" ? managedWorkspaceTexts.newsRules
+          : domainId === "sms" ? managedWorkspaceTexts.smsRules : undefined;
+        if (!path) return { isError: true };
+        return write(toolCallId, { path, content: notes }, signal, undefined, context);
+      } : undefined,
+    })];
+  } },
   { names: [ACTIVITY_TOOL_NAME], create: (deps: ToolDependencies) => deps.activity && !isSubagent(deps) ? [createActivityTool(deps.activity)] : [] },
-  { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout ? [] : [instructionsTool(deps.layout)] },
+  { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout
+    ? [] : [instructionsTool(deps.layout, writableTools(deps)[0]?.execute)] },
   { names: ["memory", "memory_search"], create: (deps: ToolDependencies) => [memoryTool(deps.memory), memorySearchTool(deps.memory)] },
   { names: ["schedule"], create: (deps: ToolDependencies) => isSubagent(deps) ? [] : [scheduleTool(deps.jobs, deps.sessionId)] },
   { names: ["goal"], create: (deps: ToolDependencies) => deps.goals ? [goalTool(deps.goals)] : [] },
@@ -92,7 +115,7 @@ const registrations = [
   {
     names: ["write", "edit"],
     create: (deps: ToolDependencies) =>
-      deps.actions && deps.writableEnabled !== false ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { sessionId: deps.sessionId, runId: deps.runId, subagentId: deps.subagentId, activityId: deps.currentActivityId }, deps.layout?.workspaceDir, deps.activityObservation, deps.workspaceCommits) : [],
+      [...writableTools(deps)],
   },
   {
     names: ["skills"],

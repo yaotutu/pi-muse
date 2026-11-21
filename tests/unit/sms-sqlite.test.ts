@@ -41,7 +41,7 @@ const item = (id: string, overrides: Partial<InformationState["items"][number]> 
 const fullState = (): InformationState => ({
   schemaVersion: 1,
   settings: { enabled: true, batchWindowSeconds: 30, mode: "notifications" },
-  preferences: { notes: "只提醒验证码", learnedNotes: "用户偏好中文" },
+  preferences: { learnedNotes: "用户偏好中文" },
   items: [
     item("info_1", { status: "processed", runId: "inforun_1", metadata: { sourceId: "sms_inbox", sourceTitle: "短信", url: null } }),
     item("info_2", { status: "failed", runId: "inforun_1" }),

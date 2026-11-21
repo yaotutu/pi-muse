@@ -1,6 +1,6 @@
 import { readFile, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { isSessionId, sessionDir, type DataLayout } from "./data-layout.js";
+import { isSessionId, sessionDir, sessionHistoryDir, type DataLayout } from "./data-layout.js";
 import { writeJsonDocument } from "./json-document.js";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
 import type { SessionDeletion, SessionRepository, SessionStorage, StoredSessionRecord } from "../../features/sessions/types.js";
@@ -53,10 +53,10 @@ export const initializeMainSession = async (repository: SessionRepository, stora
   });
 };
 export const createSessionStorage = (layout: DataLayout): SessionStorage => ({
-  initialize: async (id) => { await mkdir(sessionDir(layout, id), { recursive: true, mode: 0o700 }); },
+  initialize: async (id) => { await mkdir(sessionHistoryDir(layout, id), { recursive: true, mode: 0o700 }); },
   clearHistory: async (id) => {
-    for (const name of await readdir(sessionDir(layout, id))) {
-      if (name.endsWith(".jsonl")) await rm(join(sessionDir(layout, id), name));
+    for (const name of await readdir(sessionHistoryDir(layout, id))) {
+      if (name.endsWith(".jsonl")) await rm(join(sessionHistoryDir(layout, id), name));
     }
   },
   remove: async (id) => { await rm(sessionDir(layout, id), { recursive: true, force: true }); },

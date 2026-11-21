@@ -57,7 +57,7 @@ test("e2e: built entry authenticates, streams tools, persists state and restarts
   await service.restart();
   assert.deepEqual(await client.history("main"), before);
   assert.equal((await client.request("/api/identity")).status, 200, "auth.key and token survive process restart");
-  assert.equal(await readFile(join(service.dataDir, "sessions/main/INSTRUCTIONS.md"), "utf8"), "E2E-INSTRUCTIONS\n");
+  assert.equal(await readFile(join(service.dataDir, "workspace/assistant/INSTRUCTIONS.md"), "utf8"), "E2E-INSTRUCTIONS");
   assert.equal(typeof token, "string");
   terminalSuccess(await client.run("hello after restart", "main"));
   assert.match(JSON.stringify(await client.history("main")), /after restart/);
@@ -102,7 +102,7 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     assert.equal(action.preview.path, "draft.md");
     assert.equal(action.preview.before, "");
     assert.equal(action.preview.beforeExists, false);
-    assert.deepEqual(await readdir(join(service.dataDir,"workspace")),[]);
+    assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "domains", "files"]);
     const target=join(service.dataDir,"workspace","draft.md");
     await assert.rejects(stat(target), { code: "ENOENT" });
     if (decision === "cancel") {
@@ -180,7 +180,7 @@ test("e2e: chat contexts are isolated, files are global and deleted sessions nev
   assert.ok(!(await client.json("/api/sessions")).sessions.some((s:{id:string})=>s.id===owner.id));
   await assert.rejects(stat(join(service.dataDir,"sessions",owner.id)),{code:"ENOENT"});
   assert.equal(await readFile(join(service.dataDir,"workspace","common.md"),"utf8"),"COMMON-WORKSPACE");
-  assert.deepEqual(await readdir(join(service.dataDir,"workspace")),["common.md"]);
+  assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "common.md", "domains", "files"]);
 });
 
 test("e2e: workspace named SSE pushes ready state and real run status without memory invalidation frames", { timeout: 90_000 }, async (t) => {

@@ -10,7 +10,7 @@ Connect to an accessible matching server. Browsing/managing memory does not requ
 
 Use memory settings to browse, search by keyword, add, edit or delete. The limit is 500 records, each 1–2000 characters. A full store rejects additions rather than discarding records. Search is case-insensitive substring matching.
 
-Memories live as plain text in `profile/memory.md`, one record per line with a stable id, so you can read or edit them directly. Tool edits and deletes still match by id exactly. If the file format is damaged the server reports a clear error instead of treating it as an empty store or silently dropping records.
+Memories live as plain text in `state/assistant/memory.md`, one record per line with a stable id, so you can read or edit them directly. Tool edits and deletes still match by id exactly. If the file format is damaged the server reports a clear error instead of treating it as an empty store or silently dropping records.
 
 Deletion is irreversible and affects all sessions without deleting chat. Never store passwords, keys, tokens or other secrets. Read the full store before retrying a write with an unknown outcome. A failed read is not an empty store.
 
@@ -23,7 +23,7 @@ Deletion is irreversible and affects all sessions without deleting chat. Never s
 
 ## Configure Dream {#configure-dream}
 
-Dream has one global enablement setting and one prompt in profile/DREAM.md. There are no per-session settings, inheritance or supplemental prompts. The prompt limit is 20,000 characters; saving an empty string restores the built-in default. In Settings → Dream, expand the custom instructions section to edit the prompt.
+Dream has one global enablement setting and one prompt in state/assistant/DREAM.md. There are no per-session settings, inheritance or supplemental prompts. The prompt limit is 20,000 characters; saving an empty string restores the built-in default. In Settings → Dream, expand the custom instructions section to edit the prompt.
 
 Every two hours the background service scans existing sessions, reads new messages using source cursors and skips busy sessions. Disabling only affects later scans and does not undo writes. Prompts, instructions and skills cannot expand the consolidation tool set.
 

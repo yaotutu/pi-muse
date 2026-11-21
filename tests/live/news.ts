@@ -101,7 +101,7 @@ const stopHttp = async (http: Http) => {
 };
 
 const sqliteEvidence = (dataDir: string) => {
-  const database = new DatabaseSync(join(dataDir, "news.sqlite"), { readOnly: true });
+  const database = new DatabaseSync(join(dataDir, "state", "news.sqlite"), { readOnly: true });
   try {
     assert.equal(database.prepare("PRAGMA integrity_check").get()?.integrity_check, "ok");
     const tables = database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'news_%' ORDER BY name")

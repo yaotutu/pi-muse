@@ -157,6 +157,7 @@ test("corrupt monitor document fails initialization without keeping a child proc
       const h = await createFixture(t);
       const file = h.layout.monitorsFile;
       const corrupt = "{invalid-json-preserve-original";
+      await mkdir(h.layout.stateDir, { recursive: true });
       await writeFile(file, corrupt);
       // 在子进程调用同一真实组合入口。不调用 process.exit：遗留调度 interval、worker
       // 或会话资源会阻止自然退出，execFile 的超时会让回归测试明确失败并回收子进程。

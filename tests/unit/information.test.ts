@@ -1,3 +1,4 @@
+import { memoryInformationRules } from "../support/information-rules.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseInformationState } from "../../src/adapters/storage/information-repository.js";
@@ -41,6 +42,7 @@ const fixture = (options?: {
   };
   const notifications: Array<{ text: string; id: string }> = [];
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository,
 
     retainMain: async () => ({
@@ -108,6 +110,7 @@ test("manual and automatic runs contend on one synchronously reserved global slo
   let input: { items: Array<{ id: string }> } | undefined;
   const base = fixture();
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository: base.repository,
 
     retainMain: async () => ({
@@ -148,6 +151,7 @@ test("processing setup failures mark the run failed and release the global slot"
   let modelCalled = false;
   const base = fixture();
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository: base.repository,
 
     retainMain: async () => {
@@ -176,6 +180,7 @@ test("cancellation while retain is pending releases the retained agent", async (
   let retainStarted = false;
   let retainReleased = false;
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository: base.repository,
 
     retainMain: async () => {
@@ -207,6 +212,7 @@ test("cancellation after a successful model result preserves model success but f
   const modelGate = deferred<void>();
   let itemId: string | undefined;
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository: base.repository,
 
     retainMain: async () => ({
@@ -239,6 +245,7 @@ test("cancellation after a successful model result preserves model success but f
 test("per-agent pause barrier is synchronous, nested, and blocks scheduler work", async () => {
   const base = fixture();
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository: base.repository,
 
     retainMain: async () => ({
@@ -266,6 +273,7 @@ test("per-agent pause aborts an already started run and waits for exit", async (
   const gate = deferred<void>();
   let started = false;
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository: base.repository,
 
     retainMain: async () => ({
@@ -313,6 +321,7 @@ test("pagination uses the last returned row and does not skip equal timestamps",
     update: async (change) => (await change(structuredClone(state))).result,
   };
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository,
 
     retainMain: async () => undefined,
@@ -338,6 +347,7 @@ test("information cursors are bound to their status filter", async () => {
     ...h_forState({ ...defaultInformationState(), items }).repository,
   };
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository,
 
     retainMain: async () => undefined,
@@ -383,6 +393,7 @@ test("feedback examples expose current projections and bounded original item con
     ...h_forState(state).repository,
   };
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository,
 
     retainMain: async () => ({
@@ -435,6 +446,7 @@ test("feedback storage failures are exposed instead of being treated as no prefe
     runs: [{ id: "run-1", itemIds: ["item-1"], status: "completed", createdAt: at, startedAt: at, publications: [{ notificationId: "n", itemIds: ["item-1"], text: "x", status: "published", receipt: { notificationId: "n", piSessionId: "session-1", messageId: "n" } }] }],
   };
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository: h_forState(state).repository,
 
     retainMain: async () => ({ conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ piSessionId: "session-1", messageId: id }) }, release: () => undefined }),
@@ -448,7 +460,6 @@ test("first run executes initial_summary then transitions to incremental", async
   let state: InformationState = {
     ...defaultInformationState(),
     settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
-    preferences: { notes: "关注快递取件码", learnedNotes: "" },
   };
   const repository: InformationRepository = {
     read: async () => structuredClone(state),
@@ -463,6 +474,7 @@ test("first run executes initial_summary then transitions to incremental", async
   };
   const capturedKinds: string[] = [];
   const service = createInformationService({
+    rules: memoryInformationRules("关注快递取件码"),
     repository,
 
     retainMain: async () => ({
@@ -499,7 +511,7 @@ test("first run executes initial_summary then transitions to incremental", async
   const prefs = await service.getPreferences();
   assert.equal(prefs.notes, "关注快递取件码");
   await service.savePreferences({ notes: "不再提醒取件码" });
-  assert.equal(state.preferences.notes, "不再提醒取件码");
+  assert.deepEqual(state.preferences, { learnedNotes: "" });
   const updatedPrefs = await service.getPreferences();
   assert.equal(updatedPrefs.notes, "不再提醒取件码");
 });
@@ -522,6 +534,7 @@ test("SMS notification subagent persists and reuses learnedNotes independently f
   const capturedPreferences: Array<{ notes: string; learnedNotes: string }> = [];
   let round = 0;
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ piSessionId: "session-1", messageId: id }) },
@@ -581,6 +594,7 @@ test("initial bulk import drains all pending batches, rolls learnedNotes, and pu
 
   const briefingInputs: InformationBriefingInput[] = [];
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: {
@@ -692,6 +706,7 @@ test("getStatus tracks queue counts and background + forceInitial runs drain asy
   const notifications: Array<{ text: string; id: string }> = [];
 
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: {
@@ -822,7 +837,7 @@ test("persisted Map-Reduce wave survives restart and passes cross-batch lifecycl
   state = {
     ...state,
     initialAnalysisCompleted: false,
-    preferences: { notes: "", learnedNotes: "批1画像：关注快递账单" },
+    preferences: { learnedNotes: "批1画像：关注快递账单" },
     items,
     runs: [{
       id: "prior-run-1",
@@ -845,6 +860,7 @@ test("persisted Map-Reduce wave survives restart and passes cross-batch lifecycl
   let capturedBriefing: InformationBriefingInput | undefined;
   const sent: Array<{ text: string; id: string }> = [];
   const restartedService = createInformationService({
+    rules: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: {
@@ -912,6 +928,7 @@ test("reduce briefing failure falls back safely within 1200 chars, and silent bu
   };
   const sent: string[] = [];
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: {
@@ -1001,6 +1018,7 @@ test("bulkImport holds scheduler race during chunk uploads and preserves initial
     validateAll: async () => undefined,
   };
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: { piSessionId: () => "session-1", notify: async (_t, id) => ({ piSessionId: "session-1", messageId: id }) },
@@ -1051,6 +1069,7 @@ test("all-silent bulk scan uses mapOnly + zero-itemId Reduce briefing, validates
   const observedMapOnly: boolean[] = [];
   const sent: Array<{ text: string; id: string }> = [];
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: {
@@ -1118,6 +1137,7 @@ test("retryFailed resets failed batches, clears lastError, and completes initial
   let round = 0;
   const sent: string[] = [];
   const service = createInformationService({
+    rules: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: {

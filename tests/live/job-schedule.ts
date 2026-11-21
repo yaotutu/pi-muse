@@ -285,7 +285,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       try {
         // 1. 非法 PATCH（空串、09:99、24:00、9:00、invalid）：返回 400 INVALID_SCHEDULE_FORMAT 且 jobs.json 字节不变
         const readDbJob = () => {
-          const db = new DatabaseSync(join(dataDir, "main.sqlite"), { readOnly: true });
+          const db = new DatabaseSync(join(dataDir, "state", "main.sqlite"), { readOnly: true });
           try { return db.prepare("SELECT * FROM jobs WHERE id = ?").get(targetJobId); } finally { db.close(); }
         };
         for (const badAt of ["", "09:99", "24:00", "9:00", "invalid"]) {

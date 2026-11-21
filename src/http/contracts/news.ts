@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isWorkspaceText } from "../../shared/workspace-text.js";
 import { newsSourceFailureCategories } from "../../features/news/errors.js";
 
 const publicHttpUrlSchema = z.string().url().max(2048).regex(/^https?:\/\//i).refine((value) => {
@@ -131,7 +132,7 @@ export const newsPreferencesResponseSchema = z.strictObject({
 });
 
 export const newsPreferencesUpdateRequestSchema = z.strictObject({
-  notes: z.string().max(20000).describe("空串等于清空；最后成功保存生效"),
+  notes: z.string().max(20000).refine(isWorkspaceText).describe("空串等于清空；最后成功保存生效"),
 });
 
 export type NewsStatusDto = z.infer<typeof newsStatusResponseSchema>;

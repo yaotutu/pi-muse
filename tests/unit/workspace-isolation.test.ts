@@ -81,10 +81,10 @@ const lsTool = (tools: Tools) => tools.find((tool) => tool.name === "ls")!;
 /** 1×1 RGB PNG，IHDR/IDAT/IEND 均包含有效 CRC，保留 pi 原生图片处理链路。 */
 const PNG_1X1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC", "base64");
 
-test("layout has one flat workspace and only main or UUID session ids", async (t) => {
+test("layout initializes managed workspace groups and only main or UUID session ids", async (t) => {
   const { layout } = await setupWorkspace(t);
   const { readdir } = await import("node:fs/promises");
-  assert.deepEqual(await readdir(layout.workspaceDir), []);
+  assert.deepEqual((await readdir(layout.workspaceDir)).sort(), ["assistant", "domains", "files"]);
   for (const id of ["main", "00000000-0000-4000-8000-000000000001"]) assert.equal(isSessionId(id), true);
   for (const id of ["", "task-any", "legacy-main", "trip-2026", "../escape"]) assert.equal(isSessionId(id), false);
 });
@@ -297,7 +297,7 @@ test("two sessions approving the same shared file only let one commit, even when
   const newContent = await readFile(join(sharedDir, "note.md"), "utf8");
   assert.match(newContent, /^(from-A|from-B)$/);
   const { readdir } = await import("node:fs/promises");
-  assert.deepEqual((await readdir(sharedDir)).sort(), ["note.md"]);
+  assert.deepEqual((await readdir(sharedDir)).sort(), ["assistant", "domains", "files", "note.md"]);
   const decided = await actions.list();
   // 两个 pending 都进入 approved/denied 流程：失败者是基线版本变更被拒绝，不是被人 deny
   assert.equal(decided.length, 2);

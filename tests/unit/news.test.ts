@@ -1,3 +1,4 @@
+import { memoryInformationRules } from "../support/information-rules.js";
 import { createSubmitInformationResultTool } from "../../src/adapters/pi/information-runner.js";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -102,7 +103,7 @@ test("recommendation processing projects decisions without retaining or notifyin
   const layout = createDataLayout(dataDir);
   const informationStorage = await openInformationRepository(layout);
   const informationRepository = informationStorage.repository;
-  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile, legacyJsonFile: layout.newsFile });
+  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
   t.after(async () => {
     await newsStorage.database.close();
     await informationStorage.managed.close();
@@ -113,6 +114,7 @@ test("recommendation processing projects decisions without retaining or notifyin
   let failNext = false;
   let modelInput: Parameters<Parameters<typeof createInformationService>[0]["runModel"]>[0] | undefined;
   const information = createInformationService({
+    rules: memoryInformationRules(),
     repository: informationRepository,
 
     retainMain: async () => {
@@ -211,6 +213,7 @@ test("touching an old article makes its feedback recent for the next model input
   const repository = informationStorage.repository;
   let captured: Parameters<Parameters<typeof createInformationService>[0]["runModel"]>[0] | undefined;
   const information = createInformationService({
+    rules: memoryInformationRules(),
     repository,
 
     retainMain: async () => undefined,
@@ -257,7 +260,7 @@ test("touching an old article makes its feedback recent for the next model input
 test("news pagination returns null nextCursor for an exact full page", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-pagination-"));
   const layout = createDataLayout(dataDir);
-  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile, legacyJsonFile: layout.newsFile });
+  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
   const informationStorage = await openInformationRepository(layout);
   t.after(async () => {
     await newsStorage.database.close();
@@ -265,6 +268,7 @@ test("news pagination returns null nextCursor for an exact full page", async (t)
     await rm(dataDir, { recursive: true, force: true });
   });
   const information = createInformationService({
+    rules: memoryInformationRules(),
     repository: informationStorage.repository,
 
     retainMain: async () => undefined,
@@ -307,7 +311,7 @@ test("news pagination returns null nextCursor for an exact full page", async (t)
 test("background refresh keeps failed articles failed while explicit refresh requeues them", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-retry-"));
   const layout = createDataLayout(dataDir);
-  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile, legacyJsonFile: layout.newsFile });
+  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
   const informationStorage = await openInformationRepository(layout);
   t.after(async () => {
     await newsStorage.database.close();
@@ -315,6 +319,7 @@ test("background refresh keeps failed articles failed while explicit refresh req
     await rm(dataDir, { recursive: true, force: true });
   });
   const information = createInformationService({
+    rules: memoryInformationRules(),
     repository: informationStorage.repository,
 
     retainMain: async () => undefined,
@@ -354,7 +359,7 @@ test("background refresh keeps failed articles failed while explicit refresh req
 test("concurrent news refresh is rejected without queueing", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-refresh-"));
   const layout = createDataLayout(dataDir);
-  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile, legacyJsonFile: layout.newsFile });
+  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
   const informationStorage = await openInformationRepository(layout);
   t.after(async () => {
     await newsStorage.database.close();
@@ -362,6 +367,7 @@ test("concurrent news refresh is rejected without queueing", async (t) => {
     await rm(dataDir, { recursive: true, force: true });
   });
   const information = createInformationService({
+    rules: memoryInformationRules(),
     repository: informationStorage.repository,
 
     retainMain: async () => undefined,
@@ -398,7 +404,7 @@ test("concurrent news refresh is rejected without queueing", async (t) => {
 test("one broken RSS source does not block another and its error stays controlled", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-source-error-"));
   const layout = createDataLayout(dataDir);
-  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile, legacyJsonFile: layout.newsFile });
+  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
   const informationStorage = await openInformationRepository(layout);
   t.after(async () => {
     await newsStorage.database.close();
@@ -406,6 +412,7 @@ test("one broken RSS source does not block another and its error stays controlle
     await rm(dataDir, { recursive: true, force: true });
   });
   const information = createInformationService({
+    rules: memoryInformationRules(),
     repository: informationStorage.repository,
 
     retainMain: async () => undefined,
@@ -473,9 +480,9 @@ const rssFixture = async (
   const informationStorage = await openInformationRepository(layout);
   const newsStorage = await openNewsRepository({
     databaseFile: layout.newsDatabaseFile,
-    legacyJsonFile: layout.newsFile,
   });
   const information = createInformationService({
+    rules: memoryInformationRules(),
     repository: informationStorage.repository,
     retainMain: async () => undefined,
     feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
@@ -669,8 +676,7 @@ test("news storage accepts optional failure details without migrating legacy sou
   const dir = await mkdtemp(join(tmpdir(), "pi-muse-rss-storage-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const databaseFile = join(dir, "news.sqlite");
-  const legacyJsonFile = join(dir, "news.json");
-  const first = await openNewsRepository({ databaseFile, legacyJsonFile });
+  const first = await openNewsRepository({ databaseFile });
   await first.repository.update((state) => ({
     state: {
       ...state,
@@ -714,7 +720,7 @@ test("news storage accepts optional failure details without migrating legacy sou
     { category: "HTTP_ERROR", httpStatus: 403 },
   );
   await first.database.close();
-  const second = await openNewsRepository({ databaseFile, legacyJsonFile });
+  const second = await openNewsRepository({ databaseFile });
   try {
     assert.deepEqual(
       (await second.repository.read()).sources[0]?.lastErrorDetails,

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import {
   createDataLayout,
-  sessionDir,
+  sessionHistoryDir,
 } from "../../src/adapters/storage/data-layout.js";
 import { InvalidDocumentError } from "../../src/adapters/storage/document-schemas.js";
 import { createDreamPromptPort, createDreamRepository } from "../../src/adapters/storage/dream-repository.js";
@@ -40,7 +40,7 @@ const setup = async (t: TestContext) => {
   const dir = await mkdtemp(join(tmpdir(), "personal-bot-dream-unit-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const layout = createDataLayout(dir);
-  await mkdir(sessionDir(layout, "main"), { recursive: true, mode: 0o700 });
+  await mkdir(sessionHistoryDir(layout, "main"), { recursive: true, mode: 0o700 });
   const memoryRepo = createMemoryRepository(join(layout.profileDir, "memory.md"));
   const identity = createIdentityService(createIdentityRepository(join(layout.profileDir, "identity.json")), {
     read: (which) => readProfileFile(which === "soul" ? layout.soulFile : layout.userFile),
@@ -230,7 +230,7 @@ test("profile files and dream repository enforce strict validation, conditional 
 
 test("DreamService keeps a pending proposal when its shared profile target changes concurrently", async (t) => {
   const { layout, memory, identity, repository } = await setup(t);
-  await mkdir(sessionDir(layout, "00000000-0000-4000-8000-000000000001"), { recursive: true, mode: 0o700 });
+  await mkdir(sessionHistoryDir(layout, "00000000-0000-4000-8000-000000000001"), { recursive: true, mode: 0o700 });
   await writeAssistantInstructions(
     layout.assistantInstructionsFile,
     "Keep replies brief.",

@@ -16,13 +16,15 @@ import { createJobRepository } from "../../src/adapters/storage/job-repository.j
 test("session reset preserves schedules and pending notifications", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "pi-muse-reset-http-"));
   t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "state"));
+  await mkdir(join(root, "sessions"));
   const createdAt = new Date().toISOString();
   const at = new Date(Date.now() + 86400000).toISOString();
-  await writeFile(join(root, "monitors.json"), JSON.stringify(["00000000-0000-4000-8000-000000000001", "main"].map((originSessionId) => ({
+  await writeFile(join(root, "state", "monitors.json"), JSON.stringify(["00000000-0000-4000-8000-000000000001", "main"].map((originSessionId) => ({
     id: `monitor-${originSessionId}`, title: "Reset fixture", url: "https://example.com/", condition: "change", intervalMinutes: 30,
     status: "paused", createdAt, originSessionId, checks: 1, pendingNotification: { id: `notification-${originSessionId}`, summary: "Old pending delivery" },
   }))));
-  const db = await openSqliteDatabase(join(root, "main.sqlite"));
+  const db = await openSqliteDatabase(join(root, "state", "main.sqlite"));
   await db.serialize(() => ensureSqliteModules(db, mainSqliteModules));
   const jobRepo = createJobRepository(db);
   await jobRepo.update(() => ({
@@ -32,8 +34,8 @@ test("session reset preserves schedules and pending notifications", async (t) =>
     result: undefined,
   }));
   await db.close();
-  await writeFile(join(root,"sessions.json"),JSON.stringify([{id:"00000000-0000-4000-8000-000000000001",title:"Reset topic",createdAt,updatedAt:createdAt,isMain:false}]));
-  await mkdir(join(root, "sessions", "00000000-0000-4000-8000-000000000001"), { recursive: true });
+  await writeFile(join(root,"sessions","index.json"),JSON.stringify([{id:"00000000-0000-4000-8000-000000000001",title:"Reset topic",createdAt,updatedAt:createdAt,isMain:false}]));
+  await mkdir(join(root, "sessions", "00000000-0000-4000-8000-000000000001", "history"), { recursive: true });
   const service = await createService(createConfig({ server: { host: "127.0.0.1", accessKey: "reset-isolated-access" }, runtime: { dataDir: root }, tools: { browser: { enabled: false } } }));
   const http = serve({ fetch: service.app.fetch, hostname: "127.0.0.1", port: 0 });
   t.after(async () => {

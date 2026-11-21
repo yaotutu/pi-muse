@@ -104,7 +104,7 @@ const fixture = async (t: TestContext) => {
 test("projectExecutionEvent preserves controlled rejection message across tool_execution_end and message_end", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-muse-sched-proj-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const managed = await openSqliteDatabase(join(dir, "main.sqlite"));
+  const managed = await openSqliteDatabase(join(dir, "state", "main.sqlite"));
   await managed.serialize(() => ensureSqliteModules(managed, [jobsModule]));
   t.after(() => managed.close());
   const repo = createJobRepository(managed);
@@ -479,7 +479,7 @@ test("pi schedule tool over real HTTP rejects invalid daily time with preserved 
       (message): message is Extract<HistoryMessage, { role: "tool" }> => message.role === "tool",
     );
     assert.equal(toolHistory.find((message) => message.toolCallId === toolCallId)?.content, "工具执行失败");
-    const sessionDir = join(dir, "sessions", "main");
+    const sessionDir = join(dir, "sessions", "main", "history");
     const sources = await Promise.all((await readdir(sessionDir))
       .filter((name) => name.endsWith(".jsonl"))
       .map((name) => readFile(join(sessionDir, name), "utf8")));

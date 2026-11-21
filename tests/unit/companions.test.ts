@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createCompanionService } from "../../src/features/companions/service.js";
 import { COMPANION_STATES, CompanionError, MAX_COMPANION_PNG_BYTES } from "../../src/features/companions/types.js";
 import { createCompanionStore } from "../../src/adapters/storage/companions-store.js";
@@ -13,6 +13,7 @@ const fixture = async (t: TestContext) => {
   const root = await mkdtemp(join(tmpdir(), "pi-muse-companion-unit-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const layout = createDataLayout(root);
+  await mkdir(dirname(layout.companionsDir));
   return { root, layout, service: createCompanionService(createCompanionStore(layout)) };
 };
 const code = (expected: string, status?: number) => (error: unknown) => error instanceof CompanionError && error.code === expected && (status === undefined || error.status === status);
@@ -33,7 +34,7 @@ test("companions: ID and state boundaries are fixed and reject traversal", async
 
 test("companions: listing is read-only, layout initialization rejects linked container", async (t) => {
   const { root, layout, service } = await fixture(t);
-  assert.equal(layout.companionsDir, join(root, "companions"));
+  assert.equal(layout.companionsDir, join(root, "assets", "companions"));
   assert.deepEqual(await service.list(), { companions: [], diagnostics: [] });
   await assert.rejects(lstat(layout.companionsDir), { code: "ENOENT" });
   const outside = join(root, "outside");

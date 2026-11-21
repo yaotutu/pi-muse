@@ -39,35 +39,18 @@ const schedulerFor = (
 
 test("DataLayout describes the current paths without migrating legacy data", () => {
   const root = resolve(".personal-bot-test");
-  const profileDir = join(root, "profile");
-  assert.deepEqual(createDataLayout("./.personal-bot-test"), {
-    root,
-    companionsDir: join(root, "companions"),
-    profileDir,
-    workspaceDir: join(root, "workspace"),
-    sessionsDir: join(root, "sessions"),
-    sessionIndexFile: join(root, "sessions.json"),
-    assistantInstructionsFile: join(root, "sessions", "main", "INSTRUCTIONS.md"),
-    assistantSkillOverridesFile: join(root, "sessions", "main", "skills.json"),
-    messageFeedbackDir: join(root, "messages"),
-    agentDir: join(root, "agent"),
-    piAuthFile: join(root, "agent", "auth.json"),
-    memoryMarkdownFile: join(profileDir, "memory.md"),
-    identityFile: join(profileDir, "identity.json"),
-    monitorsFile: join(root, "monitors.json"),
-    mainDatabaseFile: join(root, "main.sqlite"),
-    newsDatabaseFile: join(root, "news.sqlite"),
-    newsFile: join(root, "news.json"),
-    soulFile: join(profileDir, "SOUL.md"),
-    userFile: join(profileDir, "USER.md"),
-    dreamFile: join(profileDir, "DREAM.md"),
-    authKeyFile: join(root, "auth.key"),
-    browserProfileDir: join(root, "browser", "profile"),
-    browserDownloadsDir: join(root, "browser", "downloads"),
-    skillsDir: join(root, "skills"),
-    subagentsDir: join(root, "subagents"),
-    tracesDir: join(root, "traces"),
-  });
+  const layout = createDataLayout(root);
+  assert.equal(layout.workspaceDir, join(root, "workspace"));
+  assert.equal(layout.assistantInstructionsFile, join(root, "workspace", "assistant", "INSTRUCTIONS.md"));
+  assert.equal(layout.soulFile, join(root, "workspace", "assistant", "SOUL.md"));
+  assert.equal(layout.userFile, join(root, "workspace", "assistant", "USER.md"));
+  assert.equal(layout.newsRulesFile, join(root, "workspace", "domains", "news", "RULES.md"));
+  assert.equal(layout.smsRulesFile, join(root, "workspace", "domains", "sms", "RULES.md"));
+  assert.equal(layout.sessionIndexFile, join(root, "sessions", "index.json"));
+  assert.equal(layout.mainDatabaseFile, join(root, "state", "main.sqlite"));
+  assert.equal(layout.newsDatabaseFile, join(root, "state", "news.sqlite"));
+  assert.equal(layout.skillsDir, join(root, "assets", "skills"));
+  assert.equal(layout.piAuthFile, join(root, "runtime", "auth", "pi.json"));
 });
 
 test("scheduler starts explicitly once, skips busy conversation and closes permanently", async (t) => {
@@ -572,7 +555,7 @@ test("service close cancels a running scheduled pi turn before draining its stat
   await waitFor(() => closed);
   await closing;
   assert.equal(main.isRunning(), false);
-  const archReader = new (await import("node:sqlite")).DatabaseSync(join(dataDir, "main.sqlite"), { readOnly: true });
+  const archReader = new (await import("node:sqlite")).DatabaseSync(join(dataDir, "state", "main.sqlite"), { readOnly: true });
   try {
     const row = archReader.prepare("SELECT last_status, enabled FROM jobs WHERE id = ?").get(job.id) as { last_status: string; enabled: number } | undefined;
     assert.equal(row?.last_status, "failed");

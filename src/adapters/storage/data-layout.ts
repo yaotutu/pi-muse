@@ -1,4 +1,4 @@
-import { lstat, mkdir } from "node:fs/promises";
+import { lstat, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { isCompanionPackId } from "../../features/companions/types.js";
 export { isCompanionPackId } from "../../features/companions/types.js";
@@ -9,34 +9,41 @@ export { isSessionId } from "../../features/conversation/session-id.js";
 export type DataLayout = {
   root: string; companionsDir: string; profileDir: string; workspaceDir: string; sessionsDir: string; sessionIndexFile: string;
   assistantInstructionsFile: string; assistantSkillOverridesFile: string;
-  messageFeedbackDir: string; agentDir: string; piAuthFile: string;
+  stateDir: string; newsRulesFile: string; smsRulesFile: string; agentDir: string; piAuthFile: string;
   /** 长期记忆是给人读写的纯文本；身份设置是配置 JSON。 */
   memoryMarkdownFile: string; identityFile: string;
   /** 网页监控本次保持 JSON 文件，不迁数据库。 */
   monitorsFile: string;
-  mainDatabaseFile: string; newsDatabaseFile: string; newsFile: string;
+  mainDatabaseFile: string; newsDatabaseFile: string;
   soulFile: string; userFile: string; dreamFile: string; authKeyFile: string;
   browserProfileDir: string; browserDownloadsDir: string; skillsDir: string; subagentsDir: string; tracesDir: string;
 };
 export const createDataLayout = (dataDir: string): DataLayout => {
   const root = resolve(dataDir);
-  const profileDir = join(root, "profile");
+  const workspaceDir = join(root, "workspace");
+  const assistant = join(workspaceDir, "assistant");
+  const sessionsDir = join(root, "sessions");
+  const stateDir = join(root, "state");
+  const profileDir = join(stateDir, "assistant");
+  const assets = join(root, "assets");
+  const runtime = join(root, "runtime");
   return {
-    root, companionsDir: join(root, "companions"), profileDir, workspaceDir: join(root, "workspace"), sessionsDir: join(root, "sessions"),
-    // 固定为实例级配置路径，沿用已保存的助手设置。会话生命周期不处理这两个文件。
-    assistantInstructionsFile: join(root, "sessions", "main", "INSTRUCTIONS.md"),
-    assistantSkillOverridesFile: join(root, "sessions", "main", "skills.json"),
-    sessionIndexFile: join(root, "sessions.json"), messageFeedbackDir: join(root, "messages"),
-    agentDir: join(root, "agent"), piAuthFile: join(root, "agent", "auth.json"),
+    root, workspaceDir, sessionsDir, stateDir, profileDir,
+    companionsDir: join(assets, "companions"),
+    assistantInstructionsFile: join(assistant, "INSTRUCTIONS.md"),
+    assistantSkillOverridesFile: join(profileDir, "skill-overrides.json"),
+    newsRulesFile: join(workspaceDir, "domains", "news", "RULES.md"),
+    smsRulesFile: join(workspaceDir, "domains", "sms", "RULES.md"),
+    sessionIndexFile: join(sessionsDir, "index.json"),
+    agentDir: join(runtime, "pi"), piAuthFile: join(runtime, "auth", "pi.json"),
     memoryMarkdownFile: join(profileDir, "memory.md"), identityFile: join(profileDir, "identity.json"),
-    monitorsFile: join(root, "monitors.json"),
-    mainDatabaseFile: join(root, "main.sqlite"), newsDatabaseFile: join(root, "news.sqlite"),
-    // 旧 JSON 路径只作为显式导入的来源检测，运行时不再写入。
-    newsFile: join(root, "news.json"),
-    soulFile: join(profileDir, "SOUL.md"), userFile: join(profileDir, "USER.md"), dreamFile: join(profileDir, "DREAM.md"),
-    authKeyFile: join(root, "auth.key"), browserProfileDir: join(root, "browser", "profile"),
-    browserDownloadsDir: join(root, "browser", "downloads"), skillsDir: join(root, "skills"),
-    subagentsDir: join(root, "subagents"), tracesDir: join(root, "traces"),
+    monitorsFile: join(stateDir, "monitors.json"),
+    mainDatabaseFile: join(stateDir, "main.sqlite"), newsDatabaseFile: join(stateDir, "news.sqlite"),
+    soulFile: join(assistant, "SOUL.md"), userFile: join(assistant, "USER.md"), dreamFile: join(profileDir, "DREAM.md"),
+    authKeyFile: join(runtime, "auth", "auth.key"),
+    browserProfileDir: join(runtime, "browser", "profile"),
+    browserDownloadsDir: join(runtime, "browser", "downloads"),
+    skillsDir: join(assets, "skills"), subagentsDir: join(assets, "subagents"), tracesDir: join(runtime, "traces"),
   };
 };
 export const companionPackDir = (layout: DataLayout, packId: string): string => {
@@ -47,21 +54,43 @@ export const sessionDir = (layout: DataLayout, sessionId: string): string => {
   if (!isSessionId(sessionId)) throw new Error("Invalid sessionId");
   return join(layout.sessionsDir, sessionId);
 };
+export const sessionHistoryDir = (layout: DataLayout, sessionId: string): string =>
+  join(sessionDir(layout, sessionId), "history");
+
+export const sessionFeedbackDir = (layout: DataLayout, sessionId: string): string =>
+  join(sessionDir(layout, sessionId), "feedback");
+
 export const messageFeedbackFile = (layout: DataLayout, sessionId: string, piSessionId: string): string => {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(piSessionId)) throw new Error("Invalid piSessionId");
-  sessionDir(layout, sessionId);
-  return join(layout.messageFeedbackDir, sessionId, `${piSessionId}.json`);
+  return join(sessionFeedbackDir(layout, sessionId), `${piSessionId}.json`);
 };
 /** 初始化也拒绝链接，不能让 mkdir 跟随替换后的边界根。 */
 export const ensureLayout = async (layout: DataLayout): Promise<void> => {
   await mkdir(layout.root, { recursive: true, mode: 0o700 });
-  for (const directory of [layout.root, layout.companionsDir, layout.profileDir, layout.workspaceDir, layout.sessionsDir, layout.messageFeedbackDir, layout.agentDir]) {
+  const { root, workspaceDir } = layout;
+  for (const directory of [
+    root,
+    workspaceDir, join(workspaceDir, "assistant"), join(workspaceDir, "domains"),
+    join(workspaceDir, "domains", "news"), join(workspaceDir, "domains", "sms"), join(workspaceDir, "files"),
+    layout.sessionsDir, layout.stateDir, layout.profileDir,
+    join(root, "assets"), layout.companionsDir, layout.skillsDir, layout.subagentsDir,
+    join(root, "runtime"), join(root, "runtime", "auth"), layout.agentDir,
+    join(root, "runtime", "browser"), layout.browserProfileDir, layout.browserDownloadsDir,
+  ]) {
     try {
       const entry = await lstat(directory);
       if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error("Unsafe data directory");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      await mkdir(directory, { mode: 0o700 });
+      await mkdir(directory, { recursive: true, mode: 0o700 });
     }
+  }
+};
+
+/** 列表直接展示实际文件，首次初始化为空，已有内容保持原样。 */
+export const initializeWorkspaceDocuments = async (layout: DataLayout): Promise<void> => {
+  for (const file of [layout.assistantInstructionsFile, layout.soulFile, layout.userFile, layout.newsRulesFile, layout.smsRulesFile]) {
+    try { await writeFile(file, "", { flag: "wx", mode: 0o600 }); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
   }
 };

@@ -92,7 +92,6 @@ const NEWS_TABLE_DDL = [
     settings_enabled INTEGER NOT NULL CHECK (settings_enabled IN (0, 1)),
     settings_batch_window_seconds INTEGER NOT NULL,
     settings_mode TEXT NOT NULL CHECK (settings_mode IN ('notifications', 'recommendations')),
-    preferences_notes TEXT NOT NULL,
     preferences_learned_notes TEXT NOT NULL,
     initial_analysis_completed INTEGER CHECK (initial_analysis_completed IN (0, 1)),
     last_refreshed_at TEXT,
@@ -181,13 +180,6 @@ const NEWS_TABLES = [
 ] as const;
 
 export const NEWS_META_ORIGIN_KEY = "news.origin";
-export const NEWS_META_IMPORTED_SOURCE_KEY = "news.imported.source";
-export const NEWS_META_IMPORTED_AT_KEY = "news.imported.at";
-
-export type NewsSchemaOrigin =
-  | { origin: "service" }
-  | { origin: "imported"; source: string; importedAt: string };
-
 const readMeta = (database: DatabaseSync, key: string): string | undefined => {
   const row = database.prepare("SELECT value FROM news_meta WHERE key = ?").get(key) as { value: string } | undefined;
   return row?.value;
@@ -199,13 +191,12 @@ const tableExists = (database: DatabaseSync, table: string): boolean =>
 const insertDefaultStateRow = (database: DatabaseSync): void => {
   const state = defaultNewsState();
   database.prepare(
-    "INSERT INTO news_state (id, schema_version, settings_enabled, settings_batch_window_seconds, settings_mode, preferences_notes, preferences_learned_notes, initial_analysis_completed, last_refreshed_at, last_error) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO news_state (id, schema_version, settings_enabled, settings_batch_window_seconds, settings_mode, preferences_learned_notes, initial_analysis_completed, last_refreshed_at, last_error) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     state.schemaVersion,
     state.processing.settings.enabled ? 1 : 0,
     state.processing.settings.batchWindowSeconds,
     state.processing.settings.mode,
-    state.processing.preferences.notes,
     state.processing.preferences.learnedNotes,
     state.processing.initialAnalysisCompleted === undefined ? null : state.processing.initialAnalysisCompleted ? 1 : 0,
     state.lastRefreshedAt,
@@ -219,7 +210,7 @@ const insertDefaultStateRow = (database: DatabaseSync): void => {
  * 失败——Agent 删表/清空状态不能被 CREATE IF NOT EXISTS 加默认值静默当成
  * 空新闻。整体在一个同步事务内完成，失败不落半初始化结构。
  */
-export const ensureNewsSchema = (managed: ManagedSqliteDatabase, init: NewsSchemaOrigin, initialize = true): void => {
+export const ensureNewsSchema = (managed: ManagedSqliteDatabase, initialize = true): void => {
   managed.transaction(() => {
     const database = managed.database;
     const version = Number((database.prepare("PRAGMA user_version").get() as { user_version: number })?.user_version ?? 0);
@@ -246,7 +237,7 @@ export const ensureNewsSchema = (managed: ManagedSqliteDatabase, init: NewsSchem
       if (!database.prepare("SELECT 1 FROM news_state WHERE id = 1").get()) {
         throw new Error("Invalid news database: missing news_state row");
       }
-      if (readMeta(database, NEWS_META_ORIGIN_KEY) === undefined) {
+      if (readMeta(database, NEWS_META_ORIGIN_KEY) !== "service") {
         throw new Error("Invalid news database: missing origin marker");
       }
       return;
@@ -254,24 +245,8 @@ export const ensureNewsSchema = (managed: ManagedSqliteDatabase, init: NewsSchem
     for (const statement of NEWS_TABLE_DDL) database.exec(statement);
     database.exec(`PRAGMA user_version = ${NEWS_SCHEMA_VERSION}`);
     insertDefaultStateRow(database);
-    // 显式导入的结构初始化还不代表数据已导入；只有数据回读核对后才转 imported。
-    database.prepare("INSERT INTO news_meta (key, value) VALUES (?, ?)").run(NEWS_META_ORIGIN_KEY, init.origin === "imported" ? "importing" : "service");
-    if (init.origin === "imported") {
-      database.prepare("INSERT INTO news_meta (key, value) VALUES (?, ?)").run(NEWS_META_IMPORTED_SOURCE_KEY, init.source);
-      database.prepare("INSERT INTO news_meta (key, value) VALUES (?, ?)").run(NEWS_META_IMPORTED_AT_KEY, init.importedAt);
-    }
+    database.prepare("INSERT INTO news_meta (key, value) VALUES (?, ?)").run(NEWS_META_ORIGIN_KEY, "service");
   });
-};
-
-export const readNewsOrigin = (managed: ManagedSqliteDatabase): { origin: "service" | "imported"; importedFrom?: string } => {
-  const database = managed.database;
-  const origin = readMeta(database, NEWS_META_ORIGIN_KEY);
-  if (origin !== "service" && origin !== "imported") {
-    throw new Error("Invalid news database: missing origin marker or unfinished import");
-  }
-  return origin === "imported"
-    ? { origin, importedFrom: readMeta(database, NEWS_META_IMPORTED_SOURCE_KEY) }
-    : { origin };
 };
 
 const parsePayload = (raw: string | null, label: string): unknown => {
@@ -314,7 +289,7 @@ type RunItemRow = { run_id: string; position: number; item_id: string };
 type DecisionRow = { run_id: string; position: number; item_id: string; decision: "silent" | "notify"; reason: string };
 type StateRow = {
   schema_version: number; settings_enabled: number; settings_batch_window_seconds: number;
-  settings_mode: "notifications" | "recommendations"; preferences_notes: string; preferences_learned_notes: string;
+  settings_mode: "notifications" | "recommendations"; preferences_learned_notes: string;
   initial_analysis_completed: number | null; last_refreshed_at: string | null; last_error: string | null;
 };
 
@@ -322,7 +297,7 @@ type StateRow = {
 export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
   const database = managed.database;
   const stateRow = database.prepare(
-    "SELECT schema_version, settings_enabled, settings_batch_window_seconds, settings_mode, preferences_notes, preferences_learned_notes, initial_analysis_completed, last_refreshed_at, last_error FROM news_state WHERE id = 1",
+    "SELECT schema_version, settings_enabled, settings_batch_window_seconds, settings_mode, preferences_learned_notes, initial_analysis_completed, last_refreshed_at, last_error FROM news_state WHERE id = 1",
   ).get() as StateRow | undefined;
   if (!stateRow) throw new Error("Invalid news database: missing news_state row");
   const sources = (database.prepare(
@@ -409,7 +384,6 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
       mode: stateRow.settings_mode,
     },
     preferences: {
-      notes: stateRow.preferences_notes,
       learnedNotes: stateRow.preferences_learned_notes,
     },
     items,
@@ -464,7 +438,6 @@ const projectStateRow = (state: NewsState) => ({
   settings_enabled: state.processing.settings.enabled ? 1 : 0,
   settings_batch_window_seconds: state.processing.settings.batchWindowSeconds,
   settings_mode: state.processing.settings.mode,
-  preferences_notes: state.processing.preferences.notes,
   preferences_learned_notes: state.processing.preferences.learnedNotes,
   initial_analysis_completed: state.processing.initialAnalysisCompleted === undefined
     ? null
@@ -485,13 +458,12 @@ export const applyNewsState = (managed: ManagedSqliteDatabase, previous: NewsSta
   const nextStateRow = projectStateRow(next);
   if (!deepEqual(prevStateRow, nextStateRow)) {
     database.prepare(
-      "UPDATE news_state SET schema_version = ?, settings_enabled = ?, settings_batch_window_seconds = ?, settings_mode = ?, preferences_notes = ?, preferences_learned_notes = ?, initial_analysis_completed = ?, last_refreshed_at = ?, last_error = ? WHERE id = 1",
+      "UPDATE news_state SET schema_version = ?, settings_enabled = ?, settings_batch_window_seconds = ?, settings_mode = ?, preferences_learned_notes = ?, initial_analysis_completed = ?, last_refreshed_at = ?, last_error = ? WHERE id = 1",
     ).run(
       nextStateRow.schema_version,
       nextStateRow.settings_enabled,
       nextStateRow.settings_batch_window_seconds,
       nextStateRow.settings_mode,
-      nextStateRow.preferences_notes,
       nextStateRow.preferences_learned_notes,
       nextStateRow.initial_analysis_completed,
       nextStateRow.last_refreshed_at,

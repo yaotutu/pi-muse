@@ -42,7 +42,7 @@ const fixture = async (t: TestContext, options: Partial<Omit<ServiceProcessOptio
 };
 
 const sessionFiles = async (dataDir: string, sessionId: string) => {
-  const directory = join(dataDir, "sessions", sessionId);
+  const directory = join(dataDir, "sessions", sessionId, "history");
   return (await readdir(directory)).filter((name) => name.endsWith(".jsonl")).map((name) => join(directory, name));
 };
 const sessionBytes = async (dataDir: string, sessionId: string) => Promise.all((await sessionFiles(dataDir, sessionId)).map(async (file) => {
@@ -322,7 +322,7 @@ for (const decision of ["approve", "cancel"] as const) {
     const child = waiting.steps.find((step) => step.id === write.parentId)!;
     assert.equal(write.kind, "tool");
     assert.equal(child.kind, "subagent");
-    assert.deepEqual(await readdir(join(service.dataDir,"workspace")),[]);
+    assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "domains", "files"]);
     const target=join(service.dataDir,"workspace","draft.md");
     await assert.rejects(stat(target), { code: "ENOENT" });
     if (decision === "approve") {

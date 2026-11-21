@@ -158,22 +158,24 @@ test("instructions and workspace are shared while conversation JSONL is isolated
   assert.doesNotMatch(bRequest, /hello-A-ONLY/);
   assert.doesNotMatch(JSON.stringify(await h.snapshot(b.id)), /hello-A-ONLY/);
   const workspace = h.service().layout.workspaceDir;
-  assert.deepEqual(await readdir(workspace), []);
+  assert.deepEqual((await readdir(workspace)).sort(), ["assistant", "domains", "files"]);
   await writeFile(join(workspace,"common.md"),"COMMON-FILE");
   await h.run(a.id,"读 common.md"); await h.run(b.id,"读 common.md");
   assert.match(JSON.stringify(await h.snapshot(a.id)),/COMMON-FILE/);
   assert.match(JSON.stringify(await h.snapshot(b.id)),/COMMON-FILE/);
-  assert.deepEqual(await readdir(workspace), ["common.md"]);
+  assert.deepEqual((await readdir(workspace)).sort(), ["assistant", "common.md", "domains", "files"]);
 });
 
 test("subagent is an in-memory function and creates no workspace or session directory", async (t) => {
   const h = await fixture(t);
-  const beforeDirs = await readdir(join(h.dir,"sessions"));
+  const sessionDirectories = async () => (await readdir(h.service().layout.sessionsDir, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  const beforeDirs = await sessionDirectories();
   const beforeFiles = await readdir(h.service().layout.workspaceDir);
   await h.service().information.saveSettings({enabled:true,batchWindowSeconds:3600});
   await enableBuiltinSkills(h.service(), ["task", "skill-creator", "browser"]);
   await h.run("main", "子代理，问一下现在时间");
-  assert.deepEqual(await readdir(join(h.dir,"sessions")), beforeDirs);
+  assert.deepEqual(await sessionDirectories(), beforeDirs);
   assert.deepEqual(await readdir(h.service().layout.workspaceDir), beforeFiles);
   const child = h.model.requests.find((r) => JSON.stringify(r.messages).includes("## Subagent role"));
   assert.ok(child,"must actually execute a child model request");
@@ -212,8 +214,8 @@ test("missing-file diagnostics are safe in SSE, next model request, JSONL and re
   const { id } = await h.service().sessions.create("safe-file-error");
   const stream = await h.run(id, "读 absent-file.md");
   const messages = (await h.snapshot(id)).messages;
-  const files = (await readdir(join(h.dir, "sessions", id))).filter((file) => file.endsWith(".jsonl"));
-  const raw = (await Promise.all(files.map((file) => readFile(join(h.dir, "sessions", id, file), "utf8")))).join("\n");
+  const files = (await readdir(join(h.dir, "sessions", id, "history"))).filter((file) => file.endsWith(".jsonl"));
+  const raw = (await Promise.all(files.map((file) => readFile(join(h.dir, "sessions", id, "history", file), "utf8")))).join("\n");
   const toolRecords = raw.split("\n").filter(Boolean).map((line) => JSON.parse(line))
     .filter((entry) => entry.type === "message" && entry.message?.role === "toolResult");
   assert.equal(toolRecords.length, 1);
@@ -258,7 +260,7 @@ test("subagent uses the SDK active-tool snapshot and extension hooks cannot reac
   assert.ok(names(parent).includes("write"));
   assert.deepEqual(names(child),["currentTime"]);
   assert.deepEqual(await h.service().actions.list(),[]);
-  assert.deepEqual(await readdir(h.service().layout.workspaceDir),[]);
+  assert.deepEqual((await readdir(h.service().layout.workspaceDir)).sort(), ["assistant", "domains", "files"]);
 });
 
 test("an admitted reset finishes before a queued delete validates its preview", async (t) => {

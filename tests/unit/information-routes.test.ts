@@ -1,3 +1,4 @@
+import { memoryInformationRules } from "../support/information-rules.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createInformationRoutes } from "../../src/http/routes/information.js";
@@ -6,7 +7,7 @@ import { defaultInformationState, type InformationRepository } from "../../src/f
 import type { HttpDependencies } from "../../src/bootstrap/types.js";
 
 test("global preferences save main rules before retaining main for feedback", async () => {
-  let state = { ...defaultInformationState(), preferences: { notes: "old", learnedNotes: "" } };
+  let state = defaultInformationState();
   const repository: InformationRepository = {
     read: async () => structuredClone(state),
     update: async (change) => {
@@ -21,6 +22,7 @@ test("global preferences save main rules before retaining main for feedback", as
   let hubDepth = 0;
   const order: string[] = [];
   const information = createInformationService({
+    rules: memoryInformationRules("old"),
     repository,
 
     retainMain: async () => {
@@ -79,6 +81,7 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
   let retainReleased = false;
   const retainGate = new Promise<void>((resolve) => { releaseRetain = resolve; });
   const information = createInformationService({
+    rules: memoryInformationRules(),
     repository,
 
     retainMain: async () => {

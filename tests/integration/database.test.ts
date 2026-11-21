@@ -71,7 +71,6 @@ test("database registration and SQL writes share the news repository and HTTP fa
   assert.ok("results" in read);
   assert.equal(read.results[0]?.rows[0]?.[0], "keep-extension", "service updates must preserve agent-added columns");
   assert.equal((await service.newsRepository.read()).processing.articleFeedback[0]?.reaction, "like");
-  await assert.rejects(stat(service.layout.newsFile), (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT");
 });
 
 test("database accesses main database and service close rejects late SQL", async (t) => {

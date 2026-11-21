@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
+import { instructionsTool } from "../../src/adapters/pi/tools/instructions.js";
 import { createWritableFileTools } from "../../src/adapters/pi/tools/files-writable.js";
 import type { WorkspaceFileSelector } from "../../src/features/workspace/files-service.js";
 import {
@@ -81,7 +82,7 @@ test("workspace files: flat listing is stable and skips links, and old selectors
   const response=await request(service,"/api/workspace/files",{headers}); assert.equal(response.status,200);
   const body=workspaceListResponse.parse(await response.json());
   assert.deepEqual(Object.keys(body).sort(),["entries","path"]);
-  assert.deepEqual(body.entries.map((e)=>e.path),["z-dir","a.md"]);
+  assert.deepEqual(body.entries.map((e)=>e.path),["assistant","domains","files","z-dir","a.md"]);
   assert.deepEqual((await (await request(service,"/api/workspace/files?path=z-dir",{headers})).json()).entries,[]);
   for(const query of ["scope=anything","sessionId=main","path=..","path=/etc","path=a%5Cb"]) assert.equal((await request(service,`/api/workspace/files?${query}`,{headers})).status,400,query);
 });
@@ -311,4 +312,63 @@ test("workspace files: manual save invalidates an old model write approval versi
   assert.equal(toolResult.isError, true);
   assert.match(toolResult.content[0]?.text ?? "", /File changed since approval/);
   assert.equal(await readFile(join(opened.dataDir, "workspace", "draft.md"), "utf8"), "MANUAL-SAFE-CONTENT");
+});
+
+test("workspace managed Markdown and settings endpoints read and replace the same exact text", async (t) => {
+  const { service, headers } = await openService(t);
+  const entries = [
+    { path: "assistant/USER.md", settings: "/api/profile", key: "user" },
+    { path: "assistant/SOUL.md", settings: "/api/profile", key: "soul" },
+    { path: "assistant/INSTRUCTIONS.md", settings: "/api/assistant/instructions", key: "instructions" },
+    { path: "domains/news/RULES.md", settings: "/api/news/preferences", key: "notes" },
+    { path: "domains/sms/RULES.md", settings: "/api/information/preferences", key: "notes" },
+  ];
+  for (const { path, settings, key } of entries) {
+    const file = `/api/workspace/files/content?path=${path}`;
+    const initial = await request(service, file, { headers });
+    assert.equal(initial.status, 200, path);
+    assert.equal((await initial.json()).content, "");
+    const fromSettings = "  设置正文\n";
+    const settingUpdate = await request(service, settings, {
+      headers, method: "PUT", body: jsonBody({ [key]: fromSettings }),
+    });
+    assert.equal(settingUpdate.status, 200, settings);
+    assert.equal((await (await request(service, file, { headers })).json()).content, fromSettings);
+    const fromWorkspace = "  文件正文\n\n";
+    const putWorkspace = (content: string) => request(service, "/api/workspace/files/text", {
+      headers, method: "PUT", body: jsonBody({ path, content, confirmed: true }),
+    });
+    assert.equal((await putWorkspace(fromWorkspace)).status, 200, path);
+    assert.equal((await (await request(service, settings, { headers })).json())[key], fromWorkspace);
+    assert.equal((await putWorkspace("a".repeat(20_001))).status, 413);
+    assert.equal((await request(service, `/api/workspace/files?path=${path}`, {
+      headers, method: "DELETE",
+    })).status, 400);
+    assert.equal((await request(service, settings, {
+      headers, method: "PUT", body: jsonBody({ [key]: "invalid\0text" }),
+    })).status, 400);
+    assert.equal((await putWorkspace("")).status, 200);
+    assert.equal((await (await request(service, settings, { headers })).json())[key], "");
+  }
+});
+
+test("assistant instructions model update is approved and detects a newer settings write", async (t) => {
+  const { service, headers } = await openService(t);
+  const root = service.layout.workspaceDir;
+  const [write] = createWritableFileTools(root, service.actions, 10_000,
+    { sessionId: "main", runId: "instructions-race" }, root, undefined, service.workspaceCommits);
+  const tool = instructionsTool(service.layout, write.execute);
+  const pending = tool.execute("instructions-edit", { action: "set", content: "model" },
+    undefined, undefined, {} as never);
+  const approval = await waitUntil(async () => (await service.actions.snapshotPending())[0], "instructions approval");
+  assert.equal((approval.payload as Record<string, string>).path, "assistant/INSTRUCTIONS.md");
+  const settings = "/api/assistant/instructions";
+  assert.equal((await request(service, settings, {
+    headers, method: "PUT", body: jsonBody({ instructions: "newer user edit" }),
+  })).status, 200);
+  assert.equal((await request(service, `/api/approvals/${approval.id}/decision`, {
+    headers, method: "POST", body: jsonBody({ decision: "approve" }),
+  })).status, 200);
+  assert.equal((await pending).isError, true);
+  assert.deepEqual(await (await request(service, settings, { headers })).json(), { instructions: "newer user edit" });
 });

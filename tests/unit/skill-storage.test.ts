@@ -167,7 +167,7 @@ test("unsafe own directory roots and invalid shared entries produce only control
   const { root, layout, shared, repository } = await fixture(t);
   const other = join(root, "other");
   await putSkill(other, "outside");
-  await mkdir(layout.root, { recursive: true });
+  await mkdir(dirname(layout.skillsDir), { recursive: true });
   await symlink(other, layout.skillsDir, "dir");
   await mkdir(join(shared, "missing-document"), { recursive: true });
   await putSkill(shared, "bad-description", "---\nname: bad-description\n---\nBody\n");
@@ -226,7 +226,7 @@ test("overrides replace serially with private permissions and unknown names fail
   assert.deepEqual(await repository.getOverrides(), { [builtin.id]: false });
   const file = layout.assistantSkillOverridesFile;
   assert.equal((await stat(file)).mode & 0o777, 0o600);
-  assert.deepEqual(await readdir(dirname(file)), ["skills.json"]);
+  assert.deepEqual(await readdir(dirname(file)), ["skill-overrides.json"]);
   const before = await readFile(file, "utf8");
   await assert.rejects(service.updateOverrides({ "unknown-skill": true }), UnknownSkillError);
   await assert.rejects(service.updateOverrides({ [`shared/${builtin.name}`]: true }), UnknownSkillError);
@@ -246,7 +246,8 @@ test("agent instructions share an atomic writer and a missing tool argument cann
   const denied = await tool.execute("id", { action: "set" }, undefined, undefined, {} as never);
   assert.equal(denied.isError, true);
   assert.equal(await readAssistantInstructions(file), "second");
-  await tool.execute("clear", { action: "set", content: "" }, undefined, undefined, {} as never);
-  assert.equal(await readAssistantInstructions(file), "");
+  const noApproval = await tool.execute("clear", { action: "set", content: "" }, undefined, undefined, {} as never);
+  assert.equal(noApproval.isError, true);
+  assert.equal(await readAssistantInstructions(file), "second");
   assert.deepEqual(await readdir(dirname(file)), ["INSTRUCTIONS.md"]);
 });

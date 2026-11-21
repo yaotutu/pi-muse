@@ -2,59 +2,35 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { builtServiceEntry } from "../support/service-process.js";
 
-for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "corrupt-main-sqlite", "corrupt-news-sqlite", "legacy-news-import-required"] as const) {
+for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "corrupt-main-sqlite", "corrupt-news-sqlite"] as const) {
   test(`e2e: built entry ${failure} fails naturally without leaked processes or overwritten documents`, { timeout: 40_000 }, async (t) => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-muse-e2e-failure-"));
     t.after(() => rm(cwd, { recursive: true, force: true }));
     const directory = join(cwd, ".pi-muse");
-    await mkdir(directory, { mode: 0o700 });
+    await mkdir(join(directory, "state"), { recursive: true, mode: 0o700 });
     const portHolder = createServer();
     portHolder.listen(0, "127.0.0.1"); await once(portHolder, "listening");
     t.after(async () => { if (portHolder.listening) await new Promise<void>((resolve) => portHolder.close(() => resolve())); });
     const address = portHolder.address(); assert.ok(address && typeof address !== "string");
     const config = { server: { host: "127.0.0.1", port: address.port, accessKey: "failure-fixture" }, runtime: { dataDir: "." },
-      ...(["corrupt-news-sqlite", "legacy-news-import-required"].includes(failure)
+      ...(["corrupt-news-sqlite"].includes(failure)
         ? { model: { baseUrl: "http://127.0.0.1:1", id: "failure-model", apiKey: "synthetic-key" }, traces: { enabled: true } }
         : {}),
     };
     await writeFile(join(directory, "config.json"), failure === "invalid-config" ? "{invalid-json" : JSON.stringify(config), { mode: 0o600 });
     const corrupt = "{invalid-monitors-must-survive";
-    if (failure === "corrupt-document") await writeFile(join(directory, "monitors.json"), corrupt);
+    if (failure === "corrupt-document") await writeFile(join(directory, "state", "monitors.json"), corrupt);
         const corruptMainDatabase = "this is not a sqlite database at all........";
-    if (failure === "corrupt-main-sqlite") await writeFile(join(directory, "main.sqlite"), corruptMainDatabase);
+    if (failure === "corrupt-main-sqlite") await writeFile(join(directory, "state", "main.sqlite"), corruptMainDatabase);
     // news.sqlite 为垃圾字节时启动必须失败，且不能覆盖原文件。
     const corruptNewsDatabase = "this is not a sqlite database at all........";
-    if (failure === "corrupt-news-sqlite") await writeFile(join(directory, "news.sqlite"), corruptNewsDatabase);
-    // 旧 news.json 携带数据而库不存在时，必须显式报导入而不是隐式迁移或置空。
-    const legacyNewsDocument = JSON.stringify({
-      processing: {
-        schemaVersion: 1,
-        settings: { enabled: true, batchWindowSeconds: 0, mode: "recommendations" },
-        preferences: { notes: "kept", learnedNotes: "" },
-        items: [{
-          id: "info_e2e", source: "newssource_e2e", externalId: "e2e", title: "Legacy",
-          content: "must require explicit import", receivedAt: "2026-11-01T08:00:00.000Z",
-          acceptedAt: "2026-11-01T08:00:00.000Z", status: "processed",
-          metadata: { sourceId: "newssource_e2e", sourceTitle: "Legacy Feed", url: null },
-        }],
-        runs: [], articleFeedback: [], initialAnalysisCompleted: true,
-      },
-      schemaVersion: 1,
-      sources: [{
-        id: "newssource_e2e", title: "Legacy Feed", url: "https://example.com/feed.xml",
-        createdAt: "2026-11-01T08:00:00.000Z", lastFetchedAt: null, lastError: null,
-      }],
-      lastRefreshedAt: null, lastError: null,
-    });
-    if (failure === "legacy-news-import-required") {
-      await writeFile(join(directory, "news.json"), legacyNewsDocument);
-    }
+    if (failure === "corrupt-news-sqlite") await writeFile(join(directory, "state", "news.sqlite"), corruptNewsDatabase);
     const process = spawn(globalThis.process.execPath, [builtServiceEntry], {
       cwd, env: { ...globalThis.process.env, HOME: join(cwd, "isolated-home") },
       stdio: ["ignore", "pipe", "pipe"],
@@ -74,25 +50,16 @@ for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "c
     if (failure === "invalid-config") assert.match(output, /Invalid JSON/);
     if (failure === "corrupt-document") {
       assert.match(output, /Invalid monitors document/);
-      assert.equal(await readFile(join(directory, "monitors.json"), "utf8"), corrupt);
+      assert.equal(await readFile(join(directory, "state", "monitors.json"), "utf8"), corrupt);
     }
         if (failure === "occupied-port") assert.match(output, /pi-muse cannot start|Port .* held|already in use/);
     if (failure === "corrupt-main-sqlite") {
       assert.match(output, /file is not a database/);
-      assert.equal(await readFile(join(directory, "main.sqlite"), "utf8"), corruptMainDatabase);
+      assert.equal(await readFile(join(directory, "state", "main.sqlite"), "utf8"), corruptMainDatabase);
     }
     if (failure === "corrupt-news-sqlite") {
       assert.match(output, /file is not a database/);
-      assert.equal(await readFile(join(directory, "news.sqlite"), "utf8"), corruptNewsDatabase);
-    }
-    if (failure === "legacy-news-import-required") {
-      assert.match(output, /explicit import/i);
-      assert.equal(await readFile(join(directory, "news.json"), "utf8"), legacyNewsDocument);
-      await assert.rejects(
-        stat(join(directory, "news.sqlite")),
-        (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT",
-        "startup must not create a news database behind an unimported legacy document",
-      );
+      assert.equal(await readFile(join(directory, "state", "news.sqlite"), "utf8"), corruptNewsDatabase);
     }
   });
 }

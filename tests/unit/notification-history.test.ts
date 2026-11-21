@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDataLayout, sessionDir } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout, sessionHistoryDir } from "../../src/adapters/storage/data-layout.js";
 import { createSessionHistory } from "../../src/adapters/pi/session-history.js";
 import { createMessageFeedbackRepository } from "../../src/adapters/storage/message-feedback-repository.js";
 import { createMessageFeedbackSession } from "../../src/features/messages/service.js";
@@ -30,7 +30,7 @@ test("notification alone persists a new pi session and survives reopen without m
   const first = make(history);
   await first.notify("📋 服务端任务完成事实", "stable-notification");
   await first.close();
-  const directory = sessionDir(layout, "main");
+  const directory = sessionHistoryDir(layout, "main");
   const files = (await readdir(directory)).filter((file) => file.endsWith(".jsonl"));
   assert.equal(files.length, 1);
   const persisted = await readFile(join(directory, files[0]!), "utf8");

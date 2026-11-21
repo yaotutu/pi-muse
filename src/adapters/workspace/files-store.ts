@@ -13,9 +13,18 @@ import {
   type WorkspaceListEntry,
   type WorkspaceTextDetail,
 } from "../../features/workspace/files-service.js";
+import { isManagedWorkspaceText, managedWorkspaceTarget, workspaceTextLimit } from "./managed-text.js";
 import type { WorkspaceCommitQueue } from "./file-commit-queue.js";
 
 const invalid = () => new WorkspaceFileError(400, "INVALID_REQUEST", "Unsafe workspace path");
+const checkTextLimit = (root: string, path: string, content: string) => {
+  const target = targetOf(root, path);
+  const managed = managedWorkspaceTarget(root, target);
+  if (managed !== undefined && target !== managed) throw invalid();
+  const limit = workspaceTextLimit(root, target);
+  if (limit !== undefined && content.length > limit)
+    throw new WorkspaceFileError(413, "TOO_LARGE", `Settings text exceeds ${limit} characters`);
+};
 const missing = () => new WorkspaceFileError(404, "NOT_FOUND", "File not found");
 const isMissing = (error: unknown) =>
   (error as NodeJS.ErrnoException).code === "ENOENT" ||
@@ -216,6 +225,7 @@ export const createWorkspaceFileStore = (layout: DataLayout, commitQueue: Worksp
       return readDetail(selector);
     },
     async create(selector: WorkspaceFileSelector, content: string): Promise<WorkspaceTextDetail> {
+      checkTextLimit(rootOf(layout), selector.path, content);
       const target = await checkedTarget(layout, selector, { createDirectories: true });
       return commitQueue(target, async () => {
         let temporary: string | undefined;
@@ -247,6 +257,7 @@ export const createWorkspaceFileStore = (layout: DataLayout, commitQueue: Worksp
       });
     },
     async update(selector: WorkspaceFileSelector, content: string): Promise<WorkspaceTextDetail> {
+      checkTextLimit(rootOf(layout), selector.path, content);
       const target = await checkedTarget(layout, selector, { createDirectories: true });
       return commitQueue(target, async () => {
         let temporary: string | undefined;
@@ -284,6 +295,9 @@ export const createWorkspaceFileStore = (layout: DataLayout, commitQueue: Worksp
       });
     },
     async delete(selector: WorkspaceFileSelector): Promise<void> {
+      const root = rootOf(layout);
+      if (isManagedWorkspaceText(root, targetOf(root, selector.path)))
+        throw new WorkspaceFileError(400, "INVALID_REQUEST", "Clear settings text by saving an empty file");
       const target = await checkedTarget(layout, selector);
       await commitQueue(target, async () => {
         try {

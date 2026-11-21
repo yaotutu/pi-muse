@@ -1,47 +1,65 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
-import { createSerializedWriter } from "../../shared/serialized-writer.js";
+import { constants, realpathSync } from "node:fs";
+import { mkdir, open, rename, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { isWorkspaceText } from "../../shared/workspace-text.js";
+import { safeWorkspacePath } from "../pi/tools/workspace-path.js";
+import { workspaceFileCommits } from "../workspace/file-commit-queue.js";
 
-const serialized = createSerializedWriter();
+const isMissing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 
-/**
- * SOUL/USER/DREAM 是自由文本输入，不和 memory.json 身份设置混合写入。
- * 仅文件缺失视为空；权限等其他读取失败必须抛出，避免模型或 Dream 把
- * “读不到”误当成“内容为空”并在其上继续写入。每轮由 prompt adapter 重读。
- */
-export const readProfileFile = async (file: string): Promise<string> => {
+const readText = async (file: string): Promise<string> => {
   try {
-    return (await readFile(file, "utf8")).trim();
+    // 以非阻塞方式打开再校验类型，拒绝符号链接与 FIFO。
+    const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const stats = await handle.stat();
+      if (!stats.isFile()) throw Object.assign(new Error("Not a regular settings file"), { code: "EISDIR" });
+      return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await handle.readFile());
+    } finally {
+      await handle.close();
+    }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+    if (isMissing(error)) return "";
     throw error;
   }
 };
 
-/**
- * 保存自由文本：HTTP 与 Dream 共用同一个串行写队列与原子替换。
- * 传入 expected 时在队列内比对读取时的内容，已被用户修改则放弃写入并返回 false。
- */
-export const writeProfileFile = (
+/** 空文件就是空设置。权限和字节解码失败必须可见。 */
+export const readProfileFile = async (file: string, workspaceBoundary?: string): Promise<string> => {
+  const target = workspaceBoundary
+    ? await safeWorkspacePath(workspaceBoundary, file, { allowMissing: true })
+    : file;
+  return readText(target);
+};
+
+/** 设置和自动整理在工作区的逐路径锁内比较、原样写入并原子替换文本。 */
+export const writeProfileFile = async (
   file: string,
   content: string,
   expected?: string,
-): Promise<boolean> =>
-  serialized(async () => {
-    if (expected !== undefined && (await readProfileFile(file)) !== expected.trim()) {
-      return false;
-    }
-    await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-    const temporary = join(dirname(file), `.${basename(file)}.${randomUUID()}.tmp`);
+  workspaceBoundary?: string,
+): Promise<boolean> => {
+  if (workspaceBoundary && !isWorkspaceText(content)) throw new Error("Invalid workspace text");
+  // 先确定锁键再执行异步检查；同一入口的提交顺序不会被路径查询重排。
+  const target = workspaceBoundary
+    ? join(realpathSync(dirname(workspaceBoundary)), basename(workspaceBoundary), relative(workspaceBoundary, file))
+    : resolve(file);
+  return workspaceFileCommits(target, async () => {
+    if (!workspaceBoundary) await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+    if (workspaceBoundary && await safeWorkspacePath(workspaceBoundary, file, { allowMissing: true }) !== target)
+      throw new Error("Workspace path changed");
+    if (expected !== undefined && await readText(target) !== expected) return false;
+    const temporary = join(dirname(target), `.${basename(target)}.${randomUUID()}.tmp`);
     try {
-      await writeFile(temporary, content.trim() + "\n", { flag: "wx", mode: 0o600 });
-      await rename(temporary, file);
+      await writeFile(temporary, content, { flag: "wx", mode: 0o600 });
+      if (workspaceBoundary && await safeWorkspacePath(workspaceBoundary, file, { allowMissing: true }) !== target)
+        throw new Error("Workspace path changed");
+      await rename(temporary, target);
       return true;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        await unlink(temporary).catch(() => undefined);
-      }
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") await unlink(temporary).catch(() => undefined);
       throw error;
     }
   });
+};

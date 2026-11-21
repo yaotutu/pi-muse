@@ -1,7 +1,7 @@
-import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { defineTool, type AgentToolResult, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { DomainAgentError, type DomainAgentRegistry } from "../../../features/domain-agents/registry.js";
-import type { DomainQueryAction } from "../../../features/domain-agents/types.js";
+import { DOMAIN_RULES_MAX_LENGTH, type DomainQueryAction } from "../../../features/domain-agents/types.js";
 import { InformationError } from "../../../features/information/errors.js";
 import { NewsError } from "../../../features/news/errors.js";
 
@@ -10,9 +10,9 @@ export const DOMAIN_AGENT_TOOL_NAME = "domain_agent";
 export const DOMAIN_AGENT_TOOL_INSTRUCTIONS = [
   "Inspect and configure Pi Muse's registered background domain agents (such as sms and news).",
   "Actions:",
-  "- list: view all registered domain agents, whether each is enabled, ruleUpdateMode, and capabilities.",
+  "- list: view all registered domain agents, whether each is enabled, and capabilities.",
   "- get_rules: read a domain's explicit rules (`notes`), learned sensitivity profile (`learnedNotes`), and feedback examples.",
-  "- update_rules: update a domain's explicit rules (`notes`). Always call `get_rules` first, concisely merge new user rules without losing existing rules, and write rules here rather than storing domain rules only in global `memory`.",
+  "- update_rules: update a domain's explicit rules (`notes`). Always call `get_rules` first, concisely merge new user rules without losing existing rules, and submit the complete rule file for user approval.",
   "- query: read-only inspection of domain items, articles, sources, or runs via `queryAction` (`overview` | `items` | `item` | `runs` | `run`).",
 ].join("\n");
 
@@ -34,7 +34,10 @@ const QUERY_ACTIONS: ReadonlySet<DomainQueryAction> = new Set([
 
 export const createDomainAgentTool = (
   registry: DomainAgentRegistry,
-  context?: { sessionId?: string; runId?: string; readOnly?: boolean },
+  context?: {
+    readOnly?: boolean;
+    writeRules?: (domainId: string, notes: string, toolCallId: string, signal: AbortSignal | undefined, toolContext: ExtensionToolContext) => Promise<{ isError?: boolean }>;
+  },
 ) =>
   defineTool({
     name: DOMAIN_AGENT_TOOL_NAME,
@@ -68,7 +71,7 @@ export const createDomainAgentTool = (
       },
       { additionalProperties: false },
     ),
-    execute: async (_id, params, signal): Promise<AgentToolResult<DomainAgentToolResult>> => {
+    execute: async (toolCallId, params, signal, _onUpdate, toolContext): Promise<AgentToolResult<DomainAgentToolResult>> => {
       try {
         if (params.action === "list") {
           const result = await registry.list();
@@ -92,17 +95,19 @@ export const createDomainAgentTool = (
           if (context?.readOnly) {
             return rejected("Subagent sessions cannot modify domain rules; only read-only domain inspection is allowed.");
           }
-          if (typeof params.notes !== "string") {
-            return rejected("notes is required for update_rules.");
+          if (typeof params.notes !== "string" || params.notes.length > DOMAIN_RULES_MAX_LENGTH) {
+            return rejected(`notes must be a string of at most ${DOMAIN_RULES_MAX_LENGTH} characters`);
           }
-          const result = await registry.updateRules({
-            domainId: domain,
-            notes: params.notes,
-            reason: params.reason,
-            sessionId: context?.sessionId,
-            runId: context?.runId,
-            signal,
-          });
+          if (!context?.writeRules) return rejected("Approved rule writing is unavailable.");
+          signal?.throwIfAborted();
+          const current = await registry.getRules(domain);
+          signal?.throwIfAborted();
+          if (current.notes === params.notes) {
+            return { content: [{ type: "text", text: "Domain rules are unchanged." }], details: { updated: false } };
+          }
+          const saved = await context.writeRules(current.domainId, params.notes, toolCallId, signal, toolContext);
+          if (saved.isError) return rejected("Rule change did not report success. Check the file approval result before trying again.");
+          const result = { domainId: current.domainId, name: current.name, notes: params.notes, updated: true };
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
             details: result,

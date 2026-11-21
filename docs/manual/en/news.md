@@ -28,7 +28,7 @@ Collection defaults to every 30 minutes. One source's failure does not block oth
 
 Like/dislike are mutually exclusive and removable. Saved state is independent; the server also supports bounded comments. Feedback does not immediately call a model. Later batches read bounded recent examples; saves are weaker signals. A single reaction does not become a permanent rule.
 
-Explicit preferences (`notes`) are stored independently in `news.sqlite` without modifying main `INSTRUCTIONS.md` or global profile files. You can replace the full text in Settings → News Preferences (last successful save wins) or ask the assistant in main chat to update them. The model-inferred profile (`learnedNotes`) remains separate and read-only, without overwriting explicit rules, chat instructions, or USER. In News Preferences, expand the learned interests section to see what the assistant has learned.
+Explicit preferences (`notes`) are stored in the workspace at `domains/news/RULES.md` without modifying main `INSTRUCTIONS.md` or global profile files. You can replace the full text in Settings → News Preferences (last successful save wins) edit the same file under Workspace Files → Domain Rules → News, or ask the assistant to propose an update for approval. The model-inferred profile (`learnedNotes`) remains separate and read-only, without overwriting explicit rules, chat instructions, or USER. In News Preferences, expand the learned interests section to see what the assistant has learned.
 
 Reasons and learned summaries default to concise Simplified Chinese while RSS titles/content retain their original language. Read back unknown writes instead of automatically resending. Client draft behavior depends on the adapted version.
 
@@ -46,23 +46,7 @@ Sources, articles, reactions, saves, comments, analysis batches, recommendations
 
 The news API and the agent's [database tool](database.md) operate on the same news data. The agent can query, modify, extend schemas or drop tables without per-SQL approval. Breaking built-in table structures can make news unavailable; the system does not silently rebuild an empty database. Database operations do not automatically recompute previous recommendations or rerun a model.
 
-Existing news JSON requires explicit import and cutover; startup does not automatically convert or delete it. Use a consistent SQLite backup method rather than copying only the main file while writes may still be committed in its WAL.
 
-## Import legacy news {#import}
-
-Operate only on an explicitly authorized instance. First stop its writes and background processing normally and retain a protected backup. Do not import while the old service is still changing news. The target `news.sqlite` and its sidecars must not exist.
-
-From the server repository, replace these paths with the actual instance paths:
-
-```sh
-node --import tsx scripts/import-news-sqlite.ts \
-  --source /path/to/data/news.json \
-  --target /path/to/data/news.sqlite
-```
-
-The importer strictly validates the document, preserves IDs, times, order, feedback and analysis facts, verifies a read-back and returns counts. The source stays read-only: it is neither deleted nor rewritten, and runtime news uses SQLite as its only data source. An imported database is accepted only after data and the completion marker commit together. An interrupted import cannot start as empty news.
-
-An existing target is refused; do not overwrite or delete it merely to retry. If import fails or its outcome is unknown, inspect the report, target state and backup before deciding what to do. After verification, start the new service and check health identity, sources, articles and feedback. This cutover does not require resetting chat or rotating the signing key.
 
 ## Boundaries {#boundaries}
 

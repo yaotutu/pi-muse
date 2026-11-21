@@ -73,7 +73,6 @@ export const informationStateSchema = z.strictObject({
     mode: z.enum(["notifications", "recommendations"]).default("notifications"),
   }),
   preferences: z.strictObject({
-    notes: z.string().max(20000),
     learnedNotes: z.string().max(20000).default(""),
   }),
   items: z.array(itemSchema),

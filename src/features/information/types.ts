@@ -99,7 +99,7 @@ export type InformationRun = {
 export type InformationState = {
   schemaVersion: 1;
   settings: InformationSettings;
-  preferences: InformationPreferences;
+  preferences: Pick<InformationPreferences, "learnedNotes">;
   items: InformationItem[];
   runs: InformationRun[];
   articleFeedback: InformationArticleFeedback[];
@@ -109,7 +109,7 @@ export type InformationState = {
 export const defaultInformationState = (): InformationState => ({
   schemaVersion: 1,
   settings: { enabled: false, batchWindowSeconds: 15, mode: "notifications" },
-  preferences: { notes: "", learnedNotes: "" },
+  preferences: { learnedNotes: "" },
   items: [],
   runs: [],
   articleFeedback: [],

@@ -185,7 +185,7 @@ test("Dream integration: non-main chat holds shared instruction and profile sugg
   // 6. 记忆满 500 条时 POST /api/agent/memories 返回 409，不丢弃旧条目。
   const { renderMemoryMarkdown } = await import("../../src/adapters/storage/memory-markdown.js");
   await writeFile(
-    join(dataDir, "profile", "memory.md"),
+    join(dataDir, "state", "assistant", "memory.md"),
     renderMemoryMarkdown(Array.from({ length: 500 }, (_, i) => ({
       id: `m-${i}`,
       text: `fact-${i}`,

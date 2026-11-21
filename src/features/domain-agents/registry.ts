@@ -1,18 +1,13 @@
 import {
   DOMAIN_ID_PATTERN,
-  DOMAIN_RULES_MAX_LENGTH,
   type DomainAgentPromptSummary,
   type DomainAgentRegistration,
   type DomainQueryInput,
-  type DomainRuleAuthorizer,
-  type DomainRuleUpdateMode,
 } from "./types.js";
 
 export type DomainAgentErrorCode =
   | "INVALID_INPUT"
-  | "NOT_FOUND"
-  | "UNAUTHORIZED"
-  | "CONFIRMATION_REQUIRED";
+  | "NOT_FOUND";
 
 export class DomainAgentError extends Error {
   readonly code: DomainAgentErrorCode;
@@ -26,13 +21,11 @@ export class DomainAgentError extends Error {
 
 export type CreateDomainAgentRegistryOptions = {
   domains: readonly DomainAgentRegistration[];
-  defaultRuleUpdateMode?: DomainRuleUpdateMode;
-  authorizeRuleUpdate?: DomainRuleAuthorizer;
 };
 
 /**
  * 轻量领域子 Agent 注册表：主 Agent 与各后台子 Agent 之间只通过
- * 「规则读写 + 按需只读查询」解耦，不共享聊天历史、也不依赖通用事件总线。
+ * 「规则读取 + 按需只读查询」解耦，不共享聊天历史、也不依赖通用事件总线。
  */
 export const createDomainAgentRegistry = (options: CreateDomainAgentRegistryOptions) => {
   const byId = new Map<string, DomainAgentRegistration>();
@@ -46,7 +39,6 @@ export const createDomainAgentRegistry = (options: CreateDomainAgentRegistryOpti
     byId.set(domain.id, domain);
   }
   const ordered = [...byId.values()];
-  const defaultMode: DomainRuleUpdateMode = options.defaultRuleUpdateMode ?? "auto";
 
   const requireDomain = (rawDomainId: string): DomainAgentRegistration => {
     const domainId = typeof rawDomainId === "string" ? rawDomainId.trim() : "";
@@ -70,7 +62,6 @@ export const createDomainAgentRegistry = (options: CreateDomainAgentRegistryOpti
         name: domain.name,
         summary: domain.summary,
         enabled: domain.isEnabled ? await domain.isEnabled() : true,
-        ruleUpdateMode: domain.ruleUpdateMode ?? defaultMode,
         capabilities: {
           rules: true as const,
           query: Boolean(domain.query),
@@ -87,61 +78,6 @@ export const createDomainAgentRegistry = (options: CreateDomainAgentRegistryOpti
       domainId: domain.id,
       name: domain.name,
       ...snapshot,
-    };
-  };
-
-  const updateRules = async (input: {
-    domainId: string;
-    notes: string;
-    reason?: string;
-    sessionId?: string;
-    runId?: string;
-    signal?: AbortSignal;
-  }) => {
-    input.signal?.throwIfAborted();
-    const domain = requireDomain(input.domainId);
-    if (typeof input.notes !== "string" || input.notes.length > DOMAIN_RULES_MAX_LENGTH) {
-      throw new DomainAgentError(
-        "INVALID_INPUT",
-        `notes must be a string of at most ${DOMAIN_RULES_MAX_LENGTH} characters`,
-      );
-    }
-    const current = await domain.rules.read();
-    input.signal?.throwIfAborted();
-    const beforeNotes = current.notes;
-    const mode = domain.ruleUpdateMode ?? defaultMode;
-    // 授权策略可插拔：默认 auto 直接应用，后续接入统一人工确认流时可在此拦截并返回确认需求。
-    if (options.authorizeRuleUpdate) {
-      const decision = await options.authorizeRuleUpdate({
-        domainId: domain.id,
-        domainName: domain.name,
-        beforeNotes,
-        afterNotes: input.notes,
-        reason: input.reason,
-        sessionId: input.sessionId,
-        runId: input.runId,
-      });
-      if (!decision.allowed) {
-        throw new DomainAgentError(
-          decision.confirmationRequired ? "CONFIRMATION_REQUIRED" : "UNAUTHORIZED",
-          decision.reason,
-        );
-      }
-    } else if (mode === "confirm") {
-      throw new DomainAgentError(
-        "CONFIRMATION_REQUIRED",
-        "Updating rules for this domain requires explicit user confirmation.",
-      );
-    }
-    // 授权只决定是否准入，停止的轮次不得在授权返回后开始新的写入。
-    input.signal?.throwIfAborted();
-    const saved = await domain.rules.write(input.notes);
-    return {
-      domainId: domain.id,
-      name: domain.name,
-      beforeNotes,
-      notes: saved.notes,
-      updated: beforeNotes !== saved.notes,
     };
   };
 
@@ -166,7 +102,6 @@ export const createDomainAgentRegistry = (options: CreateDomainAgentRegistryOpti
     describeForPrompt,
     list,
     getRules,
-    updateRules,
     query,
   };
 };

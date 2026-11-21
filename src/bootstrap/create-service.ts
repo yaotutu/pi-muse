@@ -4,7 +4,7 @@ import { createSessionRepository, createSessionStorage, initializeMainSession } 
 import { createSessionService } from "../features/sessions/service.js";
 import { createNewsProcessingRepository } from "../adapters/storage/news-processing-repository.js";
 import { join } from "node:path";
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { createAuth } from "../adapters/auth/token-service.js";
 import type { Config } from "../config/load-config.js";
 import { createConversation } from "../features/conversation/conversation-service.js";
@@ -47,7 +47,7 @@ import { createDatabaseService } from "../features/database/database-service.js"
 import { fetchRss2 } from "../adapters/news/rss.js";
 import { createNewsService } from "../features/news/service.js";
 import { createHttpApp } from "../http/app.js";
-import { createDataLayout, ensureLayout, sessionDir } from "../adapters/storage/data-layout.js";
+import { createDataLayout, ensureLayout, initializeWorkspaceDocuments, sessionHistoryDir } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
 import { createWebService } from "../features/web/web-service.js";
 import { createHttpWebTransport } from "../adapters/web/http-transport.js";
@@ -66,7 +66,7 @@ import { createToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 import { createWorkspaceEvents } from "../features/workspace/workspace-events.js";
 import { loadSessionRecency } from "../adapters/storage/session-recency.js";
 import { createWorkspaceFileService } from "../features/workspace/files-service.js";
-import { createWorkspaceCommitQueue } from "../adapters/workspace/file-commit-queue.js";
+import { workspaceFileCommits } from "../adapters/workspace/file-commit-queue.js";
 import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
 import { createActivityService } from "../features/activities/service.js";
 import { createDreamRepository, createDreamPromptPort } from "../adapters/storage/dream-repository.js";
@@ -90,12 +90,13 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   close: () => Promise<void>;
 }> => {
   const layout = createDataLayout(config.dataDir);
-  await mkdir(layout.root, { recursive: true, mode: 0o700 });
+  await ensureLayout(layout);
+  await initializeWorkspaceDocuments(layout);
 
   const auth = await createAuth(config, layout);
-  const recency = await loadSessionRecency(join(layout.root, "session-recency.json"));
+  const recency = await loadSessionRecency(join(layout.stateDir, "session-recency.json"));
   const workspaceEvents = createWorkspaceEvents(recency);
-  const workspaceCommits = createWorkspaceCommitQueue();
+  const workspaceCommits = workspaceFileCommits;
 
   // main.sqlite 统一管理定时任务、目标、审批、短信与 Dream 机器状态
   const mainDatabase = await openSqliteDatabase(layout.mainDatabaseFile);
@@ -106,15 +107,14 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   const identityRepository = createIdentityRepository(layout.identityFile);
   const identity = createIdentityService(identityRepository, {
     // SOUL/USER 文件实现放 storage adapter；空内容写空文件（等于清空人设）。
-    read: (which) => readProfileFile(which === "soul" ? layout.soulFile : layout.userFile),
+    read: (which) => readProfileFile(which === "soul" ? layout.soulFile : layout.userFile, layout.workspaceDir),
     write: (which, content) =>
-      writeProfileFile(which === "soul" ? layout.soulFile : layout.userFile, content),
+      writeProfileFile(which === "soul" ? layout.soulFile : layout.userFile, content, undefined, layout.workspaceDir),
   });
   const memory = createMemoryService(memoryRepository, identity);
   const jobs = createJobService(createJobRepository(mainDatabase));
   await jobs.reconcileOnStart();
   const presentation = createToolPresentation(config.presentation);
-  await ensureLayout(layout);
   // Web 工具是只读能力；未启用时不创建 transport，也不向 pi 声明工具。
   const weather = config.weather.enabled
     ? createWeatherService(createOpenMeteoTransport(config.web), {
@@ -213,9 +213,9 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   }));
   const listSessionSnapshots = async () => Promise.all((await sessionRepository.read()).filter((session) => !session.deletion).map(async (session) => {
     let files: string[];
-    try { files = (await readdir(sessionDir(layout, session.id))).filter((file) => file.endsWith(".jsonl")); }
+    try { files = (await readdir(sessionHistoryDir(layout, session.id))).filter((file) => file.endsWith(".jsonl")); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return session; throw error; }
-    const candidates = await Promise.all(files.map(async (file) => ({ file, at: (await stat(join(sessionDir(layout, session.id), file))).mtimeMs })));
+    const candidates = await Promise.all(files.map(async (file) => ({ file, at: (await stat(join(sessionHistoryDir(layout, session.id), file))).mtimeMs })));
     const latest = candidates.sort((a, b) => b.at - a.at)[0];
     const piSessionId = latest?.file.replace(/\.jsonl$/, "").split("_").slice(1).join("_");
     return { ...session, ...(piSessionId ? { piSessionId } : {}) };
@@ -289,26 +289,30 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     },
     listSessionSnapshots,
   );
+  const domainRules = (file: string) => ({
+    read: () => readProfileFile(file, layout.workspaceDir),
+    write: async (text: string) => { await writeProfileFile(file, text, undefined, layout.workspaceDir); },
+  });
   const informationDeps = {
     observeWork: workspaceEvents.presence.observe,
     retainMain: () => conversationHub.retainSession("main"),
     feedback: messageFeedbackRepository,
     runModel: createInformationRunner({ config, layout, modelRuntime }),
   };
-  // 短信使用独立 Sub-Agent 偏好与自学习存储，不注入主聊天技能或 INSTRUCTIONS.md，避免污染全局对话上下文。
+  // 短信领域规则与学习画像分别存入工作区和业务仓储。
   information = createInformationService({
     ...informationDeps,
     domainId: "sms",
+    rules: domainRules(layout.smsRulesFile),
     synthesizeBriefing: createInformationBriefingRunner({ config, layout, modelRuntime }),
     repository: informationRepository,
   });
-  // 新闻事实落 news.sqlite；打开时完成旧 news.json 显式导入检测与建库。
+  // 新闻事实落 news.sqlite；启动时使用当前数据库路径。
   // Managed 实例唯一，后续 AgentSQL 工具复用同一实例，不另开 writer。
   let newsStorage: Awaited<ReturnType<typeof openNewsRepository>>;
   try {
     newsStorage = await openNewsRepository({
       databaseFile: layout.newsDatabaseFile,
-      legacyJsonFile: layout.newsFile,
     });
   } catch (error) {
     await Promise.allSettled([mainDatabase.close(), information.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
@@ -326,11 +330,12 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     const pending = [newsStorage.database.close(), mainDatabase.close()];
     return Promise.allSettled(pending);
   };
-  // 新闻与短信同样是独立领域子 Agent：使用 news.sqlite 自有偏好与画像，不再借用会话 INSTRUCTIONS.md。
+  // 新闻领域读取自己的规则文件和学习画像。
   const newsProcessingRepository = createNewsProcessingRepository(newsRepository);
   const newsProcessing = createInformationService({
     ...informationDeps,
     domainId: "news",
+    rules: domainRules(layout.newsRulesFile),
     repository: newsProcessingRepository,
   });
   const informationScheduler = createInformationScheduler(information);
@@ -342,7 +347,6 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     fetchFeed: (url, signal) => fetchRss2(url, config.web, signal),
   });
   domainAgents = createDomainAgentRegistry({
-    defaultRuleUpdateMode: "auto",
     domains: [
       {
         id: "sms",
@@ -351,7 +355,6 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
         isEnabled: async () => (await information!.getSettings()).enabled,
         rules: {
           read: () => information!.getPreferences(),
-          write: (notes) => information!.savePreferences({ notes }),
         },
         query: (input) => information!.query(input),
       },
@@ -362,7 +365,6 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
         isEnabled: async () => true,
         rules: {
           read: () => news.preferences(),
-          write: (notes) => news.savePreferences(notes),
         },
         query: async (input) => {
           if (input.action === "overview") {
@@ -451,13 +453,13 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     waitingChanged: (sessionId, waiting) => workspaceEvents.presence.set(sessionId, "dream-pending", waiting ? { state: "waiting", label: "记忆整理有待确认建议，请查看 Dream" } : null),
     repository: dreamRepository,
     notes: {
-      readUser: () => readProfileFile(layout.userFile),
+      readUser: () => readProfileFile(layout.userFile, layout.workspaceDir),
       writeUserIfUnchanged: (content, expected) => identity.writeIfUnchanged("user", content, expected),
-      readSoul: () => readProfileFile(layout.soulFile),
+      readSoul: () => readProfileFile(layout.soulFile, layout.workspaceDir),
       writeSoulIfUnchanged: (content, expected) => identity.writeIfUnchanged("soul", content, expected),
-      readInstructions: () => readAssistantInstructions(layout.assistantInstructionsFile),
+      readInstructions: () => readAssistantInstructions(layout.assistantInstructionsFile, layout.workspaceDir),
       writeInstructionsIfUnchanged: (content, expected) =>
-        writeAssistantInstructions(layout.assistantInstructionsFile, content, expected),
+        writeAssistantInstructions(layout.assistantInstructionsFile, content, expected, layout.workspaceDir),
     },
     memory,
     conversations: {

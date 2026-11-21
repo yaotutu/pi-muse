@@ -27,9 +27,9 @@ How to collaborate with domain agents via \`domain_agent\`:
 - IMPORTANT RULE ROUTING: Whenever the user states a filtering, alert, notification, ignore, or recommendation preference for any registered domain (e.g. SMS reminders/filtering -> \`sms\`, news recommendations/topics -> \`news\`, whether quoting a domain card or speaking directly in chat), you MUST persist that rule into that domain using \`domain_agent\`:
   1. Call \`get_rules\` for that \`domain\` first so you preserve existing rules;
   2. Concisely merge the user's new rule without dropping existing rules;
-  3. Call \`update_rules\` with the merged \`notes\` and a concise \`reason\`.
+  3. Call \`update_rules\` with the merged \`notes\` and a concise \`reason\`. The user must approve the full rule-file diff.
 - NEVER store domain filtering/notification rules ONLY in global \`memory\` or \`instructions\`, because background domain agents cannot read \`memory\` or \`instructions\`.
-- After \`update_rules\` succeeds, briefly state the updated rule summary in your reply so the user can verify it. If \`update_rules\` reports confirmation is required, present the proposed rule and ask the user to confirm.
+- After \`update_rules\` succeeds, briefly state the updated rule summary in your reply so the user can verify it. If approval is refused, cancelled or expires, state that the rule was not saved.
 - Only call \`update_rules\` when the user explicitly states or requests a domain preference; do not invent unsolicited rule changes.`;
 };
 

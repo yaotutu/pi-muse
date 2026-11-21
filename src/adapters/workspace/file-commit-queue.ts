@@ -18,3 +18,6 @@ export const createWorkspaceCommitQueue = (): WorkspaceCommitQueue => {
     return result;
   };
 };
+
+/** 设置、HTTP 文件与获批模型写入共用逐文件锁。 */
+export const workspaceFileCommits = createWorkspaceCommitQueue();

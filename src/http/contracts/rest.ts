@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isWorkspaceText } from "../../shared/workspace-text.js";
 import { MEMORY_TEXT_LIMIT } from "../../features/memory/types.js";
 import { ASSISTANT_TEXT_LIMIT } from "../../features/identity/types.js";
 import { isSessionId } from "../../features/conversation/session-id.js";
@@ -52,8 +53,8 @@ export const identitySchema = z.object({
 
 // SOUL/USER 自由文本：下一轮对话注入生效；空串等于清空。
 export const saveProfileSchema = z.object({
-  soul: z.string().max(ASSISTANT_TEXT_LIMIT).optional().describe("助手人设自由文本（SOUL.md）"),
-  user: z.string().max(ASSISTANT_TEXT_LIMIT).optional().describe("用户画像自由文本（USER.md）"),
+  soul: z.string().max(ASSISTANT_TEXT_LIMIT).refine(isWorkspaceText).optional().describe("助手人设自由文本（SOUL.md）"),
+  user: z.string().max(ASSISTANT_TEXT_LIMIT).refine(isWorkspaceText).optional().describe("用户画像自由文本（USER.md）"),
 });
 
 // ---------------------------------------------------------------------------
@@ -241,7 +242,7 @@ export const updateSkillsSchema = z.object({
 });
 
 // 共享助手指令：下一轮对话注入生效；空串等于清空。
-export const saveInstructionsSchema = z.strictObject({ instructions: z.string().max(ASSISTANT_TEXT_LIMIT).describe("共享助手指令；各会话下一轮重读，不扩大权限。空串清空") });
+export const saveInstructionsSchema = z.strictObject({ instructions: z.string().max(ASSISTANT_TEXT_LIMIT).refine(isWorkspaceText).describe("共享助手指令；各会话下一轮重读，不扩大权限。空串清空") });
 
 // ---------------------------------------------------------------------------
 // Dream 后台记忆整理

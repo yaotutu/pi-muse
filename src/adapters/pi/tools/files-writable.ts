@@ -1,7 +1,10 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
+import { isWorkspaceText } from "../../../shared/workspace-text.js";
+import { ASSISTANT_TEXT_LIMIT } from "../../../features/identity/types.js";
 import type { ActivityObservation } from "../../../features/activities/types.js";
 import { resolveWorkspacePath, safeWorkspacePath } from "./workspace-path.js";
+import { managedWorkspaceTarget } from "../../workspace/managed-text.js";
 import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
 import {
   awaitFileApproval,
@@ -20,11 +23,22 @@ export type ActivityToolObservation = ActivityApprovalObservation;
 const aborted = () => deniedResult("Operation aborted; nothing was written.");
 
 /** 新文件可缺失，已有祖先和根目录仍逐段拒绝链接；审批后用同一规则重查。 */
-const safeTarget = async (root: string, path: string, boundaryDir?: string): Promise<string> => {
+const safeTarget = async (root: string, path: string, boundaryDir?: string) => {
   if (!path.trim()) throw new Error("Unsafe path");
   const selected = resolveWorkspacePath(root, path);
   if (!selected || selected.path === selected.base) throw new Error("Unsafe path");
-  return safeWorkspacePath(selected.base, selected.path, { allowMissing: true, boundaryDir });
+  const managed = managedWorkspaceTarget(boundaryDir ?? root, selected.path);
+  if (managed !== undefined && selected.path !== managed) throw new Error("Use canonical managed path");
+  return {
+    target: await safeWorkspacePath(selected.base, selected.path, { allowMissing: true, boundaryDir }),
+    managed: managed !== undefined,
+  };
+};
+
+const validateText = (content: string, managed: boolean, subagentId?: string) => {
+  if (managed && subagentId) return "Subagents cannot modify managed setting files.";
+  if (managed && content.length > ASSISTANT_TEXT_LIMIT) return `Settings text exceeds ${ASSISTANT_TEXT_LIMIT} characters.`;
+  if (!isWorkspaceText(content)) return "File content must be valid UTF-8 without NUL bytes.";
 };
 
 /** 每次 run 由组合方传入新的上下文；此工厂不推断当前 runId。 */
@@ -49,13 +63,17 @@ export const createWritableFileTools = (
       if (Buffer.byteLength(params.content, "utf8") > MAX_TEXT_FILE_BYTES)
         return deniedResult("File too large: writes are limited to 100KB.");
       let target: string;
+      let managed: boolean;
       let original: FileSnapshot | undefined;
       try {
-        target = await safeTarget(root, params.path, boundaryDir);
+        ({ target, managed } = await safeTarget(root, params.path, boundaryDir));
         original = await readFileSnapshot(target);
       } catch {
         return deniedResult("Access denied: unsafe or unreadable file path.");
       }
+      const content = params.content;
+      const validationError = validateText(content, managed, context?.subagentId);
+      if (validationError) return deniedResult(validationError);
       const approved = await awaitFileApproval(
         actions,
         "file_write",
@@ -86,7 +104,7 @@ export const createWritableFileTools = (
         actions,
         signal,
         commitQueue,
-        validateTarget: async (candidate) => await safeTarget(root, params.path, boundaryDir) === candidate,
+        validateTarget: async (candidate) => (await safeTarget(root, params.path, boundaryDir)).target === candidate,
       });
     },
   }),
@@ -101,9 +119,10 @@ export const createWritableFileTools = (
     async execute(_id, params, signal) {
       if (signal?.aborted) return aborted();
       let target: string;
+      let managed: boolean;
       let original: FileSnapshot | undefined;
       try {
-        target = await safeTarget(root, params.path, boundaryDir);
+        ({ target, managed } = await safeTarget(root, params.path, boundaryDir));
         original = await readFileSnapshot(target);
       } catch {
         return deniedResult("Access denied: unsafe or unreadable file path.");
@@ -116,6 +135,8 @@ export const createWritableFileTools = (
       const content = original.content.slice(0, first) + params.newText + original.content.slice(first + params.oldText.length);
       if (Buffer.byteLength(content, "utf8") > MAX_TEXT_FILE_BYTES)
         return deniedResult("File too large: edited files are limited to 100KB.");
+      const validationError = validateText(content, managed, context?.subagentId);
+      if (validationError) return deniedResult(validationError);
       const approved = await awaitFileApproval(
         actions,
         "file_edit",
@@ -148,8 +169,8 @@ export const createWritableFileTools = (
         actions,
         signal,
         commitQueue,
-        validateTarget: async (candidate) => await safeTarget(root, params.path, boundaryDir) === candidate,
+        validateTarget: async (candidate) => (await safeTarget(root, params.path, boundaryDir)).target === candidate,
       });
     },
   }),
-];
+] as const;

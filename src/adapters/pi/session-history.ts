@@ -1,6 +1,6 @@
 import { mkdir, readdir } from "node:fs/promises";
 import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
-import { ensureLayout, sessionDir, type DataLayout } from "../storage/data-layout.js";
+import { ensureLayout, sessionHistoryDir, type DataLayout } from "../storage/data-layout.js";
 import type { ConversationHistoryPort } from "../../features/conversation/ports.js";
 import { AGENT_STATUS_ENTRY_TYPE, RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../../features/conversation/types.js";
 import type { SessionStatus } from "../../features/workspace/session-status.js";
@@ -35,7 +35,7 @@ export const createSessionHistory = async (
   presentation?: ToolPresentation,
   initialPiSessionId?: string,
 ) => {
-  const sessionsDir = sessionDir(layout, sessionId);
+  const sessionsDir = sessionHistoryDir(layout, sessionId);
   const cwd = layout.workspaceDir;
   await ensureLayout(layout);
   await Promise.all(
@@ -106,7 +106,7 @@ export const readDreamTranscript = async (
   layout: DataLayout,
   sessionId: string,
 ) => {
-  const sessionsDir = sessionDir(layout, sessionId);
+  const sessionsDir = sessionHistoryDir(layout, sessionId);
   let files: string[];
   try {
     files = (await readdir(sessionsDir)).filter((name) => name.endsWith(".jsonl"));

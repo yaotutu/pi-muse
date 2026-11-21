@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { createService } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { readAssistantInstructions } from "../../src/adapters/storage/assistant-instructions.js";
+import { createDataLayout, ensureLayout } from "../../src/adapters/storage/data-layout.js";
 import { openNewsRepository } from "../../src/adapters/storage/news-repository.js";
 import {
   newsArticleListResponseSchema,
@@ -167,10 +168,9 @@ test("SMS preferences stay decoupled from main instructions without creating hid
   assert.deepEqual((await service.sessions.list()).map((s) => s.id), ["main"]);
 });
 
-test("news preferences stay decoupled from main instructions in news.sqlite and omit skills in background runs", async (t) => {
+test("news preferences persist in their own Markdown document", async (t) => {
   const { service, headers } = await start(t);
   const instructionsPath = service.layout.assistantInstructionsFile;
-  await mkdir(join(service.layout.sessionsDir, "main"), { recursive: true });
   await writeFile(instructionsPath, "MAIN-ONLY-INSTRUCTION\n", "utf8");
 
   const saved = await service.app.request("/api/news/preferences", {
@@ -180,13 +180,14 @@ test("news preferences stay decoupled from main instructions in news.sqlite and 
   });
   assert.equal(saved.status, 200);
   assert.deepEqual(await saved.json(), { notes: "关注 AI 工程，屏蔽八卦", learnedNotes: "" });
-  assert.equal(await readAssistantInstructions(instructionsPath), "MAIN-ONLY-INSTRUCTION");
+  assert.equal(await readAssistantInstructions(instructionsPath), "MAIN-ONLY-INSTRUCTION\n");
+  assert.equal(await readFile(service.layout.newsRulesFile, "utf8"), "关注 AI 工程，屏蔽八卦");
 });
 
 test("initialization preserves explicitly empty main instructions", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(),"pi-muse-main-instructions-"));
-  const file = join(dataDir,"sessions","main","INSTRUCTIONS.md");
-  await mkdir(join(dataDir,"sessions","main"),{recursive:true});
+  const file = join(dataDir,"workspace","assistant","INSTRUCTIONS.md");
+  await mkdir(join(dataDir,"workspace","assistant"),{recursive:true});
   await writeFile(file,"");
   const service = await createService(configFor(dataDir));
   t.after(async()=>{await service.close();await rm(dataDir,{recursive:true,force:true});});
@@ -199,7 +200,9 @@ for(const scenario of ["valid","object-notifications","duplicate"] as const) {
     const model=await createFakeModel();
     let service:Awaited<ReturnType<typeof createService>>|undefined;
     t.after(async()=>{try{await service?.close();await newsStorage.database.close();}finally{await model.close();await rm(dataDir,{recursive:true,force:true});}});
-    const newsStorage=await openNewsRepository({databaseFile:join(dataDir,"news.sqlite"),legacyJsonFile:join(dataDir,"news.json")});
+    const layout = createDataLayout(dataDir);
+    await ensureLayout(layout);
+    const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
     let repo=newsStorage.repository;
     const timestamp=new Date().toISOString();
     await repo.update((state)=>({state:{...state,processing:{...state.processing,items:[{id:"info_news_schema",source:"rss",externalId:"schema",title:"SDK schema",content:scenario==="object-notifications"?"NOTIFY NEWS_OBJECT_NOTIFICATIONS":scenario==="duplicate"?"NOTIFY TWO_VALID_SUBMISSIONS":"NOTIFY news value",receivedAt:timestamp,acceptedAt:timestamp,status:"pending",metadata:{sourceId:"source_schema",sourceTitle:"Synthetic feed",url:null}}]}},result:undefined}));

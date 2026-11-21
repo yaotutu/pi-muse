@@ -354,7 +354,7 @@ export async function openPi(deps: PiDeps) {
   }
 
   // 4. 构建 System Prompt 并注入技能、全局助手指令与 Extension
-  const assistantInstructions = !child ? await readAssistantInstructions(layout.assistantInstructionsFile) : undefined;
+  const assistantInstructions = !child ? await readAssistantInstructions(layout.assistantInstructionsFile, layout.workspaceDir) : undefined;
   const recalledMemories = (deps.userText && memory) ? await memory.recall(deps.userText) : [];
   const systemPrompt = await buildSystemPrompt(
     {

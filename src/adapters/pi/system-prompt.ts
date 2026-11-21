@@ -13,7 +13,8 @@ const basePrompt = `You are the user's personal assistant; your name and persona
 come from the identity sections below when present.
 Answer in the user's language. Be clear, practical, and honest about uncertainty.
 File tools, when available, use the single instance workspace as their root.
-All conversations use this same workspace, but conversation histories remain isolated.
+All conversations use this same workspace and have separate histories.
+Save new documents and deliverables under files/ by default.
 Absolute paths, parent traversal and symlinks cannot bypass the workspace boundary.
 The exact SKILL.md and supported text resource paths listed for enabled skills
 are an additional read-only exception; this does not grant directory listing or
@@ -110,7 +111,7 @@ const section = (heading: string, text: string): string =>
   text ? `\n\n## ${heading}\n${text}` : "";
 
 export type SystemPromptOptions = {
-  layout: Pick<DataLayout, "soulFile" | "userFile">;
+  layout: Pick<DataLayout, "soulFile" | "userFile" | "workspaceDir">;
   memory: Pick<MemoryService, "renderForPrompt">;
   /** 最终模型工具名单：已经包含会话技能与 child 角色过滤。 */
   allowedToolNames: readonly string[];
@@ -151,8 +152,8 @@ export const buildSystemPrompt = async ({
 
   return basePrompt +
     capabilityPrompt +
-    section("Your identity (SOUL)", await readProfileFile(layout.soulFile)) +
-    section("The user (USER)", await readProfileFile(layout.userFile)) +
+    section("Your identity (SOUL)", (await readProfileFile(layout.soulFile, layout.workspaceDir)).trim()) +
+    section("The user (USER)", (await readProfileFile(layout.userFile, layout.workspaceDir)).trim()) +
     section("Assistant instructions", assistantInstructions ?? "") +
     (await memory.renderForPrompt({ includeMemory: has("memory_search"), recalledMemories }));
 };

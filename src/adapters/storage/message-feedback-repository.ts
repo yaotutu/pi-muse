@@ -7,7 +7,7 @@ import type {
   MessageFeedbackRepository,
 } from "../../features/messages/types.js";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
-import { messageFeedbackFile, type DataLayout } from "./data-layout.js";
+import { messageFeedbackFile, sessionFeedbackDir, type DataLayout } from "./data-layout.js";
 import { writeJsonDocument } from "./json-document.js";
 
 const isoTime = z.string().datetime();
@@ -83,7 +83,7 @@ export const createMessageFeedbackRepository = (layout: DataLayout): MessageFeed
     if (!isSessionId(sessionId)) throw new Error("Invalid sessionId");
     return messageFeedbackFile(layout, sessionId, piSessionId);
   };
-  const logicalFile = (sessionId: string, piSessionId: string) => `messages/${sessionId}/${piSessionId}.json`;
+  const logicalFile = (sessionId: string, piSessionId: string) => `sessions/${sessionId}/feedback/${piSessionId}.json`;
   return {
     read: (sessionId, piSessionId) => serialized(() =>
       readDocument(fileFor(sessionId, piSessionId), logicalFile(sessionId, piSessionId))),
@@ -99,24 +99,28 @@ export const createMessageFeedbackRepository = (layout: DataLayout): MessageFeed
     }),
     removeSession: (sessionId) => serialized(async () => {
       if (!isSessionId(sessionId)) throw new Error("Invalid sessionId");
-      await rm(join(layout.messageFeedbackDir, sessionId), { recursive: true, force: true });
+      await rm(sessionFeedbackDir(layout, sessionId), { recursive: true, force: true });
     }),
     validateAll: async () => {
       let agents;
       try {
-        agents = await readdir(layout.messageFeedbackDir, { withFileTypes: true });
+        agents = await readdir(layout.sessionsDir, { withFileTypes: true });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
         throw error;
       }
       for (const agent of agents) {
-        if (!agent.isDirectory() || !isSessionId(agent.name)) throw new Error("Invalid message feedback layout");
-        const files = await readdir(join(layout.messageFeedbackDir, agent.name), { withFileTypes: true });
+        if (agent.name === "index.json" && agent.isFile()) continue;
+        if (!agent.isDirectory() || !isSessionId(agent.name)) throw new Error("Invalid session layout");
+        const feedback = sessionFeedbackDir(layout, agent.name);
+        let files;
+        try { files = await readdir(feedback, { withFileTypes: true }); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
         for (const file of files) {
           if (!file.isFile() || !file.name.endsWith(".json")) throw new Error("Invalid message feedback layout");
           await readDocument(
-            join(layout.messageFeedbackDir, agent.name, file.name),
-            `messages/${agent.name}/${file.name}`,
+            join(feedback, file.name),
+            `sessions/${agent.name}/feedback/${file.name}`,
           );
         }
       }

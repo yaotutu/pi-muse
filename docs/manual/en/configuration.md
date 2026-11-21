@@ -120,20 +120,24 @@ Public session ids and internal pi ids are distinct. Main is permanent, topic se
 
 ```text
 DATA_DIR/
-  profile/          SOUL.md USER.md DREAM.md memory.md identity.json
   workspace/
-  sessions.json
-  sessions/<sessionId>/  conversation pi JSONL
-  sessions/main/         shared INSTRUCTIONS.md and skills.json
-  messages/<sessionId>/<piSessionId>.json
-  main.sqlite       scheduled tasks, goals, approvals, SMS, Dream state and agent tables
-  news.sqlite       relational news tables
-  monitors.json     webpage monitors (not migrated yet)
-  agent/            pi auth resources
-  skills/ subagents/ traces/ browser/
+    assistant/             USER.md, SOUL.md, INSTRUCTIONS.md
+    domains/news/RULES.md  News recommendation rules
+    domains/sms/RULES.md   SMS alert rules
+    files/                 Ordinary files
+  sessions/
+    index.json
+    <sessionId>/           history/, feedback/
+  state/
+    assistant/             memory.md, identity.json, skill-overrides.json, DREAM.md
+    main.sqlite            Jobs, goals, approvals, SMS state, Dream state
+    news.sqlite            News data and learned preferences
+    monitors.json          Webpage monitors
+  assets/                  companions/, skills/, subagents/
+  runtime/                 auth/, pi/, browser/, traces/
 ```
 
-All sessions and child calls share one workspace root. Child calls use in-memory context and create no directories or persistent history. The new layout does not implicitly read, migrate or delete older instances. See [Database](database.md) for `main.sqlite` and `news.sqlite`; sessions and chat history stay in JSON/JSONL and webpage monitors stay in a JSON file. Legacy `news.json` needs explicit import and is not a second runtime write destination. Live SQLite databases may also have `-wal`/`-shm` files, so the directory list is not a recipe for copying individual files during writes.
+Workspace files shows assistant documents, domain rules and ordinary files. Settings and the workspace editor use the same Markdown files. Main and topic chats share assistant documents. News and SMS each read their own rules. A delegated subagent holds context for its current run. The layout starts fresh and does not import old instance data.
 
 ## Data Storage and Security Boundaries {#data-storage-and-security-boundaries}
 
@@ -141,13 +145,9 @@ All sessions and child calls share one workspace root. Child calls use in-memory
 - **Access credential validity**: login Tokens are long-lived and survive service restarts. After `server.accessKey` changes and the service restarts with the new configuration, all old Tokens become invalid.
 - **Single-process ownership and failure handling**: one process exclusively owns one `DATA_DIR`. If a file is corrupted or its format is invalid, the service reports a clear error and never restores an empty state by silently deleting damaged data. Stop the service and restore offline from a valid backup.
 
-## Renaming the Instance Directory {#rename-instance-directory}
-
-The legacy `.personal-bot/` is not automatically used as a fallback. Migration must first stop the service and preserve a protected backup. Besides any absolute `runtime.dataDir` in the configuration, you must also update offline the `cwd` in pi JSONL conversation headers and the path prefixes of `parentSession` links pointing inside the instance. Merely moving the files causes `continueRecent` to skip old conversations. Message bodies and session IDs remain unchanged; file mtimes must be preserved so the recent-conversation selection does not change. `auth.key` and `accessKey` must remain unchanged to continue using the original token. Migration and rollback must be checked for the actual instance and cannot rely on stale execution records. `.pi-muse-backups/` contains credentials; keep directory permissions at `0700` and sensitive-file permissions at `0600`, and do not commit or upload it.
-
 ## Skill directories and default switches {#skill-directories}
 
-The server discovers standard `SKILL.md` skills from three sources: the instance-owned `DATA_DIR/skills/`, built-in skills shipped with the server, and the server process user's shared `~/.agents/skills/` directory. The home directory belongs to the user running the server; container deployments must mount the intended shared directory where that user can read it.
+The server discovers standard `SKILL.md` skills from three sources: the instance-owned `DATA_DIR/assets/skills/`, built-in skills shipped with the server, and the server process user's shared `~/.agents/skills/` directory. The home directory belongs to the user running the server; container deployments must mount the intended shared directory where that user can read it.
 
 Names resolve in the order instance-owned > built-in > shared. The catalog identifies the source and current selection; disabling the winning source never activates a lower-priority namesake. Defaults differ by source: built-in skills follow the `assets/skills-defaults.json` manifest shipped with the server (all nine currently default on and may be adjusted per release), while shared and instance-created skills always default to off until the user manually saves a selection. Newly discovered or created non-built-in skills never enable themselves, and disabled skills are not assembled into a model turn. Manually saved selections always override defaults; selections bind to source identities, so a new source does not inherit another source's switch.
 
@@ -168,7 +168,7 @@ These `SKILL.md` skills and shared switches apply only to chat sessions; backgro
 - Path safety and file version are checked again before commit. If the file changes while waiting, the old approval cannot authorize an overwrite; the operation and approval must be initiated again.
 - Rejection, approval expiration, or cancellation of the run prevents that modification from being committed. A service restart cancels pending approvals left by the previous process. Approval validity is fixed by the `expiresAt` recorded when it is created, and expiry and cancellation state are checked again before commit.
 - The `skills` tool takes `action=list|read|save`, `name`, optional `file` (default `SKILL.md`), and the complete `content` required by save. A name may contain only lowercase letters, digits, or single hyphens and is limited to 64 characters. Allowed files are `SKILL.md` and supported UTF-8 text under `references/` or `assets/` with `.md`, `.txt`, `.json`, `.csv`, `.yaml`, or `.yml` extensions; each file is limited to 100KB.
-- Use `skills.save` only for an explicit user request. It writes only `DATA_DIR/skills/<name>`; saving a built-in or shared name creates an instance-owned override without changing the original source, and the new source still requires manual activation. A resource can be saved only after a valid instance `SKILL.md` exists. Its approval preview uses `scope=skill`, and path `<name>/<file>`, with the same version binding and pre-commit path, cancellation, expiry, and file-change checks.
+- Use `skills.save` only for an explicit user request. It writes only `DATA_DIR/assets/skills/<name>`; saving a built-in or shared name creates an instance-owned override without changing the original source, and the new source still requires manual activation. A resource can be saved only after a valid instance `SKILL.md` exists. Its approval preview uses `scope=skill`, and path `<name>/<file>`, with the same version binding and pre-commit path, cancellation, expiry, and file-change checks.
 - New skills default to off; no skill `config.json` is created or modified. After the user manually enables a skill, its definition, references, and assets take effect on the next model turn—the current turn does not gain new instructions or extension capabilities. Rejection, expiry, Stop, or a file change while waiting writes nothing, and an unknown result is never resent automatically.
 - Skill maintenance refuses deletion, directory operations, direct `config.json` edits, scripts/code, binaries, nested `SKILL.md`, absolute paths, traversal, and symlinks. For an enabled skill, ordinary `read` additionally exposes only its `SKILL.md` and supported resource text—not ls/grep/find or neighboring files. Subagents inherit only the parent turn's actual tool and source-identity upper bounds; roles may only narrow them, and each skill write still requires approval.
 - Disabling `tools.writable.enabled` removes `write` / `edit` and refuses `skills.save` in a controlled way while retaining `skills.list/read`. Tool presentation policy cannot skip approval or enable write capability that has been disabled.
@@ -201,7 +201,7 @@ If you want chat to display only assistant text, add this inside the existing `t
 
 ## Real Browser {#real-browser}
 
-The browser domain uses `playwright-core` to drive the local system Chrome. It does not download a browser and always starts a real GUI window; headless mode is not provided. Chrome starts lazily, and its profile is fixed at `DATA_DIR/browser/profile/`. The server debug page `/browser` and the Agent's `navigate` / `snapshot` / `act` / `tab` tools share the same instance and persistent login state. When the service closes, WS subscriptions end and Chrome shuts down gracefully. Docker deployment uses Xvfb/X11, x11vnc, websockify, and noVNC to provide a complete real window rather than falling back to headless; see [the browser Docker guide](browser-docker.md).
+The browser domain uses `playwright-core` to drive the local system Chrome. It does not download a browser and always starts a real GUI window; headless mode is not provided. Chrome starts lazily, and its profile is fixed at `DATA_DIR/runtime/browser/profile/`. The server debug page `/browser` and the Agent's `navigate` / `snapshot` / `act` / `tab` tools share the same instance and persistent login state. When the service closes, WS subscriptions end and Chrome shuts down gracefully. Docker deployment uses Xvfb/X11, x11vnc, websockify, and noVNC to provide a complete real window rather than falling back to headless; see [the browser Docker guide](browser-docker.md).
 
 `/browser` does not hard-code a service address. It calls REST APIs relative to the current access address and connects to the frame stream with a same-origin `ws://` or `wss://`. Therefore, local addresses, LAN IPs, domains, and reverse-proxy addresses all work directly. The page never logs in via URL parameters—`accessKey`/`key` query parameters are removed; enter the AccessKey manually. An HTTPS reverse proxy must also forward `/ws/browser` and preserve Upgrade headers.
 

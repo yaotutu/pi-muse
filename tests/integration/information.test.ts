@@ -373,16 +373,35 @@ test("domain_agent stays declared and SMS cards remain excluded regardless of sm
     assert.ok(request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")));
   }
 
-  // 主聊天调用 domain_agent(update_rules) 可直接更新 sms / news 规则黑板，且不污染 main/INSTRUCTIONS.md。
-  const instructionsPath = join(h.dataDir, "sessions", "main", "INSTRUCTIONS.md");
+  // 领域规则走统一文件审批，配置页和文件页读取同一原文。
+  const instructionsPath = join(h.dataDir, "workspace", "assistant", "INSTRUCTIONS.md");
   await writeFile(instructionsPath, "MAIN-ONLY-RULE\n", "utf8");
-  const smsRuleStream = await h.runChat(sessionId, "设定领域规则:sms:信用卡还款必须提醒我");
-  assert.match(smsRuleStream, /RUN_FINISHED/);
-  assert.equal(((await h.call("/api/information/preferences")).body as { notes: string }).notes, "信用卡还款必须提醒我");
-
-  const newsRuleStream = await h.runChat(sessionId, "设定领域规则:news:少推娱乐新闻，关注系统架构");
-  assert.match(newsRuleStream, /RUN_FINISHED/);
-  assert.equal(((await h.call("/api/news/preferences")).body as { notes: string }).notes, "少推娱乐新闻，关注系统架构");
+  for (const [domain, endpoint, notes] of [
+    ["sms", "/api/information/preferences", "信用卡还款必须提醒我"],
+    ["news", "/api/news/preferences", "少推娱乐新闻，关注系统架构"],
+  ] as const) {
+    const before = (await h.call(endpoint)).body;
+    const run = h.runChat(sessionId, `设定领域规则:${domain}:${notes}`);
+    const action = await waitForTest(async () => (await h.service().actions.snapshotPending())[0], "domain rule approval");
+    assert.equal(action.kind, "file_write");
+    assert.equal(action.payload.path, `domains/${domain}/RULES.md`);
+    assert.equal(action.payload.content, notes);
+    assert.deepEqual((await h.call(endpoint)).body, before, "unapproved write must not change preferences");
+    assert.equal((await h.call(`/api/approvals/${action.id}/decision`, { method: "POST", body: JSON.stringify({ decision: "approve" }) })).status, 200);
+    assert.match(await run, /RUN_FINISHED/);
+    assert.equal(((await h.call(endpoint)).body as { notes: string }).notes, notes);
+    assert.equal(await readFile(join(h.dataDir, "workspace", "domains", domain, "RULES.md"), "utf8"), notes);
+    const path = `domains/${domain}/RULES.md`;
+    const fileEndpoint = `/api/workspace/files/content?path=${encodeURIComponent(path)}`;
+    const fromSettings = `  ${notes}\n\n`;
+    assert.equal((await h.call(endpoint, { method: "PUT", body: JSON.stringify({ notes: fromSettings }) })).status, 200);
+    assert.equal(((await h.call(fileEndpoint)).body as { content: string }).content, fromSettings);
+    const fromFiles = `# 用户规则\n\n${notes}\n`;
+    assert.equal((await h.call("/api/workspace/files/text", {
+      method: "PUT", body: JSON.stringify({ path, content: fromFiles, confirmed: true }),
+    })).status, 200);
+    assert.equal(((await h.call(endpoint)).body as { notes: string }).notes, fromFiles);
+  }
   assert.equal(await readFile(instructionsPath, "utf8"), "MAIN-ONLY-RULE\n");
 });
 
@@ -477,7 +496,7 @@ test("automatic scheduler processes an immediate batch and restart preserves pen
   assert.equal(detail.publications?.[0]?.status, "published");
 
   // 模拟崩溃后遗留：running 与“模型已完成但发布未确认”都必须启动校准，且不重跑模型。
-  const smsDb = new (await import("node:sqlite")).DatabaseSync(join(h.dataDir, "main.sqlite"));
+  const smsDb = new (await import("node:sqlite")).DatabaseSync(join(h.dataDir, "state", "main.sqlite"));
   try {
     smsDb.prepare("UPDATE sms_runs SET status = 'running'").run();
     smsDb.prepare("UPDATE sms_items SET status = 'processing'").run();

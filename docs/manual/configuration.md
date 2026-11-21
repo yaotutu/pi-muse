@@ -118,20 +118,24 @@ chmod 600 .pi-muse/config.json
 
 ```text
 DATA_DIR/
-  profile/          SOUL.md USER.md DREAM.md memory.md identity.json
   workspace/
-  sessions.json
-  sessions/<sessionId>/  会话 pi JSONL
-  sessions/main/         全局助手 INSTRUCTIONS.md 与技能选择 skills.json
-  messages/<sessionId>/<piSessionId>.json
-  main.sqlite       定时任务、目标、审批、短信、Dream 状态与 Agent 自建表
-  news.sqlite       新闻关系表
-  monitors.json     网页监控（暂未迁库）
-  agent/            pi auth resources
-  skills/ subagents/ traces/ browser/
+    assistant/             USER.md、SOUL.md、INSTRUCTIONS.md
+    domains/news/RULES.md  新闻推荐规则
+    domains/sms/RULES.md   短信提醒规则
+    files/                 普通文件
+  sessions/
+    index.json
+    <sessionId>/           history/、feedback/
+  state/
+    assistant/             memory.md、identity.json、skill-overrides.json、DREAM.md
+    main.sqlite            定时任务、目标、审批、短信状态、Dream 状态
+    news.sqlite            新闻数据和学习画像
+    monitors.json          网页监控
+  assets/                  companions/、skills/、subagents/
+  runtime/                 auth/、pi/、browser/、traces/
 ```
 
-所有会话与子代理共用唯一 workspace 根；子代理使用内存上下文，不落盘或建目录。新布局不隐式读取、迁移或删除旧实例。`main.sqlite` 与 `news.sqlite` 的用途见[数据库](database.md)；会话与聊天历史仍在 JSON/JSONL，网页监控仍在 JSON 文件。旧 `news.json` 需要明确导入，不是新闻运行时的第二份写入来源。运行中的 SQLite 还可能有 `-wal`/`-shm` 文件，备份不能只按上述文件列表逐个随意复制。
+「工作区文件」显示助手资料、领域规则与普通文件。设置和文件页读写同一份 Markdown。主聊天与专题会话共用助手资料，新闻和短信只读取各自的规则，子代理只持有当轮上下文。新布局从空状态初始化，旧目录中的数据不导入。
 
 ## 数据存储与安全边界 {#data-storage-and-security-boundaries}
 
@@ -139,13 +143,9 @@ DATA_DIR/
 - **访问凭据有效性**：登录 Token 长期有效且可跨服务重启维持；更换 `server.accessKey` 并重启服务使配置生效后，旧 Token 全部失效。
 - **单进程独占与故障处理**：单进程独占一个 `DATA_DIR`。遇到文件损坏或格式非法时服务会明确报错，绝不通过静默删除损坏数据来恢复空态；须停止服务后通过有效备份离线恢复。
 
-## 实例目录改名 {#rename-instance-directory}
-
-旧 `.personal-bot/` 不会自动回退读取。迁移必须先停服务并保留受保护备份，除配置中的绝对 runtime.dataDir 外，还要离线更新pi JSONL会话头的cwd及指向实例内的parentSession路径前缀；仅移动文件会使continueRecent跳过旧会话。消息正文和会话ID不变，文件mtime需保留以免改变最近会话选择；auth.key与accessKey不变才能继续使用原token。迁移与回退须针对实际实例单独核对，不能依赖过期运行记录；`.pi-muse-backups/` 含凭据，必须保持0700目录及0600敏感文件权限，不提交或上传。
-
 ## 技能目录与默认开关 {#skill-directories}
 
-服务端统一发现三类标准 `SKILL.md` 技能：实例自有目录 `DATA_DIR/skills/`、随服务端发布的内置技能，以及运行服务端用户的 `~/.agents/skills/` 通用目录。这里的家目录属于服务端运行用户；容器部署需要将所需共享目录挂载到该用户可读的位置。
+服务端统一发现三类标准 `SKILL.md` 技能：实例自有目录 `DATA_DIR/assets/skills/`、随服务端发布的内置技能，以及运行服务端用户的 `~/.agents/skills/` 通用目录。这里的家目录属于服务端运行用户；容器部署需要将所需共享目录挂载到该用户可读的位置。
 
 同名时按“实例自有 > 内置自有 > 通用”选择，清单标明来源和当前启用状态；优先项关闭时，不会自动改用低优先级的同名技能。默认开关分来源：内置技能按随服务端发布的 `assets/skills-defaults.json` 清单（当前 9 项全部默认开启，可随版本逐项调整）；通用技能与实例自建技能一律默认关闭，只有用户手动保存的选择才生效。新增或发现的通用/自建技能不会自动启用，关闭技能不会进入本轮技能装配。手动保存的选择始终优先于默认值；来源身份随选择保存，新来源不会继承另一来源的开关。
 
@@ -157,7 +157,7 @@ DATA_DIR/
 
 通用目录支持常见的技能文件夹入口链接，按真实技能根读取；技能内部链接、越界文件与超限正文会进入诊断而不会加载。共享技能中的脚本和 `extension.ts` 不会执行，启用技能也不会放开 bash、安装依赖或增加原有工具权限。普通 `read` 只获得已启用技能的精确说明与受支持文本资源，不获得整个家目录的访问权限。
 
-以上 `SKILL.md` 技能与全局开关只作用于主聊天和专题聊天会话；短信、新闻及后续后台领域子 Agent 不会注入任何聊天技能，只依赖各自领域的提示词、独立规则板与自学习画像运行。
+以上 `SKILL.md` 技能与全局开关只作用于主聊天和专题聊天会话；短信、新闻及后续领域 Agent 不会注入任何聊天技能，只依赖各自领域的提示词、独立规则板与自学习画像运行。
 
 ## 文件写入审批 {#file-write-approvals}
 
@@ -166,7 +166,7 @@ DATA_DIR/
 - 提交前重新检查路径安全与文件版本。文件在等待期间变化时，旧审批不能授权覆盖，需重新发起操作和审批。
 - 拒绝、审批过期或运行取消均不会提交该次修改；服务重启会取消上一进程遗留的 pending 审批。审批有效期由登记时的 `expiresAt` 固定，提交前再次校验期限和取消状态。
 - `skills` 工具参数为 `action=list|read|save`、`name`、可选 `file`（默认 `SKILL.md`）与 save 必填的完整 `content`。`name` 只能是小写字母、数字或单个连字符，最长 64 位；允许 `SKILL.md` 及 `references/`、`assets/` 下 `.md/.txt/.json/.csv/.yaml/.yml` 普通 UTF-8 文本，单文件最大 100KB。
-- `skills.save` 只能在用户明确要求时使用，写入 `DATA_DIR/skills/<name>`；同名内置或通用技能会创建实例自有覆盖，原来源文件不变，新来源仍需手动启用。保存资源前必须先保存合法实例 `SKILL.md`。审批预览为 `scope=skill`、path=`<name>/<file>`，同样绑定版本并在提交前复查路径、取消、过期与文件变化。
+- `skills.save` 只能在用户明确要求时使用，写入 `DATA_DIR/assets/skills/<name>`；同名内置或通用技能会创建实例自有覆盖，原来源文件不变，新来源仍需手动启用。保存资源前必须先保存合法实例 `SKILL.md`。审批预览为 `scope=skill`、path=`<name>/<file>`，同样绑定版本并在提交前复查路径、取消、过期与文件变化。
 - 新建技能默认关闭，不创建或修改技能 `config.json`。通过助手技能开关手动启用后，新定义、参考与资产从下一轮模型装配生效；当前轮不会获得新技能指令或扩展能力。拒绝、过期、Stop 或等待期间文件变化均不落盘，结果未明不自动重发。
 - 技能维护拒绝删除、目录操作、`config.json` 直接编辑、脚本/代码、二进制、嵌套 `SKILL.md`、绝对路径、穿越与符号链接。已启用技能的普通 `read` 只额外开放该技能的 `SKILL.md` 与受支持资源文本，不开放 ls/grep/find 或邻居文件；子代理仅继承父轮实际工具快照，角色只能收窄；技能写入仍逐次人工审批。
 - 关闭 `tools.writable.enabled` 会移除 `write` / `edit` 并受控拒绝 `skills.save`，但保留 `skills.list/read`；工具展示策略不能跳过审批或开启被关闭的写入能力。
@@ -199,7 +199,7 @@ DATA_DIR/
 
 ## 真实浏览器 {#real-browser}
 
-浏览器域使用 `playwright-core` 驱动本机系统 Chrome，不下载浏览器，且固定以带 GUI 的真实窗口启动；不提供 headless 模式。Chrome 懒启动，profile 固定在 `DATA_DIR/browser/profile/`；服务端调试页 `/browser` 与 Agent 的 `navigate` / `snapshot` / `act` / `tab` 工具共享同一实例和持久登录态。服务关闭时会结束 WS 订阅并优雅关闭 Chrome。Docker 部署使用 Xvfb/X11、x11vnc、websockify 和 noVNC 提供完整真实窗口，而不是回退 headless；见 [浏览器 Docker 说明](browser-docker.md)。
+浏览器域使用 `playwright-core` 驱动本机系统 Chrome，不下载浏览器，且固定以带 GUI 的真实窗口启动；不提供 headless 模式。Chrome 懒启动，profile 固定在 `DATA_DIR/runtime/browser/profile/`；服务端调试页 `/browser` 与 Agent 的 `navigate` / `snapshot` / `act` / `tab` 工具共享同一实例和持久登录态。服务关闭时会结束 WS 订阅并优雅关闭 Chrome。Docker 部署使用 Xvfb/X11、x11vnc、websockify 和 noVNC 提供完整真实窗口，而不是回退 headless；见 [浏览器 Docker 说明](browser-docker.md)。
 
 `/browser` 不内置服务地址，会按当前访问地址调用相对 REST API，并使用同源的 `ws://` 或 `wss://` 连接帧流。因此本机地址、局域网 IP、域名和反向代理地址都可以直接访问；页面不通过 URL 参数自动登录，`accessKey`/`key` 查询参数会被直接移除，需手动输入 AccessKey。HTTPS 反代需要同时转发 `/ws/browser` 并保留 Upgrade 头。
 

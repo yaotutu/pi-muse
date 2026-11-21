@@ -99,7 +99,7 @@ const execute = async (options: LiveOptions) => {
 
     const main = await run("main-write-query",
       `在 main 数据库创建 live_database_probe(id TEXT PRIMARY KEY, value TEXT NOT NULL)，插入 id='row-one'、value='${marker}'，最后查询这条记录。可以按工具参数使用批处理，也可多次调用。`);
-    const mainRows = inspect(join(dataDir, "main.sqlite"), "live_database_probe");
+    const mainRows = inspect(join(dataDir, "state", "main.sqlite"), "live_database_probe");
     assert.equal(mainRows.length, 1);
     assert.equal(mainRows[0]?.value, marker);
     assert.ok(main.results.includes(marker), "model must receive the stored SQL result");
@@ -107,7 +107,7 @@ const execute = async (options: LiveOptions) => {
 
     const news = await run("news-schema-extension",
       `在 news 数据库创建 live_database_notes(id TEXT PRIMARY KEY, value TEXT NOT NULL)，插入 id='note-one'、value='${marker}_NEWS'，查询该记录。不要修改 news_ 开头的内置表。`);
-    assert.equal(inspect(join(dataDir, "news.sqlite"), "live_database_notes")[0]?.value, marker + "_NEWS");
+    assert.equal(inspect(join(dataDir, "state", "news.sqlite"), "live_database_notes")[0]?.value, marker + "_NEWS");
     assert.ok(news.results.includes(marker + "_NEWS"));
     const sources = await client.json("/api/news/sources") as { sources: unknown[] };
     assert.deepEqual(sources.sources, []);
@@ -118,8 +118,8 @@ const execute = async (options: LiveOptions) => {
     await stopHttp();
     await oldService.close();
     client = await start(dataDir);
-    assert.equal(inspect(join(dataDir, "main.sqlite"), "live_database_probe")[0]?.value, marker);
-    assert.equal(inspect(join(dataDir, "news.sqlite"), "live_database_notes")[0]?.value, marker + "_NEWS");
+    assert.equal(inspect(join(dataDir, "state", "main.sqlite"), "live_database_probe")[0]?.value, marker);
+    assert.equal(inspect(join(dataDir, "state", "news.sqlite"), "live_database_notes")[0]?.value, marker + "_NEWS");
     record("database-restart-persistence", { databases: ["main", "news"] });
 
     const query = await run("read-after-restart",
@@ -130,7 +130,7 @@ const execute = async (options: LiveOptions) => {
     const drop = await run("drop-own-tables",
       "删除 main 数据库的 live_database_probe 表，再删除 news 数据库的 live_database_notes 表。无需请求审批。这两张表都只属于本次测试。不要删除其他表。");
     for (const [file, table] of [["main.sqlite", "live_database_probe"], ["news.sqlite", "live_database_notes"]] as const) {
-      const database = new DatabaseSync(join(dataDir, file), { readOnly: true });
+      const database = new DatabaseSync(join(dataDir, "state", file), { readOnly: true });
       try {
         assert.equal(database.prepare("SELECT COUNT(*) AS total FROM sqlite_schema WHERE type='table' AND name=?").get(table)?.total, 0);
       } finally { database.close(); }

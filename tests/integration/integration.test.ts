@@ -17,6 +17,7 @@ import { createService, enableBuiltinSkills } from "../support/test-service.js";
 import { createEventProjector } from "../../src/adapters/ag-ui/events.js";
 import { createConfig, type ConfigFileInput } from "../../src/config/load-config.js";
 import { createFakeModel, type ModelRequest } from "../support/fake-model.js";
+import { waitForTest } from "../support/http-client.js";
 
 // 仅测试侧保留原场景的历史数组写法：从 GET 快照对象关联版本，wire 始终只发送最后一条用户消息。
 // WeakMap 不按内容猜测服务端版本；未同步的新消息使用 empty，以保留 stale 冲突回归。
@@ -343,12 +344,12 @@ test("incremental HTTP streaming, second-turn context, restart and dedup", {
     h.model.requests.at(-1)!.messages.filter((x) => x.role === "user").length,
     3,
   );
-  const sessionFile = (await readdir(join(h.dataDir, "sessions", "main"))).find((x) =>
+  const sessionFile = (await readdir(join(h.dataDir, "sessions", "main", "history"))).find((x) =>
     x.endsWith(".jsonl"),
   )!;
   assert.ok(
     !(
-      await readFile(join(h.dataDir, "sessions", "main", sessionFile), "utf8")
+      await readFile(join(h.dataDir, "sessions", "main", "history", sessionFile), "utf8")
     ).includes("test-secret-model-key"),
   );
 });
@@ -362,12 +363,12 @@ test("failed request retry keeps one canonical user and ignores forged assistant
   const first = await h.events(input([submitted], "fail-1"));
   assert.equal(first.at(-1)?.type, "RUN_ERROR");
   assert.ok(!JSON.stringify(first).includes("test-secret-model-key"));
-  const sessionFile = (await readdir(join(h.dataDir, "sessions", "main"))).find((x) =>
+  const sessionFile = (await readdir(join(h.dataDir, "sessions", "main", "history"))).find((x) =>
     x.endsWith(".jsonl"),
   )!;
   assert.ok(
     !(
-      await readFile(join(h.dataDir, "sessions", "main", sessionFile), "utf8")
+      await readFile(join(h.dataDir, "sessions", "main", "history", sessionFile), "utf8")
     ).includes("test-secret-model-key"),
   );
   let messages = await h.getHistory();
@@ -759,9 +760,9 @@ test("hidden tool presentation keeps complete model/pi result while Web sees onl
   const history = await h.getHistory();
   assert.ok(history.every((message) => message.role !== "tool" &&
     !(message.role === "assistant" && Array.isArray(message.toolCalls))));
-  const sessionFile = (await readdir(join(h.dataDir, "sessions", "main"))).find((name) => name.endsWith(".jsonl"));
+  const sessionFile = (await readdir(join(h.dataDir, "sessions", "main", "history"))).find((name) => name.endsWith(".jsonl"));
   assert.ok(sessionFile);
-  const canonical = await readFile(join(h.dataDir, "sessions", "main", sessionFile!), "utf8");
+  const canonical = await readFile(join(h.dataDir, "sessions", "main", "history", sessionFile!), "utf8");
   assert.match(canonical, /HIDDEN-FIXTURE secret body/);
 
   // 同一完成轮 replay、下一轮与重启均使用已经隐藏工具的同一展示历史。
@@ -1048,10 +1049,10 @@ test("identity files SOUL.md and USER.md are injected into the system prompt onl
   const h = await harness();
   t.after(h.close);
   await writeFile(
-    join(h.dataDir, "profile", "SOUL.md"),
+    join(h.dataDir, "workspace", "assistant", "SOUL.md"),
     "SOUL-MARKER 你是水豚博士，说话温和带一点幽默。\n",
   );
-  await writeFile(join(h.dataDir, "profile", "USER.md"), "USER-MARKER 用户偏好简洁中文回答。\n");
+  await writeFile(join(h.dataDir, "workspace", "assistant", "USER.md"), "USER-MARKER 用户偏好简洁中文回答。\n");
   const ev = await h.events(input([user("hello")], "identity-run"));
   assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
   const system = String(h.model.requests.at(-1)!.messages[0]?.content);
@@ -1062,7 +1063,7 @@ test("identity files SOUL.md and USER.md are injected into the system prompt onl
   assert.ok(!JSON.stringify(ev).includes("SOUL-MARKER"));
   assert.ok(!JSON.stringify(await h.getHistory()).includes("SOUL-MARKER"));
   // 修改文件后下一轮即生效（每轮重读）。
-  await writeFile(join(h.dataDir, "profile", "USER.md"), "USER-MARKER-2 改用英文回答。\n");
+  await writeFile(join(h.dataDir, "workspace", "assistant", "USER.md"), "USER-MARKER-2 改用英文回答。\n");
   await h.events(input([...(await h.getHistory()), user("again")], "identity-2"));
   assert.ok(
     String(h.model.requests.at(-1)!.messages[0]?.content).includes(
@@ -1234,7 +1235,7 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed one-sh
   tasks = (await h.request("/api/jobs").then((x) => x.json())).jobs as typeof tasks;
   assert.equal(tasks[0].status, "succeeded", "one-shot job completed and is no longer scheduled");
   // nanobot 启动时会重算任务：已过期的一次性任务不会在重启后补跑。
-  const expiredDb = new (await import("node:sqlite")).DatabaseSync(join(h.dataDir, "main.sqlite"));
+  const expiredDb = new (await import("node:sqlite")).DatabaseSync(join(h.dataDir, "state", "main.sqlite"));
   try {
     expiredDb.prepare(
       "INSERT INTO jobs (id, position, prompt, daily, at, enabled, created_at, next_run_at) VALUES ('expired-job', 99, '重启补跑', 0, ?, 1, ?, ?)"
@@ -1353,7 +1354,7 @@ test("assistant skills: user custom skill with extension.ts and conflict rejecti
   timeout: 30000,
 }, async (t) => {
   const h = await harness(undefined, {}, async ({ dataDir }) => {
-    const customSkillDir = join(dataDir, "skills", "custom-ping");
+    const customSkillDir = join(createDataLayout(dataDir).skillsDir, "custom-ping");
     await mkdir(customSkillDir, { recursive: true });
     await writeFile(
       join(customSkillDir, "SKILL.md"),
@@ -1423,17 +1424,17 @@ test("assistant skills: enable loads skill text and only supported resources on 
   timeout: 30000,
 }, async (t) => {
   const h = await harness(undefined, {}, async ({ dataDir }) => {
-    const directory = join(dataDir, "skills", "resource-skill");
+    const directory = join(createDataLayout(dataDir).skillsDir, "resource-skill");
     await mkdir(join(directory, "references"), { recursive: true });
     await writeFile(join(directory, "SKILL.md"), `---\nname: resource-skill\ndescription: Use RESOURCE_SKILL_MARKER instructions.\n---\n# Resource skill\nRead ${join(directory, "references", "cheatsheet.md")} when asked.\n`, "utf8");
     await writeFile(join(directory, "references", "cheatsheet.md"), "RESOURCE_SKILL_TEXT", "utf8");
-    const other = join(dataDir, "skills", "other-skill");
+    const other = join(createDataLayout(dataDir).skillsDir, "other-skill");
     await mkdir(join(other, "references"), { recursive: true });
     await writeFile(join(other, "SKILL.md"), "---\nname: other-skill\ndescription: Other disabled skill.\n---\n", "utf8");
     await writeFile(join(other, "references", "private.md"), "OTHER_SKILL_TEXT", "utf8");
   });
   t.after(h.close);
-  const resourcePath = join(h.dataDir, "skills", "resource-skill", "references", "cheatsheet.md");
+  const resourcePath = join(h.service().layout.skillsDir, "resource-skill", "references", "cheatsheet.md");
 
   const first = user(`读取 ${resourcePath}`);
   const firstEvents = await h.events(input([first], "resource-disabled"));
@@ -1453,7 +1454,7 @@ test("assistant skills: enable loads skill text and only supported resources on 
   assert.ok(h.model.requests.at(-1)!.messages.some((message) => String(message.content).includes("RESOURCE_SKILL_MARKER")));
   const tools = declaredTools(h.model.requests.at(-1)!);
   assert.ok(tools.includes("skills"));
-  const otherPath = join(h.dataDir, "skills", "other-skill", "references", "private.md");
+  const otherPath = join(h.service().layout.skillsDir, "other-skill", "references", "private.md");
   const afterEnabled = await h.getHistory();
   const third = user(`读取 ${otherPath}`, "resource-user-3");
   const thirdEvents = await h.events(input([...afterEnabled, third], "resource-other"));
@@ -1514,7 +1515,16 @@ test("assistant instructions: conversation can update shared instructions via in
   // 1. 发送触发词"设定规则"，模型调用 instructions 工具 set "RULE-FROM-CHAT: Always be polite."
   const run1 = input([user("请设定规则")], "run-tool-inst-1");
   run1.sessionId = topic0.id;
-  const ev1 = await h.events(run1);
+  const pendingRun = h.events(run1);
+  const action = await waitForTest(async () => (await h.service().actions.snapshotPending())[0], "assistant instructions file approval");
+  assert.equal(action.kind, "file_write");
+  assert.equal(action.payload.path, "assistant/INSTRUCTIONS.md");
+  assert.equal(action.payload.content, "RULE-FROM-CHAT: Always be polite.");
+  assert.equal(action.sessionId, topic0.id);
+  const before = await (await h.request("/api/assistant/instructions")).json();
+  assert.deepEqual(before, { instructions: "" });
+  assert.equal((await h.request(`/api/approvals/${action.id}/decision`, { decision: "approve" })).status, 200);
+  const ev1 = await pendingRun;
   assert.equal(ev1.at(-1)?.type, "RUN_FINISHED");
   const toolCall = ev1.find((e) => e.type === "TOOL_CALL_START") as any;
   assert.equal(toolCall?.toolCallName, "instructions");
@@ -1581,8 +1591,7 @@ test("subagent: parent delegates to an isolated child and receives its result wi
 test("subagent: permissions inherit parent ceilings and shared reads preserve private-root isolation", { timeout: 30000 }, async (t) => {
   const h = await harness();
   t.after(h.close);
-  await mkdir(join(h.dataDir, "workspace"), { recursive: true });
-  await writeFile(join(h.dataDir, "workspace", "subagent-test.md"), "SUBAGENT-WORKSPACE-CONTENT");
+  await writeFile(join(h.service().layout.workspaceDir, "subagent-test.md"), "SUBAGENT-WORKSPACE-CONTENT");
   await h.request("/api/assistant/skills", { overrides: { "builtin/task": true, "builtin/memory": false, "builtin/write": false, "builtin/web": false } }, "PUT");
   const events = await h.events(input([user("请让只读子代理读取共享文件")], "child-read"));
   assert.equal(events.at(-1)?.type, "RUN_FINISHED");
@@ -1593,7 +1602,7 @@ test("subagent: permissions inherit parent ceilings and shared reads preserve pr
     assert.ok(!tools.includes(name), name);
   assert.ok(tools.includes("read"));
   assert.ok(children.some((request) => JSON.stringify(request.messages).includes("SUBAGENT-WORKSPACE-CONTENT")));
-  assert.deepEqual(await readdir(join(h.dataDir,"workspace")),["subagent-test.md"]);
+  assert.deepEqual((await readdir(h.service().layout.workspaceDir)).sort(), ["assistant", "domains", "files", "subagent-test.md"]);
 
 });
 
@@ -1786,10 +1795,10 @@ test("monitors: full loop with real fetch — baseline, change notify, keyword h
   t.after(() => new Promise<void>((resolve) => target.close(() => resolve())));
 
   const rewind = async () => {
-    const monitors = JSON.parse(await readFile(join(h.dataDir, "monitors.json"), "utf8"));
+    const monitors = JSON.parse(await readFile(h.service().layout.monitorsFile, "utf8"));
     for (const monitor of monitors)
       monitor.lastCheckedAt = new Date(Date.now() - 3600_000).toISOString();
-    await writeFile(join(h.dataDir, "monitors.json"), JSON.stringify(monitors));
+    await writeFile(h.service().layout.monitorsFile, JSON.stringify(monitors));
   };
 
   // change：首检建基线（真实抓取本地页）→ 内容变化 → 📡 通知主会话。

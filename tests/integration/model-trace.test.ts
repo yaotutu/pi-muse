@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -123,7 +123,7 @@ type TraceFile = {
 };
 
 const readTraces = async (dataDir: string): Promise<Array<{ name: string; trace: TraceFile }>> => {
-  const files = await traceFiles(join(dataDir, "traces"));
+  const files = await traceFiles(join(dataDir, "runtime", "traces"));
   return Promise.all(files.map(async (file) => ({
     name: file.split("/").at(-1)!,
     trace: JSON.parse(await readFile(file, "utf8")) as TraceFile,
@@ -135,7 +135,7 @@ test("chat round records a full trace snapshot with sessionId, kind, system and 
   try {
     const events = await h.runChat("trace-marker-hello");
     assert.ok(events.some((event) => event.type === "RUN_FINISHED"));
-    await until(async () => (await traceFiles(join(h.dataDir, "traces"))).length > 0);
+    await until(async () => (await traceFiles(join(h.dataDir, "runtime", "traces"))).length > 0);
     const traces = await readTraces(h.dataDir);
     assert.equal(traces.length, 1);
     const { name, trace } = traces[0]!;
@@ -211,9 +211,9 @@ test("upstream failure records redacted error body for troubleshooting", async (
     h = await fixture({ model: { baseUrl: `http://127.0.0.1:${(echo.address() as AddressInfo).port}` } });
     const events = await h.runChat("hello");
     assert.ok(events.some((event) => event.type === "RUN_ERROR"), "401 upstream should fail the run");
-    await until(async () => (await traceFiles(join(h!.dataDir, "traces"))).length > 0);
+    await until(async () => (await traceFiles(join(h!.dataDir, "runtime", "traces"))).length > 0);
     assert.ok(seenBearer.startsWith("Bearer "));
-    const file = (await traceFiles(join(h.dataDir, "traces"))).at(-1)!;
+    const file = (await traceFiles(join(h.dataDir, "runtime", "traces"))).at(-1)!;
     const text = await readFile(file, "utf8");
     const rawKey = seenBearer.replace(/^Bearer /, "");
     assert.ok(!text.includes(rawKey), "raw model key must never reach the trace file");
@@ -235,7 +235,7 @@ test("traces disabled keeps current behavior and writes zero files", async () =>
     assert.ok(events.some((event) => event.type === "RUN_FINISHED"));
     // provider 注册回到真实 baseUrl：fake provider 直接收到请求，且没有产生任何代理/文件。
     assert.equal(h.model.requests.length, 1);
-    const entries = await readdir(h.dataDir);
+    const entries = await readdir(join(h.dataDir, "runtime"));
     assert.ok(!entries.includes("traces"), "no traces directory should exist when disabled");
   } finally {
     await h.close();
@@ -251,7 +251,8 @@ test("trace write failure never affects the model call", async () => {
   };
   const h = await fixture({}, async (dataDir) => {
     // 占据 traces 根，令每次落盘必然失败；模型调用必须照常完成。
-    await writeFile(join(dataDir, "traces"), "not a directory");
+    await mkdir(join(dataDir, "runtime"), { recursive: true });
+    await writeFile(join(dataDir, "runtime", "traces"), "not a directory");
   });
   try {
     const events = await h.runChat("hello-broken-trace");
@@ -260,7 +261,7 @@ test("trace write failure never affects the model call", async () => {
     await until(() => errors > 0);
     await sleep(50);
     assert.ok(errors >= 1, "sanitized failure summary must be logged");
-    assert.ok((await stat(join(h.dataDir, "traces"))).isFile(), "traces root stays a plain file (no writes succeeded)");
+    assert.ok((await stat(join(h.dataDir, "runtime", "traces"))).isFile(), "traces root stays a plain file (no writes succeeded)");
   } finally {
     console.error = original;
     await h.close();

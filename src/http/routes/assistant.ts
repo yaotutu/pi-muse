@@ -8,11 +8,11 @@ import { saveInstructionsSchema, updateSkillsSchema } from "../contracts/rest.js
 export const createAssistantRoutes = ({ layout, skills }: Pick<HttpDependencies, "layout" | "skills">) => {
   const app = new Hono();
   app.get("/instructions", async (c) =>
-    c.json({ instructions: await readAssistantInstructions(layout.assistantInstructionsFile) }));
+    c.json({ instructions: await readAssistantInstructions(layout.assistantInstructionsFile, layout.workspaceDir) }));
   app.put("/instructions", async (c) => {
     const parsed = saveInstructionsSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid instructions", code: "INVALID_REQUEST" }, 400);
-    await writeAssistantInstructions(layout.assistantInstructionsFile, parsed.data.instructions);
+    await writeAssistantInstructions(layout.assistantInstructionsFile, parsed.data.instructions, undefined, layout.workspaceDir);
     return c.json({ instructions: parsed.data.instructions.trim() });
   });
   app.get("/skills", async (c) => c.json(await skills.describe()));

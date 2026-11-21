@@ -33,7 +33,6 @@ const SMS_TABLE_DDL = [
     settings_enabled INTEGER NOT NULL CHECK (settings_enabled IN (0, 1)),
     settings_batch_window_seconds INTEGER NOT NULL,
     settings_mode TEXT NOT NULL CHECK (settings_mode IN ('notifications', 'recommendations')),
-    preferences_notes TEXT NOT NULL,
     preferences_learned_notes TEXT NOT NULL,
     initial_analysis_completed INTEGER CHECK (initial_analysis_completed IN (0, 1))
   )`,
@@ -141,13 +140,12 @@ const tableExists = (managed: ManagedSqliteDatabase, table: string): boolean =>
 const insertDefaultSmsState = (managed: ManagedSqliteDatabase): void => {
   const state = defaultInformationState();
   managed.database.prepare(
-    "INSERT INTO sms_state (id, schema_version, settings_enabled, settings_batch_window_seconds, settings_mode, preferences_notes, preferences_learned_notes, initial_analysis_completed) VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO sms_state (id, schema_version, settings_enabled, settings_batch_window_seconds, settings_mode, preferences_learned_notes, initial_analysis_completed) VALUES (1, ?, ?, ?, ?, ?, ?)",
   ).run(
     state.schemaVersion,
     state.settings.enabled ? 1 : 0,
     state.settings.batchWindowSeconds,
     state.settings.mode,
-    state.preferences.notes,
     state.preferences.learnedNotes,
     state.initialAnalysisCompleted === undefined ? null : state.initialAnalysisCompleted ? 1 : 0,
   );
@@ -189,7 +187,6 @@ type StateRow = {
   settings_enabled: number;
   settings_batch_window_seconds: number;
   settings_mode: "notifications" | "recommendations";
-  preferences_notes: string;
   preferences_learned_notes: string;
   initial_analysis_completed: number | null;
 };
@@ -222,7 +219,7 @@ const parsePublications = (raw: string): InformationRun["publications"] => {
 export const readSmsState = (managed: ManagedSqliteDatabase): InformationState => {
   const database = managed.database;
   const stateRow = database.prepare(
-    "SELECT schema_version, settings_enabled, settings_batch_window_seconds, settings_mode, preferences_notes, preferences_learned_notes, initial_analysis_completed FROM sms_state WHERE id = 1",
+    "SELECT schema_version, settings_enabled, settings_batch_window_seconds, settings_mode, preferences_learned_notes, initial_analysis_completed FROM sms_state WHERE id = 1",
   ).get() as StateRow | undefined;
   if (!stateRow) throw new Error("Invalid main database: missing sms_state row");
 
@@ -307,7 +304,6 @@ export const readSmsState = (managed: ManagedSqliteDatabase): InformationState =
       mode: stateRow.settings_mode,
     },
     preferences: {
-      notes: stateRow.preferences_notes,
       learnedNotes: stateRow.preferences_learned_notes,
     },
     items,
@@ -324,7 +320,6 @@ const projectStateRow = (state: InformationState) => ({
   settings_enabled: state.settings.enabled ? 1 : 0,
   settings_batch_window_seconds: state.settings.batchWindowSeconds,
   settings_mode: state.settings.mode,
-  preferences_notes: state.preferences.notes,
   preferences_learned_notes: state.preferences.learnedNotes,
   initial_analysis_completed: state.initialAnalysisCompleted === undefined
     ? null
@@ -369,13 +364,12 @@ export const applySmsState = (
   const nextStateRow = projectStateRow(next);
   if (canonicalJson(prevStateRow) !== canonicalJson(nextStateRow)) {
     database.prepare(
-      "UPDATE sms_state SET schema_version = ?, settings_enabled = ?, settings_batch_window_seconds = ?, settings_mode = ?, preferences_notes = ?, preferences_learned_notes = ?, initial_analysis_completed = ? WHERE id = 1",
+      "UPDATE sms_state SET schema_version = ?, settings_enabled = ?, settings_batch_window_seconds = ?, settings_mode = ?, preferences_learned_notes = ?, initial_analysis_completed = ? WHERE id = 1",
     ).run(
       nextStateRow.schema_version,
       nextStateRow.settings_enabled,
       nextStateRow.settings_batch_window_seconds,
       nextStateRow.settings_mode,
-      nextStateRow.preferences_notes,
       nextStateRow.preferences_learned_notes,
       nextStateRow.initial_analysis_completed,
     );

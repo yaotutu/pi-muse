@@ -68,7 +68,7 @@ if (!configPath || !process.argv.includes('--allow-live')) {
     assert.ok(messages.some((message) => message.role === 'assistant' && /JOB_FIRED/.test(message.content ?? '')), 'scheduled reply must reach the session');
     report.checks.push('scheduled model reply reached the session history');
 
-    const database = new DatabaseSync(join(dataDir, 'main.sqlite'), { readOnly: true });
+    const database = new DatabaseSync(join(dataDir, 'state', 'main.sqlite'), { readOnly: true });
     try {
       const storedJob = database.prepare('SELECT last_status, last_run_at, enabled FROM jobs WHERE id = ?').get(job.id) as { last_status: string; last_run_at: string; enabled: number } | undefined;
       // 存储字段是领域事实 last_status；API 才把它映射成 succeeded/failed。

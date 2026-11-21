@@ -52,7 +52,7 @@ Skill selections are bound to their source identity. See [Skill directories and 
 
 ## News and SMS {#background-services}
 
-News and SMS run as independent background domain sub-agents without chat skills, chat history access, or global memory access. You can edit their preference rules directly in Settings or ask the assistant in chat to update them.
+News and SMS run as independent domain agents without chat skills, chat history access, or global memory access. Edit their rules in Settings or Workspace Files. You can also ask the assistant to propose a change for approval.
 
 - News collection and reading are described in [News](news.md). Discussing an article directly appends an explicitly untrusted reference to the existing draft of the active chat. It remains editable, is not sent automatically, and does not open a session picker. You can return to the original article.
 - SMS is one global pipeline, disabled initially. After analysis, important SMS results are appended as system notifications to main history without an additional main-chat model response. Domain notification cards remain excluded from main chat model context unless you explicitly quote them into the conversation. Silent or failed batches do not manufacture notifications.

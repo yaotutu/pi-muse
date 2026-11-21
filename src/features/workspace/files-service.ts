@@ -1,3 +1,5 @@
+import { isWorkspaceText } from "../../shared/workspace-text.js";
+
 export type WorkspaceSelector = Record<never, never>;
 
 export type WorkspaceFileSelector = WorkspaceSelector & { path: string };
@@ -91,16 +93,6 @@ const normalizeWritePath = (raw: string): string => {
   return path;
 };
 
-const validUnicode = (content: string): boolean => {
-  for (let index = 0; index < content.length; index++) {
-    const code = content.charCodeAt(index);
-    if (code < 0xd800 || code > 0xdfff) continue;
-    const next = index + 1 < content.length ? content.charCodeAt(index + 1) : 0;
-    if (code > 0xdbff || next < 0xdc00 || next > 0xdfff) return false;
-    index++;
-  }
-  return true;
-};
 
 /**
  * 手动文件服务只承担“用户已经看过完整 before/after 并确认”后的落盘入口；
@@ -123,7 +115,7 @@ export const createWorkspaceFileService = (
     if (!input.confirmed) reject(400, "INVALID_REQUEST", "confirmed must be true after the full preview is accepted");
     const bytes = Buffer.byteLength(input.content, "utf8");
     if (bytes > MAX_WORKSPACE_TEXT_BYTES) reject(413, "TOO_LARGE", "Text content exceeds 100000 UTF-8 bytes");
-    if (input.content.includes("\0") || !validUnicode(input.content))
+    if (!isWorkspaceText(input.content))
       reject(400, "INVALID_REQUEST", "Text content must be valid UTF-8 without NUL bytes");
     const selected = await prepare(input, "write");
     return { ...selected, ...(await write(selected, input.content)) };
