@@ -137,7 +137,7 @@ DATA_DIR/
   runtime/                 auth/, pi/, browser/, traces/
 ```
 
-Workspace files shows assistant documents, domain rules and ordinary files. Settings and the workspace editor use the same Markdown files. Main and topic chats share assistant documents. News and SMS each read their own rules. A delegated subagent holds context for its current run. The layout starts fresh and does not import old instance data.
+Workspace Files shows assistant documents, domain rules, and ordinary files. Pull down to refresh the directory. Open the menu at the top right to create a text file or jump to another directory. Settings and the workspace editor use the same Markdown files. Main and topic chats share assistant documents. News and SMS each read their own rules. A delegated subagent holds context for its current run. The layout starts fresh and does not import old instance data.
 
 ## Data Storage and Security Boundaries {#data-storage-and-security-boundaries}
 
