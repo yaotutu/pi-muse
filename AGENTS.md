@@ -2,6 +2,13 @@
 
 本文对所有开发 Agent（Antigravity、Claude Code 等）生效；执行与交付见[协作指南](docs/agent-workflow-guide.md)。完整工作区同时遵守[父目录规则](../AGENTS.md)；独立 clone 时以本仓库入口为准，不假设父目录、兄弟仓库或历史部署存在。
 
+## 角色与多端协作（开工先看）
+
+本仓库是**一核多端（Server-First）**架构的服务端核心，同时服务手机 App、Web、ESP32/单片机、智能音箱、Webhook 等多形态接入端：
+
+- **服务端 Agent**：代码写集严格限于本仓库（含自有 `web/` 联调台），可只读查看工作区兄弟客户端仓库保持全局视角，但未经用户重新授权绝不修改任何客户端仓库，也不把接口绑定在单一 UI 形态上。正常开发并同步 `src/http/contracts/`（生成 `/docs`、`/openapi.json`）；改动存在需要外部接入端注意的事项时，顺手记入[接入须知记录](docs/client-notes.md)（全端长期范式变化同步[客户端接入指南](docs/client-integration-guide.md)）；处于本地多仓库工作区时按需查看工作区根目录中立文件 `client-requests.md` 中的 `open` 诉求并回写状态与结论（独立 clone 不假设父目录存在）。
+- **接入端 Agent（只读本仓库）**：请先读[客户端接入指南](docs/client-integration-guide.md)（按端形态明确边界）与[接入须知记录](docs/client-notes.md)，再以运行实例 `GET /api/health`、`/docs` 与 `/openapi.json` 为准自主实现。切勿直接修改本仓库代码；需要新增接口或调整契约请向工作区根目录 `client-requests.md` 追加 `REQ-*`（独立环境输出同格式文本交由用户转发）。
+
 ## 开发命令
 
 在本仓库目录执行。使用 Node.js 24+ 和 `package.json` 的 `packageManager` 指定的 pnpm；依赖事实以 manifest/lockfile 为准。
@@ -74,10 +81,6 @@ pnpm test:live --config <protected-config-path> --allow-live
 
 ## 完成要求
 
-本仓库定位为**一核多端（Server-First + 多形态接入端）**架构的服务端核心，服务于手机 App、Web、ESP32/单片机、智能音箱、Webhook 等多种接入端。当前协作模式下（2026-11-22 起），开发 Agent **可从全局视角只读查看工作区其他端项目以理解真实场景，但定位纯属 For 服务端——代码修改仅限 `pi-muse-server/`（含自有 `web/` 联调台），不再参与任何客户端代码书写**，也不把接口绑定在单一 UI 形态上。
-
-平时正常开发服务端并同步 `src/http/contracts/`；**仅当本次改动存在需要外部接入端注意的事项**（破坏性变更、新增可接入能力、状态码/事件/流行为变化、易踩坑边界或对无屏/受限端的影响）时，顺手在[接入须知记录](docs/client-notes.md)记一条精炼须知（无外部影响不写流水账）；若涉及全端长期接入范式变化，同步更新[客户端接入指南](docs/client-integration-guide.md)。各形态接入端 Agent 自行参考 `/docs`、`/openapi.json` 及上述文档按需实现。位于本地多仓库工作区时，服务端 Agent 按需查看工作区根目录中立收件箱 `client-requests.md` 中的 `open` 诉求，评审并在原条目回写状态与落地入口（独立 clone 不假设该父目录文件存在）。
-
-代码变更补对应回归并完成 `pnpm check`；其中模拟模型不替代当前真实后端和外部模型验收，真实调用费用已有长期授权。工具展示需实际 Web renderer、历史和错误态；协议需同步 contracts、契约测试与自动生成 `/docs`，在浏览器中实际核对 `/docs` 渲染与 `/openapi.json` 语义完整性，并在交付中明确列出对外部接入端的影响（新增 / 变更 / 破坏性变更，及是否更新 `docs/client-notes.md`），不再将 Android 模拟器客户端验收作为服务端任务前置门槛。失败与未运行项分别报告，不用历史结果代替。
+多端协作与收件箱同步遵循顶部「角色与多端协作（开工先看）」。代码变更补对应回归并完成 `pnpm check`；其中模拟模型不替代当前真实后端和外部模型验收，真实调用费用已有长期授权。工具展示需实际 Web renderer、历史和错误态；协议需同步 contracts、契约测试与自动生成 `/docs`，在浏览器中实际核对 `/docs` 渲染与 `/openapi.json` 语义完整性，并在交付中明确列出对外部接入端的影响（新增 / 变更 / 破坏性变更，及是否更新 `docs/client-notes.md`），不再将 Android 模拟器客户端验收作为服务端任务前置门槛。失败与未运行项分别报告，不用历史结果代替。
 
 文档-only 检查差异、引用、命名与规则一致性，不启动业务/模型；涉及手册和站点时按文档指南构建。当前规则不积累提交流水，待办放 backlog，历史放 archive。
