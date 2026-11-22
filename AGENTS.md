@@ -64,7 +64,7 @@ pnpm test:live --config <protected-config-path> --allow-live
 | --- | --- |
 | 业务、权限、存储、pi、生命周期 | [架构](docs/architecture.md)、[pi 复用](docs/pi-reuse.md) |
 | 代码变更、真实模型或故障验证 | [测试](docs/testing.md) |
-| HTTP/SSE、工具报文、多端适配 | [API 开发](docs/api-development.md)；核对对应 contracts 和实际 Web/mobile 调用方 |
+| HTTP/SSE、工具报文、客户端协作 | [API 开发](docs/api-development.md)、[客户端接入与协作指南](docs/client-integration-guide.md)；核对对应 contracts、自动生成 `/docs` 与 `web/` 调用方，协议/协作模式变化时同步客户端指南并标注客户端影响 |
 | 启动、联调、配置 | [开发](docs/development.md)、[配置手册](docs/manual/configuration.md) |
 | 文档和用户可见行为 | [文档指南](docs/agent-documentation-guide.md) |
 | 品牌、图标或形象 | [品牌资产](docs/assets/brand/README.md)、[默认八态形象包](docs/assets/brand/companion/README.md) |
@@ -74,6 +74,8 @@ pnpm test:live --config <protected-config-path> --allow-live
 
 ## 完成要求
 
-代码变更补对应回归并完成 `pnpm check`；其中模拟模型不替代当前真实后端和外部模型验收，真实调用费用已有长期授权。工具展示需实际 Web renderer、历史和错误态；协议需同步 contracts、契约测试与自动生成 `/docs`，并核对移动端影响。**每次开发完新功能后，必须在本机电脑的 Android 模拟器（配合当前本地真实后端、外部模型与实际 `/docs` 渲染）完成所有验收测试才算完成**，不得仅跑完本地门禁即收工；仅在客观阻塞无法消除时如实报告阻塞并标待验收。失败与未运行项分别报告，不用历史结果代替。
+本工作区当前协作模式下（2026-11-22 起），开发 Agent **仅负责服务端（`pi-muse-server/`，含自有 `web/` 联调台）改动，不再修改独立客户端仓库（`pi-muse-mobile/`、`pi-muse-flutter/`）**。客户端侧参考 `/docs`、`/openapi.json` 与[客户端接入与协作指南](docs/client-integration-guide.md)独立开发。
+
+代码变更补对应回归并完成 `pnpm check`；其中模拟模型不替代当前真实后端和外部模型验收，真实调用费用已有长期授权。工具展示需实际 Web renderer、历史和错误态；协议需同步 contracts、契约测试与自动生成 `/docs`，在浏览器中实际核对 `/docs` 渲染与 `/openapi.json` 语义完整性；对外契约或跨领域协作模式变化时同步更新[客户端接入与协作指南](docs/client-integration-guide.md)，并在交付中明确列出客户端影响（新增 / 变更 / 破坏性变更），不再将 Android 模拟器客户端验收作为服务端任务前置门槛。失败与未运行项分别报告，不用历史结果代替。
 
 文档-only 检查差异、引用、命名与规则一致性，不启动业务/模型；涉及手册和站点时按文档指南构建。当前规则不积累提交流水，待办放 backlog，历史放 archive。

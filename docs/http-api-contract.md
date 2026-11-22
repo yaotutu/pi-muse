@@ -19,9 +19,10 @@
 
 ## 开发入口
 
-- [API 开发规范](api-development.md)：契约、生成文档与多端验证要求。
+- [客户端接入与协作指南](client-integration-guide.md)：服务端期望的客户端协作边界（Must/Should/May）、双流范式、安全底线与前端自主范围。
+- [API 开发规范](api-development.md)：契约、生成文档与验证要求。
 - [单主助手多会话基线](architecture/single-agent-multisession.md)：领域与生命周期边界；实际字段仍以自动契约为准。
 - [架构规范](architecture.md)：执行、历史、业务存储与权限。
 - [测试规范](testing.md)：协议、真实模型与页面验证的区别。
 
-修改协议时同时更新源码、契约描述、回归与实际调用方；不要把关键规则只写在此 Markdown 中。
+修改协议时同时更新源码、契约描述、回归与自有 `web/` 联调调用方；若涉及跨领域协作范式或客户端硬边界变化，同步更新[客户端接入与协作指南](client-integration-guide.md)并在交付中明确说明客户端影响，不要把关键字段规则只写在此 Markdown 中。
