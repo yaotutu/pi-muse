@@ -7,6 +7,7 @@
 1. **先明确自身形态**：先阅读 [客户端接入与协作指南](client-integration-guide.md)，判断当前接入端属于 `webhook`（无头/投喂）、`embedded-voice`（ESP32/智能音箱/CLI 等轻量对话端）还是 `rich-ui`（手机/Web/桌面富交互端），只接入自身需要的能力集。
 2. **按标签筛选下方条目**：结合条目的**影响端形态**（`all` / `rich-ui` / `embedded-voice` / `webhook`）与**类型**（`breaking` / `feature` / `behavior` / `caveat`）核对是否影响自己的接入逻辑。
 3. **以运行时契约为准**：精确路径、请求/响应字段、校验边界与错误码一律以目标实例免鉴权的 `GET /docs`、`GET /openapi.json` 及 `GET /api/health`（特别是 `serviceVersion.sourceHash`）为唯一事实源。
+4. **反向提需求 / 反馈契约问题**：需要服务端新增接口、调整字段或上报协议问题时，统一向工作区根目录中立文件 `client-requests.md` 按 `REQ-YYYYMMDD-NN` 模板追加诉求（不直接修改 `pi-muse-server/` 文件；独立环境可输出同格式文本交由用户转贴）。
 
 ## 给服务端 Agent（怎么记）
 

@@ -76,7 +76,7 @@ pnpm test:live --config <protected-config-path> --allow-live
 
 本仓库定位为**一核多端（Server-First + 多形态接入端）**架构的服务端核心，服务于手机 App、Web、ESP32/单片机、智能音箱、Webhook 等多种接入端。当前协作模式下（2026-11-22 起），开发 Agent **可从全局视角只读查看工作区其他端项目以理解真实场景，但定位纯属 For 服务端——代码修改仅限 `pi-muse-server/`（含自有 `web/` 联调台），不再参与任何客户端代码书写**，也不把接口绑定在单一 UI 形态上。
 
-平时正常开发服务端并同步 `src/http/contracts/`；**仅当本次改动存在需要外部接入端注意的事项**（破坏性变更、新增可接入能力、状态码/事件/流行为变化、易踩坑边界或对无屏/受限端的影响）时，顺手在[接入须知记录](docs/client-notes.md)记一条精炼须知（无外部影响不写流水账）；若涉及全端长期接入范式变化，同步更新[客户端接入指南](docs/client-integration-guide.md)。各形态接入端 Agent 自行参考 `/docs`、`/openapi.json` 及上述文档按需实现。
+平时正常开发服务端并同步 `src/http/contracts/`；**仅当本次改动存在需要外部接入端注意的事项**（破坏性变更、新增可接入能力、状态码/事件/流行为变化、易踩坑边界或对无屏/受限端的影响）时，顺手在[接入须知记录](docs/client-notes.md)记一条精炼须知（无外部影响不写流水账）；若涉及全端长期接入范式变化，同步更新[客户端接入指南](docs/client-integration-guide.md)。各形态接入端 Agent 自行参考 `/docs`、`/openapi.json` 及上述文档按需实现。位于本地多仓库工作区时，服务端 Agent 按需查看工作区根目录中立收件箱 `client-requests.md` 中的 `open` 诉求，评审并在原条目回写状态与落地入口（独立 clone 不假设该父目录文件存在）。
 
 代码变更补对应回归并完成 `pnpm check`；其中模拟模型不替代当前真实后端和外部模型验收，真实调用费用已有长期授权。工具展示需实际 Web renderer、历史和错误态；协议需同步 contracts、契约测试与自动生成 `/docs`，在浏览器中实际核对 `/docs` 渲染与 `/openapi.json` 语义完整性，并在交付中明确列出对外部接入端的影响（新增 / 变更 / 破坏性变更，及是否更新 `docs/client-notes.md`），不再将 Android 模拟器客户端验收作为服务端任务前置门槛。失败与未运行项分别报告，不用历史结果代替。
 
