@@ -107,7 +107,7 @@ Pi Muse is a single-process modular server built with TypeScript, Hono, and the 
 HTTP handles management and requests. Chat uses an **AG-UI SSE execution stream**; the separate **`/api/events` notification stream** carries shared status and invalidation events. Current HTTP/SSE contracts live in `src/http/contracts/` and generate the running instance's `/docs` and `/openapi.json`—use these to build other clients rather than guessing from screenshots.
 
 - [User manual](docs/manual/en/index.md) — installation and daily use
-- [Development](docs/development.md) · [Architecture](docs/architecture.md) · [API development](docs/api-development.md)
+- [Development](docs/development.md) · [Architecture](docs/architecture.md) · [API development](docs/api-development.md) · [Client integration](docs/client-integration-guide.md) · [Client notes](docs/client-notes.md)
 - [Mobile repository](https://github.com/yaotutu/pi-muse-mobile) — native client and source setup
 
 ## Acknowledgements

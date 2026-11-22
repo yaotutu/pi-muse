@@ -19,10 +19,11 @@
 
 ## 开发入口
 
-- [客户端接入与协作指南](client-integration-guide.md)：服务端期望的客户端协作边界（Must/Should/May）、双流范式、安全底线与前端自主范围。
+- [客户端接入与协作指南](client-integration-guide.md)：面向手机、Web、ESP32/音箱、Webhook 等多形态接入端的通用分层指南与硬边界（Must/Should/May）。
+- [服务端接入须知与变更记录](client-notes.md)：服务端按需记录的近期对外变更与多形态接入注意点。
 - [API 开发规范](api-development.md)：契约、生成文档与验证要求。
 - [单主助手多会话基线](architecture/single-agent-multisession.md)：领域与生命周期边界；实际字段仍以自动契约为准。
 - [架构规范](architecture.md)：执行、历史、业务存储与权限。
 - [测试规范](testing.md)：协议、真实模型与页面验证的区别。
 
-修改协议时同时更新源码、契约描述、回归与自有 `web/` 联调调用方；若涉及跨领域协作范式或客户端硬边界变化，同步更新[客户端接入与协作指南](client-integration-guide.md)并在交付中明确说明客户端影响，不要把关键字段规则只写在此 Markdown 中。
+修改协议时同时更新源码、契约描述、回归与自有 `web/` 联调调用方；存在需要外部接入端注意的事项时顺手记入[服务端接入须知与变更记录](client-notes.md)（全端通用范式变化同步[客户端接入与协作指南](client-integration-guide.md)），不要把关键字段规则只写在此 Markdown 中。

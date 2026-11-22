@@ -107,7 +107,7 @@ Pi Muse 是基于 TypeScript、Hono 和 pi SDK 的单进程模块化服务。pi 
 HTTP 负责管理与请求。聊天使用 **AG-UI SSE 执行流**，独立的 **`/api/events` 通知流**负责共享状态与失效通知。当前 HTTP/SSE 契约位于 `src/http/contracts/`，生成运行实例的 `/docs` 和 `/openapi.json`；接入其他客户端时以这些为准，不从截图猜协议。
 
 - [用户手册](docs/manual/index.md) — 安装与日常使用
-- [开发](docs/development.md) · [架构](docs/architecture.md) · [API 开发](docs/api-development.md)
+- [开发](docs/development.md) · [架构](docs/architecture.md) · [API 开发](docs/api-development.md) · [客户端接入指南](docs/client-integration-guide.md) · [接入须知记录](docs/client-notes.md)
 - [移动端仓库](https://github.com/yaotutu/pi-muse-mobile) — 原生客户端与源码开发
 
 ## 致谢
