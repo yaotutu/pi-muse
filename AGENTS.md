@@ -74,7 +74,7 @@ pnpm test:live --config <protected-config-path> --allow-live
 
 ## 完成要求
 
-本工作区当前协作模式下（2026-11-22 起），开发 Agent **仅负责服务端（`pi-muse-server/`，含自有 `web/` 联调台）改动，不再修改独立客户端仓库（`pi-muse-mobile/`、`pi-muse-flutter/`）**。客户端侧参考 `/docs`、`/openapi.json` 与[客户端接入与协作指南](docs/client-integration-guide.md)独立开发。
+本工作区当前协作模式下（2026-11-22 起），开发 Agent **可从全局视角只读分析前后端现状**，但**代码修改仅限服务端（`pi-muse-server/`，含自有 `web/` 联调台），不再参与独立客户端仓库（`pi-muse-mobile/`、`pi-muse-flutter/`）的具体代码书写**。对前端的需求与改造规范统一沉淀到[客户端接入与协作指南](docs/client-integration-guide.md)及按需创建的 `docs/client-specs/<topic>.md`，交由前端 Agent 参考 `/docs`、`/openapi.json` 与上述文档自主决策落地。
 
 代码变更补对应回归并完成 `pnpm check`；其中模拟模型不替代当前真实后端和外部模型验收，真实调用费用已有长期授权。工具展示需实际 Web renderer、历史和错误态；协议需同步 contracts、契约测试与自动生成 `/docs`，在浏览器中实际核对 `/docs` 渲染与 `/openapi.json` 语义完整性；对外契约或跨领域协作模式变化时同步更新[客户端接入与协作指南](docs/client-integration-guide.md)，并在交付中明确列出客户端影响（新增 / 变更 / 破坏性变更），不再将 Android 模拟器客户端验收作为服务端任务前置门槛。失败与未运行项分别报告，不用历史结果代替。
 
