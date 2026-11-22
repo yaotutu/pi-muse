@@ -1,4 +1,3 @@
-import { defaultInformationState, type InformationState } from "../information/types.js";
 import type { NewsSourceFailure } from "./errors.js";
 
 export type NewsSource = {
@@ -11,26 +10,115 @@ export type NewsSource = {
   lastErrorDetails?: NewsSourceFailure | null;
 };
 
+export type NewsItemStatus = "pending" | "processing" | "processed" | "failed";
+
+export type NewsItemMetadata = {
+  sourceId: string;
+  sourceTitle: string;
+  url?: string | null;
+};
+
+export type NewsArticleItem = {
+  id: string;
+  source: string;
+  externalId: string;
+  title?: string;
+  content: string;
+  receivedAt: string;
+  acceptedAt: string;
+  status: NewsItemStatus;
+  runId?: string;
+  metadata?: NewsItemMetadata;
+};
+
+export type NewsArticleReaction = "like" | "dislike" | null;
+
+export type NewsArticleFeedbackComment = {
+  id: string;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewsArticleFeedback = {
+  itemId: string;
+  reaction: NewsArticleReaction;
+  saved: boolean;
+  comments: NewsArticleFeedbackComment[];
+};
+
+export type NewsScreeningDecision = {
+  itemId: string;
+  decision: "silent" | "notify";
+  reason: string;
+};
+
+export type NewsScreeningRunStatus = "running" | "completed" | "failed" | "cancelled";
+
+export type NewsScreeningRun = {
+  id: string;
+  status: NewsScreeningRunStatus;
+  createdAt: string;
+  startedAt: string;
+  finishedAt?: string;
+  itemIds: string[];
+  model?: {
+    status: "succeeded" | "failed";
+    error?: string;
+  };
+  decisions?: NewsScreeningDecision[];
+  publications: [];
+};
+
+export type NewsProcessingSettings = {
+  enabled: boolean;
+  batchWindowSeconds: number;
+};
+
+export type NewsPreferences = {
+  learnedNotes: string;
+};
+
+export type NewsProcessingState = {
+  settings: NewsProcessingSettings;
+  preferences: NewsPreferences;
+  articleFeedback: NewsArticleFeedback[];
+  items: NewsArticleItem[];
+  runs: NewsScreeningRun[];
+};
+
+export const defaultNewsProcessingState = (): NewsProcessingState => ({
+  settings: { enabled: true, batchWindowSeconds: 0 },
+  preferences: { learnedNotes: "" },
+  articleFeedback: [],
+  items: [],
+  runs: [],
+});
+
 export type NewsState = {
-  processing: InformationState;
   schemaVersion: 1;
   sources: NewsSource[];
   lastRefreshedAt: string | null;
   lastError: string | null;
+  processing: NewsProcessingState;
 };
 
 export const defaultNewsState = (): NewsState => ({
-  processing: defaultInformationState(),
   schemaVersion: 1,
   sources: [],
   lastRefreshedAt: null,
   lastError: null,
+  processing: defaultNewsProcessingState(),
 });
 
 export type NewsRepository = {
   read: () => Promise<NewsState>;
-  update: <T>(change: (state: NewsState) => { state?: NewsState; result: T } | Promise<{ state?: NewsState; result: T }>) => Promise<T>;
+  update: <T>(
+    change: (state: NewsState) => { state?: NewsState; result: T } | Promise<{ state?: NewsState; result: T }>,
+  ) => Promise<T>;
   validate: () => Promise<void>;
+  hasPendingArticle?: () => Promise<boolean>;
+  reconcileOnStart?: () => Promise<void>;
 };
 
 export type ParsedFeedItem = {

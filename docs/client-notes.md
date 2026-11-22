@@ -36,6 +36,16 @@
 
 ## 变更与须知记录
 
+### 2026-11-22 — 短信/信息后台 Clean Break 双通道重构（`/api/information/*` 破坏性调整）
+
+- **影响端形态**：`webhook`、`rich-ui`
+- **类型**：`breaking`
+- **契约入口**：`/docs`「信息后台」（具体字段以 `/openapi.json` 为准）
+- **要点与接入端注意**：
+  - **移除旧首轮与混用开关**：`POST /api/information/items` 移除 `bulkImport`（单批恢复 1–100 条，固定进入日常 `queue: "realtime"`）；`POST /api/information/runs` 不再接收 `forceInitial` / `background` / `retryFailed`，仅用于立即触发一次日常实时单周期；响应不再返回 `initialAnalysisCompleted` 或 `mode`。
+  - **新增独立历史归档通道**：历史短信导入改调 `POST /api/information/archive/items`（1–500 条，`queue: "archive"`，与实时调度彻底隔离）；导入后显式调用 `POST /api/information/archive/run`（`{ background?, retryFailed? }`）逐批提炼更新 `learnedNotes` 灵敏度画像，并在归档清零后至多发送 1 条不超过 1200 字简报。
+  - **状态与列表字段更新**：`GET /api/information/status` 返回 `{ enabled, batchWindowSeconds, running, pendingCount, failedCount, archive: { running, pendingCount, processedCount, failedCount }, lastRunAt, lastError }`；条目新增 `queue`（`realtime | archive`），run 新增 `kind`（`realtime | archive`）且支持按 `queue` / `kind` 过滤分页。`learnedNotes` 自学习画像与主对话消息反馈闭环继续对实时与归档双向生效。
+
 ### 2026-11-22 — 建立多形态接入端须知机制与当前协议关键注意点
 
 - **影响端形态**：`all`
@@ -44,7 +54,7 @@
 - **要点与接入端注意**：
   - **双 SSE 帧格式完全不同（`all` 对话/状态端）**：`GET /api/events` 发送标准 `event: <name>` + `data: <JSON>` 以及每 30 秒 `: keep-alive` 注释心跳，断连不取消后台运行；`POST /api/conversation/run` **不发送 `event:` 行**，只发送 `data: <JSON>` 需按 `data.type` 分派，且断开 HTTP 连接会立即取消服务端本轮运行。
   - **受限/无屏端触及文件写入仍须人工审批（`embedded-voice`）**：服务端模型永不绕过写文件审批，也不会根据端形态放行；若语音/单片机端发起的对话触发了 `write`/`edit`，服务端会挂起等待人工决定（默认 5 分钟过期不落盘）。无屏端应明确提示用户前往富交互端审批，或等待超时/停止后告知未写入。
-  - **无头投喂接口为全局路径（`webhook`）**：原始信息接入 `POST /api/information/items` 不带 `:sessionId`，单批上限 500 条；`(source, externalId)` 同内容幂等回读、不同内容返回 `409` 且不覆盖原文；历史批量分片导入建议传 `bulkImport: true`。
+  - **无头投喂接口为全局路径（`webhook`）**：原始信息接入 `POST /api/information/items` 不带 `:sessionId`（当前实时上限、归档独立入口及 Clean Break 字段变更见上方 `2026-11-22` 条目）。
   - **轻量对话端最小闭环无需接 `/api/events`（`embedded-voice`）**：ESP32、智能音箱或 CLI 只做对话时，只需 `POST /api/session` + `GET /api/conversation`（读取 `revision`）+ `POST /api/conversation/run`（提取 `TEXT_MESSAGE_CONTENT` 文本增量）+ `POST /api/conversation/stop`；语音识别（ASR）与合成（TTS）留在接入端自行处理。
   - **每日定时任务时区由服务端解释（`all`）**：创建或修改 `daily: true` 任务时，`at` 传严格两位 `HH:mm`，服务端按 `GET /api/health` 返回的 `timeZone` 解释；`nextRunAt` 统一返回带 `Z` 的 UTC ISO 8601。
   - **工作区文本中的 SVG/HTML 绝不执行（`rich-ui`）**：`GET /api/workspace/files/content` 会把 SVG/HTML 归为 `kind: "text"` 原样返回，接入端必须按不可信纯文本渲染；手动新建/保存文本前须向用户完整展示内容后再传 `confirmed: true`。

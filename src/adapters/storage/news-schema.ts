@@ -1,20 +1,17 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { informationStateSchema } from "./information-repository.js";
 import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 import { newsSourceFailureCategories, type NewsSourceFailure } from "../../features/news/errors.js";
 import {
   defaultNewsState,
+  type NewsArticleFeedback,
+  type NewsArticleItem,
   type NewsRepository,
-  type NewsState,
+  type NewsScreeningDecision,
+  type NewsScreeningRun,
   type NewsSource,
+  type NewsState,
 } from "../../features/news/types.js";
-import type {
-  InformationArticleFeedback,
-  InformationDecision,
-  InformationItem,
-  InformationRun,
-} from "../../features/information/types.js";
 
 /**
  * news.sqlite 的表结构与行映射：
@@ -50,8 +47,73 @@ const sourceSchema = z.strictObject({
   }).nullable().optional(),
 });
 
+const newsProcessingSchema = z.strictObject({
+  settings: z.strictObject({
+    enabled: z.boolean(),
+    batchWindowSeconds: z.number().int().min(0).max(3600),
+  }),
+  preferences: z.strictObject({
+    learnedNotes: z.string().max(20_000),
+  }),
+  articleFeedback: z.array(
+    z.strictObject({
+      itemId: z.string().min(1).max(128),
+      reaction: z.enum(["like", "dislike"]).nullable(),
+      saved: z.boolean(),
+      comments: z.array(
+        z.strictObject({
+          id: z.string().min(1).max(128),
+          text: z.string().min(1).max(4000),
+          createdAt: z.string().datetime(),
+          updatedAt: z.string().datetime(),
+        }),
+      ),
+    }),
+  ),
+  items: z.array(
+    z.strictObject({
+      id: z.string().min(1).max(128),
+      source: z.string().min(1).max(128),
+      externalId: z.string().min(1).max(256),
+      title: z.string().min(1).max(500).optional(),
+      content: z.string().min(1).max(20_000),
+      receivedAt: z.string().datetime(),
+      acceptedAt: z.string().datetime(),
+      status: z.enum(["pending", "processing", "processed", "failed"]),
+      runId: z.string().min(1).max(128).optional(),
+      metadata: z.strictObject({
+        sourceId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/),
+        sourceTitle: z.string().min(1).max(500),
+        url: publicFeedUrl.nullable().optional(),
+      }).optional(),
+    }),
+  ),
+  runs: z.array(
+    z.strictObject({
+      id: z.string().min(1).max(128),
+      status: z.enum(["running", "completed", "failed", "cancelled"]),
+      createdAt: z.string().datetime(),
+      startedAt: z.string().datetime(),
+      finishedAt: z.string().datetime().optional(),
+      itemIds: z.array(z.string().min(1).max(128)).min(1),
+      model: z.strictObject({
+        status: z.enum(["succeeded", "failed"]),
+        error: z.string().min(1).max(300).optional(),
+      }).optional(),
+      decisions: z.array(
+        z.strictObject({
+          itemId: z.string().min(1).max(128),
+          decision: z.enum(["silent", "notify"]),
+          reason: z.string().min(1).max(1000),
+        }),
+      ).optional(),
+      publications: z.tuple([]),
+    }),
+  ),
+});
+
 export const newsDocumentSchema = z.strictObject({
-  processing: informationStateSchema,
+  processing: newsProcessingSchema,
   schemaVersion: z.literal(1),
   sources: z.array(sourceSchema),
   lastRefreshedAt: z.string().datetime().nullable(),
@@ -196,9 +258,9 @@ const insertDefaultStateRow = (database: DatabaseSync): void => {
     state.schemaVersion,
     state.processing.settings.enabled ? 1 : 0,
     state.processing.settings.batchWindowSeconds,
-    state.processing.settings.mode,
+    "recommendations",
     state.processing.preferences.learnedNotes,
-    state.processing.initialAnalysisCompleted === undefined ? null : state.processing.initialAnalysisCompleted ? 1 : 0,
+    0,
     state.lastRefreshedAt,
     state.lastError,
   );
@@ -275,14 +337,14 @@ type SourceRow = {
 };
 type ArticleRow = {
   id: string; position: number; source: string; external_id: string; title: string | null;
-  content: string; received_at: string; accepted_at: string; status: InformationItem["status"];
+  content: string; received_at: string; accepted_at: string; status: NewsArticleItem["status"];
   run_id: string | null; metadata_present: number; source_id: string | null; source_title: string | null; article_url: string | null;
 };
 type FeedbackRow = { item_id: string; position: number; reaction: "like" | "dislike" | null; saved: number };
 type CommentRow = { id: string; item_id: string; position: number; text: string; created_at: string; updated_at: string };
 type RunRow = {
-  id: string; position: number; status: InformationRun["status"]; created_at: string; started_at: string;
-  finished_at: string | null; kind: InformationRun["kind"] | null; model_status: "succeeded" | "failed" | null;
+  id: string; position: number; status: NewsScreeningRun["status"]; created_at: string; started_at: string;
+  finished_at: string | null; kind: string | null; model_status: "succeeded" | "failed" | null;
   model_error: string | null; has_decisions: number; publications_json: string;
 };
 type RunItemRow = { run_id: string; position: number; item_id: string };
@@ -316,7 +378,7 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
   });
   const items = (database.prepare(
     "SELECT id, position, source, external_id, title, content, received_at, accepted_at, status, run_id, metadata_present, source_id, source_title, article_url FROM news_articles ORDER BY position",
-  ).all() as ArticleRow[]).map<InformationItem>((row) => ({
+  ).all() as ArticleRow[]).map<NewsArticleItem>((row) => ({
     id: row.id,
     source: row.source,
     externalId: row.external_id,
@@ -328,7 +390,7 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
     ...(row.run_id !== null ? { runId: row.run_id } : {}),
     ...(row.metadata_present === 1 ? { metadata: { sourceId: row.source_id!, sourceTitle: row.source_title!, url: row.article_url } } : {}),
   }));
-  const commentsByItem = new Map<string, InformationArticleFeedback["comments"]>();
+  const commentsByItem = new Map<string, NewsArticleFeedback["comments"]>();
   for (const row of database.prepare(
     "SELECT id, item_id, position, text, created_at, updated_at FROM news_article_comments ORDER BY position",
   ).all() as CommentRow[]) {
@@ -338,7 +400,7 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
   }
   const articleFeedback = (database.prepare(
     "SELECT item_id, position, reaction, saved FROM news_article_feedback ORDER BY position",
-  ).all() as FeedbackRow[]).map<InformationArticleFeedback>((row) => ({
+  ).all() as FeedbackRow[]).map<NewsArticleFeedback>((row) => ({
     itemId: row.item_id,
     reaction: row.reaction,
     saved: row.saved === 1,
@@ -352,7 +414,7 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
     list.push(row.item_id);
     runItemsByRun.set(row.run_id, list);
   }
-  const decisionsByRun = new Map<string, InformationDecision[]>();
+  const decisionsByRun = new Map<string, NewsScreeningDecision[]>();
   for (const row of database.prepare(
     "SELECT run_id, position, item_id, decision, reason FROM news_analysis_decisions ORDER BY position",
   ).all() as DecisionRow[]) {
@@ -362,26 +424,23 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
   }
   const runs = (database.prepare(
     "SELECT id, position, status, created_at, started_at, finished_at, kind, model_status, model_error, has_decisions, publications_json FROM news_analysis_runs ORDER BY position",
-  ).all() as RunRow[]).map<InformationRun>((row) => ({
+  ).all() as RunRow[]).map<NewsScreeningRun>((row) => ({
     id: row.id,
     itemIds: runItemsByRun.get(row.id) ?? [],
     status: row.status,
     createdAt: row.created_at,
     startedAt: row.started_at,
     ...(row.finished_at !== null ? { finishedAt: row.finished_at } : {}),
-    ...(row.kind !== null ? { kind: row.kind } : {}),
     ...(row.model_status !== null
       ? { model: { status: row.model_status, ...(row.model_error !== null ? { error: row.model_error } : {}) } }
       : {}),
     ...(row.has_decisions === 1 ? { decisions: decisionsByRun.get(row.id) ?? [] } : {}),
-    publications: parsePayload(row.publications_json, "run publications") as InformationRun["publications"],
+    publications: parsePayload(row.publications_json, "run publications") as NewsScreeningRun["publications"],
   }));
   const processing = {
-    schemaVersion: 1,
     settings: {
       enabled: stateRow.settings_enabled === 1,
       batchWindowSeconds: stateRow.settings_batch_window_seconds,
-      mode: stateRow.settings_mode,
     },
     preferences: {
       learnedNotes: stateRow.preferences_learned_notes,
@@ -389,9 +448,6 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
     items,
     runs,
     articleFeedback,
-    ...(stateRow.initial_analysis_completed === null
-      ? {}
-      : { initialAnalysisCompleted: stateRow.initial_analysis_completed === 1 }),
   };
   return parseNewsState({
     processing,
@@ -437,11 +493,9 @@ const projectStateRow = (state: NewsState) => ({
   schema_version: state.schemaVersion,
   settings_enabled: state.processing.settings.enabled ? 1 : 0,
   settings_batch_window_seconds: state.processing.settings.batchWindowSeconds,
-  settings_mode: state.processing.settings.mode,
+  settings_mode: "recommendations",
   preferences_learned_notes: state.processing.preferences.learnedNotes,
-  initial_analysis_completed: state.processing.initialAnalysisCompleted === undefined
-    ? null
-    : state.processing.initialAnalysisCompleted ? 1 : 0,
+  initial_analysis_completed: 0,
   last_refreshed_at: state.lastRefreshedAt,
   last_error: state.lastError,
 });
@@ -547,7 +601,6 @@ export const applyNewsState = (managed: ManagedSqliteDatabase, previous: NewsSta
       old.run.createdAt !== run.createdAt ||
       old.run.startedAt !== run.startedAt ||
       old.run.finishedAt !== run.finishedAt ||
-      old.run.kind !== run.kind ||
       (old.run.model?.status ?? null) !== (run.model?.status ?? null) ||
       (old.run.model?.error ?? null) !== (run.model?.error ?? null) ||
       (old.run.decisions === undefined ? 0 : 1) !== hasDecisions ||
@@ -555,7 +608,7 @@ export const applyNewsState = (managed: ManagedSqliteDatabase, previous: NewsSta
     if (runRowChanged) {
       database.prepare(
         "INSERT INTO news_analysis_runs (id, position, status, created_at, started_at, finished_at, kind, model_status, model_error, has_decisions, publications_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET position = excluded.position, status = excluded.status, created_at = excluded.created_at, started_at = excluded.started_at, finished_at = excluded.finished_at, kind = excluded.kind, model_status = excluded.model_status, model_error = excluded.model_error, has_decisions = excluded.has_decisions, publications_json = excluded.publications_json",
-      ).run(run.id, index, run.status, run.createdAt, run.startedAt, run.finishedAt ?? null, run.kind ?? null, run.model?.status ?? null, run.model?.error ?? null, hasDecisions, publicationsJson);
+      ).run(run.id, index, run.status, run.createdAt, run.startedAt, run.finishedAt ?? null, null, run.model?.status ?? null, run.model?.error ?? null, hasDecisions, publicationsJson);
     }
     if (!old || !deepEqual(old.run.itemIds, run.itemIds)) {
       for (let position = run.itemIds.length; position < (old?.run.itemIds.length ?? 0); position++) {

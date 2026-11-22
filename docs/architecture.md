@@ -78,9 +78,9 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 - **后台技能彻底剥离**：聊天 `SKILL.md` 与全局技能开关只服务聊天会话；所有领域 Agent 绝不注入主聊天技能、也不读取 `workspace/assistant/INSTRUCTIONS.md` 或全局 `memory.md`，只依赖各自领域的提示词、独立显式规则板与自学习画像。
 - **通知隔离与结构化引用**：重要后台通知携带显式 `domainId`（仅允许 `source === "notification"` 且存在 `notificationId`）写入 `main` 历史并发送失效通知，不额外启动一轮主聊天模型。`src/adapters/pi/domain-notification-context.ts` 默认将未被引用的领域通知卡片从主对话模型上下文剔除；用户通过移动端统一结构化格式 `【领域引用:<domainId>】...【引用结束】` 显式引用后，该卡片才进入当轮上下文。
 
-短信是一条全局信息管线，设置默认关闭，批量校验、幂等键、结构化精确覆盖、批量上限、全局执行槽与无自动重试边界保持不变。原始条目、模型决策、自学习画像（`preferences_learned_notes`）与投递事实存入 `main.sqlite` 的 `sms_*` 关系表；后台分析使用受限内存 pi 轮，只开放 `submit_information_result` 结构化提交工具，不接入技能或工作区工具。专题会话不接收通知，silent 或失败不制造通知；disable/reset/shutdown 取消未落盘投递，已落盘通知不回滚。
+短信是一条全局信息管线（`src/features/information/`），设置默认关闭，严格分离两条通道并共享同一套显式规则（`RULES.md`）、自学习敏感度画像（`preferences_learned_notes`）与主对话消息反馈闭环：1）日常实时单周期（`queue=realtime`）：接入后经 O(1) 索引查询到期或手动触发，单轮判定（`submit_information_result`）落库后直接推送主对话；2）历史批量归档（`queue=archive`）：通过 `/api/information/archive/*` 独立导入并显式运行，与实时调度彻底隔离，逐批演化 `learnedNotes`，清零后通过 `submit_information_briefing` 至多推送 1 条 <= 1200 字简报。原始条目、模型决策、自学习画像与投递事实存入 `main.sqlite` 的 5 张 `sms_*` 关系表；专题会话不接收通知，silent 或失败不制造通知；disable/reset/shutdown 取消未落盘投递，已落盘通知不回滚。
 
-新闻是全局 RSS 采集与推荐管线，源、文章、反馈、自学习画像（`preferences_learned_notes`）与推荐结果全部保存在独立的 `news.sqlite` 关系表中，彻底解耦 `workspace/assistant/INSTRUCTIONS.md`。与短信复用批处理引擎，但不共用数据 owner，新闻服务与数据库工具复用同一 SQLite 连接及操作队列。RSS 通过安全网络 adapter 抓取，严格 XML/大小/深度/条数校验，拒绝 DTD/实体和可执行 HTML。推荐不写聊天，删除源保留文章与反馈，模型学习摘要不覆盖用户显式规则。
+新闻是完全独立的全局 RSS 采集与推荐筛选管线（`src/features/news/service.ts` 与 `src/features/news/screening.ts`），源、文章、反馈、自学习画像（`preferences_learned_notes`）与推荐结果全部保存在独立的 `news.sqlite` 关系表中，彻底解耦短信管线与 `workspace/assistant/INSTRUCTIONS.md`；调度同样通过 O(1) SQL `hasPendingArticle()` 触发受限单轮模型。新闻服务与数据库工具复用同一 SQLite 连接及操作队列。RSS 通过安全网络 adapter 抓取，严格 XML/大小/深度/条数校验，拒绝 DTD/实体和可执行 HTML。推荐不写聊天，删除源保留文章与反馈，模型学习摘要不覆盖用户显式规则。
 
 Dream 是实例全局服务：配置提示词在 state/assistant/DREAM.md，游标按来源会话在全局状态文档保存，待决项全局管理。整理用受限内存 pi 轮；条件写入核对读取版本，不覆盖用户并发编辑；失败/部分成功不推进对应游标。来源已删除时不得借待决项重建会话。周期固定两小时，忙会话跳过，不自动重跑失败模型轮。
 

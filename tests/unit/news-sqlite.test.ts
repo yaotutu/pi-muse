@@ -9,11 +9,11 @@ import {
 import { ensureNewsSchema, parseNewsState } from "../../src/adapters/storage/news-schema.js";
 import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
 import { defaultNewsState } from "../../src/features/news/types.js";
-import type { InformationItem } from "../../src/features/information/types.js";
+import type { NewsArticleItem } from "../../src/features/news/types.js";
 
 const TIMESTAMP = "2026-11-01T08:00:00.000Z";
 
-const article = (id: string, overrides: Partial<InformationItem> = {}): InformationItem => ({
+const article = (id: string, overrides: Partial<NewsArticleItem> = {}): NewsArticleItem => ({
   id,
   source: "newssource_kept",
   externalId: `ext-${id}`,
@@ -29,8 +29,7 @@ const article = (id: string, overrides: Partial<InformationItem> = {}): Informat
 /** 覆盖被删源文章、取消反馈、相同时间 run 顺序、重跑批次与投递 payload 的合成旧文档。 */
 const legacyDocument = () => ({
   processing: {
-    schemaVersion: 1,
-    settings: { enabled: true, batchWindowSeconds: 0, mode: "recommendations" },
+    settings: { enabled: true, batchWindowSeconds: 0 },
     preferences: { learnedNotes: "values releases" },
     items: [
       article("info_kept_1", { runId: "inforun_1" }),
@@ -48,7 +47,6 @@ const legacyDocument = () => ({
         createdAt: TIMESTAMP,
         startedAt: TIMESTAMP,
         finishedAt: TIMESTAMP,
-        kind: "incremental",
         model: { status: "succeeded" },
         decisions: [
           { itemId: "info_kept_1", decision: "notify", reason: "substantive" },
@@ -63,12 +61,8 @@ const legacyDocument = () => ({
         createdAt: TIMESTAMP,
         startedAt: TIMESTAMP,
         finishedAt: TIMESTAMP,
-        kind: "incremental",
         model: { status: "failed", error: "model down" },
-        publications: [
-          { notificationId: "n1", itemIds: ["info_kept_1"], text: "digest", status: "published", receipt: { notificationId: "n1", piSessionId: "pi_1", messageId: "msg_1" } },
-          { notificationId: "n2", itemIds: ["info_gone_1"], text: "digest2", status: "failed", error: "delivery failed" },
-        ],
+        publications: [],
       },
     ],
     articleFeedback: [
@@ -80,7 +74,6 @@ const legacyDocument = () => ({
         comments: [{ id: "comment_1", text: "useful context", createdAt: TIMESTAMP, updatedAt: TIMESTAMP }],
       },
     ],
-    initialAnalysisCompleted: true,
   },
   schemaVersion: 1,
   sources: [

@@ -83,7 +83,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const result = await runNow();
     assert.equal(result.run.status, "completed");
     assert.equal(result.run.model?.status, "succeeded");
-    assert.equal(result.run.kind, "initial_summary");
+    assert.equal(result.run.kind, "realtime");
     assert.equal(result.run.decisions?.find((d) => d.itemId === accepted.items[0].id)?.decision, "notify");
     assert.equal(result.run.decisions?.find((d) => d.itemId === accepted.items[1].id)?.decision, "silent");
     const publication = result.run.publications[0];
@@ -106,7 +106,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const feedbackBaseline = proxy.traces.length;
     const silent = await runNow();
     assert.equal(silent.run.status, "completed");
-    assert.equal(silent.run.kind, "incremental");
+    assert.equal(silent.run.kind, "realtime");
     assert.deepEqual(silent.run.publications, []);
     assert.equal((await client.history("main")).revision, mainAfter.revision);
     assert.ok(proxy.traces.slice(feedbackBaseline).some((trace) => trace.users.some((text) => text.includes("LIVE-FEEDBACK-CURRENT"))));
@@ -141,7 +141,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     for (const boundary of ["disable", "reset"] as const) {
       current = `queued-publication-${boundary}`;
       await client.json("/api/information/settings", { enabled: true, batchWindowSeconds: 3600 }, "PUT");
-      const busy = await client.startRun("这是隔离验收。请只调用一次write，path=hold.txt，content=LIVE-APPROVAL-HOLD；等待人工决定，不要另写文件，不自动重试。", "main");
+      const busy = await client.startRun(`这是隔离验收。请只调用一次write，path=hold-${boundary}.txt，content=LIVE-APPROVAL-HOLD；等待人工决定，不要另写文件，不自动重试。`, "main");
       await waitForTest(async () => (await client.pending()).find((a) => a.runId === busy.runId), "real main write approval", 180_000);
       await ingest(`queue-${boundary}`, "LIVE-NOTIFY synthetic queued result");
       const publishing = runNow();
@@ -164,6 +164,33 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       pass(current);
     }
 
+    current = "archive-import-and-briefing";
+    await client.json("/api/information/archive/items", {
+      items: [
+        { source: "synthetic", externalId: "arch-1", content: "LIVE-NOTIFY parcel pickup code 8899 at locker A" },
+        { source: "synthetic", externalId: "arch-2", content: "LIVE-SILENT holiday shopping discount 50% off" },
+      ],
+    });
+    const archiveRun = await client.json("/api/information/archive/run", {}) as {
+      status: string;
+      runsCount: number;
+      processedCount: number;
+      failedCount: number;
+      remainingPendingCount: number;
+      briefingPublished: boolean;
+    };
+    assert.equal(archiveRun.status, "completed");
+    assert.equal(archiveRun.processedCount, 2);
+    assert.equal(archiveRun.failedCount, 0);
+    assert.equal(archiveRun.remainingPendingCount, 0);
+    assert.equal(archiveRun.briefingPublished, true);
+    const liveStatus = await client.json("/api/information/status") as {
+      archive: { pendingCount: number; processedCount: number; failedCount: number };
+    };
+    assert.equal(liveStatus.archive.processedCount, 2);
+    assert.equal(liveStatus.archive.pendingCount, 0);
+    pass(current);
+
     current = "restart-and-global-lifecycle";
     await client.json("/api/information/settings", { enabled: true, batchWindowSeconds: 3600 }, "PUT");
     await ingest("restart-pending", "LIVE-SILENT pending state must persist without replay");
@@ -179,9 +206,10 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.equal(((await client.json("/api/information/preferences")) as { notes: string }).notes, rules);
     assert.deepEqual(await client.history(topic.id), { sessionId: topic.id, piSessionId: null, messages: [], revision: "empty" });
     pass(current);
-  } catch {
+  } catch (error) {
     evidence.push({ name: current, passed: false });
-    process.stderr.write(`[FAIL] ${current}: tool/state evidence failed; no automatic retry.\n`);
+    const reason = redactApiKey(error instanceof Error ? error.message : String(error), model.apiKey);
+    process.stderr.write(`[FAIL] ${current}: ${reason}\n`);
     process.exitCode = 1;
   } finally {
     try { await stop(); } finally { await proxy?.close(); }

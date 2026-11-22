@@ -16,6 +16,7 @@ test("global preferences save main rules before retaining main for feedback", as
       return changed.result;
     },
 
+    nextRealtimeDue: async () => false,
     reconcileOnStart: async () => undefined,
     validateAll: async () => undefined,
   };
@@ -31,7 +32,7 @@ test("global preferences save main rules before retaining main for feedback", as
       return {
         conversation: {
           piSessionId: () => "session-1",
-          notify: async (_text, id) => ({ piSessionId: "session-1", messageId: id }),
+          notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }),
         },
         release: () => order.push("release"),
       };
@@ -73,6 +74,7 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
       return changed.result;
     },
 
+    nextRealtimeDue: async () => false,
     reconcileOnStart: async () => undefined,
     validateAll: async () => undefined,
   };
@@ -90,7 +92,7 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
       return {
         conversation: {
           piSessionId: () => "session-1",
-          notify: async (_text, id) => ({ piSessionId: "session-1", messageId: id }),
+          notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }),
         },
         release: () => { retainReleased = true; },
       };

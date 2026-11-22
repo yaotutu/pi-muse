@@ -1,6 +1,5 @@
 import { Hono, type Context } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
-import { InformationError } from "../../features/information/errors.js";
 import { NewsError, NewsSourceError } from "../../features/news/errors.js";
 import {
   newsArticlesQuerySchema,
@@ -36,13 +35,6 @@ const failure = (error: unknown) => {
       code: error.code,
       ...(error instanceof NewsSourceError ? { failure: error.failure } : {}),
     } } as const;
-  }
-  if (error instanceof InformationError) {
-    const status = error.code === "INVALID_INPUT" ? 400
-      : error.code === "NOT_FOUND" ? 404
-      : error.code === "SHUTDOWN" ? 503
-      : 409;
-    return { status, body: { error: error.message, code: error.code } } as const;
   }
   return undefined;
 };

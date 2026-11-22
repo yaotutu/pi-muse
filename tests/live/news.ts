@@ -14,8 +14,8 @@ import {
   newsStatusResponseSchema,
 } from "../../src/http/contracts/news.js";
 
-const FIRST_FEED = "https://hnrss.org/frontpage?count=3";
-// 第二源使用已实测可解析的另一公开 RSS2，避免 HNRSS Ask 的 HTTP 502 阻断后续存储验收。
+// HNRSS 近期频繁返回 HTTP 502，改用实测稳定的公开 RSS2 源作为第一源。
+const FIRST_FEED = "https://sspai.com/feed";
 const SECOND_FEED = "https://www.solidot.org/index.rss";
 const ACCESS_KEY = "news-live-access";
 const SUBMIT_TOOL = "submit_information_result";

@@ -1192,6 +1192,8 @@ test("docs: information endpoints expose a bounded authenticated agent-scoped AP
     .map(([path, operations]) => [path, Object.keys(operations).sort()] as const)
     .sort(([left], [right]) => left.localeCompare(right));
   assert.deepEqual(informationPaths, [
+    ["/api/information/archive/items", ["post"]],
+    ["/api/information/archive/run", ["post"]],
     ["/api/information/items", ["get", "post"]],
     ["/api/information/items/{itemId}", ["get"]],
     ["/api/information/preferences", ["get", "put"]],
@@ -1208,15 +1210,16 @@ test("docs: information endpoints expose a bounded authenticated agent-scoped AP
     }
   }
 
-  assert.match(paths["/api/information/items"]!.post!.description ?? "", /最多 500 条/);
+  assert.match(paths["/api/information/items"]!.post!.description ?? "", /最多|1–100/);
   assert.match(paths["/api/information/items"]!.post!.description ?? "", /同内容幂等回读/);
   assert.match(paths["/api/information/items"]!.post!.description ?? "", /不同内容返回 409/);
-  assert.match(paths["/api/information/runs"]!.post!.description ?? "", /409 BUSY/);
-  assert.match(paths["/api/information/runs"]!.post!.description ?? "", /不自动重试/);
-  assert.match(paths["/api/information/runs"]!.post!.description ?? "", /发布失败与模型失败分开/);
-  assert.match(paths["/api/information/runs"]!.get!.description ?? "", /notificationId\/piSessionId\/messageId/);
-  assert.match(paths["/api/information/preferences"]!.get!.description ?? "", /当前投影/);
-  assert.match(paths["/api/information/settings"]!.put!.description ?? "", /取消该会话在途信息轮/);
+  assert.match(paths["/api/information/archive/items"]!.post!.description ?? "", /queue=archive/);
+  assert.match(paths["/api/information/archive/run"]!.post!.description ?? "", /1200 字简报/);
+  assert.match(paths["/api/information/runs"]!.post!.description ?? "", /409 BUSY|BUSY 返回 409/);
+  assert.match(paths["/api/information/runs"]!.post!.description ?? "", /queue=realtime/);
+  assert.match(paths["/api/information/runs"]!.get!.description ?? "", /通知投递回执/);
+  assert.match(paths["/api/information/preferences"]!.get!.description ?? "", /learnedNotes/);
+  assert.match(paths["/api/information/settings"]!.put!.description ?? "", /取消在途轮/);
 });
 
 test("docs: browser desktop gateway endpoints document status, ticket and redirect contracts", () => {

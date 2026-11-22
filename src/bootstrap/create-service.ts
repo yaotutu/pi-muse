@@ -3,7 +3,6 @@ import { createCompanionService } from "../features/companions/service.js";
 import { createCompanionStore } from "../adapters/storage/companions-store.js";
 import { createSessionRepository, createSessionStorage, initializeMainSession } from "../adapters/storage/session-repository.js";
 import { createSessionService } from "../features/sessions/service.js";
-import { createNewsProcessingRepository } from "../adapters/storage/news-processing-repository.js";
 import { join } from "node:path";
 import { readdir, stat } from "node:fs/promises";
 import { createAuth } from "../adapters/auth/token-service.js";
@@ -34,6 +33,7 @@ import { createInformationScheduler } from "../features/information/scheduler.js
 import {
   createInformationBriefingRunner,
   createInformationRunner,
+  createNewsScreeningRunner,
 } from "../adapters/pi/information-runner.js";
 import {
   createDomainAgentRegistry,
@@ -47,6 +47,10 @@ import { createDatabaseToolStore } from "../adapters/storage/database-tool-store
 import { createDatabaseService } from "../features/database/database-service.js";
 import { fetchRss2 } from "../adapters/news/rss.js";
 import { createNewsService } from "../features/news/service.js";
+import {
+  createNewsScreeningScheduler,
+  createNewsScreeningService,
+} from "../features/news/screening.js";
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout, ensureLayout, initializeWorkspaceDocuments, sessionHistoryDir } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
@@ -332,19 +336,18 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     return Promise.allSettled(pending);
   };
   // 新闻领域读取自己的规则文件和学习画像。
-  const newsProcessingRepository = createNewsProcessingRepository(newsRepository);
-  const newsProcessing = createInformationService({
-    ...informationDeps,
-    domainId: "news",
+  const newsScreening = createNewsScreeningService({
+    observeWork: workspaceEvents.presence.observe,
+    repository: newsRepository,
     rules: domainRules(layout.newsRulesFile),
-    repository: newsProcessingRepository,
+    runModel: createNewsScreeningRunner({ config, layout, modelRuntime }),
   });
   const informationScheduler = createInformationScheduler(information);
-  const newsProcessingScheduler = createInformationScheduler(newsProcessing);
+  const newsScreeningScheduler = createNewsScreeningScheduler(newsScreening);
   const news = createNewsService({
     observeWork: workspaceEvents.presence.observe,
     repository: newsRepository,
-    information: newsProcessing,
+    screening: newsScreening,
     fetchFeed: (url, signal) => fetchRss2(url, config.web, signal),
   });
   domainAgents = createDomainAgentRegistry({
@@ -394,9 +397,9 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
             return news.getArticle(input.itemId ?? "");
           }
           if (input.action === "runs") {
-            return newsProcessing.listRuns({ status: input.status, limit: input.limit, cursor: input.cursor });
+            return newsScreening.listRuns({ status: input.status, limit: input.limit, cursor: input.cursor });
           }
-          return newsProcessing.getRun(input.runId ?? "");
+          return newsScreening.getRun(input.runId ?? "");
         },
       },
     ],
@@ -404,11 +407,11 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
 
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
   try {
-    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate(), newsProcessingRepository.reconcileOnStart()]);
+    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate(), newsRepository.reconcileOnStart?.()]);
     await actions.cancelPending();
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
-    await Promise.allSettled([information?.close(), newsProcessing.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
+    await Promise.allSettled([information?.close(), newsScreening.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
     await closeDatabases();
     throw error;
   }
@@ -418,7 +421,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     await news.initialize();
   } catch (error) {
     await news.close();
-    await Promise.allSettled([information?.close(), newsProcessing.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
+    await Promise.allSettled([information?.close(), newsScreening.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
     await closeDatabases();
     throw error;
   }
@@ -500,7 +503,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     clearInterval(approvalTimer);
     // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
     workspaceEvents.close();
-    const stopped = [androidUpdates.close(), scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), newsProcessing.close(), newsProcessingScheduler.close(), conversationHub.closeAll()];
+    const stopped = [androidUpdates.close(), scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), newsScreening.close(), newsScreeningScheduler.close(), conversationHub.closeAll()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
@@ -528,7 +531,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     monitorScheduler.start();
     dreamScheduler.start();
     informationScheduler.start();
-    newsProcessingScheduler.start();
+    newsScreeningScheduler.start();
     news.start();
     return { ...dependencies, app, close };
   } catch (error) {

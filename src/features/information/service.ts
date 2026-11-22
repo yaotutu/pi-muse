@@ -1,61 +1,158 @@
 import { randomUUID } from "node:crypto";
+import { isWorkspaceText } from "../../shared/workspace-text.js";
 import { projectFeedback } from "../messages/service.js";
 import type { MessageFeedbackRepository } from "../messages/types.js";
 import { InformationError } from "./errors.js";
-import type { ObserveWork } from "../workspace/session-presence.js";
-import { INITIAL_BRIEFING_MAX_LENGTH, parseInformationResult } from "./result.js";
+import {
+  ARCHIVE_BRIEFING_MAX_LENGTH,
+  parseInformationBriefingResult,
+  parseInformationResult,
+} from "./result.js";
 import type {
-  InformationBriefingCandidate,
+  InformationArchiveCandidate,
+  InformationArchiveRunResult,
   InformationBriefingInput,
-  InformationBriefingResult,
-  InformationBriefingUpdate,
-  InformationDecision,
+  InformationBriefingOutcome,
   InformationFeedbackExample,
   InformationInputItem,
   InformationItem,
   InformationItemStatus,
   InformationModelInput,
+  InformationModelOutcome,
   InformationModelResult,
-  InformationPreferences,
+  InformationPreferencesView,
+  InformationPublication,
+  InformationPublicationReceipt,
+  InformationQueue,
   InformationRepository,
   InformationRun,
+  InformationRunKind,
+  InformationRunStatus,
   InformationSettings,
   InformationState,
+  InformationStatus,
 } from "./types.js";
 
 export const MAX_INFORMATION_ITEMS_PER_BATCH = 20;
-export const MAX_INITIAL_INFORMATION_ITEMS_PER_BATCH = 30;
+export const MAX_ARCHIVE_ITEMS_PER_BATCH = 25;
 export const MAX_INFORMATION_BATCH_CHARS = 60_000;
-const BULK_IMPORT_HOLD_MS = 60_000;
+
 const MAX_BRIEFING_CANDIDATES = 80;
-const MAX_BRIEFING_UPDATES = 20;
 const MAX_FEEDBACK_EXAMPLES = 10;
 const MAX_FEEDBACK_ITEMS = 20;
 const MAX_FEEDBACK_COMMENTS = 5;
 const FEEDBACK_TEXT_LENGTH = 1000;
 const FEEDBACK_CONTENT_LENGTH = 2000;
-const ITEM_STATUSES = new Set<InformationItemStatus>(["pending", "processing", "processed", "failed"]);
-const RUN_STATUSES = new Set<InformationRun["status"]>(["running", "completed", "failed", "cancelled"]);
+const PREFERENCES_NOTES_MAX_LENGTH = 20_000;
+const CONTENT_EXCERPT_MAX = 400;
 
-type ActiveSlot = {
-  controller: AbortController;
-  done: Promise<void>;
-  release: () => void;
+const SOURCE_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,127}$/;
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+const validId = (raw: string, label: string): string => {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!ID_PATTERN.test(value)) {
+    throw new InformationError("INVALID_INPUT", `${label} must match [A-Za-z0-9][A-Za-z0-9_-]{0,127}`);
+  }
+  return value;
 };
 
-type PipelinePause = {
-  stopped: Promise<void>;
-  resume: () => void;
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+type Cursor = {
+  id: string;
+  at: string;
+  status?: string;
+  scope?: string;
 };
 
-type Cursor = { id: string; at: string; status?: string };
-type NewsCursor = { publishedAt: string; id: string; view: "recommended" | "all"; savedOnly: boolean };
+const encodeCursor = (value: Cursor) =>
+  Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
 
-export type InformationServiceDependencies = {
-  observeWork?: ObserveWork;
+const decodeCursor = (value: string): Cursor | undefined => {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as unknown;
+    if (!isPlainRecord(parsed) || typeof parsed.id !== "string" || typeof parsed.at !== "string") {
+      return undefined;
+    }
+    return {
+      id: parsed.id,
+      at: parsed.at,
+      ...(typeof parsed.status === "string" ? { status: parsed.status } : {}),
+      ...(typeof parsed.scope === "string" ? { scope: parsed.scope } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+};
+
+const sanitizeError = (error: unknown): string => {
+  const raw = error instanceof Error ? error.message : String(error ?? "Unknown error");
+  return raw.replace(/\s+/g, " ").trim().slice(0, 300) || "Information processing failed";
+};
+
+const clipText = (text: string, maxLength: number) =>
+  text.length > maxLength ? { text: text.slice(0, maxLength), truncated: true } : { text, truncated: false };
+
+const normalizeNotes = (notes: string): string => {
+  if (typeof notes !== "string" || !isWorkspaceText(notes)) {
+    throw new InformationError("INVALID_INPUT", "Invalid preferences notes");
+  }
+  if (notes.length > PREFERENCES_NOTES_MAX_LENGTH) {
+    throw new InformationError(
+      "INVALID_INPUT",
+      `Preferences notes must be at most ${PREFERENCES_NOTES_MAX_LENGTH} characters`,
+    );
+  }
+  return notes;
+};
+
+const validateInputItem = (input: InformationInputItem): void => {
+  if (typeof input.source !== "string" || !SOURCE_PATTERN.test(input.source)) {
+    throw new InformationError("INVALID_INPUT", "source must be an ASCII identifier");
+  }
+  if (
+    typeof input.externalId !== "string" ||
+    !input.externalId.trim() ||
+    input.externalId.trim().length > 256 ||
+    !isWorkspaceText(input.externalId)
+  ) {
+    throw new InformationError("INVALID_INPUT", "Invalid externalId");
+  }
+  if (
+    typeof input.content !== "string" ||
+    !input.content.trim() ||
+    input.content.length > 20_000 ||
+    !isWorkspaceText(input.content)
+  ) {
+    throw new InformationError("INVALID_INPUT", "Invalid item content");
+  }
+  if (input.title !== undefined) {
+    if (
+      typeof input.title !== "string" ||
+      !input.title.trim() ||
+      input.title.length > 500 ||
+      !isWorkspaceText(input.title)
+    ) {
+      throw new InformationError("INVALID_INPUT", "Invalid item title");
+    }
+  }
+  if (input.receivedAt !== undefined) {
+    const parsedTime = Date.parse(input.receivedAt);
+    if (typeof input.receivedAt !== "string" || Number.isNaN(parsedTime)) {
+      throw new InformationError("INVALID_INPUT", "Invalid item receivedAt");
+    }
+  }
+};
+
+export type CreateInformationServiceDeps = {
   domainId?: string;
   repository: InformationRepository;
-  rules: { read: () => Promise<string>; write: (text: string) => Promise<void> };
+  rules: {
+    read: () => Promise<string>;
+    write: (content: string) => Promise<void>;
+  };
   retainMain: () => Promise<{
     conversation: {
       piSessionId: () => string;
@@ -63,187 +160,78 @@ export type InformationServiceDependencies = {
         text: string,
         id: string,
         options?: { signal?: AbortSignal; domainId?: string },
-      ) => Promise<{ piSessionId: string; messageId: string }>;
+      ) => Promise<InformationPublicationReceipt>;
     };
     release: () => void;
   } | undefined>;
   feedback: MessageFeedbackRepository;
-  runModel: (input: InformationModelInput, signal: AbortSignal) => Promise<InformationModelResult>;
-  synthesizeBriefing?: (input: InformationBriefingInput, signal: AbortSignal) => Promise<InformationBriefingResult>;
+  runModel: (input: InformationModelInput, signal: AbortSignal) => Promise<InformationModelOutcome>;
+  synthesizeBriefing?: (input: InformationBriefingInput, signal: AbortSignal) => Promise<InformationBriefingOutcome>;
+  observeWork?: (
+    sessionId: string,
+    key: string,
+    label: string,
+  ) => ((outcome: "succeeded" | "failed", silent?: boolean) => void) | undefined;
 };
 
-const now = () => new Date().toISOString();
-const keyOf = (source: string, externalId: string) => `${source}\0${externalId}`;
-const sortedItems = (items: readonly InformationItem[]) =>
-  [...items].sort((a, b) => b.acceptedAt.localeCompare(a.acceptedAt) || b.id.localeCompare(a.id));
-const sortedRuns = (runs: readonly InformationRun[]) =>
-  [...runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
-const encodeCursor = (value: Cursor) => Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
-const decodeCursor = (value: string): Cursor | undefined => {
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64").toString("utf8")) as Partial<Cursor>;
-    if (typeof parsed.id !== "string" || typeof parsed.at !== "string") return undefined;
-    if (parsed.status !== undefined && typeof parsed.status !== "string") return undefined;
-    return { id: parsed.id, at: parsed.at, ...(parsed.status === undefined ? {} : { status: parsed.status }) };
-  } catch {
-    return undefined;
-  }
-};
-const decodeNewsCursor = (value: string): NewsCursor | undefined => {
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<NewsCursor>;
-    if (typeof parsed.publishedAt !== "string" || typeof parsed.id !== "string") return undefined;
-    if (parsed.view !== "recommended" && parsed.view !== "all") return undefined;
-    if (typeof parsed.savedOnly !== "boolean") return undefined;
-    return { publishedAt: parsed.publishedAt, id: parsed.id, view: parsed.view, savedOnly: parsed.savedOnly };
-  } catch {
-    return undefined;
-  }
-};
-const validId = (value: string | undefined, label: string): string => {
-  if (!value || value.length > 128 || !/^[A-Za-z0-9_-]+$/.test(value)) {
-    throw new InformationError("INVALID_INPUT", `Invalid information ${label}`);
-  }
-  return value;
-};
-const sameNewInput = (left: InformationInputItem, right: InformationInputItem) =>
-  left.content === right.content &&
-  (left.title ?? null) === (right.title ?? null) &&
-  (left.receivedAt ?? null) === (right.receivedAt ?? null) &&
-  (left.metadata?.sourceId ?? null) === (right.metadata?.sourceId ?? null) &&
-  (left.metadata?.sourceTitle ?? null) === (right.metadata?.sourceTitle ?? null) &&
-  (left.metadata?.url ?? null) === (right.metadata?.url ?? null);
-const matchesStoredInput = (stored: InformationItem, input: InformationInputItem) =>
-  stored.content === input.content &&
-  (stored.title ?? null) === (input.title ?? null) &&
-  (input.receivedAt === undefined || input.receivedAt === stored.receivedAt) &&
-  (stored.metadata?.sourceId ?? null) === (input.metadata?.sourceId ?? null) &&
-  (stored.metadata?.sourceTitle ?? null) === (input.metadata?.sourceTitle ?? null) &&
-  (stored.metadata?.url ?? null) === (input.metadata?.url ?? null);
-
-/** 信息域服务：持久化输入与执行事实，但执行轮本身完全交给 pi SDK runner。 */
-export const createInformationService = (deps: InformationServiceDependencies) => {
-  let active: ActiveSlot | undefined;
+/**
+ * 短信/信息后台领域服务（Clean Break 版）。
+ *
+ * 严格分离两条路径，且共享用户规则（RULES.md）、自学习敏感度画像（learnedNotes）与主对话反馈闭环：
+ * 1. 日常实时单周期（queue = "realtime"）：接入 -> 到期/触发 -> 取批 + 画像/规则/反馈 ->
+ *    一次受限模型判定 -> 落库 decisions/learnedNotes/pending publications -> 投递主对话。
+ * 2. 历史批量归档（queue = "archive"）：独立入口导入，不触发实时调度；逐批演化 learnedNotes，
+ *    当归档队列全部清零（pending === 0 && failed === 0）时最多生成 1 条 <=1200 字简报发主对话。
+ */
+export const createInformationService = (deps: CreateInformationServiceDeps) => {
+  const domainId = deps.domainId ?? "sms";
   let closed = false;
-  let closing: Promise<void> | undefined;
-  let pauses = 0;
-  let bulkImportHoldUntil = 0;
+  let pauseDepth = 0;
+  let activeRunPromise: Promise<unknown> | undefined;
+  let activeArchiveLoop: Promise<void> | undefined;
+  let activeController: AbortController | undefined;
 
-  // 全局执行槽必须在第一个 await 前同步占住，手动/自动争用不会重复 claim。
-  const reserveSlot = (): ActiveSlot => {
-    if (closed) throw new InformationError("SHUTDOWN", "Information processing is closing");
-    if (active) throw new InformationError("BUSY", "Another information run is active");
-    const controller = new AbortController();
-    let release!: () => void;
-    const done = new Promise<void>((resolve) => { release = resolve; });
-    const slot: ActiveSlot = {
-      controller,
-      done,
-      release: () => {
-        if (active === slot) active = undefined;
-        release();
-      },
-    };
-    active = slot;
-    return slot;
-  };
-  const requireOpen = () => {
-    if (closed) throw new InformationError("SHUTDOWN", "Information processing is closing");
-  };
-  const isPaused = () => pauses > 0;
-  const page = <T extends { id: string }>(
-    values: readonly T[],
-    cursorAt: (value: T) => string,
-    limit: number,
-    cursor?: string,
-    scope?: string,
-  ) => {
-    let after: Cursor | undefined;
-    if (cursor) {
-      after = decodeCursor(cursor);
-      if (!after || after.status !== scope) {
-        throw new InformationError("INVALID_INPUT", "Invalid information cursor");
-      }
-    }
-    const filtered = after
-      ? values.filter((value) => {
-        const at = cursorAt(value);
-        return at < after!.at || (at === after!.at && value.id < after!.id);
-      })
-      : [...values];
-    const selected = filtered.slice(0, limit);
-    // 游标指向本页最后一条已返回记录，避免用未返回项造成下一页跳过。
-    const last = selected.at(-1);
-    return {
-      values: selected,
-      nextCursor: selected.length === limit && last
-        ? encodeCursor({ id: last.id, at: cursorAt(last), ...(scope ? { status: scope } : {}) })
-        : undefined,
-    };
-  };
-
-  const getSettings = async () => {
-    const settings = (await deps.repository.read()).settings;
-    return { enabled: settings.enabled, batchWindowSeconds: settings.batchWindowSeconds };
-  };
-  const saveSettings = async (
-    settings: Pick<InformationSettings, "enabled" | "batchWindowSeconds">,
-  ) => {
-    requireOpen();
-    return deps.repository.update((state) => ({
-      state: {
-        ...state,
-        settings: {
-          ...state.settings,
-          enabled: settings.enabled,
-          batchWindowSeconds: settings.batchWindowSeconds,
-        },
-      },
-      result: { enabled: settings.enabled, batchWindowSeconds: settings.batchWindowSeconds },
-    }), { allowCreate: true });
-  };
-
-  const configure = async (settings: InformationSettings) => {
-    requireOpen();
-    return deps.repository.update((state) => ({
-      state: { ...state, settings },
-      result: settings,
-    }), { allowCreate: true });
+  const isPaused = () => pauseDepth > 0;
+  const ensureOpen = () => {
+    if (closed) throw new InformationError("SHUTDOWN", "Information service is closing");
   };
 
   const feedbackExamples = async (
     state: InformationState,
     piSessionId: string,
   ): Promise<InformationFeedbackExample[]> => {
-    const candidates = sortedRuns(state.runs).flatMap((run) =>
-      run.publications
-        .filter((publication) => publication.status === "published" && publication.receipt?.piSessionId === piSessionId)
-        .map((publication) => ({ run, publication })),
-    );
+    const candidates = [...state.runs]
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id))
+      .flatMap((run) =>
+        run.publications
+          .filter((pub) => pub.status === "published" && pub.receipt?.piSessionId === piSessionId)
+          .map((pub) => ({ run, pub })),
+      );
     if (!candidates.length) return [];
-    // 反馈文件缺失是合法空反馈；损坏/I/O 失败必须暴露，不能伪装成无偏好。
     const document = await deps.feedback.read("main", piSessionId);
+    const itemById = new Map(state.items.map((item) => [item.id, item]));
     const examples: InformationFeedbackExample[] = [];
-    for (const { run, publication } of candidates) {
-      const feedback = projectFeedback(document, publication.receipt!.messageId);
+
+    for (const { run, pub } of candidates) {
+      const feedback = projectFeedback(document, pub.receipt!.messageId);
       if (!feedback.reaction && !feedback.comments.length) continue;
       const comments = feedback.comments.slice(0, MAX_FEEDBACK_COMMENTS);
-      const itemById = new Map(state.items.map((item) => [item.id, item]));
       examples.push({
         runId: run.id,
-        notificationId: publication.notificationId,
-        text: publication.text.slice(0, FEEDBACK_TEXT_LENGTH),
+        notificationId: pub.notificationId,
+        text: clipText(pub.text, FEEDBACK_TEXT_LENGTH).text,
         reaction: feedback.reaction,
-        comments: comments.map((comment) => comment.text.slice(0, FEEDBACK_TEXT_LENGTH)),
-        commentsTruncated: feedback.comments.length > MAX_FEEDBACK_COMMENTS ||
+        comments: comments.map((comment) => clipText(comment.text, FEEDBACK_TEXT_LENGTH).text),
+        commentsTruncated:
+          feedback.comments.length > MAX_FEEDBACK_COMMENTS ||
           feedback.comments.some((comment) => comment.text.length > FEEDBACK_TEXT_LENGTH),
-        items: publication.itemIds.slice(0, MAX_FEEDBACK_ITEMS).map((itemId) => {
+        items: pub.itemIds.slice(0, MAX_FEEDBACK_ITEMS).map((itemId) => {
           const item = itemById.get(itemId);
           return {
             id: itemId,
             source: item?.source ?? "unknown",
-            ...(item?.title ? { title: item.title.slice(0, FEEDBACK_TEXT_LENGTH) } : {}),
-            content: (item?.content ?? "").slice(0, FEEDBACK_CONTENT_LENGTH),
+            ...(item?.title ? { title: clipText(item.title, FEEDBACK_TEXT_LENGTH).text } : {}),
+            content: clipText(item?.content ?? "", FEEDBACK_CONTENT_LENGTH).text,
             contentTruncated: (item?.content.length ?? 0) > FEEDBACK_CONTENT_LENGTH,
           };
         }),
@@ -253,1133 +241,1004 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     return examples;
   };
 
-  const articleFeedbackExamples = (state: InformationState) => {
-    const itemById = new Map(state.items.map((item) => [item.id, item]));
-    return state.articleFeedback
-      .filter((feedback) => feedback.reaction !== null || feedback.saved || feedback.comments.length > 0)
-      .slice(-20)
-      .reverse()
-      .flatMap((feedback) => {
-        const item = itemById.get(feedback.itemId);
-        if (!item) return [];
-        return [{
-          id: item.id,
-          ...(item.title ? { title: item.title.slice(0, FEEDBACK_TEXT_LENGTH) } : {}),
-          content: item.content.slice(0, FEEDBACK_CONTENT_LENGTH),
-          contentTruncated: item.content.length > FEEDBACK_CONTENT_LENGTH,
-          reaction: feedback.reaction,
-          saved: feedback.saved,
-          comments: feedback.comments.slice(-MAX_FEEDBACK_COMMENTS).map((comment) =>
-            comment.text.slice(0, FEEDBACK_TEXT_LENGTH)),
-        }];
-      });
-  };
-  const getPreferences = async () => {
-    const state = await deps.repository.read();
+  const loadPromptContext = async (state: InformationState): Promise<{
+    rulesNotes: string;
+    learnedNotes: string;
+    feedbackExamples: InformationFeedbackExample[];
+  }> => {
+    const [rulesNotes, retained] = await Promise.all([deps.rules.read(), deps.retainMain()]);
     const learnedNotes = state.preferences.learnedNotes;
-    const notes = await deps.rules.read();
-    if (state.settings.mode === "recommendations") {
-      return { notes, learnedNotes, feedbackExamples: [] };
+    if (!retained) {
+      return { rulesNotes, learnedNotes, feedbackExamples: [] };
     }
+    try {
+      const examples = await feedbackExamples(state, retained.conversation.piSessionId());
+      return { rulesNotes, learnedNotes, feedbackExamples: examples };
+    } finally {
+      retained.release();
+    }
+  };
+
+  const getSettings = async (): Promise<InformationSettings> => {
+    const { settings } = await deps.repository.read();
+    return { enabled: settings.enabled, batchWindowSeconds: settings.batchWindowSeconds };
+  };
+
+  const saveSettings = async (settings: InformationSettings): Promise<InformationSettings> => {
+    ensureOpen();
+    if (
+      typeof settings.enabled !== "boolean" ||
+      !Number.isInteger(settings.batchWindowSeconds) ||
+      settings.batchWindowSeconds < 0 ||
+      settings.batchWindowSeconds > 3600
+    ) {
+      throw new InformationError("INVALID_INPUT", "Invalid information settings");
+    }
+    return deps.repository.update((state) => ({
+      state: {
+        ...state,
+        settings: { enabled: settings.enabled, batchWindowSeconds: settings.batchWindowSeconds },
+      },
+      result: { enabled: settings.enabled, batchWindowSeconds: settings.batchWindowSeconds },
+    }));
+  };
+
+  const getPreferences = async (): Promise<InformationPreferencesView> => {
+    const [rulesNotes, state] = await Promise.all([deps.rules.read(), deps.repository.read()]);
     const retained = await deps.retainMain();
-    if (!retained) return { notes, learnedNotes, feedbackExamples: [] };
+    if (!retained) {
+      return {
+        notes: rulesNotes,
+        learnedNotes: state.preferences.learnedNotes,
+        feedbackExamples: [],
+      };
+    }
     try {
       return {
-        notes,
-        learnedNotes,
+        notes: rulesNotes,
+        learnedNotes: state.preferences.learnedNotes,
         feedbackExamples: await feedbackExamples(state, retained.conversation.piSessionId()),
       };
     } finally {
       retained.release();
     }
   };
-  const getNewsPreferences = async () => {
-    const preferences = (await deps.repository.read()).preferences;
-    return { notes: await deps.rules.read(), learnedNotes: preferences.learnedNotes };
-  };
-  const savePreferences = async (preferences: Pick<InformationPreferences, "notes">) => {
-    requireOpen();
-    await deps.rules.write(preferences.notes);
-    return { notes: preferences.notes };
+
+  const savePreferences = async (input: { notes: string }): Promise<InformationPreferencesView> => {
+    ensureOpen();
+    const notes = normalizeNotes(input.notes);
+    await deps.rules.write(notes);
+    return getPreferences();
   };
 
-  const emptyFeedbackFor = (itemId: string) => ({ itemId, reaction: null, saved: false, comments: [] });
-  const updateArticle = async <T>(
-    itemId: string,
-    change: (feedback: NonNullable<InformationState["articleFeedback"][number]>) => T,
-  ) => deps.repository.update((state) => {
-    if (!state.items.some((item) => item.id === itemId)) {
-      throw new InformationError("NOT_FOUND", "Information item not found");
+  const ingestToQueue = async (
+    inputs: readonly InformationInputItem[],
+    queue: InformationQueue,
+  ): Promise<{ items: InformationItem[]; skippedCount: number }> => {
+    ensureOpen();
+    if (isPaused() && queue === "realtime") {
+      throw new InformationError("SESSION_PAUSED", "Information background is paused");
     }
-    const existing = state.articleFeedback.find((feedback) => feedback.itemId === itemId);
-    const feedback = structuredClone(existing ?? emptyFeedbackFor(itemId));
-    const result = change(feedback);
-    return {
-      state: {
-        ...state,
-        // Array order is recency order: touching an old article must move it to the end.
-        articleFeedback: [
-          ...state.articleFeedback.filter((candidate) => candidate.itemId !== itemId),
-          feedback,
-        ],
-      },
-      result,
-    };
-  });
+    for (const input of inputs) validateInputItem(input);
+    if (!inputs.length) return { items: [], skippedCount: 0 };
 
-  const setArticleReaction = (rawItemId: string, reaction: "like" | "dislike" | null) => {
-    requireOpen();
-    return updateArticle(validId(rawItemId, "itemId"), (feedback) => {
-      feedback.reaction = reaction;
-      return feedback;
-    });
-  };
-
-  const setArticleSaved = (rawItemId: string, saved: boolean) => {
-    requireOpen();
-    return updateArticle(validId(rawItemId, "itemId"), (feedback) => {
-      feedback.saved = saved;
-      return feedback;
-    });
-  };
-
-  const addArticleComment = (rawItemId: string, text: string) => {
-    requireOpen();
-    const normalized = text.trim();
-    if (!normalized || normalized.length > 4000) {
-      throw new InformationError("INVALID_INPUT", "Comment must be non-blank and at most 4000 characters");
-    }
-    return updateArticle(validId(rawItemId, "itemId"), (feedback) => {
-      const timestamp = now();
-      feedback.comments.push({
-        id: `comment_${randomUUID()}`,
-        text: normalized,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-      return feedback;
-    });
-  };
-
-  const deleteArticleComment = (rawItemId: string, commentId: string) => {
-    requireOpen();
-    const itemId = validId(rawItemId, "itemId");
-    return updateArticle(itemId, (feedback) => {
-      const index = feedback.comments.findIndex((comment) => comment.id === commentId);
-      if (index < 0) throw new InformationError("NOT_FOUND", "Information comment not found");
-      feedback.comments.splice(index, 1);
-      return feedback;
-    });
-  };
-
-  const ingest = async (inputs: readonly InformationInputItem[], options?: { bulkImport?: boolean }) => {
-    requireOpen();
-    const state = await deps.repository.read();
-    if (!state.settings.enabled) throw new InformationError("DISABLED", "Information ingestion is disabled");
-    if (options?.bulkImport) bulkImportHoldUntil = Date.now() + BULK_IMPORT_HOLD_MS;
-    const result = await deps.repository.update((current) => {
-      if (!current.settings.enabled) throw new InformationError("DISABLED", "Information ingestion is disabled");
-      const acceptedAt = now();
-      const existing = new Map(current.items.map((item) => [keyOf(item.source, item.externalId), item]));
-      const batch = new Map<string, InformationInputItem & { id: string }>();
-      const returned: InformationItem[] = [];
-      for (const input of inputs) {
-        const key = keyOf(input.source, input.externalId);
-        const stored = existing.get(key);
-        if (stored) {
-          if (!matchesStoredInput(stored, input)) {
-            throw new InformationError("CONFLICT", "Information source and externalId conflict with existing content");
-          }
-          if (!returned.some((item) => keyOf(item.source, item.externalId) === key)) returned.push(stored);
-          continue;
-        }
-        const previous = batch.get(key);
-        if (previous) {
-          if (!sameNewInput(previous, input)) {
-            throw new InformationError("CONFLICT", "Duplicate information key has different content");
-          }
-          continue;
-        }
-        batch.set(key, { ...input, id: `info_${randomUUID()}` });
+    const now = new Date().toISOString();
+    return deps.repository.update((state) => {
+      if (queue === "realtime" && !state.settings.enabled) {
+        throw new InformationError("DISABLED", "Information background is disabled");
       }
-      const planned = [...batch.entries()].map(([key, input]) => {
-        const item: InformationItem = {
-          id: input.id,
+      const existingByKey = new Map(state.items.map((item) => [`${item.source}\0${item.externalId}`, item]));
+      const accepted: InformationItem[] = [];
+      const responseItems: InformationItem[] = [];
+      const seenResponseIds = new Set<string>();
+      let skippedCount = 0;
+
+      for (const input of inputs) {
+        const key = `${input.source}\0${input.externalId}`;
+        const existing = existingByKey.get(key);
+        if (existing) {
+          const timeMismatch =
+            input.receivedAt !== undefined &&
+            Date.parse(existing.receivedAt) !== Date.parse(input.receivedAt);
+          if (
+            existing.content !== input.content ||
+            (existing.title ?? undefined) !== (input.title ?? undefined) ||
+            timeMismatch
+          ) {
+            throw new InformationError(
+              "CONFLICT",
+              `Conflicting content for existing source=${input.source} externalId=${input.externalId}`,
+            );
+          }
+          skippedCount++;
+          if (!seenResponseIds.has(existing.id)) {
+            seenResponseIds.add(existing.id);
+            responseItems.push(existing);
+          }
+          continue;
+        }
+        const created: InformationItem = {
+          id: `info_${randomUUID()}`,
+          queue,
           source: input.source,
           externalId: input.externalId,
-          ...(input.title ? { title: input.title } : {}),
+          ...(input.title !== undefined ? { title: input.title } : {}),
           content: input.content,
-          receivedAt: input.receivedAt ?? acceptedAt,
-          acceptedAt,
+          receivedAt: input.receivedAt ?? now,
+          acceptedAt: now,
           status: "pending",
-          ...(input.metadata ? { metadata: input.metadata } : {}),
         };
-        void key;
-        returned.push(item);
-        return item;
-      });
-      // 大批量分片导入仅在确实新增了待处理短信时进入首轮建画像与终审简报波次，防止重导已分析短信误触发全量重跑。
-      const resetInitial = Boolean(options?.bulkImport) && planned.length > 0;
+        existingByKey.set(key, created);
+        seenResponseIds.add(created.id);
+        accepted.push(created);
+        responseItems.push(created);
+      }
+
+      if (!accepted.length) {
+        return {
+          result: {
+            items: queue === "archive" ? [] : responseItems,
+            skippedCount,
+          },
+        };
+      }
       return {
         state: {
-          ...current,
-          ...(resetInitial ? { initialAnalysisCompleted: false } : {}),
-          items: [...current.items, ...planned],
+          ...state,
+          items: [...state.items, ...accepted],
         },
-        result: returned,
-      };
-    }, { allowCreate: true });
-    if (options?.bulkImport) bulkImportHoldUntil = Date.now() + BULK_IMPORT_HOLD_MS;
-    return result;
-  };
-
-  const ingestNews = async (inputs: readonly InformationInputItem[]) => {
-    requireOpen();
-    return deps.repository.update((current) => {
-      if (current.settings.mode !== "recommendations") {
-        throw new InformationError("CONFLICT", "Information agent is not in recommendation mode");
-      }
-      const acceptedAt = now();
-      const existing = new Set(current.items.map((item) => keyOf(item.source, item.externalId)));
-      const added: InformationItem[] = [];
-      for (const input of inputs) {
-        const key = keyOf(input.source, input.externalId);
-        if (existing.has(key)) continue;
-        existing.add(key);
-        added.push({
-          id: `info_${randomUUID()}`,
-          source: input.source,
-          externalId: input.externalId,
-          ...(input.title ? { title: input.title } : {}),
-          content: input.content,
-          receivedAt: input.receivedAt ?? acceptedAt,
-          acceptedAt,
-          status: "pending",
-          ...(input.metadata ? { metadata: input.metadata } : {}),
-        });
-      }
-      return {
-        state: { ...current, items: [...current.items, ...added] },
-        result: added,
+        result: {
+          items: queue === "archive" ? accepted : responseItems,
+          skippedCount,
+        },
       };
     });
   };
 
-  const listItems = async (options: { status?: string; limit?: number; cursor?: string }) => {
-    const status = options.status;
-    if (status !== undefined && !ITEM_STATUSES.has(status as InformationItemStatus)) {
-      throw new InformationError("INVALID_INPUT", "Invalid information item status");
+  /** 日常实时短信入库，进入实时调度队列。 */
+  const ingest = async (inputs: readonly InformationInputItem[]): Promise<InformationItem[]> =>
+    (await ingestToQueue(inputs, "realtime")).items;
+
+  /** 历史短信批量导入，仅写入归档队列，不触发日常实时调度。 */
+  const ingestArchive = async (
+    inputs: readonly InformationInputItem[],
+  ): Promise<{ items: InformationItem[]; skippedCount: number }> => ingestToQueue(inputs, "archive");
+
+  const listItems = async (options: {
+    status?: InformationItemStatus;
+    queue?: InformationQueue;
+    limit?: number;
+    cursor?: string;
+  }) => {
+    const state = await deps.repository.read();
+    const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
+    const scope = `${options.queue ?? "all"}:${options.status ?? "all"}`;
+    let after: Cursor | undefined;
+    if (options.cursor !== undefined) {
+      const decoded = decodeCursor(options.cursor);
+      if (!decoded || decoded.scope !== scope) {
+        throw new InformationError("INVALID_INPUT", "Invalid items cursor");
+      }
+      after = decoded;
     }
-    const values = sortedItems((await deps.repository.read()).items)
-      .filter((item) => !status || item.status === status);
-    const result = page(values, (item) => item.acceptedAt, options.limit ?? 20, options.cursor, status);
-    return { items: result.values, nextCursor: result.nextCursor };
+    const ordered = [...state.items]
+      .filter((item) => (!options.status || item.status === options.status) && (!options.queue || item.queue === options.queue))
+      .sort((a, b) => b.acceptedAt.localeCompare(a.acceptedAt) || b.id.localeCompare(a.id));
+    const startIndex = after
+      ? ordered.findIndex((item) =>
+          item.acceptedAt.localeCompare(after!.at) < 0 ||
+          (item.acceptedAt === after!.at && item.id.localeCompare(after!.id) < 0))
+      : 0;
+    const slice = startIndex === -1 ? [] : ordered.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex !== -1 && startIndex + limit < ordered.length;
+    const last = slice.at(-1);
+    return {
+      items: slice,
+      ...(hasMore && last ? { nextCursor: encodeCursor({ id: last.id, at: last.acceptedAt, scope }) } : {}),
+    };
   };
+
   const getItem = async (rawItemId: string) => {
     const itemId = validId(rawItemId, "itemId");
     const state = await deps.repository.read();
     const item = state.items.find((candidate) => candidate.id === itemId);
-    if (!item) throw new InformationError("NOT_FOUND", "Information item not found");
-    return { item, runs: sortedRuns(state.runs.filter((run) => run.itemIds.includes(itemId))) };
+    if (!item) throw new InformationError("NOT_FOUND", `Unknown information item: ${itemId}`);
+    const runs = [...state.runs]
+      .filter((run) => run.itemIds.includes(itemId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+    return { item, runs };
   };
-  const listRuns = async (options: { status?: string; limit?: number; cursor?: string }) => {
-    const status = options.status;
-    if (status !== undefined && !RUN_STATUSES.has(status as InformationRun["status"])) {
-      throw new InformationError("INVALID_INPUT", "Invalid information run status");
+
+  const listRuns = async (options: {
+    status?: InformationRunStatus;
+    kind?: InformationRunKind;
+    limit?: number;
+    cursor?: string;
+  }) => {
+    const state = await deps.repository.read();
+    const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
+    const scope = `${options.kind ?? "all"}:${options.status ?? "all"}`;
+    let after: Cursor | undefined;
+    if (options.cursor !== undefined) {
+      const decoded = decodeCursor(options.cursor);
+      if (!decoded || decoded.scope !== scope) {
+        throw new InformationError("INVALID_INPUT", "Invalid runs cursor");
+      }
+      after = decoded;
     }
-    const values = sortedRuns((await deps.repository.read()).runs)
-      .filter((run) => !status || run.status === status);
-    const result = page(values, (run) => run.createdAt, options.limit ?? 20, options.cursor, status);
-    return { runs: result.values, nextCursor: result.nextCursor };
+    const ordered = [...state.runs]
+      .filter((run) => (!options.status || run.status === options.status) && (!options.kind || run.kind === options.kind))
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
+    const startIndex = after
+      ? ordered.findIndex((run) =>
+          run.startedAt.localeCompare(after!.at) < 0 ||
+          (run.startedAt === after!.at && run.id.localeCompare(after!.id) < 0))
+      : 0;
+    const slice = startIndex === -1 ? [] : ordered.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex !== -1 && startIndex + limit < ordered.length;
+    const last = slice.at(-1);
+    return {
+      runs: slice,
+      ...(hasMore && last ? { nextCursor: encodeCursor({ id: last.id, at: last.startedAt, scope }) } : {}),
+    };
   };
+
   const getRun = async (rawRunId: string) => {
     const runId = validId(rawRunId, "runId");
     const state = await deps.repository.read();
     const run = state.runs.find((candidate) => candidate.id === runId);
-    if (!run) throw new InformationError("NOT_FOUND", "Information run not found");
-    return {
-      run,
-      items: run.itemIds.map((itemId) => state.items.find((item) => item.id === itemId))
-        .filter((item): item is InformationItem => Boolean(item)),
-    };
+    if (!run) throw new InformationError("NOT_FOUND", `Unknown information run: ${runId}`);
+    const itemById = new Map(state.items.map((item) => [item.id, item]));
+    const items = run.itemIds.map((id) => itemById.get(id)).filter((item): item is InformationItem => Boolean(item));
+    return { run, items };
   };
 
-  const recommendationByItem = (state: InformationState) => {
-    const recommendations = new Map<string, { reason: string }>();
-    for (const run of sortedRuns(state.runs)) {
-      if (run.status !== "completed" || run.model?.status !== "succeeded" || !run.decisions) continue;
-      for (const decision of run.decisions) {
-        if (decision.decision === "notify" && !recommendations.has(decision.itemId)) {
-          recommendations.set(decision.itemId, { reason: decision.reason });
-        }
+  const getStatus = async (): Promise<InformationStatus> => {
+    const state = await deps.repository.read();
+    let pendingCount = 0;
+    let failedCount = 0;
+    let archivePendingCount = 0;
+    let archiveProcessedCount = 0;
+    let archiveFailedCount = 0;
+
+    for (const item of state.items) {
+      if (item.queue === "realtime") {
+        if (item.status === "pending") pendingCount++;
+        else if (item.status === "failed") failedCount++;
+      } else {
+        if (item.status === "pending") archivePendingCount++;
+        else if (item.status === "processed") archiveProcessedCount++;
+        else if (item.status === "failed") archiveFailedCount++;
       }
     }
-    return recommendations;
-  };
-  const newsArticle = (
-    state: InformationState,
-    item: InformationItem,
-    recommendations: ReadonlyMap<string, { reason: string }>,
-  ) => {
-    const feedback = state.articleFeedback.find((candidate) => candidate.itemId === item.id);
+
+    const latestRun = [...state.runs].sort((a, b) =>
+      b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id),
+    )[0];
+    let lastError: string | null = null;
+    if (latestRun?.status === "failed") {
+      lastError = latestRun.model?.error ?? "MODEL_REQUEST_FAILED";
+    } else if (latestRun) {
+      const failedPub = latestRun.publications.find((pub) => pub.status === "failed" && pub.error);
+      if (failedPub?.error) lastError = failedPub.error;
+    }
+
     return {
-      id: item.id,
-      sourceId: item.metadata!.sourceId,
-      sourceTitle: item.metadata!.sourceTitle,
-      title: item.title ?? "Untitled",
-      url: item.metadata!.url,
-      content: item.content,
-      publishedAt: item.receivedAt,
-      acceptedAt: item.acceptedAt,
-      recommendation: recommendations.get(item.id) ?? null,
-      feedback: {
-        reaction: feedback?.reaction ?? null,
-        saved: feedback?.saved ?? false,
-        comments: feedback?.comments ?? [],
+      enabled: state.settings.enabled,
+      batchWindowSeconds: state.settings.batchWindowSeconds,
+      running: Boolean(activeRunPromise || activeArchiveLoop || state.runs.some((run) => run.status === "running")),
+      pendingCount,
+      failedCount,
+      archive: {
+        running: Boolean(activeArchiveLoop),
+        pendingCount: archivePendingCount,
+        processedCount: archiveProcessedCount,
+        failedCount: archiveFailedCount,
       },
+      lastRunAt: latestRun?.finishedAt ?? latestRun?.startedAt ?? null,
+      lastError,
     };
-  };
-  const listNewsArticles = async (
-    options: {
-      view: "recommended" | "all";
-      savedOnly: boolean;
-      limit: number;
-      cursor?: string;
-    },
-  ) => {
-    const state = await deps.repository.read();
-    if (state.settings.mode !== "recommendations") {
-      throw new InformationError("NOT_FOUND", "News agent not found");
-    }
-    const cursor = options.cursor ? decodeNewsCursor(options.cursor) : undefined;
-    if (options.cursor && (!cursor || cursor.view !== options.view || cursor.savedOnly !== options.savedOnly)) {
-      throw new InformationError("INVALID_INPUT", "Invalid news cursor");
-    }
-    const recommendations = recommendationByItem(state);
-    const feedbackByItem = new Map(state.articleFeedback.map((feedback) => [feedback.itemId, feedback]));
-    const filtered = state.items
-      .filter((item) => Boolean(item.metadata))
-      .filter((item) => options.view === "all" || recommendations.has(item.id))
-      .filter((item) => !options.savedOnly || feedbackByItem.get(item.id)?.saved === true)
-      .sort((left, right) =>
-        right.receivedAt.localeCompare(left.receivedAt) || right.id.localeCompare(left.id))
-      .filter((item) => !cursor ||
-        item.receivedAt < cursor.publishedAt ||
-        (item.receivedAt === cursor.publishedAt && item.id < cursor.id));
-    const pageWithExtra = filtered.slice(0, options.limit + 1);
-    const values = pageWithExtra
-      .slice(0, options.limit)
-      .map((item) => newsArticle(state, item, recommendations));
-    const last = values.at(-1);
-    return {
-      articles: values,
-      nextCursor: pageWithExtra.length > options.limit && last
-        ? Buffer.from(JSON.stringify({
-          publishedAt: last.publishedAt,
-          id: last.id,
-          view: options.view,
-          savedOnly: options.savedOnly,
-        } satisfies NewsCursor), "utf8").toString("base64url")
-        : null,
-    };
-  };
-  const getNewsArticle = async (rawItemId: string) => {
-    const itemId = validId(rawItemId, "articleId");
-    const state = await deps.repository.read();
-    const item = state.items.find((candidate) => candidate.id === itemId && candidate.metadata);
-    if (!item || state.settings.mode !== "recommendations") {
-      throw new InformationError("NOT_FOUND", "News article not found");
-    }
-    return { article: newsArticle(state, item, recommendationByItem(state)) };
-  };
-  const getNewsCounts = async () => {
-    const state = await deps.repository.read();
-    return {
-      processing: Boolean(active),
-      pendingCount: state.items.filter((item) => item.status === "pending").length,
-      failedCount: state.items.filter((item) => item.status === "failed").length,
-    };
-  };
-  const retryFailedNews = async () => {
-    if (Boolean(active)) return { resetCount: 0, resetDeferred: true };
-    return deps.repository.update((state) => {
-      let changed = 0;
-      const items = state.items.map((item) => {
-        if (item.status !== "failed") return item;
-        changed++;
-        return { ...item, status: "pending" as const };
-      });
-      return {
-        state: changed ? { ...state, items } : undefined,
-        result: { resetCount: changed, resetDeferred: false },
-      };
-    });
   };
 
-  const claim = async (force: boolean, options?: { forceInitial?: boolean }) =>
-    deps.repository.update((state) => {
-      if (isPaused()) return { result: undefined as InformationRun | undefined };
-      if (!state.settings.enabled) return { result: undefined as InformationRun | undefined };
-      const pending = [...state.items]
-        .filter((item) => item.status === "pending")
-        .sort((a, b) => a.acceptedAt.localeCompare(b.acceptedAt) || a.receivedAt.localeCompare(b.receivedAt) || a.id.localeCompare(b.id));
-      const first = pending[0];
-      if (!first) return { result: undefined };
-      if (!force && Date.now() < Date.parse(first.acceptedAt) + state.settings.batchWindowSeconds * 1000) {
-        return { result: undefined };
+  const claimBatch = async (
+    queue: InformationQueue,
+    options: { forceRealtime: boolean },
+  ): Promise<{ run: InformationRun; items: InformationItem[]; state: InformationState } | null> => {
+    const maxItems = queue === "realtime" ? MAX_INFORMATION_ITEMS_PER_BATCH : MAX_ARCHIVE_ITEMS_PER_BATCH;
+    return deps.repository.update((state) => {
+      if (queue === "realtime" && !options.forceRealtime && !state.settings.enabled) {
+        return { result: null };
       }
-      const isInitial = Boolean(options?.forceInitial) || !state.initialAnalysisCompleted;
-      const maxItems = isInitial && state.settings.mode === "notifications"
-        ? MAX_INITIAL_INFORMATION_ITEMS_PER_BATCH
-        : MAX_INFORMATION_ITEMS_PER_BATCH;
+      const pending = state.items.filter((item) => item.queue === queue && item.status === "pending");
+      if (!pending.length) return { result: null };
+      if (queue === "realtime" && !options.forceRealtime) {
+        const dueAt = Date.parse(pending[0]!.acceptedAt) + state.settings.batchWindowSeconds * 1000;
+        if (!Number.isNaN(dueAt) && Date.now() < dueAt) return { result: null };
+      }
+
       const selected: InformationItem[] = [];
       let chars = 0;
       for (const item of pending) {
         if (selected.length >= maxItems) break;
-        if (selected.length && chars + item.content.length > MAX_INFORMATION_BATCH_CHARS) continue;
+        if (selected.length > 0 && chars + item.content.length > MAX_INFORMATION_BATCH_CHARS) break;
         selected.push(item);
         chars += item.content.length;
       }
-      const nowText = now();
+      const now = new Date().toISOString();
+      const runId = `inforun_${randomUUID()}`;
+      const selectedIds = new Set(selected.map((item) => item.id));
       const run: InformationRun = {
-        id: `inforun_${randomUUID()}`,
-        itemIds: selected.map((item) => item.id),
+        id: runId,
+        kind: queue,
         status: "running",
-        createdAt: nowText,
-        startedAt: nowText,
-        kind: isInitial ? "initial_summary" : "incremental",
+        createdAt: now,
+        startedAt: now,
+        itemIds: selected.map((item) => item.id),
         publications: [],
       };
-      const selectedIds = new Set(run.itemIds);
-      return {
-        state: {
-          ...state,
-          ...(options?.forceInitial ? { initialAnalysisCompleted: false } : {}),
-          items: state.items.map((item) => selectedIds.has(item.id)
-            ? { ...item, status: "processing" as const, runId: run.id }
-            : item),
-          runs: [...state.runs, run],
-        },
-        result: run,
+      const nextState: InformationState = {
+        ...state,
+        items: state.items.map((item) =>
+          selectedIds.has(item.id) ? { ...item, status: "processing" as const, runId } : item),
+        runs: [...state.runs, run],
       };
+      return { state: nextState, result: { run, items: selected, state: nextState } };
     });
-
-  const failRun = async (runId: string, error: string, cancelled = false) =>
-    deps.repository.update((state) => {
-      const run = state.runs.find((candidate) => candidate.id === runId);
-      if (!run || run.status !== "running") return { result: undefined };
-      const finishedAt = now();
-      return {
-        state: {
-          ...state,
-          items: state.items.map((item) => item.runId === runId && item.status === "processing"
-            ? { ...item, status: "failed" }
-            : item),
-          runs: state.runs.map((candidate) => candidate.id === runId
-            ? {
-              ...candidate,
-              status: cancelled ? "cancelled" as const : "failed" as const,
-              finishedAt,
-              model: { status: "failed" as const, error },
-            }
-            : candidate),
-        },
-        result: undefined,
-      };
-    });
-
-  const markPublication = async (
-    runId: string,
-    notificationId: string,
-    outcome: { status: "published"; receipt: { piSessionId: string; messageId: string } } | { status: "failed"; error: string },
-  ) => deps.repository.update((state) => ({
-    state: {
-      ...state,
-      runs: state.runs.map((run) => run.id !== runId ? run : {
-        ...run,
-        publications: run.publications.map((publication) => publication.notificationId !== notificationId
-          ? publication
-          : outcome.status === "published"
-            ? { ...publication, status: "published", receipt: { ...outcome.receipt, notificationId } }
-            : { ...publication, status: "failed", error: outcome.error }),
-      }),
-    },
-    result: undefined,
-  }));
-
-  const oneLine = (value: string, maxChars: number) => {
-    const normalized = value.replace(/\s+/g, " ").trim();
-    return normalized.length > maxChars ? `${normalized.slice(0, maxChars - 1)}…` : normalized;
   };
 
-  const extractIdentifiers = (title: string | undefined, content: string): string[] => {
-    const haystack = `${title ?? ""} ${content}`;
-    const codes = [...haystack.matchAll(/\b[A-Za-z]{1,6}[-_]?\d{3,}[A-Za-z0-9-]*\b/g)]
-      .map((match) => match[0].replace(/[-_]/g, "").toUpperCase());
-    const cardTails = [...haystack.matchAll(/(?:尾号|卡号)\s*([0-9]{4})/g)]
-      .map((match) => `TAIL:${match[1]}`);
-    return [...new Set([...codes, ...cardTails])];
-  };
-
-  const buildFallbackBriefing = (args: {
-    totalScanned: number;
-    silentCount: number;
-    learnedNotes: string;
-    candidates: readonly InformationBriefingCandidate[];
-  }): { itemIds: string[]; text: string } => {
-    const { totalScanned, silentCount, learnedNotes, candidates } = args;
-    const profileNote = learnedNotes.trim()
-      ? `；已整理常用偏好画像：${oneLine(learnedNotes, 120)}`
-      : "";
-    if (!candidates.length) {
-      const text = oneLine(
-        `已完成 ${totalScanned} 条历史短信全量梳理（已过滤 ${silentCount} 条营销与历史通知${profileNote}）。当前暂无待处理事项，后续新短信已进入静默守护模式。`,
-        INITIAL_BRIEFING_MAX_LENGTH,
-      );
-      return { itemIds: [], text };
-    }
-    const maxListed = 6;
-    const header = `已完成 ${totalScanned} 条历史短信梳理（过滤 ${silentCount} 条历史与营销短信${profileNote}），当前重点待办：`;
-    const lines: string[] = [header];
-    const selected: InformationBriefingCandidate[] = [];
-    for (const candidate of candidates.slice(0, maxListed)) {
-      const prefix = candidate.title ? `[${oneLine(candidate.title, 24)}] ` : "";
-      const bullet = `• ${prefix}${oneLine(candidate.content, 110)}`;
-      const remainingAfter = candidates.length - (selected.length + 1);
-      const footerReserve = remainingAfter > 0 ? `\n另有 ${remainingAfter} 条提醒已归档，可在短信队列中查看。` : "";
-      if ([...lines, bullet].join("\n").length + footerReserve.length > INITIAL_BRIEFING_MAX_LENGTH) break;
-      lines.push(bullet);
-      selected.push(candidate);
-    }
-    if (!selected.length) {
-      const first = candidates[0]!;
-      const fallbackBullet = `• ${oneLine(first.content, 120)}`;
-      lines.push(fallbackBullet);
-      selected.push(first);
-    }
-    const omitted = candidates.length - selected.length;
-    if (omitted > 0) {
-      lines.push(`另有 ${omitted} 条较早提醒已归档，可在短信队列中查看。`);
-    }
-    const raw = lines.join("\n");
-    return {
-      itemIds: selected.map((candidate) => candidate.itemId),
-      text: raw.length > INITIAL_BRIEFING_MAX_LENGTH ? `${raw.slice(0, INITIAL_BRIEFING_MAX_LENGTH - 1)}…` : raw,
-    };
-  };
-
-  /** 从已落盘状态回溯收集本波连续 initial_summary 批次的统计、待办候选与跨批状态变更线索。 */
-  const collectInitialWave = (
-    state: InformationState,
-    currentClaimed: InformationRun,
-    currentDecisions: readonly InformationDecision[],
-  ) => {
-    const claimedIndex = state.runs.findIndex((candidate) => candidate.id === currentClaimed.id);
-    const stopIndex = claimedIndex >= 0 ? claimedIndex : state.runs.length;
-    const priorRuns: InformationRun[] = [];
-    for (let i = stopIndex - 1; i >= 0; i--) {
-      const candidate = state.runs[i]!;
-      if (candidate.kind !== "initial_summary" || candidate.publications.length > 0) break;
-      if (candidate.status === "completed") priorRuns.unshift(candidate);
-    }
-    const waveRuns: Array<Pick<InformationRun, "itemIds" | "decisions">> = [
-      ...priorRuns,
-      { itemIds: currentClaimed.itemIds, decisions: [...currentDecisions] },
-    ];
-    const itemById = new Map(state.items.map((item) => [item.id, item]));
-    const seenScanned = new Set<string>();
-    const seenCandidates = new Set<string>();
-    let silentCount = 0;
-    const allCandidates: InformationBriefingCandidate[] = [];
-    const silentEntries: Array<{ item: InformationItem; reason: string }> = [];
-
-    for (const run of waveRuns) {
-      for (const itemId of run.itemIds) seenScanned.add(itemId);
-      for (const decision of run.decisions ?? []) {
-        const item = itemById.get(decision.itemId);
-        if (!item) continue;
-        if (decision.decision === "notify") {
-          if (seenCandidates.has(item.id)) continue;
-          seenCandidates.add(item.id);
-          allCandidates.push({
-            itemId: item.id,
-            source: item.source,
-            ...(item.title ? { title: item.title } : {}),
-            content: item.content.slice(0, 400),
-            receivedAt: item.receivedAt,
-            reason: decision.reason,
-          });
-        } else {
-          silentCount++;
-          silentEntries.push({ item, reason: decision.reason });
-        }
-      }
-    }
-
-    allCandidates.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt) || b.itemId.localeCompare(a.itemId));
-    const candidates = allCandidates.slice(0, MAX_BRIEFING_CANDIDATES);
-
-    const identifierMinAt = new Map<string, string>();
-    for (const candidate of candidates) {
-      for (const id of extractIdentifiers(candidate.title, candidate.content)) {
-        const prev = identifierMinAt.get(id);
-        if (!prev || candidate.receivedAt < prev) identifierMinAt.set(id, candidate.receivedAt);
-      }
-    }
-    const relatedUpdates: InformationBriefingUpdate[] = [];
-    if (identifierMinAt.size > 0) {
-      const seenUpdates = new Set<string>();
-      for (const { item, reason } of silentEntries) {
-        if (seenUpdates.has(item.id)) continue;
-        const matched = extractIdentifiers(item.title, item.content).some((id) => {
-          const minAt = identifierMinAt.get(id);
-          return minAt !== undefined && item.receivedAt >= minAt;
-        });
-        if (!matched) continue;
-        seenUpdates.add(item.id);
-        relatedUpdates.push({
-          itemId: item.id,
-          ...(item.title ? { title: item.title } : {}),
-          content: item.content.slice(0, 400),
-          receivedAt: item.receivedAt,
-          reason,
-        });
-      }
-      relatedUpdates.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt) || b.itemId.localeCompare(a.itemId));
-    }
-
-    return {
-      batchCount: waveRuns.length,
-      totalScanned: seenScanned.size,
-      silentCount,
-      candidates,
-      relatedUpdates: relatedUpdates.slice(0, MAX_BRIEFING_UPDATES),
-    };
-  };
-
-  const process = async (slot: ActiveSlot, claimed: InformationRun) => {
-    const { controller } = slot;
-    const finish = deps.observeWork?.("main", "information", "正在整理信息");
-    let succeeded = false;
-    let meaningful = false;
-    let cancelled = false;
-    let deliveryFailed = false;
-    let retained: Awaited<ReturnType<typeof deps.retainMain>> | undefined;
-    try {
-      controller.signal.throwIfAborted();
-      const initialState = await deps.repository.read();
-      const mode = initialState.settings.mode;
-      let targetSessionId: string | undefined;
-      if (mode === "notifications") {
-        retained = await deps.retainMain();
-        controller.signal.throwIfAborted();
-        if (!retained) {
-          cancelled = true;
-          await failRun(claimed.id, "Target agent disappeared", true);
-          return;
-        }
-        targetSessionId = retained.conversation.piSessionId();
-      }
-      {
-        const state = initialState;
-        const claimedIds = new Set(claimed.itemIds);
-        const items = claimed.itemIds
-          .map((id) => state.items.find((item) => item.id === id))
-          .filter((item): item is InformationItem => Boolean(item));
-        const analysisKind = claimed.kind ?? (!initialState.initialAnalysisCompleted ? "initial_summary" : "incremental");
-        const remainingOnStart = state.items.filter(
-          (item) => item.status === "pending" && !claimedIds.has(item.id),
-        ).length;
-        const claimedIndex = state.runs.findIndex((candidate) => candidate.id === claimed.id);
-        const stopIndex = claimedIndex >= 0 ? claimedIndex : state.runs.length;
-        let hasPriorInitialWaveRun = false;
-        for (let i = stopIndex - 1; i >= 0; i--) {
-          const candidate = state.runs[i]!;
-          if (candidate.kind !== "initial_summary" || candidate.publications.length > 0) break;
-          if (candidate.status === "completed") {
-            hasPriorInitialWaveRun = true;
-            break;
-          }
-        }
-        const mapOnly = mode === "notifications" &&
-          analysisKind === "initial_summary" &&
-          (items.length >= 10 || remainingOnStart > 0 || hasPriorInitialWaveRun);
-        const input: InformationModelInput = {
-          runId: claimed.id,
-          mode,
-          analysisKind,
-          ...(mapOnly ? { mapOnly: true } : {}),
-          preferences: { ...state.preferences, notes: await deps.rules.read() },
-          items: items.map(({ id, source, externalId, title, content, receivedAt, metadata }) => ({
-            id, source, externalId, ...(title ? { title } : {}), content, receivedAt,
-            ...(metadata ? { sourceTitle: metadata.sourceTitle, url: metadata.url } : {}),
-          })),
-          feedbackExamples: mode === "notifications" && targetSessionId ? await feedbackExamples(state, targetSessionId) : [],
-          articleFeedback: articleFeedbackExamples(state),
+  const markRunFailed = async (runId: string, itemIds: readonly string[], errorMessage: string) => {
+    const finishedAt = new Date().toISOString();
+    const idSet = new Set(itemIds);
+    return deps.repository.update((state) => {
+      let updatedRun!: InformationRun;
+      const nextRuns = state.runs.map((run) => {
+        if (run.id !== runId) return run;
+        updatedRun = {
+          ...run,
+          status: "failed",
+          finishedAt,
+          model: { status: "failed", error: errorMessage },
         };
-        controller.signal.throwIfAborted();
-        const result = await deps.runModel(input, controller.signal);
-        if (!result.ok) {
-          cancelled = result.error === "CANCELLED";
-          await failRun(claimed.id, result.error, result.error === "CANCELLED");
-          return;
-        }
-        let parsed: ReturnType<typeof parseInformationResult>;
-        try {
-          parsed = parseInformationResult(result.result, claimed.itemIds, mode, {
-            requireNotificationCoverage: mode === "notifications" && !mapOnly,
-          });
-        } catch {
-          await failRun(claimed.id, "INVALID_MODEL_RESULT");
-          return;
-        }
-        // 模型已成功时先保留这个事实；若取消/目标会话已变化，只把投递标失败，不重跑模型。
-        let deliveryCancelled = mode === "notifications" && (
-          controller.signal.aborted || retained!.conversation.piSessionId() !== targetSessionId
-        );
-        const stateBeforeCommit = await deps.repository.read();
-        const remainingBeforeReduce = stateBeforeCommit.items.filter(
-          (item) => item.status === "pending" && !claimedIds.has(item.id),
-        );
+        return updatedRun;
+      });
+      return {
+        state: {
+          ...state,
+          items: state.items.map((item) => (idSet.has(item.id) ? { ...item, status: "failed" as const } : item)),
+          runs: nextRuns,
+        },
+        result: updatedRun,
+      };
+    });
+  };
 
-        let preparedNotifications: Array<{ itemIds: string[]; text: string }> = mode === "notifications"
-          ? parsed.notifications
-          : [];
-        let reduceCancelled = false;
-        if (mode === "notifications" && analysisKind === "initial_summary") {
-          if (remainingBeforeReduce.length > 0) {
-            preparedNotifications = [];
-          } else {
-            const wave = collectInitialWave(stateBeforeCommit, claimed, parsed.decisions);
-            const effectiveLearnedNotes = parsed.learnedNotes ?? stateBeforeCommit.preferences.learnedNotes;
-            const singleFastPath =
-              wave.batchCount === 1 &&
-              wave.totalScanned < 10 &&
-              parsed.notifications.length === 1 &&
-              parsed.notifications[0]!.text.trim().length <= INITIAL_BRIEFING_MAX_LENGTH;
-            if (deliveryCancelled) {
-              preparedNotifications = singleFastPath
-                ? [{ itemIds: parsed.notifications[0]!.itemIds, text: parsed.notifications[0]!.text.trim() }]
-                : parsed.notifications;
-            } else if (wave.batchCount === 1 && wave.candidates.length === 0 && wave.totalScanned < 10) {
-              preparedNotifications = [];
-            } else if (singleFastPath) {
-              preparedNotifications = [{
-                itemIds: parsed.notifications[0]!.itemIds,
-                text: parsed.notifications[0]!.text.trim(),
-              }];
-            } else if (deps.synthesizeBriefing) {
-              const briefingOutcome = await deps.synthesizeBriefing({
-                runId: claimed.id,
-                preferences: {
-                  notes: input.preferences.notes,
-                  learnedNotes: effectiveLearnedNotes,
-                },
-                totalScanned: wave.totalScanned,
-                silentCount: wave.silentCount,
-                batchCount: wave.batchCount,
-                candidates: wave.candidates,
-                ...(wave.relatedUpdates.length ? { relatedUpdates: wave.relatedUpdates } : {}),
-              }, controller.signal);
-              if (briefingOutcome.ok) {
-                const boundedText = briefingOutcome.text.trim().slice(0, INITIAL_BRIEFING_MAX_LENGTH);
-                preparedNotifications = [{
-                  itemIds: briefingOutcome.itemIds,
-                  text: boundedText,
-                }];
-              } else if (briefingOutcome.error === "CANCELLED" || controller.signal.aborted) {
-                reduceCancelled = true;
-                preparedNotifications = [buildFallbackBriefing({
-                  totalScanned: wave.totalScanned,
-                  silentCount: wave.silentCount,
-                  learnedNotes: effectiveLearnedNotes,
-                  candidates: wave.candidates,
-                })];
-              } else {
-                preparedNotifications = [buildFallbackBriefing({
-                  totalScanned: wave.totalScanned,
-                  silentCount: wave.silentCount,
-                  learnedNotes: effectiveLearnedNotes,
-                  candidates: wave.candidates,
-                })];
-              }
-            } else {
-              preparedNotifications = [buildFallbackBriefing({
-                totalScanned: wave.totalScanned,
-                silentCount: wave.silentCount,
-                learnedNotes: effectiveLearnedNotes,
-                candidates: wave.candidates,
-              })];
-            }
-          }
-        }
+  const markRunCancelled = async (runId: string, itemIds: readonly string[]) => {
+    const finishedAt = new Date().toISOString();
+    const idSet = new Set(itemIds);
+    return deps.repository.update((state) => {
+      let updatedRun!: InformationRun;
+      const nextRuns = state.runs.map((run) => {
+        if (run.id !== runId) return run;
+        updatedRun = {
+          ...run,
+          status: "cancelled",
+          finishedAt,
+        };
+        return updatedRun;
+      });
+      return {
+        state: {
+          ...state,
+          items: state.items.map((item) => {
+            if (!idSet.has(item.id) || item.status !== "processing") return item;
+            const { runId: _drop, ...rest } = item;
+            return { ...rest, status: "pending" as const };
+          }),
+          runs: nextRuns,
+        },
+        result: updatedRun,
+      };
+    });
+  };
 
-        deliveryCancelled = mode === "notifications" && (
-          reduceCancelled || controller.signal.aborted || retained!.conversation.piSessionId() !== targetSessionId
-        );
-        const deliveryError = controller.signal.aborted || reduceCancelled
-          ? "Cancelled before notification delivery"
-          : "Target session changed before notification delivery";
+  /**
+   * 投递指定 run 上挂起的 pending notifications 到主对话。
+   * 两阶段持久化：先以 pending 状态落库，每条投递成功/失败后立即回写 receipt 或 error。
+   */
+  const deliverPendingPublications = async (
+    runId: string,
+    signal: AbortSignal,
+  ): Promise<InformationRun> => {
+    const snapshot = await deps.repository.read();
+    const currentRun = snapshot.runs.find((run) => run.id === runId);
+    if (!currentRun) throw new InformationError("NOT_FOUND", `Run missing during delivery: ${runId}`);
 
-        await deps.repository.update((current) => {
-          const run = current.runs.find((candidate) => candidate.id === claimed.id);
-          if (!run || run.status !== "running") return { result: undefined };
-          const remainingNow = current.items.filter((item) => item.status === "pending" && !claimedIds.has(item.id));
-          const deferredByNewItems = mode === "notifications" &&
-            analysisKind === "initial_summary" &&
-            remainingNow.length > 0 &&
-            !deliveryCancelled;
-          const effectiveNotifications = deferredByNewItems ? [] : preparedNotifications;
-          const publications = mode === "notifications" ? effectiveNotifications.map((notification, index) => ({
-            notificationId: `info-notification-${claimed.id}-${index}`,
-            itemIds: notification.itemIds,
-            text: notification.text,
-            status: deliveryCancelled ? "failed" as const : "pending" as const,
-            ...(deliveryCancelled ? { error: deliveryError } : {}),
-          })) : [];
-          const hasFailedItems = current.items.some((item) => item.status === "failed");
-          const initialCompleted = current.initialAnalysisCompleted ||
-            (analysisKind === "initial_summary" && remainingNow.length === 0 && !reduceCancelled && !hasFailedItems);
-          return {
+    const retained = await deps.retainMain();
+    if (!retained) {
+      const finishedAt = new Date().toISOString();
+      return deps.repository.update((state) => {
+        let finalRun!: InformationRun;
+        const runs = state.runs.map((run) => {
+          if (run.id !== runId) return run;
+          finalRun = {
+            ...run,
+            status: "completed",
+            finishedAt,
+            publications: run.publications.map((pub) =>
+              pub.status === "pending" ? { ...pub, status: "failed" as const, error: "Main session unavailable" } : pub),
+          };
+          return finalRun;
+        });
+        return { state: { ...state, runs }, result: finalRun };
+      });
+    }
+
+    try {
+      for (const publication of currentRun.publications) {
+        if (publication.status !== "pending") continue;
+        const latest = await deps.repository.read();
+        const aborted = signal.aborted || isPaused() || closed;
+        const realtimeDisabled = currentRun.kind === "realtime" && !latest.settings.enabled;
+        if (aborted || realtimeDisabled) {
+          const reason = realtimeDisabled ? "Information background disabled" : "Cancelled before notification delivery";
+          await deps.repository.update((state) => ({
             state: {
-              ...current,
-              initialAnalysisCompleted: initialCompleted,
-              preferences: parsed.learnedNotes !== undefined
-                ? { ...current.preferences, learnedNotes: parsed.learnedNotes }
-                : current.preferences,
-              items: current.items.map((item) => item.runId === claimed.id && item.status === "processing"
-                ? { ...item, status: "processed" as const }
-                : item),
-              runs: current.runs.map((candidate) => candidate.id === claimed.id
-                ? {
-                  ...candidate,
-                  status: "completed" as const,
-                  finishedAt: now(),
-                  model: { status: "succeeded" as const },
-                  decisions: parsed.decisions,
-                  publications,
-                }
-                : candidate),
+              ...state,
+              runs: state.runs.map((run) =>
+                run.id !== runId
+                  ? run
+                  : {
+                      ...run,
+                      publications: run.publications.map((pub) =>
+                        pub.status === "pending" ? { ...pub, status: "failed" as const, error: reason } : pub),
+                    }),
             },
             result: undefined,
-          };
-        });
-        if (deliveryCancelled) { cancelled = true; return; }
-        const completed = await deps.repository.read();
-        succeeded = true;
-        meaningful = mode === "recommendations";
-        const run = completed.runs.find((candidate) => candidate.id === claimed.id);
-        for (const publication of run?.publications ?? []) {
-          if (mode !== "notifications" || !retained || !targetSessionId) continue;
-          const settingsNow = await deps.repository.read();
-          if (!settingsNow.settings.enabled) {
-            cancelled = true;
-            await markPublication(claimed.id, publication.notificationId, {
-              status: "failed", error: "Information processing disabled before notification delivery",
-            });
-            continue;
-          }
-          if (controller.signal.aborted) {
-            await markPublication(claimed.id, publication.notificationId, {
-              status: "failed", error: "Cancelled before notification delivery",
-            });
-            continue;
-          }
-          if (retained.conversation.piSessionId() !== targetSessionId) {
-            deliveryFailed = true;
-            await markPublication(claimed.id, publication.notificationId, {
-              status: "failed", error: "Target session changed before notification delivery",
-            });
-            continue;
-          }
-          try {
-            const receipt = await retained.conversation.notify(
-              publication.text,
-              publication.notificationId,
-              { signal: controller.signal, domainId: deps.domainId ?? "sms" },
-            );
-            await markPublication(claimed.id, publication.notificationId, {
-              status: "published", receipt,
-            });
-            meaningful = true;
-          } catch {
-            deliveryFailed = !controller.signal.aborted;
-            await markPublication(claimed.id, publication.notificationId, {
-              status: "failed", error: controller.signal.aborted
-                ? "Cancelled before notification delivery"
-                : "Notification delivery failed",
-            });
-          }
+          }));
+          break;
         }
-      }
-    } catch (error) {
-      const cancelled = controller.signal.aborted;
-      const message = error instanceof Error && error.message === "Notification cancelled"
-        ? "Cancelled before notification delivery"
-        : cancelled ? "CANCELLED" : "Information processing failed";
-      await failRun(claimed.id, message, cancelled).catch(() => undefined);
-      // 取消是已接纳 run 的正常终态：runNow 继续读回 cancelled 记录，不能把 AbortError 冒成 HTTP 500。
-      if (!cancelled && (!(error instanceof InformationError) || error.code !== "SHUTDOWN")) throw error;
-    } finally {
-      finish?.(controller.signal.aborted || cancelled ? "cancelled" : succeeded && !deliveryFailed ? "succeeded" : "failed", meaningful);
-      retained?.release();
-    }
-  };
 
-  /** 首轮历史分析模式下在同一个执行槽内连续排空所有待处理批次，每批持久化结论，最终只经 Reduce 终审投递 1 张简报。 */
-  const drainClaimed = async (slot: ActiveSlot, firstClaimed: InformationRun): Promise<InformationRun> => {
-    let current = firstClaimed;
-    while (true) {
-      const isInitial = current.kind === "initial_summary";
-      await process(slot, current);
-      if (!isInitial || slot.controller.signal.aborted) break;
-      const stateNow = await deps.repository.read();
-      const finishedRun = stateNow.runs.find((candidate) => candidate.id === current.id);
-      if (!finishedRun || finishedRun.status !== "completed" || stateNow.initialAnalysisCompleted) break;
-      if (!stateNow.settings.enabled || !stateNow.items.some((item) => item.status === "pending")) break;
-      const next = await claim(true);
-      if (!next) break;
-      current = next;
-    }
-    return current;
-  };
-
-  const runNow = async (options?: { background?: boolean; forceInitial?: boolean; retryFailed?: boolean }) => {
-    requireOpen();
-    if (isPaused()) throw new InformationError("SESSION_PAUSED", "Agent lifecycle is changing");
-    bulkImportHoldUntil = 0;
-    const slot = reserveSlot();
-    let backgroundStarted = false;
-    try {
-      const initialState = await deps.repository.read();
-      if (!initialState.settings.enabled) throw new InformationError("DISABLED", "Information processing is disabled");
-      if (options?.retryFailed) {
-        await deps.repository.update((current) => {
-          if (!current.settings.enabled) throw new InformationError("DISABLED", "Information processing is disabled");
-          let resetCount = 0;
-          const items = current.items.map((item) => {
-            if (item.status !== "failed") return item;
-            resetCount++;
-            const { runId: _droppedRunId, ...rest } = item;
-            void _droppedRunId;
-            return { ...rest, status: "pending" as const };
+        let receipt: InformationPublicationReceipt | undefined;
+        let errorText: string | undefined;
+        try {
+          receipt = await retained.conversation.notify(publication.text, publication.notificationId, {
+            signal,
+            domainId,
           });
-          if (!resetCount) return { result: 0 };
-          const shouldResetInitial = Boolean(options.forceInitial) || !current.initialAnalysisCompleted;
-          return {
-            state: {
-              ...current,
-              ...(shouldResetInitial ? { initialAnalysisCompleted: false } : {}),
-              items,
-            },
-            result: resetCount,
-          };
-        });
+        } catch (error) {
+          errorText = sanitizeError(error);
+        }
+
+        await deps.repository.update((state) => ({
+          state: {
+            ...state,
+            runs: state.runs.map((run) => {
+              if (run.id !== runId) return run;
+              return {
+                ...run,
+                publications: run.publications.map((pub) => {
+                  if (pub.notificationId !== publication.notificationId) return pub;
+                  if (receipt) {
+                    return {
+                      ...pub,
+                      status: "published" as const,
+                      receipt,
+                    };
+                  }
+                  return {
+                    ...pub,
+                    status: "failed" as const,
+                    error: errorText ?? "Notification failed",
+                  };
+                }),
+              };
+            }),
+          },
+          result: undefined,
+        }));
       }
-      const state = options?.retryFailed ? await deps.repository.read() : initialState;
-      if (!state.items.some((item) => item.status === "pending")) {
-        throw new InformationError("NO_PENDING", "No pending information");
-      }
-      const claimed = await claim(true, { forceInitial: options?.forceInitial });
-      if (!claimed) throw new InformationError("NO_PENDING", "No pending information");
-      if (options?.background) {
-        backgroundStarted = true;
-        void drainClaimed(slot, claimed)
-          .catch(() => undefined)
-          .finally(() => slot.release());
-        return getRun(claimed.id);
-      }
-      const lastClaimed = await drainClaimed(slot, claimed);
-      return getRun(lastClaimed.id);
     } finally {
-      if (!backgroundStarted) slot.release();
+      retained.release();
+    }
+
+    const finishedAt = new Date().toISOString();
+    return deps.repository.update((state) => {
+      let finalRun!: InformationRun;
+      const runs = state.runs.map((run) => {
+        if (run.id !== runId) return run;
+        finalRun = {
+          ...run,
+          status: "completed",
+          finishedAt,
+          publications: run.publications.map((pub) =>
+            pub.status === "pending" ? { ...pub, status: "failed" as const, error: "Delivery interrupted" } : pub),
+        };
+        return finalRun;
+      });
+      return { state: { ...state, runs }, result: finalRun };
+    });
+  };
+
+  /** 执行单次批次：realtime 直接生成并投递通知；archive 仅更新决策与长期画像。 */
+  const executeSingleBatch = async (
+    claimed: { run: InformationRun; items: InformationItem[]; state: InformationState },
+  ): Promise<InformationRun> => {
+    const isRealtime = claimed.run.kind === "realtime";
+    const finishWork = deps.observeWork?.(
+      "main",
+      isRealtime ? "information" : "information-archive",
+      isRealtime ? "正在判断收件信息" : "正在归纳历史短信画像",
+    );
+    const controller = new AbortController();
+    activeController = controller;
+    if (isPaused() || closed) controller.abort();
+
+    try {
+      let context: Awaited<ReturnType<typeof loadPromptContext>>;
+      try {
+        context = await loadPromptContext(claimed.state);
+      } catch (error) {
+        if (controller.signal.aborted || isPaused() || closed) {
+          const cancelled = await markRunCancelled(claimed.run.id, claimed.run.itemIds);
+          finishWork?.("failed");
+          return cancelled;
+        }
+        await markRunFailed(claimed.run.id, claimed.run.itemIds, sanitizeError(error));
+        finishWork?.("failed");
+        throw error;
+      }
+      if (controller.signal.aborted || isPaused() || closed) {
+        const cancelled = await markRunCancelled(claimed.run.id, claimed.run.itemIds);
+        finishWork?.("failed");
+        return cancelled;
+      }
+
+      let outcome: InformationModelOutcome;
+      try {
+        outcome = await deps.runModel({
+          runId: claimed.run.id,
+          sessionId: "main",
+          kind: claimed.run.kind,
+          rulesNotes: context.rulesNotes,
+          learnedNotes: context.learnedNotes,
+          feedbackExamples: context.feedbackExamples,
+          items: claimed.items.map((item) => ({
+            id: item.id,
+            source: item.source,
+            externalId: item.externalId,
+            ...(item.title !== undefined ? { title: item.title } : {}),
+            content: item.content,
+            receivedAt: item.receivedAt,
+            acceptedAt: item.acceptedAt,
+          })),
+        }, controller.signal);
+      } catch {
+        outcome = { ok: false, error: controller.signal.aborted ? "CANCELLED" : "MODEL_REQUEST_FAILED" };
+      }
+
+      if (!outcome.ok) {
+        if (outcome.error === "CANCELLED" || controller.signal.aborted) {
+          const cancelled = await markRunCancelled(claimed.run.id, claimed.run.itemIds);
+          finishWork?.("failed");
+          return cancelled;
+        }
+        const failed = await markRunFailed(claimed.run.id, claimed.run.itemIds, outcome.error);
+        finishWork?.("failed");
+        return failed;
+      }
+
+      let parsed: InformationModelResult;
+      try {
+        parsed = parseInformationResult(outcome.result, claimed.run.itemIds, {
+          allowNotifications: isRealtime,
+          allowEmptyNotifications: !isRealtime,
+          requireLearnedNotes: !isRealtime,
+        });
+      } catch {
+        const failed = await markRunFailed(claimed.run.id, claimed.run.itemIds, "INVALID_MODEL_RESULT");
+        finishWork?.("failed");
+        return failed;
+      }
+
+      const now = new Date().toISOString();
+      const pendingPublications: InformationPublication[] = parsed.notifications.map((draft, index) => ({
+        notificationId: `info-notification-${claimed.run.id}-${index}`,
+        text: draft.text,
+        itemIds: draft.itemIds,
+        status: "pending",
+      }));
+
+      const claimedIdSet = new Set(claimed.run.itemIds);
+      const updatedRun = await deps.repository.update((state) => {
+        let savedRun!: InformationRun;
+        const runs = state.runs.map((run) => {
+          if (run.id !== claimed.run.id) return run;
+          savedRun = {
+            ...run,
+            status: pendingPublications.length ? "running" : "completed",
+            ...(pendingPublications.length ? {} : { finishedAt: now }),
+            model: { status: "succeeded" },
+            decisions: parsed.decisions,
+            publications: pendingPublications,
+          };
+          return savedRun;
+        });
+        return {
+          state: {
+            ...state,
+            preferences: parsed.learnedNotes !== undefined
+              ? { ...state.preferences, learnedNotes: parsed.learnedNotes }
+              : state.preferences,
+            items: state.items.map((item) =>
+              claimedIdSet.has(item.id) ? { ...item, status: "processed" as const } : item),
+            runs,
+          },
+          result: savedRun,
+        };
+      });
+
+      if (!pendingPublications.length) {
+        finishWork?.("succeeded", parsed.decisions.every((d) => d.decision === "silent"));
+        return updatedRun;
+      }
+
+      const delivered = await deliverPendingPublications(claimed.run.id, controller.signal);
+      finishWork?.("succeeded", false);
+      return delivered;
+    } finally {
+      if (activeController === controller) activeController = undefined;
     }
   };
-  const getStatus = async () => {
+
+  /** 当历史归档队列全部处理完成（pending === 0 && failed === 0）时，最多发出 1 条 <= 1200 字总结简报。 */
+  const maybePublishArchiveBriefing = async (lastRunId: string): Promise<boolean> => {
+    if (!deps.synthesizeBriefing) return false;
     const state = await deps.repository.read();
-    let pending = 0;
-    let processing = 0;
-    let processed = 0;
-    let failed = 0;
-    for (const item of state.items) {
-      if (item.status === "pending") pending++;
-      else if (item.status === "processing") processing++;
-      else if (item.status === "processed") processed++;
-      else if (item.status === "failed") failed++;
+    const archiveItems = state.items.filter((item) => item.queue === "archive");
+    if (!archiveItems.length) return false;
+    if (archiveItems.some((item) => item.status === "pending" || item.status === "processing" || item.status === "failed")) {
+      return false;
     }
-    const recentRuns = sortedRuns(state.runs);
-    let latestBriefing:
-      | {
-          runId: string;
-          notificationId: string;
-          text: string;
-          createdAt: string;
-          itemCount: number;
-          messageId?: string;
-        }
-      | undefined;
-    for (const run of recentRuns) {
-      if (run.kind !== "initial_summary") continue;
-      const published = run.publications.find((publication) => publication.status === "published");
-      if (!published) continue;
-      latestBriefing = {
-        runId: run.id,
-        notificationId: published.notificationId,
-        text: published.text,
-        createdAt: run.finishedAt ?? run.createdAt,
-        itemCount: published.itemIds.length,
-        ...(published.receipt?.messageId ? { messageId: published.receipt.messageId } : {}),
-      };
-      break;
+
+    const archiveRuns = state.runs
+      .filter((run) => run.kind === "archive" && run.status === "completed")
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
+    // 只收集最近一次已发简报之后的这一波归档批次，避免重复汇总早期已汇报批次。
+    const waveRuns: InformationRun[] = [];
+    for (let i = archiveRuns.length - 1; i >= 0; i--) {
+      const run = archiveRuns[i]!;
+      if (run.publications.length > 0) break;
+      waveRuns.unshift(run);
     }
-    let lastError: string | undefined;
-    if (failed > 0 || recentRuns[0]?.status === "failed") {
-      for (const run of recentRuns) {
-        if (run.status === "failed" && run.model?.error) {
-          lastError = run.model.error;
-          break;
+    if (!waveRuns.length) return false;
+
+    const itemById = new Map(archiveItems.map((item) => [item.id, item]));
+    let totalScanned = 0;
+    let silentCount = 0;
+    const candidates: InformationArchiveCandidate[] = [];
+    for (const run of waveRuns) {
+      for (const decision of run.decisions ?? []) {
+        totalScanned++;
+        if (decision.decision === "silent") {
+          silentCount++;
+          continue;
         }
-        const failedPublication = run.publications.find((publication) => publication.status === "failed" && publication.error);
-        if (failedPublication?.error) {
-          lastError = failedPublication.error;
-          break;
-        }
+        if (candidates.length >= MAX_BRIEFING_CANDIDATES) continue;
+        const item = itemById.get(decision.itemId);
+        if (!item) continue;
+        candidates.push({
+          itemId: item.id,
+          source: item.source,
+          ...(item.title !== undefined ? { title: item.title } : {}),
+          contentExcerpt: clipText(item.content, CONTENT_EXCERPT_MAX).text,
+          receivedAt: item.receivedAt,
+          reason: decision.reason,
+        });
       }
     }
+
+    const controller = new AbortController();
+    activeController = controller;
+    if (isPaused() || closed) controller.abort();
+    try {
+      const context = await loadPromptContext(state);
+      if (controller.signal.aborted) return false;
+
+      const outcome = await deps.synthesizeBriefing({
+        runId: lastRunId,
+        sessionId: "main",
+        rulesNotes: context.rulesNotes,
+        learnedNotes: context.learnedNotes,
+        feedbackExamples: context.feedbackExamples,
+        totalScanned,
+        silentCount,
+        batchCount: waveRuns.length,
+        candidates,
+      }, controller.signal);
+
+      if (!outcome.ok) {
+        const failedPub: InformationPublication = {
+          notificationId: `info-notification-${lastRunId}-0`,
+          text: "(archive briefing failed)",
+          itemIds: [],
+          status: "failed",
+          error: outcome.error,
+        };
+        await deps.repository.update((current) => ({
+          state: {
+            ...current,
+            runs: current.runs.map((run) =>
+              run.id === lastRunId ? { ...run, publications: [failedPub] } : run),
+          },
+          result: undefined,
+        }));
+        return false;
+      }
+
+      const candidateIds = candidates.map((candidate) => candidate.itemId);
+      const parsed = parseInformationBriefingResult(
+        { text: outcome.text, itemIds: outcome.itemIds },
+        candidateIds,
+      );
+      const pendingPub: InformationPublication = {
+        notificationId: `info-notification-${lastRunId}-0`,
+        text: parsed.text.slice(0, ARCHIVE_BRIEFING_MAX_LENGTH),
+        itemIds: parsed.itemIds,
+        status: "pending",
+      };
+      await deps.repository.update((current) => ({
+        state: {
+          ...current,
+          runs: current.runs.map((run) =>
+            run.id === lastRunId ? { ...run, publications: [pendingPub] } : run),
+        },
+        result: undefined,
+      }));
+      const delivered = await deliverPendingPublications(lastRunId, controller.signal);
+      return delivered.publications.some((pub) => pub.status === "published");
+    } catch (error) {
+      const failedPub: InformationPublication = {
+        notificationId: `info-notification-${lastRunId}-0`,
+        text: "(archive briefing failed)",
+        itemIds: [],
+        status: "failed",
+        error: sanitizeError(error),
+      };
+      await deps.repository.update((current) => ({
+        state: {
+          ...current,
+          runs: current.runs.map((run) =>
+            run.id === lastRunId ? { ...run, publications: [failedPub] } : run),
+        },
+        result: undefined,
+      }));
+      return false;
+    } finally {
+      if (activeController === controller) activeController = undefined;
+    }
+  };
+
+  /** 手动立即触发一次实时待处理队列分析（queue = "realtime"）。 */
+  const runNow = async (): Promise<{ run: InformationRun; items: InformationItem[] }> => {
+    ensureOpen();
+    if (isPaused()) throw new InformationError("SESSION_PAUSED", "Information background is paused");
+    if (activeRunPromise || activeArchiveLoop) {
+      throw new InformationError("BUSY", "Information processing is already running");
+    }
+    const runPromise = (async () => {
+      const currentSettings = await getSettings();
+      if (!currentSettings.enabled) {
+        throw new InformationError("DISABLED", "Information background is disabled");
+      }
+      const claimed = await claimBatch("realtime", { forceRealtime: true });
+      if (!claimed) {
+        throw new InformationError("NO_PENDING", "No pending realtime information items");
+      }
+      const run = await executeSingleBatch(claimed);
+      const itemMap = new Map(claimed.items.map((item) => [item.id, item]));
+      const latest = await deps.repository.read();
+      const finalItems = run.itemIds
+        .map((id) => latest.items.find((item) => item.id === id) ?? itemMap.get(id))
+        .filter((item): item is InformationItem => Boolean(item));
+      return { run, items: finalItems };
+    })();
+    activeRunPromise = runPromise;
+    try {
+      return await runPromise;
+    } finally {
+      if (activeRunPromise === runPromise) activeRunPromise = undefined;
+    }
+  };
+
+  /** 执行历史归档批量消化，逐批提炼 learnedNotes，队列清零后发至多 1 条总览简报。 */
+  const runArchive = async (options?: {
+    background?: boolean;
+    retryFailed?: boolean;
+  }): Promise<InformationArchiveRunResult> => {
+    ensureOpen();
+    if (isPaused()) throw new InformationError("SESSION_PAUSED", "Information background is paused");
+    if (activeRunPromise || activeArchiveLoop) {
+      throw new InformationError("BUSY", "Information processing is already running");
+    }
+
+    if (options?.retryFailed) {
+      await deps.repository.update((state) => ({
+        state: {
+          ...state,
+          items: state.items.map((item) => {
+            if (item.queue !== "archive" || item.status !== "failed") return item;
+            const { runId: _drop, ...rest } = item;
+            return { ...rest, status: "pending" as const };
+          }),
+        },
+        result: undefined,
+      }));
+    }
+
+    const initialState = await deps.repository.read();
+    const initialPending = initialState.items.filter(
+      (item) => item.queue === "archive" && item.status === "pending",
+    ).length;
+    if (initialPending === 0) {
+      throw new InformationError("NO_PENDING", "No pending archive items");
+    }
+
+    let runsCount = 0;
+    let processedCount = 0;
+    let failedCount = 0;
+    let briefingPublished = false;
+    let lastRunId: string | undefined;
+
+    const drainLoop = async () => {
+      while (!closed && !isPaused()) {
+        const claimed = await claimBatch("archive", { forceRealtime: true });
+        if (!claimed) break;
+        runsCount++;
+        lastRunId = claimed.run.id;
+        const result = await executeSingleBatch(claimed);
+        if (result.status === "completed") {
+          processedCount += claimed.items.length;
+        } else if (result.status === "failed") {
+          failedCount += claimed.items.length;
+        }
+      }
+      if (!closed && !isPaused() && lastRunId) {
+        briefingPublished = await maybePublishArchiveBriefing(lastRunId);
+      }
+    };
+
+    if (options?.background) {
+      const loop = drainLoop().catch(() => undefined).finally(() => {
+        if (activeArchiveLoop === loop) activeArchiveLoop = undefined;
+      });
+      activeArchiveLoop = loop;
+      return {
+        status: "started",
+        runsCount: 0,
+        processedCount: 0,
+        failedCount: 0,
+        remainingPendingCount: initialPending,
+        briefingPublished: false,
+      };
+    }
+
+    const loop = drainLoop().finally(() => {
+      if (activeArchiveLoop === loop) activeArchiveLoop = undefined;
+    });
+    activeArchiveLoop = loop;
+    await loop;
+
+    const endState = await deps.repository.read();
+    const remainingPendingCount = endState.items.filter(
+      (item) => item.queue === "archive" && item.status === "pending",
+    ).length;
     return {
-      running: Boolean(active),
-      initialAnalysisCompleted: Boolean(state.initialAnalysisCompleted),
-      counts: {
-        total: state.items.length,
-        pending,
-        processing,
-        processed,
-        failed,
-      },
-      ...(latestBriefing ? { latestBriefing } : {}),
-      ...(lastError ? { lastError } : {}),
+      status: remainingPendingCount === 0 && failedCount === 0 ? "completed" : "partial",
+      runsCount,
+      processedCount,
+      failedCount,
+      remainingPendingCount,
+      briefingPublished,
     };
   };
-  const runDue = () => {
-    if (closed || active || isPaused() || Date.now() < bulkImportHoldUntil) return Promise.resolve(false);
-    const slot = reserveSlot();
-    let processStarted = false;
-    return (async () => {
-      try {
-        if (isPaused() || Date.now() < bulkImportHoldUntil) return false;
-        const claimed = await claim(false);
-        if (!claimed) return false;
-        processStarted = true;
-        void drainClaimed(slot, claimed)
-          .catch(() => undefined)
-          .finally(() => slot.release());
-        return true;
-      } finally {
-        // drainClaimed 接管后由其 finally 释放；未到期/无待处理在这里立即释放全局槽。
-        if (!processStarted) slot.release();
-      }
-    })();
-  };
-  const nextDue = async () => {
-    if (Date.now() < bulkImportHoldUntil) return false;
-    const state = await deps.repository.read();
-    if (!state.settings.enabled || isPaused()) return false;
-    const first = state.items.filter((item) => item.status === "pending").sort((a, b) => a.acceptedAt.localeCompare(b.acceptedAt))[0];
-    return Boolean(first && Date.now() >= Date.parse(first.acceptedAt) + state.settings.batchWindowSeconds * 1000);
-  };
 
+  /** 领域子 Agent 只读查询入口。 */
   const query = async (input: {
-      action: "overview" | "items" | "item" | "runs" | "run" | "preferences";
+    action: "overview" | "items" | "item" | "runs" | "run";
+    itemId?: string;
+    runId?: string;
     status?: string;
     limit?: number;
     cursor?: string;
-    itemId?: string;
-    runId?: string;
   }) => {
-    if (input.action === "overview") {
-      const settings = await getSettings();
-      const preferences = await getPreferences();
-      const items = await listItems({ limit: 5 });
-      const runs = await listRuns({ limit: 5 });
-      return { settings, preferences, items, runs };
+    switch (input.action) {
+      case "overview": {
+        const [status, preferences] = await Promise.all([getStatus(), getPreferences()]);
+        return { status, preferences };
+      }
+      case "items":
+        return listItems({
+          status: input.status as InformationItemStatus | undefined,
+          limit: input.limit,
+          cursor: input.cursor,
+        });
+      case "item":
+        return getItem(input.itemId ?? "");
+      case "runs":
+        return listRuns({
+          status: input.status as InformationRunStatus | undefined,
+          limit: input.limit,
+          cursor: input.cursor,
+        });
+      case "run":
+        return getRun(input.runId ?? "");
     }
-    if (input.action === "preferences") return getPreferences();
-    if (input.action === "item") return getItem(input.itemId ?? "");
-    if (input.action === "run") return getRun(input.runId ?? "");
-    if (input.action === "items") return listItems({ status: input.status, limit: input.limit, cursor: input.cursor });
-    return listRuns({ status: input.status, limit: input.limit, cursor: input.cursor });
   };
 
-  const cancel = async () => {
-    const current = active;
-    if (current) {
-      abortQuietly(current.controller);
-      await current.done;
-    }
+  const nextDue = async (): Promise<boolean> => {
+    if (closed || isPaused() || activeRunPromise || activeArchiveLoop) return false;
+    return deps.repository.nextRealtimeDue();
   };
-  const abortQuietly = (controller: AbortController) => {
-    if (controller.signal.aborted) return;
+
+  const runDue = async (): Promise<boolean> => {
+    if (closed || isPaused() || activeRunPromise || activeArchiveLoop) return false;
+    let ran = false;
+    const work = (async () => {
+      const claimed = await claimBatch("realtime", { forceRealtime: false });
+      if (!claimed) return;
+      ran = true;
+      await executeSingleBatch(claimed);
+    })();
+    activeRunPromise = work;
     try {
-      controller.abort(new Error("Information processing cancelled"));
-    } catch (error) {
-      // 本项目只需要进入 aborted 状态；abort 分发本身不能让生命周期路由失败。
-      void error;
+      await work;
+      return ran;
+    } finally {
+      if (activeRunPromise === work) activeRunPromise = undefined;
     }
   };
-  /** 同步暂停新后台轮并等待旧轮退出；嵌套调用用引用计数收口。 */
-  const pause = (): PipelinePause => {
-    pauses++;
-    const current = active;
-    if (current) abortQuietly(current.controller);
+
+  const pause = () => {
+    pauseDepth++;
+    if (pauseDepth === 1) activeController?.abort();
+    const stopped = Promise.allSettled([activeRunPromise, activeArchiveLoop]).then(() => undefined);
     let resumed = false;
     return {
-      stopped: current ? current.done.then(() => undefined) : Promise.resolve(),
+      stopped,
       resume: () => {
         if (resumed) return;
         resumed = true;
-        pauses--;
+        pauseDepth = Math.max(0, pauseDepth - 1);
       },
     };
   };
-  const close = () => {
-    if (closing) return closing;
+
+  const close = async (): Promise<void> => {
     closed = true;
-    const current = active;
-    if (current) abortQuietly(current.controller);
-    closing = (async () => { if (current) await current.done; })();
-    return closing;
+    activeController?.abort();
+    await Promise.allSettled([activeRunPromise, activeArchiveLoop]);
   };
 
   return {
     getSettings,
     saveSettings,
-    configure,
     getPreferences,
-    getNewsPreferences,
     savePreferences,
     ingest,
-    ingestNews,
+    ingestArchive,
     listItems,
     getItem,
-    listNewsArticles,
-    getNewsArticle,
-    getNewsCounts,
-    retryFailedNews,
-    setArticleReaction,
-    setArticleSaved,
-    addArticleComment,
-    deleteArticleComment,
-    listRuns,
-    getRun,
     getStatus,
     runNow,
-    runDue,
-    nextDue,
+    runArchive,
+    listRuns,
+    getRun,
     query,
-    cancel,
+    nextDue,
+    runDue,
     pause,
     close,
   };
 };
 
-export type InformationService = Awaited<ReturnType<typeof createInformationService>>;
+export type InformationService = ReturnType<typeof createInformationService>;

@@ -1,16 +1,15 @@
 import { memoryInformationRules } from "../support/information-rules.js";
-import { createSubmitInformationResultTool } from "../../src/adapters/pi/information-runner.js";
+import {
+  createSubmitInformationResultTool,
+  createSubmitNewsScreeningTool,
+} from "../../src/adapters/pi/information-runner.js";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createInformationRepository } from "../../src/adapters/storage/information-repository.js";
-import { smsModule } from "../../src/adapters/storage/sms-schema.js";
-import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
 import { openNewsRepository } from "../../src/adapters/storage/news-repository.js";
-import { openSqliteDatabase, type ManagedSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
-import { createDataLayout, type DataLayout } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout } from "../../src/adapters/storage/data-layout.js";
 import { cleanRssText, fetchRss2, parseRss2 } from "../../src/adapters/news/rss.js";
 import { NewsError, NewsSourceError, type NewsSourceFailure } from "../../src/features/news/errors.js";
 import { createNewsRoutes } from "../../src/http/routes/news.js";
@@ -20,18 +19,11 @@ import {
   newsRefreshResponseSchema,
   newsSourceListResponseSchema,
 } from "../../src/http/contracts/news.js";
-import { createInformationService } from "../../src/features/information/service.js";
-import type { InformationRepository } from "../../src/features/information/types.js";
+import {
+  createNewsScreeningService,
+  type NewsScreeningModelInput,
+} from "../../src/features/news/screening.js";
 import { createNewsService } from "../../src/features/news/service.js";
-
-/** 短信事实存 main.sqlite 的 sms_* 表；测试内单独开库并与新闻库一起收尾。 */
-const openInformationRepository = async (
-  layout: DataLayout,
-): Promise<{ managed: ManagedSqliteDatabase; repository: InformationRepository }> => {
-  const managed = await openSqliteDatabase(layout.mainDatabaseFile);
-  await managed.serialize(() => ensureSqliteModules(managed, [smsModule]));
-  return { managed, repository: createInformationRepository(managed) };
-};
 
 const rss = (items: string) => `<?xml version="1.0"?>
 <rss version="2.0"><channel><title>Example Feed</title>${items}</channel></rss>`;
@@ -101,27 +93,17 @@ test("RSS2 parser enforces its nesting limit before traversing the parsed tree",
 test("recommendation processing projects decisions without retaining or notifying chat", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-service-"));
   const layout = createDataLayout(dataDir);
-  const informationStorage = await openInformationRepository(layout);
-  const informationRepository = informationStorage.repository;
   const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
   t.after(async () => {
     await newsStorage.database.close();
-    await informationStorage.managed.close();
     await rm(dataDir, { recursive: true, force: true });
   });
   const newsRepository = newsStorage.repository;
-  let retained = false;
   let failNext = false;
-  let modelInput: Parameters<Parameters<typeof createInformationService>[0]["runModel"]>[0] | undefined;
-  const information = createInformationService({
+  let modelInput: NewsScreeningModelInput | undefined;
+  const screening = createNewsScreeningService({
     rules: memoryInformationRules(),
-    repository: informationRepository,
-
-    retainMain: async () => {
-      retained = true;
-      return undefined;
-    },
-    feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
+    repository: newsRepository,
     runModel: async (input) => {
       modelInput = input;
       if (failNext) return { ok: false, error: "MODEL_REQUEST_FAILED" };
@@ -133,7 +115,6 @@ test("recommendation processing projects decisions without retaining or notifyin
             decision: index === 0 ? "notify" as const : "silent" as const,
             reason: index === 0 ? "substantive release" : "routine",
           })),
-          notifications: [],
           learnedNotes: "Values substantive releases.",
         },
       };
@@ -145,8 +126,8 @@ test("recommendation processing projects decisions without retaining or notifyin
   );
   const news = createNewsService({
     repository: newsRepository,
-    information,
-      fetchFeed: async () => parseRss2(feed),
+    screening,
+    fetchFeed: async () => parseRss2(feed),
   });
   await news.initialize();
   await news.savePreferences("Prefer primary sources and substantive engineering detail.");
@@ -162,10 +143,9 @@ test("recommendation processing projects decisions without retaining or notifyin
   const all = await news.listArticles({ view: "all", savedOnly: false, limit: 20 });
   assert.deepEqual(all.articles.map((article) => article.title), ["Newer", "Older"]);
   assert.ok(all.articles.every((article) => article.content === "Details"));
-  await information.runNow();
-  assert.equal(retained, false, "recommendation mode must not retain or notify a chat");
-  assert.deepEqual(modelInput?.articleFeedback, []);
-  assert.equal(modelInput?.preferences.notes, "Prefer primary sources and substantive engineering detail.");
+  await screening.runDue();
+  assert.deepEqual(modelInput?.feedbackExamples, []);
+  assert.equal(modelInput?.rulesNotes, "Prefer primary sources and substantive engineering detail.");
 
   const recommended = await news.listArticles({ view: "recommended", savedOnly: false, limit: 20 });
   assert.equal(recommended.articles.length, 1);
@@ -186,14 +166,14 @@ test("recommendation processing projects decisions without retaining or notifyin
   await news.addComment(older.id, "  useful context  ");
   const learnedBeforeFailure = await news.preferences();
   failNext = true;
-  await information.ingestNews([{
+  await screening.ingest([{
     source: "newssource_test",
     externalId: "after-success",
     title: "Failure must not overwrite preferences",
     content: "Content",
     metadata: { sourceId: "newssource_test", sourceTitle: "Feed", url: null },
   }]);
-  await information.runNow();
+  await screening.runDue();
   assert.deepEqual(await news.preferences(), learnedBeforeFailure);
   await news.deleteSource(source.id);
   const retainedArticle = await news.getArticle(older.id);
@@ -205,19 +185,15 @@ test("recommendation processing projects decisions without retaining or notifyin
 test("touching an old article makes its feedback recent for the next model input", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-feedback-"));
   const layout = createDataLayout(dataDir);
-  const informationStorage = await openInformationRepository(layout);
+  const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
   t.after(async () => {
-    await informationStorage.managed.close();
+    await newsStorage.database.close();
     await rm(dataDir, { recursive: true, force: true });
   });
-  const repository = informationStorage.repository;
-  let captured: Parameters<Parameters<typeof createInformationService>[0]["runModel"]>[0] | undefined;
-  const information = createInformationService({
+  let captured: NewsScreeningModelInput | undefined;
+  const screening = createNewsScreeningService({
     rules: memoryInformationRules(),
-    repository,
-
-    retainMain: async () => undefined,
-    feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
+    repository: newsStorage.repository,
     runModel: async (input) => {
       captured = input;
       return {
@@ -228,62 +204,49 @@ test("touching an old article makes its feedback recent for the next model input
             decision: "silent" as const,
             reason: "not selected",
           })),
-          notifications: [],
           learnedNotes: "",
         },
       };
     },
   });
-  try {
-    await information.configure({
-      enabled: true, batchWindowSeconds: 0, mode: "recommendations",
-    });
-    const inserted = await information.ingestNews(Array.from({ length: 22 }, (_, index) => ({
-      source: "newssource_test",
-      externalId: `guid-${index}`,
-      title: `Article ${index}`,
-      content: `Content ${index}`,
-      metadata: { sourceId: "newssource_test", sourceTitle: "Feed", url: null },
-    })));
-    for (const article of inserted.slice(0, 21)) {
-      await information.setArticleReaction(article.id, "like");
-    }
-    await information.setArticleReaction(inserted[0]!.id, "dislike");
-    await information.runNow();
-    assert.equal(captured?.articleFeedback[0]?.id, inserted[0]!.id);
-    assert.equal(captured?.articleFeedback[0]?.reaction, "dislike");
-  } finally {
-    await rm(dataDir, { recursive: true, force: true });
+  const inserted = await screening.ingest(Array.from({ length: 22 }, (_, index) => ({
+    source: "newssource_test",
+    externalId: `guid-${index}`,
+    title: `Article ${index}`,
+    content: `Content ${index}`,
+    metadata: { sourceId: "newssource_test", sourceTitle: "Feed", url: null },
+  })));
+  for (const article of inserted.slice(0, 21)) {
+    await screening.setArticleReaction(article.id, "like");
   }
+  await screening.setArticleReaction(inserted[0]!.id, "dislike");
+  await screening.runDue();
+  assert.equal(captured?.feedbackExamples[0]?.itemId, inserted[0]!.id);
+  assert.equal(captured?.feedbackExamples[0]?.reaction, "dislike");
 });
 
 test("news pagination returns null nextCursor for an exact full page", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-pagination-"));
   const layout = createDataLayout(dataDir);
   const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
-  const informationStorage = await openInformationRepository(layout);
   t.after(async () => {
     await newsStorage.database.close();
-    await informationStorage.managed.close();
     await rm(dataDir, { recursive: true, force: true });
   });
-  const information = createInformationService({
+  const screening = createNewsScreeningService({
     rules: memoryInformationRules(),
-    repository: informationStorage.repository,
-
-    retainMain: async () => undefined,
-    feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
+    repository: newsStorage.repository,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
   const news = createNewsService({
     repository: newsStorage.repository,
-    information,
-      fetchFeed: async () => {
+    screening,
+    fetchFeed: async () => {
       throw new Error("not used");
     },
   });
   await news.initialize();
-  await information.ingestNews(Array.from({ length: 20 }, (_, index) => ({
+  await screening.ingest(Array.from({ length: 20 }, (_, index) => ({
     source: "newssource_test",
     externalId: `guid-${index}`,
     title: `Article ${index}`,
@@ -312,44 +275,39 @@ test("background refresh keeps failed articles failed while explicit refresh req
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-retry-"));
   const layout = createDataLayout(dataDir);
   const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
-  const informationStorage = await openInformationRepository(layout);
   t.after(async () => {
     await newsStorage.database.close();
-    await informationStorage.managed.close();
     await rm(dataDir, { recursive: true, force: true });
   });
-  const information = createInformationService({
+  const screening = createNewsScreeningService({
     rules: memoryInformationRules(),
-    repository: informationStorage.repository,
-
-    retainMain: async () => undefined,
-    feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
+    repository: newsStorage.repository,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
   const feed = parseRss2(rss(item("retry", "Retry", "Wed, 29 Oct 2026 10:00:00 GMT")));
   const news = createNewsService({
     repository: newsStorage.repository,
-    information,
-      fetchFeed: async () => feed,
+    screening,
+    fetchFeed: async () => feed,
   });
   await news.initialize();
   await news.addSource({ url: "https://example.com/feed.xml" });
   await news.refresh({ retryFailed: true });
-  await information.runNow();
-  assert.deepEqual(await information.getNewsCounts(), {
+  await screening.runDue();
+  assert.deepEqual(await screening.getCounts(), {
     processing: false,
     pendingCount: 0,
     failedCount: 1,
   });
 
   await news.refresh({ retryFailed: false });
-  assert.deepEqual(await information.getNewsCounts(), {
+  assert.deepEqual(await screening.getCounts(), {
     processing: false,
     pendingCount: 0,
     failedCount: 1,
   });
   await news.refresh({ retryFailed: true });
-  assert.deepEqual(await information.getNewsCounts(), {
+  assert.deepEqual(await screening.getCounts(), {
     processing: false,
     pendingCount: 1,
     failedCount: 0,
@@ -360,18 +318,13 @@ test("concurrent news refresh is rejected without queueing", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-refresh-"));
   const layout = createDataLayout(dataDir);
   const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
-  const informationStorage = await openInformationRepository(layout);
   t.after(async () => {
     await newsStorage.database.close();
-    await informationStorage.managed.close();
     await rm(dataDir, { recursive: true, force: true });
   });
-  const information = createInformationService({
+  const screening = createNewsScreeningService({
     rules: memoryInformationRules(),
-    repository: informationStorage.repository,
-
-    retainMain: async () => undefined,
-    feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
+    repository: newsStorage.repository,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
   const feed = parseRss2(rss(item("concurrent", "Concurrent", "Wed, 29 Oct 2026 10:00:00 GMT")));
@@ -382,8 +335,8 @@ test("concurrent news refresh is rejected without queueing", async (t) => {
   const refreshStarted = new Promise<void>((resolve) => { markRefreshStarted = resolve; });
   const news = createNewsService({
     repository: newsStorage.repository,
-    information,
-      fetchFeed: async () => {
+    screening,
+    fetchFeed: async () => {
       calls++;
       if (calls === 1) return feed;
       markRefreshStarted();
@@ -405,18 +358,13 @@ test("one broken RSS source does not block another and its error stays controlle
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-source-error-"));
   const layout = createDataLayout(dataDir);
   const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
-  const informationStorage = await openInformationRepository(layout);
   t.after(async () => {
     await newsStorage.database.close();
-    await informationStorage.managed.close();
     await rm(dataDir, { recursive: true, force: true });
   });
-  const information = createInformationService({
+  const screening = createNewsScreeningService({
     rules: memoryInformationRules(),
-    repository: informationStorage.repository,
-
-    retainMain: async () => undefined,
-    feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
+    repository: newsStorage.repository,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
   const goodFeed = parseRss2(rss(item("good", "Good", "Wed, 29 Oct 2026 10:00:00 GMT")));
@@ -424,8 +372,8 @@ test("one broken RSS source does not block another and its error stays controlle
   let failBad = false;
   const news = createNewsService({
     repository: newsStorage.repository,
-    information,
-      fetchFeed: async (url) => {
+    screening,
+    fetchFeed: async (url) => {
       if (url.includes("bad") && failBad) throw new Error("upstream-marker-4wrqxe7u");
       return url.includes("bad") ? badFeed : goodFeed;
     },
@@ -448,56 +396,52 @@ test("one broken RSS source does not block another and its error stays controlle
 });
 
 test("recommendation tool schema omits notifications, permits empty learned notes and rejects object notifications", async () => {
-  const submissions: unknown[]=[];
-  const tool=createSubmitInformationResultTool(["item"],(value)=>{submissions.push(value);},"recommendations");
-  assert.deepEqual(Object.keys(tool.parameters.properties).sort(),["decisions","learnedNotes"]);
-  assert.deepEqual([...tool.parameters.required!].sort(),["decisions","learnedNotes"]);
-  assert.equal(tool.parameters.additionalProperties,false);
-  const invoke=(input:unknown)=>tool.execute("news",input as never,undefined,undefined,{} as never);
-  const valid={decisions:[{itemId:"item",decision:"notify",reason:"useful"}],learnedNotes:""};
-  const accepted=await invoke(valid);
-  assert.equal(accepted.isError,undefined);
-  assert.deepEqual(submissions,[{...valid,notifications:[]}]);
-  for(const input of [{...valid,notifications:{}},{...valid,notifications:[]},{...valid,decisions:[]},{...valid,learnedNotes:undefined}]) {
-    assert.equal((await invoke(input)).isError,true);
+  const submissions: unknown[] = [];
+  const tool = createSubmitNewsScreeningTool(["item"], (value) => { submissions.push(value); });
+  assert.deepEqual(Object.keys(tool.parameters.properties).sort(), ["decisions", "learnedNotes"]);
+  assert.deepEqual([...tool.parameters.required!].sort(), ["decisions", "learnedNotes"]);
+  assert.equal(tool.parameters.additionalProperties, false);
+  const invoke = (input: unknown) => tool.execute("news", input as never, undefined, undefined, {} as never);
+  const valid = { decisions: [{ itemId: "item", decision: "notify", reason: "useful" }], learnedNotes: "" };
+  const accepted = await invoke(valid);
+  assert.equal(accepted.isError, undefined);
+  assert.deepEqual(submissions, [valid]);
+  for (const input of [{ ...valid, notifications: {} }, { ...valid, notifications: [] }, { ...valid, decisions: [] }, { ...valid, learnedNotes: undefined }]) {
+    assert.equal((await invoke(input)).isError, true);
   }
-  assert.equal(submissions.length,1,"invalid model input must never be normalized into a valid submission");
-  const sms=createSubmitInformationResultTool(["item"],()=>assert.fail("object is not an array"));
-  assert.equal(sms.parameters.properties.notifications?.type,"array");
+  assert.equal(submissions.length, 1, "invalid model input must never be normalized into a valid submission");
+  const sms = createSubmitInformationResultTool(["item"], () => assert.fail("object is not an array"));
+  assert.equal(sms.parameters.properties.notifications?.type, "array");
   assert.ok(sms.parameters.required?.includes("notifications"));
-  assert.equal((await sms.execute("sms",{...valid,notifications:{}} as never,undefined,undefined,{} as never)).isError,true);
+  assert.equal((await sms.execute("sms", { ...valid, notifications: {} } as never, undefined, undefined, {} as never)).isError, true);
 });
 
-/** SQLite 新闻/信息仓储与新闻路由的最小装配；每个用例使用独立临时目录。 */
+/** SQLite 新闻仓储与新闻路由的最小装配；每个用例使用独立临时目录。 */
 const rssFixture = async (
   t: test.TestContext,
   fetchFeed: Parameters<typeof createNewsService>[0]["fetchFeed"],
-  runModel: Parameters<typeof createInformationService>[0]["runModel"] =
+  runModel: Parameters<typeof createNewsScreeningService>[0]["runModel"] =
     async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
 ) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-rss-boundaries-"));
   const layout = createDataLayout(dataDir);
-  const informationStorage = await openInformationRepository(layout);
   const newsStorage = await openNewsRepository({
     databaseFile: layout.newsDatabaseFile,
   });
-  const information = createInformationService({
+  const screening = createNewsScreeningService({
     rules: memoryInformationRules(),
-    repository: informationStorage.repository,
-    retainMain: async () => undefined,
-    feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
+    repository: newsStorage.repository,
     runModel,
   });
-  const news = createNewsService({ repository: newsStorage.repository, information, fetchFeed });
+  const news = createNewsService({ repository: newsStorage.repository, screening, fetchFeed });
   t.after(async () => {
     await news.close();
-    await information.close();
+    await screening.close();
     await newsStorage.database.close();
-    await informationStorage.managed.close();
     await rm(dataDir, { recursive: true, force: true });
   });
   await news.initialize();
-  return { news, repository: newsStorage.repository, information, app: createNewsRoutes({ news }) };
+  return { news, repository: newsStorage.repository, screening, app: createNewsRoutes({ news }) };
 };
 
 test("RSS transport failures are classified without leaking upstream content, causes or stacks", async () => {
@@ -642,34 +586,34 @@ test("manual refresh explicitly reports deferred reset during a model run withou
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const running = new Promise<void>((resolve) => { started = resolve; });
   t.after(() => release());
-  const { news, information, app } = await rssFixture(t, async () => parseRss2(rss("")), async () => {
+  const { news, screening, app } = await rssFixture(t, async () => parseRss2(rss("")), async () => {
     if (gated) { started(); await gate; }
     return { ok: false, error: "MODEL_REQUEST_FAILED" };
   });
-  const ingest = (id: string) => information.ingestNews([{
+  const ingest = (id: string) => screening.ingest([{
     source: "newssource_test", externalId: id, title: id, content: id,
     metadata: { sourceId: "newssource_test", sourceTitle: "Feed", url: null },
   }]);
   await ingest("failed");
-  await information.runNow();
+  await screening.runDue();
   gated = true;
   await ingest("active");
-  const active = information.runNow();
+  const active = screening.runDue();
   await running;
   const result = await app.request("/refresh", { method: "POST", body: "{}" });
   assert.deepEqual(
     newsRefreshResponseSchema.parse(await result.json()),
     { added: 0, skipped: 0, resetDeferred: true },
   );
-  assert.equal((await information.getNewsCounts()).failedCount, 1);
+  assert.equal((await screening.getCounts()).failedCount, 1);
   assert.equal((await news.refresh({ retryFailed: false })).resetDeferred, false);
   release();
   await active;
-  assert.deepEqual(await information.getNewsCounts(), {
+  assert.deepEqual(await screening.getCounts(), {
     processing: false, pendingCount: 0, failedCount: 2,
   });
   assert.equal((await news.refresh({ retryFailed: true })).resetDeferred, false);
-  assert.equal((await information.getNewsCounts()).pendingCount, 2);
+  assert.equal((await screening.getCounts()).pendingCount, 2);
 });
 
 test("news storage accepts optional failure details without migrating legacy sources and rejects invalid details", async (t) => {

@@ -35,7 +35,7 @@
 | `main.sqlite` | `jobs` | 定时任务 |
 | `main.sqlite` | `goals`、`goal_milestones` | 目标 |
 | `main.sqlite` | `actions` | 审批记录与执行回执 |
-| `main.sqlite` | `sms_state`、`sms_items`、`sms_runs`、`sms_run_items`、`sms_decisions` | 短信管线 |
+| `main.sqlite` | `sms_state`、`sms_items`、`sms_runs`、`sms_run_items`、`sms_decisions` | 短信管线（Clean Break v2：`sms_items` 区分 `queue=realtime/archive` 并建有 `(queue, status, position)` 索引） |
 | `main.sqlite` | `dream_state`、`dream_cursors`、`dream_pending` | Dream 机器状态 |
 | `main.sqlite` | `app_schema_migrations` | 模块版本账本 |
 

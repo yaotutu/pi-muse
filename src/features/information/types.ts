@@ -1,161 +1,10 @@
 export type InformationSettings = {
   enabled: boolean;
   batchWindowSeconds: number;
-  mode: "notifications" | "recommendations";
 };
 
 export type InformationPreferences = {
-  notes: string;
   learnedNotes: string;
-};
-
-export type InformationInputItem = {
-  source: string;
-  externalId: string;
-  content: string;
-  title?: string;
-  receivedAt?: string;
-  metadata?: {
-    sourceId: string;
-    sourceTitle: string;
-    url: string | null;
-  };
-};
-
-export type InformationItemStatus = "pending" | "processing" | "processed" | "failed";
-
-export type InformationItem = {
-  id: string;
-  source: string;
-  externalId: string;
-  title?: string;
-  content: string;
-  receivedAt: string;
-  acceptedAt: string;
-  status: InformationItemStatus;
-  runId?: string;
-  metadata?: {
-    sourceId: string;
-    sourceTitle: string;
-    url: string | null;
-  };
-};
-
-export type InformationArticleFeedbackComment = {
-  id: string;
-  text: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type InformationArticleFeedback = {
-  itemId: string;
-  reaction: "like" | "dislike" | null;
-  saved: boolean;
-  comments: InformationArticleFeedbackComment[];
-};
-
-export type InformationDecision = {
-  itemId: string;
-  decision: "silent" | "notify";
-  reason: string;
-};
-
-export type NotificationReceipt = {
-  notificationId: string;
-  piSessionId: string;
-  messageId: string;
-};
-
-export type InformationPublication = {
-  notificationId: string;
-  itemIds: string[];
-  text: string;
-  status: "pending" | "published" | "failed";
-  receipt?: NotificationReceipt;
-  error?: string;
-};
-
-export type InformationRunStatus = "running" | "completed" | "failed" | "cancelled";
-
-export type InformationAnalysisKind = "initial_summary" | "incremental";
-
-export type InformationRun = {
-  id: string;
-  itemIds: string[];
-  status: InformationRunStatus;
-  createdAt: string;
-  startedAt: string;
-  finishedAt?: string;
-  kind?: InformationAnalysisKind;
-  model?: {
-    status: "succeeded" | "failed";
-    error?: string;
-  };
-  decisions?: InformationDecision[];
-  publications: InformationPublication[];
-};
-
-export type InformationState = {
-  schemaVersion: 1;
-  settings: InformationSettings;
-  preferences: Pick<InformationPreferences, "learnedNotes">;
-  items: InformationItem[];
-  runs: InformationRun[];
-  articleFeedback: InformationArticleFeedback[];
-  initialAnalysisCompleted?: boolean;
-};
-
-export const defaultInformationState = (): InformationState => ({
-  schemaVersion: 1,
-  settings: { enabled: false, batchWindowSeconds: 15, mode: "notifications" },
-  preferences: { learnedNotes: "" },
-  items: [],
-  runs: [],
-  articleFeedback: [],
-  initialAnalysisCompleted: false,
-});
-
-export type InformationRepository = {
-  read: () => Promise<InformationState>;
-  update: <T>(
-    change: (state: InformationState) => MaybePromise<{ state?: InformationState; result: T }>,
-    options?: { allowCreate?: boolean },
-  ) => Promise<T>;
-  reconcileOnStart: () => Promise<void>;
-  validateAll: () => Promise<void>;
-};
-
-type MaybePromise<T> = T | Promise<T>;
-
-export type InformationModelInput = {
-  runId: string;
-  mode: "notifications" | "recommendations";
-  analysisKind: InformationAnalysisKind;
-  mapOnly?: boolean;
-  preferences: InformationPreferences;
-  items: InformationInputView[];
-  feedbackExamples: InformationFeedbackExample[];
-  articleFeedback: InformationArticleFeedbackExample[];
-};
-
-export type InformationInputView = {
-  id: string;
-  source: string;
-  externalId: string;
-  title?: string;
-  content: string;
-  receivedAt: string;
-  sourceTitle?: string;
-  url?: string | null;
-};
-
-export type InformationFeedbackItemExample = {
-  id: string;
-  source: string;
-  title?: string;
-  content: string;
-  contentTruncated: boolean;
 };
 
 export type InformationFeedbackExample = {
@@ -165,56 +14,196 @@ export type InformationFeedbackExample = {
   reaction: "like" | "dislike" | null;
   comments: string[];
   commentsTruncated: boolean;
-  items: InformationFeedbackItemExample[];
+  items: Array<{
+    id: string;
+    source: string;
+    title?: string;
+    content: string;
+    contentTruncated: boolean;
+  }>;
 };
 
-export type InformationArticleFeedbackExample = {
-  id: string;
+export type InformationPreferencesView = {
+  notes: string;
+  learnedNotes: string;
+  feedbackExamples: InformationFeedbackExample[];
+};
+
+export type InformationInputItem = {
+  source: string;
+  externalId: string;
   title?: string;
   content: string;
-  contentTruncated: boolean;
-  reaction: "like" | "dislike" | null;
-  saved: boolean;
-  comments: string[];
+  receivedAt?: string;
 };
 
-export type InformationSubmittedResult = {
-  decisions: InformationDecision[];
-  notifications: Array<{ itemIds: string[]; text: string }>;
-  learnedNotes?: string;
-};
+export type InformationQueue = "realtime" | "archive";
+export type InformationItemStatus = "pending" | "processing" | "processed" | "failed";
 
-export type InformationModelResult =
-  | { ok: true; result: InformationSubmittedResult }
-  | { ok: false; error: "MODEL_REQUEST_FAILED" | "INVALID_MODEL_RESULT" | "CANCELLED" };
-
-export type InformationBriefingCandidate = {
-  itemId: string;
+export type InformationItem = {
+  id: string;
+  queue: InformationQueue;
   source: string;
+  externalId: string;
   title?: string;
   content: string;
   receivedAt: string;
+  acceptedAt: string;
+  status: InformationItemStatus;
+  runId?: string;
+};
+
+export type InformationDecisionType = "silent" | "notify";
+
+export type InformationDecision = {
+  itemId: string;
+  decision: InformationDecisionType;
   reason: string;
 };
 
-export type InformationBriefingUpdate = {
+export type InformationPublicationReceipt = {
+  notificationId: string;
+  piSessionId: string;
+  messageId: string;
+};
+
+export type InformationPublication = {
+  notificationId: string;
+  text: string;
+  itemIds: string[];
+  status: "pending" | "published" | "failed";
+  receipt?: InformationPublicationReceipt;
+  error?: string;
+};
+
+export type InformationRunStatus = "running" | "completed" | "failed" | "cancelled";
+export type InformationRunKind = "realtime" | "archive";
+
+export type InformationRun = {
+  id: string;
+  kind: InformationRunKind;
+  status: InformationRunStatus;
+  createdAt: string;
+  startedAt: string;
+  finishedAt?: string;
+  itemIds: string[];
+  model?: {
+    status: "succeeded" | "failed";
+    error?: string;
+  };
+  decisions?: InformationDecision[];
+  publications: InformationPublication[];
+};
+
+export type InformationState = {
+  schemaVersion: 2;
+  settings: InformationSettings;
+  preferences: InformationPreferences;
+  items: InformationItem[];
+  runs: InformationRun[];
+};
+
+export const defaultInformationState = (): InformationState => ({
+  schemaVersion: 2,
+  settings: { enabled: false, batchWindowSeconds: 15 },
+  preferences: { learnedNotes: "" },
+  items: [],
+  runs: [],
+});
+
+export type InformationNotificationDraft = {
+  itemIds: string[];
+  text: string;
+};
+
+export type InformationModelResult = {
+  decisions: InformationDecision[];
+  notifications: InformationNotificationDraft[];
+  learnedNotes?: string;
+};
+
+export type InformationModelInput = {
+  runId: string;
+  sessionId: string;
+  kind: InformationRunKind;
+  rulesNotes: string;
+  learnedNotes: string;
+  feedbackExamples: InformationFeedbackExample[];
+  items: Array<{
+    id: string;
+    source: string;
+    externalId: string;
+    title?: string;
+    content: string;
+    receivedAt: string;
+    acceptedAt: string;
+  }>;
+};
+
+export type InformationModelError = "MODEL_REQUEST_FAILED" | "INVALID_MODEL_RESULT" | "CANCELLED";
+
+export type InformationModelOutcome =
+  | { ok: true; result: InformationModelResult }
+  | { ok: false; error: InformationModelError };
+
+export type InformationArchiveCandidate = {
   itemId: string;
+  source: string;
   title?: string;
-  content: string;
+  contentExcerpt: string;
   receivedAt: string;
   reason: string;
 };
 
 export type InformationBriefingInput = {
   runId: string;
-  preferences: InformationPreferences;
+  sessionId: string;
+  rulesNotes: string;
+  learnedNotes: string;
+  feedbackExamples: InformationFeedbackExample[];
   totalScanned: number;
   silentCount: number;
   batchCount: number;
-  candidates: InformationBriefingCandidate[];
-  relatedUpdates?: InformationBriefingUpdate[];
+  candidates: InformationArchiveCandidate[];
 };
 
-export type InformationBriefingResult =
+export type InformationBriefingOutcome =
   | { ok: true; text: string; itemIds: string[] }
-  | { ok: false; error: "MODEL_REQUEST_FAILED" | "INVALID_MODEL_RESULT" | "CANCELLED" };
+  | { ok: false; error: InformationModelError };
+
+export type InformationArchiveStats = {
+  running: boolean;
+  pendingCount: number;
+  processedCount: number;
+  failedCount: number;
+};
+
+export type InformationStatus = {
+  enabled: boolean;
+  batchWindowSeconds: number;
+  running: boolean;
+  pendingCount: number;
+  failedCount: number;
+  archive: InformationArchiveStats;
+  lastRunAt: string | null;
+  lastError: string | null;
+};
+
+export type InformationArchiveRunResult = {
+  status: "started" | "completed" | "partial";
+  runsCount: number;
+  processedCount: number;
+  failedCount: number;
+  remainingPendingCount: number;
+  briefingPublished: boolean;
+};
+
+export type InformationRepository = {
+  read: () => Promise<InformationState>;
+  update: <T>(
+    change: (state: InformationState) => { state?: InformationState; result: T } | Promise<{ state?: InformationState; result: T }>,
+  ) => Promise<T>;
+  validateAll: () => Promise<void>;
+  nextRealtimeDue: () => Promise<boolean>;
+  reconcileOnStart: () => Promise<void>;
+};

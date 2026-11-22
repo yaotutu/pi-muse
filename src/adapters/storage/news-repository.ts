@@ -34,6 +34,37 @@ export const createNewsRepository = (database: NewsRepositoryHandle["database"])
   validate: () => database.serialize(() => {
     readNewsState(database);
   }),
+  hasPendingArticle: () => database.serialize(() =>
+    Boolean(database.database.prepare("SELECT 1 FROM news_articles WHERE status = 'pending' LIMIT 1").get()),
+  ),
+  reconcileOnStart: () => database.serialize(() => {
+    const current = readNewsState(database);
+    const hasRunning = current.processing.runs.some((run) => run.status === "running");
+    const hasProcessing = current.processing.items.some((item) => item.status === "processing");
+    if (!hasRunning && !hasProcessing) return;
+    const now = new Date().toISOString();
+    const next = parseNewsState({
+      ...current,
+      processing: {
+        ...current.processing,
+        items: current.processing.items.map((item) => {
+          if (item.status !== "processing") return item;
+          const { runId: _drop, ...rest } = item;
+          return { ...rest, status: "pending" as const };
+        }),
+        runs: current.processing.runs.map((run) =>
+          run.status === "running"
+            ? {
+                ...run,
+                status: "failed" as const,
+                finishedAt: now,
+                model: { status: "failed" as const, error: "Service restarted while screening was running" },
+              }
+            : run),
+      },
+    });
+    database.transaction(() => applyNewsState(database, current, next));
+  }),
 });
 
 /**

@@ -224,8 +224,9 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
     ```
   - 发送后，主助手即可在当轮上下文看到这段引用，并能准确将后续规则改动通过 `domain_agent` 路由到对应领域。
 - **信息/短信后台接入（`/api/information/*`，适合 `webhook` / 投喂端 / `rich-ui`）**：
-  - 本组端点均为全局路径（不带 `:sessionId`）；开关（默认关闭）与聚合窗口（`batchWindowSeconds`，0–3600）由 `/api/information/settings` 管理；偏好与自学习例证由 `/api/information/preferences` 管理。
-  - 接入原始信息调用 `POST /api/information/items`（单批最多 500 条），以 `(source, externalId)` 为幂等键（同内容幂等回读，不同内容 `409` 不覆盖原文）。批量上传历史分片时建议传 `bulkImport: true`，避免增量定时调度在分片途中抢跑；导入完成后调用 `POST /api/information/runs`（可配 `background: true`、`forceInitial: true`）触发首轮全量建画像分析，并通过 `GET /api/information/status` 轮询队列进度直至 `running === false`。
+  - 本组端点均为全局路径（不带 `:sessionId`）；开关与窗口（`enabled`、`batchWindowSeconds` 0–3600）由 `/api/information/settings` 管理；偏好与自学习画像由 `/api/information/preferences`（`notes`、`learnedNotes`、`feedbackExamples`）管理。
+  - **日常实时接入**：调用 `POST /api/information/items`（1–100 条，进入 `queue: "realtime"`），以 `(source, externalId)` 为幂等键（同内容幂等回读，不同内容 `409 CONFLICT` 不覆盖原文；后台禁用时 `409 DISABLED`）；可通过 `POST /api/information/runs`（空请求体 `{}`）立即触发一次单周期判定并推送通知到 `main`。
+  - **历史批量归档**：与实时调度完全隔离——导入调用 `POST /api/information/archive/items`（1–500 条，进入 `queue: "archive"`），完成后显式调用 `POST /api/information/archive/run`（`{ background?, retryFailed? }`）逐批演化 `learnedNotes` 并在清零后发至多 1 条 <= 1200 字简报；进度通过 `GET /api/information/status` 的 `archive.{running, pendingCount, processedCount, failedCount}` 轮询。
 - **新闻阅读与推荐（`/api/news/*`，适合 `rich-ui`）**：
   - 支持 RSS 源列表/添加/停止采集（删除源后已接纳的文章、收藏、反应与评论**继续保留**，仅停止后续采集；添加源 400 失败会附带受控 `failure.category`）。
   - 文章支持 `view=all|recommended` 与 `savedOnly=true|false` 游标分页；`POST /api/news/refresh` 需传严格空 JSON 对象 `{}`（不等待模型筛选结束，前台可短时观察 `GET /api/news/status` 直至 `refreshing` 和 `processing` 均为 `false` 后停表并刷新列表）。

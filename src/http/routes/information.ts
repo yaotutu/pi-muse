@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
 import { InformationError } from "../../features/information/errors.js";
 import {
+  informationArchiveIngestRequestSchema,
+  informationArchiveRunRequestSchema,
   informationIngestRequestSchema,
   informationItemsQuerySchema,
   informationPreferencesRequestSchema,
@@ -32,7 +34,7 @@ const parseQuery = <T>(
   return schema.safeParse(Object.fromEntries(query.entries()));
 };
 
-/** 信息后台 HTTP 入口：所有入口都只针对已存在会话，不隐式创建。 */
+/** 信息后台 HTTP 入口：实时单周期与历史归档两条路径隔离，共用规则与自学习画像。 */
 export const createInformationRoutes = (dependencies: HttpDependencies) => {
   const app = new Hono();
   const { information } = dependencies;
@@ -43,12 +45,15 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     try {
       const pause = information.pause();
       await pause.stopped;
-      try { return c.json(await information.saveSettings(parsed.data)); }
-      finally { pause.resume(); }
+      try {
+        return c.json(await information.saveSettings(parsed.data));
+      } finally {
+        pause.resume();
+      }
     } catch (error) {
       if (error instanceof InformationError) {
-        const result = failure(error);
-        return c.json(result.body, result.status);
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
       }
       throw error;
     }
@@ -59,8 +64,8 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
       return c.json(await information.getSettings());
     } catch (error) {
       if (error instanceof InformationError) {
-        const result = failure(error);
-        return c.json(result.body, result.status);
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
       }
       throw error;
     }
@@ -70,12 +75,11 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     const parsed = informationPreferencesRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid information preferences", code: "INVALID_REQUEST" }, 400);
     try {
-      await information.savePreferences(parsed.data);
-      return c.json(await information.getPreferences());
+      return c.json(await information.savePreferences(parsed.data));
     } catch (error) {
       if (error instanceof InformationError) {
-        const result = failure(error);
-        return c.json(result.body, result.status);
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
       }
       throw error;
     }
@@ -86,8 +90,8 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
       return c.json(await information.getPreferences());
     } catch (error) {
       if (error instanceof InformationError) {
-        const result = failure(error);
-        return c.json(result.body, result.status);
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
       }
       throw error;
     }
@@ -97,11 +101,39 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     const parsed = informationIngestRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid information items", code: "INVALID_REQUEST" }, 400);
     try {
-      return c.json({ items: await information.ingest(parsed.data.items, { bulkImport: parsed.data.bulkImport }) });
+      return c.json({ items: await information.ingest(parsed.data.items) });
     } catch (error) {
       if (error instanceof InformationError) {
-        const result = failure(error);
-        return c.json(result.body, result.status);
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
+      }
+      throw error;
+    }
+  });
+
+  app.post("/archive/items", async (c) => {
+    const parsed = informationArchiveIngestRequestSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid archive information items", code: "INVALID_REQUEST" }, 400);
+    try {
+      return c.json(await information.ingestArchive(parsed.data.items));
+    } catch (error) {
+      if (error instanceof InformationError) {
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
+      }
+      throw error;
+    }
+  });
+
+  app.post("/archive/run", async (c) => {
+    const parsed = informationArchiveRunRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Invalid archive run request", code: "INVALID_REQUEST" }, 400);
+    try {
+      return c.json(await information.runArchive(parsed.data));
+    } catch (error) {
+      if (error instanceof InformationError) {
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
       }
       throw error;
     }
@@ -114,8 +146,8 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
       return c.json(await information.listItems(parsed.data));
     } catch (error) {
       if (error instanceof InformationError) {
-        const result = failure(error);
-        return c.json(result.body, result.status);
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
       }
       throw error;
     }
@@ -126,8 +158,8 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
       return c.json(await information.getItem(c.req.param("itemId")));
     } catch (error) {
       if (error instanceof InformationError) {
-        const result = failure(error);
-        return c.json(result.body, result.status);
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
       }
       throw error;
     }
@@ -138,8 +170,8 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
       return c.json(await information.getStatus());
     } catch (error) {
       if (error instanceof InformationError) {
-        const result = failure(error);
-        return c.json(result.body, result.status);
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
       }
       throw error;
     }
@@ -149,11 +181,11 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
     const parsed = informationRunRequestSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "Invalid information run request", code: "INVALID_REQUEST" }, 400);
     try {
-      return c.json(await information.runNow(parsed.data));
+      return c.json(await information.runNow());
     } catch (error) {
       if (error instanceof InformationError) {
-        const result = failure(error);
-        return c.json(result.body, result.status);
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
       }
       throw error;
     }
@@ -166,8 +198,8 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
       return c.json(await information.listRuns(parsed.data));
     } catch (error) {
       if (error instanceof InformationError) {
-        const result = failure(error);
-        return c.json(result.body, result.status);
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
       }
       throw error;
     }
@@ -178,8 +210,8 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
       return c.json(await information.getRun(c.req.param("runId")));
     } catch (error) {
       if (error instanceof InformationError) {
-        const result = failure(error);
-        return c.json(result.body, result.status);
+        const mapped = failure(error);
+        return c.json(mapped.body, mapped.status);
       }
       throw error;
     }

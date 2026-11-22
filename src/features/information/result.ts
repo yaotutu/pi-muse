@@ -1,119 +1,177 @@
+import { isWorkspaceText } from "../../shared/workspace-text.js";
 import { InformationError } from "./errors.js";
-import type { InformationSubmittedResult } from "./types.js";
+import type {
+  InformationDecision,
+  InformationModelResult,
+  InformationNotificationDraft,
+} from "./types.js";
 
 export const INFORMATION_REASON_MAX_LENGTH = 1000;
 export const INFORMATION_NOTIFICATION_TEXT_MAX_LENGTH = 4000;
-export const INITIAL_BRIEFING_MAX_LENGTH = 1200;
+export const ARCHIVE_BRIEFING_MAX_LENGTH = 1200;
+export const INFORMATION_LEARNED_NOTES_MAX_LENGTH = 4000;
 export const INFORMATION_MAX_NOTIFICATIONS = 20;
 
-/** PI 无关的唯一结构化结果校验；SDK 工具与业务持久化共用，不能漂移出两套规则。 */
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+export type ParseInformationResultOptions = {
+  allowNotifications: boolean;
+  allowEmptyNotifications?: boolean;
+  requireLearnedNotes?: boolean;
+};
+
+/** 校验并规范化短信/信息模型单轮提交结果，拒绝未知字段、漏判、重复及未覆盖 notify 条目。 */
 export const parseInformationResult = (
-  value: unknown,
-  itemIds: readonly string[],
-  mode: "notifications" | "recommendations" = "notifications",
-  options?: { requireNotificationCoverage?: boolean },
-): InformationSubmittedResult => {
-  const requireCoverage = options?.requireNotificationCoverage ?? (mode === "notifications");
-  const expected = new Set(itemIds);
-  const decided = new Set<string>();
+  raw: unknown,
+  claimedIds: readonly string[],
+  options: ParseInformationResultOptions,
+): InformationModelResult => {
+  if (!isPlainRecord(raw)) {
+    throw new InformationError("INVALID_INPUT", "Invalid information result");
+  }
+  const allowedKeys = new Set<string>(["decisions", "learnedNotes"]);
+  if (options.allowNotifications || options.allowEmptyNotifications) {
+    allowedKeys.add("notifications");
+  }
+  for (const key of Object.keys(raw)) {
+    if (!allowedKeys.has(key)) {
+      throw new InformationError("INVALID_INPUT", `Unexpected field in information result: ${key}`);
+    }
+  }
+  if (!Array.isArray(raw.decisions)) {
+    throw new InformationError("INVALID_INPUT", "Invalid information result decisions");
+  }
+
+  const expectedIds = new Set(claimedIds);
+  const seenIds = new Set<string>();
   const notifyIds = new Set<string>();
-  if (!value || typeof value !== "object") throw new InformationError("INVALID_INPUT", "Invalid information result");
-  const source = value as { decisions?: unknown; notifications?: unknown };
-  if (!Array.isArray(source.decisions) || source.decisions.length !== expected.size) {
-    throw new InformationError("INVALID_INPUT", "Information decisions must cover every batch item exactly once");
-  }
-  const decisions = source.decisions.map((raw) => {
-    if (!raw || typeof raw !== "object") throw new InformationError("INVALID_INPUT", "Invalid information decision");
-    const decision = raw as { itemId?: unknown; decision?: unknown; reason?: unknown };
-    if (typeof decision.itemId !== "string" || !expected.has(decision.itemId) || decided.has(decision.itemId)) {
-      throw new InformationError("INVALID_INPUT", "Information decisions must reference batch items exactly once");
+  const decisions: InformationDecision[] = [];
+
+  for (const entry of raw.decisions) {
+    if (!isPlainRecord(entry)) {
+      throw new InformationError("INVALID_INPUT", "Invalid information decision entry");
     }
-    if (decision.decision !== "silent" && decision.decision !== "notify") {
-      throw new InformationError("INVALID_INPUT", "Invalid information decision type");
+    const { itemId, decision, reason, ...extra } = entry;
+    if (Object.keys(extra).length > 0) {
+      throw new InformationError("INVALID_INPUT", "Unexpected field in information decision");
     }
-    const type = decision.decision as "silent" | "notify";
-    const reason = decision.reason;
+    if (typeof itemId !== "string" || !expectedIds.has(itemId) || seenIds.has(itemId)) {
+      throw new InformationError("INVALID_INPUT", `Invalid or duplicate decision itemId: ${String(itemId)}`);
+    }
+    if (decision !== "silent" && decision !== "notify") {
+      throw new InformationError("INVALID_INPUT", `Invalid decision type: ${String(decision)}`);
+    }
     if (typeof reason !== "string" || !reason.trim() || reason.length > INFORMATION_REASON_MAX_LENGTH) {
-      throw new InformationError("INVALID_INPUT", "Information decision reason is blank or too long");
+      throw new InformationError("INVALID_INPUT", "Decision reason is blank or exceeds limit");
     }
-    decided.add(decision.itemId);
-    if (decision.decision === "notify") notifyIds.add(decision.itemId);
-    return { itemId: decision.itemId, decision: type, reason };
-  });
-  if (!Array.isArray(source.notifications) || source.notifications.length > INFORMATION_MAX_NOTIFICATIONS) {
-    throw new InformationError("INVALID_INPUT", "Information notifications are invalid or too numerous");
+    seenIds.add(itemId);
+    if (decision === "notify") notifyIds.add(itemId);
+    decisions.push({ itemId, decision, reason: reason.trim() });
   }
-  const covered = new Set<string>();
-  const notifications = source.notifications.map((raw) => {
-    if (!raw || typeof raw !== "object") throw new InformationError("INVALID_INPUT", "Invalid information notification");
-    const notification = raw as { itemIds?: unknown; text?: unknown };
-    if (typeof notification.text !== "string" || !notification.text.trim() ||
-      notification.text.length > INFORMATION_NOTIFICATION_TEXT_MAX_LENGTH) {
-      throw new InformationError("INVALID_INPUT", "Information notification text is blank or too long");
+
+  if (seenIds.size !== expectedIds.size) {
+    throw new InformationError("INVALID_INPUT", "Information decisions must match every claimed item");
+  }
+
+  let learnedNotes: string | undefined;
+  if (raw.learnedNotes !== undefined) {
+    if (typeof raw.learnedNotes !== "string" || !isWorkspaceText(raw.learnedNotes)) {
+      throw new InformationError("INVALID_INPUT", "learnedNotes must be valid text");
     }
-    if (!Array.isArray(notification.itemIds) || !notification.itemIds.length) {
-      throw new InformationError("INVALID_INPUT", "Information notification must reference at least one notify item");
+    const trimmed = raw.learnedNotes.trim();
+    if (trimmed.length > INFORMATION_LEARNED_NOTES_MAX_LENGTH) {
+      throw new InformationError(
+        "INVALID_INPUT",
+        `learnedNotes must be at most ${INFORMATION_LEARNED_NOTES_MAX_LENGTH} characters`,
+      );
     }
-    for (const itemId of notification.itemIds) {
-      if (typeof itemId !== "string") {
-        throw new InformationError("INVALID_INPUT", "Notification itemId must be a string");
+    learnedNotes = trimmed;
+  } else if (options.requireLearnedNotes) {
+    throw new InformationError("INVALID_INPUT", "Archive batch result requires learnedNotes");
+  }
+
+  const notifications: InformationNotificationDraft[] = [];
+  if (options.allowNotifications) {
+    if (!Array.isArray(raw.notifications) || raw.notifications.length > INFORMATION_MAX_NOTIFICATIONS) {
+      throw new InformationError("INVALID_INPUT", "Invalid information notifications array");
+    }
+    const coveredNotifyIds = new Set<string>();
+    for (const entry of raw.notifications) {
+      if (!isPlainRecord(entry)) {
+        throw new InformationError("INVALID_INPUT", "Invalid information notification entry");
       }
-      if (!notifyIds.has(itemId)) {
-        throw new InformationError(
-          "INVALID_INPUT",
-          "Every itemId in notifications must have decision='notify' in decisions; do not include silent items",
-        );
+      const { itemIds, text, ...extra } = entry;
+      if (Object.keys(extra).length > 0) {
+        throw new InformationError("INVALID_INPUT", "Unexpected field in information notification");
       }
-      if (covered.has(itemId)) {
-        throw new InformationError("INVALID_INPUT", "Duplicate itemId across notifications");
+      if (
+        typeof text !== "string" ||
+        !isWorkspaceText(text) ||
+        !text.trim() ||
+        text.length > INFORMATION_NOTIFICATION_TEXT_MAX_LENGTH
+      ) {
+        throw new InformationError("INVALID_INPUT", "Notification text is blank or exceeds limit");
       }
-      covered.add(itemId);
+      if (!Array.isArray(itemIds) || itemIds.length === 0) {
+        throw new InformationError("INVALID_INPUT", "Notification itemIds must be non-empty");
+      }
+      const normalizedIds: string[] = [];
+      for (const id of itemIds) {
+        if (typeof id !== "string" || !notifyIds.has(id) || coveredNotifyIds.has(id)) {
+          throw new InformationError("INVALID_INPUT", `Notification references invalid or duplicate notify itemId: ${String(id)}`);
+        }
+        coveredNotifyIds.add(id);
+        normalizedIds.push(id);
+      }
+      notifications.push({ itemIds: normalizedIds, text: text.trim() });
     }
-    return { itemIds: notification.itemIds as string[], text: notification.text };
-  });
-  if (requireCoverage && covered.size !== notifyIds.size) {
-    throw new InformationError("INVALID_INPUT", "Every notify item must be covered exactly once");
+    if (coveredNotifyIds.size !== notifyIds.size) {
+      throw new InformationError("INVALID_INPUT", "Every notify item must be covered exactly once across notifications");
+    }
+  } else if (options.allowEmptyNotifications && raw.notifications !== undefined) {
+    if (!Array.isArray(raw.notifications) || raw.notifications.length !== 0) {
+      throw new InformationError("INVALID_INPUT", "Archive information result cannot emit notifications");
+    }
   }
-  const rawLearnedNotes = (value as { learnedNotes?: unknown }).learnedNotes;
-  if ((mode === "recommendations" && typeof rawLearnedNotes !== "string") ||
-      (rawLearnedNotes !== undefined && (typeof rawLearnedNotes !== "string" || rawLearnedNotes.length > 4000))) {
-    throw new InformationError("INVALID_INPUT", "Information preference summary is invalid");
-  }
-  if (mode === "recommendations" && notifications.length) {
-    throw new InformationError("INVALID_INPUT", "Recommendation mode must not submit notifications");
-  }
+
   return {
     decisions,
     notifications,
-    ...(rawLearnedNotes === undefined ? {} : { learnedNotes: rawLearnedNotes }),
+    ...(learnedNotes !== undefined ? { learnedNotes } : {}),
   };
 };
 
-/** 首轮全局终审简报校验：严格限制在 1200 字符内，且关联条目只能来自候选待办集合（可为空）。 */
-export const parseInitialBriefingResult = (
-  value: unknown,
-  allowedItemIds: readonly string[],
+/** 校验并规范化历史归档总览简报，限制正文 <= 1200 字且引用 ID 为候选子集。 */
+export const parseInformationBriefingResult = (
+  raw: unknown,
+  candidateIds: readonly string[],
 ): { text: string; itemIds: string[] } => {
-  if (!value || typeof value !== "object") {
-    throw new InformationError("INVALID_INPUT", "Invalid initial briefing result");
+  if (!isPlainRecord(raw)) {
+    throw new InformationError("INVALID_INPUT", "Invalid archive briefing result");
   }
-  const source = value as { text?: unknown; itemIds?: unknown };
-  if (typeof source.text !== "string") {
-    throw new InformationError("INVALID_INPUT", "Initial briefing text must be a string");
+  const allowedKeys = new Set(["text", "itemIds"]);
+  for (const key of Object.keys(raw)) {
+    if (!allowedKeys.has(key)) {
+      throw new InformationError("INVALID_INPUT", `Unexpected field in archive briefing: ${key}`);
+    }
   }
-  const text = source.text.trim();
-  if (!text || text.length > INITIAL_BRIEFING_MAX_LENGTH) {
-    throw new InformationError("INVALID_INPUT", "Initial briefing text is blank or exceeds limit");
+  if (typeof raw.text !== "string" || !isWorkspaceText(raw.text)) {
+    throw new InformationError("INVALID_INPUT", "Archive briefing text must be a string");
   }
-  if (!Array.isArray(source.itemIds)) {
-    throw new InformationError("INVALID_INPUT", "Initial briefing itemIds must be an array");
+  const text = raw.text.trim();
+  if (!text || text.length > ARCHIVE_BRIEFING_MAX_LENGTH) {
+    throw new InformationError("INVALID_INPUT", "Archive briefing text is blank or exceeds limit");
   }
-  const allowed = new Set(allowedItemIds);
+  if (!Array.isArray(raw.itemIds)) {
+    throw new InformationError("INVALID_INPUT", "Archive briefing itemIds must be an array");
+  }
+  const allowedIds = new Set(candidateIds);
   const seen = new Set<string>();
   const itemIds: string[] = [];
-  for (const id of source.itemIds) {
-    if (typeof id !== "string" || !allowed.has(id) || seen.has(id)) {
-      throw new InformationError("INVALID_INPUT", "Initial briefing itemIds contain invalid or duplicate item");
+  for (const id of raw.itemIds) {
+    if (typeof id !== "string" || !allowedIds.has(id) || seen.has(id)) {
+      throw new InformationError("INVALID_INPUT", "Archive briefing itemIds contain invalid or duplicate item");
     }
     seen.add(id);
     itemIds.push(id);

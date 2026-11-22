@@ -184,7 +184,7 @@ test("information HTTP ingestion, SDK decisions, notifications and feedback proj
   const runResponse = await h.call(`/api/information/runs`, { method: "POST", body: "{}" });
   assert.equal(runResponse.status, 200);
   const firstRun = informationRunDetailResponse.parse(runResponse.body);
-  assert.equal(firstRun.run.kind,"initial_summary");
+  assert.equal(firstRun.run.kind, "realtime");
   informationRunsResponse.parse((await h.call("/api/information/runs")).body);
   assert.equal(firstRun.run.status, "completed");
   assert.equal(firstRun.run.model?.status, "succeeded");
@@ -514,7 +514,7 @@ test("automatic scheduler processes an immediate batch and restart preserves pen
   assert.equal(h.model.requests.length, before);
   const after = await h.call(`/api/information/runs`);
   const restarted = (after.body as { runs: RunDetail["run"][] }).runs[0]!;
-  assert.equal(restarted.status, "failed");
+  assert.equal(restarted.status, "completed");
   assert.equal(restarted.publications?.[0]?.status, "failed");
 });
 
@@ -569,4 +569,71 @@ test("disable and main reset cancel queued notifications; topic deletion preserv
   assert.equal((await h.call(`/api/sessions/${topic.id}`, { method: "DELETE", body: JSON.stringify({ scheduleDisposition: "delete", scheduleRevision }) })).status, 200);
   assert.deepEqual((await h.call("/api/information/settings")).body,{enabled:true,batchWindowSeconds:3600});
   assert.ok((await h.call("/api/information/items")).status===200);
+});
+
+test("archive bulk import rolls learnedNotes across batches and publishes one final briefing", async (t) => {
+  const h = await fixture(t);
+  await h.setupPipeline({ enabled: true, batchWindowSeconds: 0 }, "关注重要通知与快递");
+
+  // 导入 28 条历史短信（>25 每批上限），且与 realtime 调度隔离：不调用 /archive/run 不会自动触发。
+  const archiveItems = Array.from({ length: 28 }, (_, index) => ({
+    source: "sms",
+    externalId: `hist-${index}`,
+    content: index === 0
+      ? "NOTIFY 快递已到驿站，取件码 6688"
+      : index === 27
+        ? "NOTIFY ARCHIVE_PROFILE:高敏：快递取件码、银行账单；低敏：商城推广"
+        : `常规广告短信 ${index}`,
+  }));
+  const ingested = await h.call("/api/information/archive/items", {
+    method: "POST",
+    body: JSON.stringify({ items: archiveItems }),
+  });
+  assert.equal(ingested.status, 200);
+  assert.equal((ingested.body as { items: unknown[]; skippedCount: number }).items.length, 28);
+
+  // 去重上传同样条目应全部计入 skippedCount
+  const duplicateIngest = await h.call("/api/information/archive/items", {
+    method: "POST",
+    body: JSON.stringify({ items: archiveItems.slice(0, 3) }),
+  });
+  assert.equal(duplicateIngest.status, 200);
+  assert.deepEqual(
+    { count: (duplicateIngest.body as { items: unknown[] }).items.length, skipped: (duplicateIngest.body as { skippedCount: number }).skippedCount },
+    { count: 0, skipped: 3 },
+  );
+
+  // 确认 realtime status 隔离：pendingCount 为 0，archive.pendingCount 为 28
+  const beforeRunStatus = await h.call("/api/information/status");
+  assert.equal(beforeRunStatus.status, 200);
+  const statusObj = beforeRunStatus.body as {
+    pendingCount: number;
+    archive: { pendingCount: number; processedCount: number; failedCount: number; running: boolean };
+  };
+  assert.equal(statusObj.pendingCount, 0);
+  assert.deepEqual(statusObj.archive, { running: false, pendingCount: 28, processedCount: 0, failedCount: 0 });
+
+  const baselineRequests = h.model.requests.length;
+  const runArchive = await h.call("/api/information/archive/run", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  assert.equal(runArchive.status, 200);
+  assert.deepEqual(runArchive.body, {
+    status: "completed",
+    runsCount: 2,
+    processedCount: 28,
+    failedCount: 0,
+    remainingPendingCount: 0,
+    briefingPublished: true,
+  });
+
+  // 2 批 archive 分类均不直接发消息；队列清零后仅发送 1 条总览简报给 main。
+  const prefs = (await h.call("/api/information/preferences")).body as { learnedNotes: string };
+  assert.equal(prefs.learnedNotes, "高敏：快递取件码、银行账单；低敏：商城推广");
+  const history = await h.history("main");
+  const notifications = history.messages.filter((m) => m.metadata?.source === "notification");
+  assert.equal(notifications.length, 1);
+  assert.match(notifications[0]!.content ?? "", /ARCHIVE-BRIEFING/);
+  assert.ok(h.model.requests.slice(baselineRequests).some((req) => requestToolNames(req).includes("submit_information_briefing")));
 });

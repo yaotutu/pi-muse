@@ -1,116 +1,22 @@
 import { z } from "zod";
 import { isWorkspaceText } from "../../shared/workspace-text.js";
 
+const idPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
 export const informationSourceSchema = z.string().regex(
   /^[A-Za-z][A-Za-z0-9_-]{0,127}$/,
   "source must be an ASCII identifier",
 );
-export const informationExternalIdSchema = z.string().trim().min(1).max(256);
-export const informationSettingsRequestSchema = z.strictObject({
-  enabled: z.boolean().describe("是否允许新接入并调度后台处理"),
-  batchWindowSeconds: z.number().int().min(0).max(3600)
-    .describe("首条待处理信息到期后的聚合窗口秒数；0 表示下一轮调度立即处理"),
+export const informationExternalIdSchema = z.string().trim().min(1).max(256).refine(isWorkspaceText, "Invalid externalId");
+
+export const informationSettingsSchema = z.strictObject({
+  enabled: z.boolean().describe("是否启用日常实时短信后台处理"),
+  batchWindowSeconds: z.number().int().min(0).max(3600).describe("实时队列接收新消息后的静默合并等待秒数；0 表示下一调度周期立即触发"),
 });
-export const informationPreferencesRequestSchema = z.strictObject({
-  notes: z.string().max(20000).refine(isWorkspaceText).describe("短信过滤规则与偏好全文（独立于助手指令）；整份替换；空串等于清空，最后保存生效"),
-});
-export const informationIngestRequestSchema = z.strictObject({
-  items: z.array(z.strictObject({
-    source: informationSourceSchema.describe("通用来源标识；仅 ASCII identifier，不含短信供应商专有命名"),
-    externalId: informationExternalIdSchema.describe("来源内稳定 ID；实例内 source+externalId 是幂等键"),
-    content: z.string().min(1).max(20000).refine((value) => value.trim().length > 0).describe("原始信息正文；仅拒绝全空白，不 trim、不裁剪、不改写"),
-    title: z.string().min(1).max(500).refine((value) => value.trim().length > 0).optional().describe("可选原始标题；仅拒绝全空白并按原文保存，不 trim"),
-    receivedAt: z.string().datetime().optional().describe("来源时间；省略时使用服务端接纳时间"),
-  })).min(1).max(500).describe("本批最多 500 条；整批校验通过后才提交"),
-  bulkImport: z.boolean().optional().describe("为 true 时表示批量历史导入分片：暂缓定时任务抢跑并在新增待处理条目时标记首轮全量建画像，避免分片途中拆散为多批增量刷屏"),
-});
-export const informationRunRequestSchema = z.strictObject({
-  background: z.boolean().optional().describe("为 true 时启动后台排空处理并立即返回当前运行记录，不阻塞长连接"),
-  forceInitial: z.boolean().optional().describe("为 true 时以首轮全量历史分析（initial_summary）模式处理待处理队列，适合全量导入历史短信后统一建画像与汇总"),
-  retryFailed: z.boolean().optional().describe("为 true 时先把队列中失败（failed）的条目重置为待处理（pending）后再触发分析"),
-});
-export const informationStatusResponse = z.strictObject({
-  running: z.boolean().describe("当前是否有信息后台批处理轮在运行"),
-  initialAnalysisCompleted: z.boolean().describe("是否已完成首次历史全量分析"),
-  counts: z.strictObject({
-    total: z.number().int().min(0),
-    pending: z.number().int().min(0),
-    processing: z.number().int().min(0),
-    processed: z.number().int().min(0),
-    failed: z.number().int().min(0),
-  }),
-  latestBriefing: z.strictObject({
-    runId: z.string(),
-    notificationId: z.string(),
-    text: z.string(),
-    createdAt: z.string().datetime(),
-    itemCount: z.number().int().min(0),
-    messageId: z.string().optional(),
-  }).optional().describe("最近一次已发布的首轮历史短信简报"),
-  lastError: z.string().optional().describe("存在失败条目或最近一轮失败时的简短错误标识"),
-});
-export const informationStatusSchema = z.enum(["pending", "processing", "processed", "failed"]);
-export const informationRunStatusSchema = z.enum(["running", "completed", "failed", "cancelled"]);
-const listQueryBase = {
-  limit: z.coerce.number().int().min(1).max(100).default(20).describe("返回数量，默认 20，范围 1–100"),
-  cursor: z.string().min(1).max(1024).optional().describe("上一页返回的不透明 base64url 游标；过滤条件改变后必须重新开始"),
-};
-export const informationItemsQuerySchema = z.strictObject({
-  ...listQueryBase,
-  status: informationStatusSchema.optional().describe("只返回该状态；省略返回全部"),
-});
-export const informationRunsQuerySchema = z.strictObject({
-  ...listQueryBase,
-  status: informationRunStatusSchema.optional().describe("只返回该状态；省略返回全部"),
-});
-const receiptSchema = z.strictObject({
-  notificationId: z.string().describe("服务端稳定通知 ID"),
-  piSessionId: z.string().describe("发布所在 PI 会话 ID"),
-  messageId: z.string().describe("权威聊天历史中的通知消息 ID"),
-});
-const publicationSchema = z.strictObject({
-  notificationId: z.string(),
-  itemIds: z.array(z.string()),
-  text: z.string(),
-  status: z.enum(["pending", "published", "failed"]),
-  receipt: receiptSchema.optional(),
-  error: z.string().optional(),
-});
-const decisionSchema = z.strictObject({
-  itemId: z.string(),
-  decision: z.enum(["silent", "notify"]),
-  reason: z.string(),
-});
-export const informationItemResponse = z.strictObject({
-  id: z.string(),
-  source: z.string(),
-  externalId: z.string(),
-  title: z.string().optional(),
-  content: z.string(),
-  receivedAt: z.string().datetime(),
-  acceptedAt: z.string().datetime(),
-  status: informationStatusSchema,
-  runId: z.string().optional(),
-});
-export const informationRunResponse = z.strictObject({
-  kind: z.enum(["initial_summary", "incremental"]).optional().describe("首轮历史聚合或后续增量判断；处理轮接纳时固定"),
-  id: z.string(),
-  itemIds: z.array(z.string()),
-  status: informationRunStatusSchema,
-  createdAt: z.string().datetime(),
-  startedAt: z.string().datetime(),
-  finishedAt: z.string().datetime().optional(),
-  model: z.strictObject({
-    status: z.enum(["succeeded", "failed"]),
-    error: z.string().optional(),
-  }).optional(),
-  decisions: z.array(decisionSchema).optional(),
-  publications: z.array(publicationSchema),
-});
-export const informationSettingsResponse = z.strictObject({
-  enabled: z.boolean(),
-  batchWindowSeconds: z.number().int().min(0).max(3600),
-});
+
+export const informationSettingsRequestSchema = informationSettingsSchema;
+export const informationSettingsResponse = informationSettingsSchema;
+
 export const informationFeedbackExampleResponse = z.strictObject({
   runId: z.string(),
   notificationId: z.string(),
@@ -126,27 +32,152 @@ export const informationFeedbackExampleResponse = z.strictObject({
     contentTruncated: z.boolean(),
   })),
 });
+
+export const informationPreferencesRequestSchema = z.strictObject({
+  notes: z.string().max(20_000).refine(isWorkspaceText, "Invalid text").describe("用户主动编写的信息关注偏好与过滤规则"),
+});
+
 export const informationPreferencesResponse = z.strictObject({
-  notes: z.string(),
-  learnedNotes: z.string().describe("短信 Sub-Agent 从点赞/收藏/不喜欢反馈中自学习沉淀的敏感度偏好摘要"),
-  feedbackExamples: z.array(informationFeedbackExampleResponse).describe("main 当前 pi 历史仍可投影的最新反馈例证；回撤/编辑/删除后不保留旧结论"),
+  notes: z.string().describe("用户主动编写的规则文本"),
+  learnedNotes: z.string().describe("服务端随实时处理、历史归档与消息反馈持续沉淀的自学习敏感度画像"),
+  feedbackExamples: z.array(informationFeedbackExampleResponse).describe("main 当前 pi 历史仍可投影的最新消息反馈例证"),
 });
+
+export const informationInputItemSchema = z.strictObject({
+  source: informationSourceSchema.describe("ASCII identifier 来源标识（如 sms、webhook、client-device）"),
+  externalId: informationExternalIdSchema.describe("客户端去重唯一 ID，同一 (source, externalId) 仅接纳一次"),
+  title: z.string().min(1).max(500).refine((v) => v.trim().length > 0 && isWorkspaceText(v), "Invalid title").optional().describe("可选原始标题或发件人摘要，保留原文"),
+  content: z.string().min(1).max(20_000).refine((v) => v.trim().length > 0 && isWorkspaceText(v), "Invalid content").describe("原始信息正文，保留原文"),
+  receivedAt: z.string().datetime().optional().describe("客户端原始收到时间（ISO 8601）；缺省使用接纳时间"),
+});
+
+export const informationIngestRequestSchema = z.strictObject({
+  items: z.array(informationInputItemSchema).min(1).max(100).describe("一次提交 1–100 条日常实时信息"),
+});
+
+export const informationArchiveIngestRequestSchema = z.strictObject({
+  items: z.array(informationInputItemSchema).min(1).max(500).describe("一次提交 1–500 条历史归档信息"),
+});
+
+export const informationItemResponseSchema = z.strictObject({
+  id: z.string().regex(idPattern),
+  queue: z.enum(["realtime", "archive"]).describe("realtime=日常实时队列；archive=历史批量归档队列"),
+  source: z.string(),
+  externalId: z.string(),
+  title: z.string().optional(),
+  content: z.string(),
+  receivedAt: z.string().datetime(),
+  acceptedAt: z.string().datetime(),
+  status: z.enum(["pending", "processing", "processed", "failed"]),
+  runId: z.string().optional(),
+});
+
 export const informationIngestResponse = z.strictObject({
-  items: z.array(informationItemResponse).describe("本批新建或幂等回读的条目；同 key 同内容重复提交只返回一次"),
+  items: z.array(informationItemResponseSchema),
 });
+
+export const informationArchiveIngestResponse = z.strictObject({
+  items: z.array(informationItemResponseSchema).describe("本次新接纳的归档条目（已去重）"),
+  skippedCount: z.number().int().nonnegative().describe("因重复而跳过的条目数"),
+});
+
+export const informationItemsQuerySchema = z.strictObject({
+  queue: z.enum(["realtime", "archive"]).optional().describe("按队列过滤：realtime（日常实时）或 archive（历史归档）"),
+  status: z.enum(["pending", "processing", "processed", "failed"]).optional().describe("按处理状态过滤；省略返回全部"),
+  limit: z.coerce.number().int().min(1).max(100).default(20).describe("返回数量，默认 20，范围 1–100"),
+  cursor: z.string().min(1).max(2048).optional().describe("上一页返回的不透明 base64url 游标；过滤条件改变后重新开始"),
+});
+
 export const informationItemsResponse = z.strictObject({
-  items: z.array(informationItemResponse),
+  items: z.array(informationItemResponseSchema),
   nextCursor: z.string().optional(),
 });
+
+export const informationDecisionSchema = z.strictObject({
+  itemId: z.string(),
+  decision: z.enum(["silent", "notify"]),
+  reason: z.string(),
+});
+
+export const informationPublicationSchema = z.strictObject({
+  notificationId: z.string().describe("服务端稳定通知 ID（用于消息反馈关联）"),
+  itemIds: z.array(z.string()),
+  text: z.string().describe("投递到主对话的通知或归档简报正文"),
+  status: z.enum(["pending", "published", "failed"]),
+  receipt: z.strictObject({
+    notificationId: z.string(),
+    piSessionId: z.string(),
+    messageId: z.string(),
+  }).optional(),
+  error: z.string().optional(),
+});
+
+export const informationRunResponseSchema = z.strictObject({
+  id: z.string(),
+  kind: z.enum(["realtime", "archive"]).describe("realtime=日常单周期；archive=历史批量画像"),
+  status: z.enum(["running", "completed", "failed", "cancelled"]),
+  createdAt: z.string().datetime(),
+  startedAt: z.string().datetime(),
+  finishedAt: z.string().datetime().optional(),
+  itemIds: z.array(z.string()),
+  model: z.strictObject({
+    status: z.enum(["succeeded", "failed"]),
+    error: z.string().optional(),
+  }).optional(),
+  decisions: z.array(informationDecisionSchema).optional(),
+  publications: z.array(informationPublicationSchema),
+});
+
 export const informationItemDetailResponse = z.strictObject({
-  item: informationItemResponse,
-  runs: z.array(informationRunResponse),
+  item: informationItemResponseSchema,
+  runs: z.array(informationRunResponseSchema),
 });
+
+export const informationRunRequestSchema = z.strictObject({});
+
+export const informationArchiveRunRequestSchema = z.strictObject({
+  background: z.boolean().default(false).describe("true 立即异步后台运行；false 同步运行直到归档队列清零或失败"),
+  retryFailed: z.boolean().default(false).describe("true 先把失败归档条目重置为 pending 再继续执行"),
+});
+
+export const informationArchiveRunResponse = z.strictObject({
+  status: z.enum(["started", "completed", "partial"]),
+  runsCount: z.number().int().nonnegative(),
+  processedCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  remainingPendingCount: z.number().int().nonnegative(),
+  briefingPublished: z.boolean(),
+});
+
+export const informationRunsQuerySchema = z.strictObject({
+  kind: z.enum(["realtime", "archive"]).optional().describe("按执行类型过滤：realtime（日常单周期）或 archive（历史批量画像）"),
+  status: z.enum(["running", "completed", "failed", "cancelled"]).optional().describe("按运行状态过滤；省略返回全部"),
+  limit: z.coerce.number().int().min(1).max(100).default(20).describe("返回数量，默认 20，范围 1–100"),
+  cursor: z.string().min(1).max(2048).optional().describe("上一页返回的不透明 base64url 游标；过滤条件改变后重新开始"),
+});
+
 export const informationRunsResponse = z.strictObject({
-  runs: z.array(informationRunResponse),
+  runs: z.array(informationRunResponseSchema),
   nextCursor: z.string().optional(),
 });
+
 export const informationRunDetailResponse = z.strictObject({
-  run: informationRunResponse,
-  items: z.array(informationItemResponse),
+  run: informationRunResponseSchema,
+  items: z.array(informationItemResponseSchema),
+});
+
+export const informationStatusResponse = z.strictObject({
+  enabled: z.boolean(),
+  batchWindowSeconds: z.number().int().nonnegative(),
+  running: z.boolean(),
+  pendingCount: z.number().int().nonnegative().describe("日常实时队列待处理条目数"),
+  failedCount: z.number().int().nonnegative().describe("日常实时队列失败条目数"),
+  archive: z.strictObject({
+    running: z.boolean().describe("历史归档批量消化是否正在执行"),
+    pendingCount: z.number().int().nonnegative(),
+    processedCount: z.number().int().nonnegative(),
+    failedCount: z.number().int().nonnegative(),
+  }),
+  lastRunAt: z.string().datetime().nullable(),
+  lastError: z.string().nullable(),
 });

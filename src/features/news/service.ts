@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { InformationService } from "../information/service.js";
-import type { InformationArticleFeedback } from "../information/types.js";
+import type { NewsScreeningService } from "./screening.js";
+import type { NewsArticleFeedback } from "./types.js";
 import { asNewsSourceError, NewsError } from "./errors.js";
 import type { NewsRepository, NewsSource, ParsedFeed } from "./types.js";
 import type { ObserveWork } from "../workspace/session-presence.js";
@@ -24,7 +24,7 @@ const assertPublicFeedUrl = (raw: string) => {
 export type NewsServiceDependencies = {
   observeWork?: ObserveWork;
   repository: NewsRepository;
-  information: InformationService;
+  screening: NewsScreeningService;
   fetchFeed: (url: string, signal: AbortSignal) => Promise<ParsedFeed>;
 };
 
@@ -42,16 +42,11 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
 
   const initialize = async () => {
     requireOpen();
-    await deps.information.configure({
-      enabled: true,
-      batchWindowSeconds: 0,
-      mode: "recommendations",
-    });
   };
 
   const status = async () => {
     const state = await deps.repository.read();
-    const counts = await deps.information.getNewsCounts();
+    const counts = await deps.screening.getCounts();
     return {
       refreshing,
       ...counts,
@@ -139,7 +134,7 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
             ...(item.publishedAt ? { receivedAt: item.publishedAt } : {}),
             metadata: { sourceId: source.id, sourceTitle: source.title, url: item.url },
           }));
-          added += (await deps.information.ingestNews(items)).length;
+          added += (await deps.screening.ingest(items)).length;
           await deps.repository.update((state) => ({
             state: {
               ...state,
@@ -173,7 +168,7 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
         result: undefined,
       }));
       const resetDeferred = options.retryFailed
-        ? (await deps.information.retryFailedNews()).resetDeferred
+        ? (await deps.screening.retryFailed()).resetDeferred
         : false;
       finish?.(failed ? "failed" : "succeeded", added > 0);
       return { added, skipped, resetDeferred };
@@ -196,12 +191,12 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
     savedOnly: boolean;
     limit: number;
     cursor?: string;
-  }) => deps.information.listNewsArticles(query);
+  }) => deps.screening.listArticles(query);
 
   const getArticle = (articleId: string) =>
-    deps.information.getNewsArticle(articleId);
+    deps.screening.getArticle(articleId);
 
-  const feedback = async (work: () => Promise<InformationArticleFeedback>) => {
+  const feedback = async (work: () => Promise<NewsArticleFeedback>) => {
     const value = await work();
     return {
       feedback: {
@@ -217,12 +212,11 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
     };
   };
 
-  const preferences = () => deps.information.getNewsPreferences();
+  const preferences = () => deps.screening.getPreferences();
 
   const savePreferences = async (notes: string) => {
     requireOpen();
-    await deps.information.savePreferences({ notes });
-    return preferences();
+    return await deps.screening.savePreferences({ notes });
   };
 
   const start = () => {
@@ -251,13 +245,13 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
     listArticles,
     getArticle,
     setReaction: (articleId: string, reaction: "like" | "dislike" | null) =>
-      feedback(() => deps.information.setArticleReaction(articleId, reaction)),
+      feedback(() => deps.screening.setArticleReaction(articleId, reaction)),
     setSaved: (articleId: string, saved: boolean) =>
-      feedback(() => deps.information.setArticleSaved(articleId, saved)),
+      feedback(() => deps.screening.setArticleSaved(articleId, saved)),
     addComment: (articleId: string, text: string) =>
-      feedback(() => deps.information.addArticleComment(articleId, text)),
+      feedback(() => deps.screening.addArticleComment(articleId, text)),
     deleteComment: (articleId: string, commentId: string) =>
-      feedback(() => deps.information.deleteArticleComment(articleId, commentId)),
+      feedback(() => deps.screening.deleteArticleComment(articleId, commentId)),
     preferences,
     savePreferences,
     start,
