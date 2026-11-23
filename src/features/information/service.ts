@@ -151,6 +151,7 @@ export type CreateInformationServiceDeps = {
   repository: InformationRepository;
   instructions: {
     read: () => Promise<string>;
+    readResolved?: () => Promise<string>;
     write: (content: string) => Promise<void>;
   };
   retainMain: () => Promise<{
@@ -247,7 +248,10 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     learnedNotes: string;
     feedbackExamples: InformationFeedbackExample[];
   }> => {
-    const [instructions, retained] = await Promise.all([deps.instructions.read(), deps.retainMain()]);
+    const [instructions, retained] = await Promise.all([
+      (deps.instructions.readResolved ?? deps.instructions.read)(),
+      deps.retainMain(),
+    ]);
     const learnedNotes = state.preferences.learnedNotes;
     if (!retained) {
       return { instructions, learnedNotes, feedbackExamples: [] };

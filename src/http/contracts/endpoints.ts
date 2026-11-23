@@ -97,8 +97,8 @@ export const endpoints: EndpointSpec[] = [
     hint: "列出会话所属的定时任务和网页监控，包括暂停和已完成项。scheduleRevision 用于绑定删除确认时的任务清单。GET 不创建会话。" },
   { operationId: "deleteSession", method: "delete", path: "/api/sessions/:sessionId", tag: "会话", summary: "删除专题会话", auth: true, request: req.deleteSessionSchema, response: resp.deleteSessionResponse,
     hint: "显式选择删除任务/监控，或保留并转归 main。主会话不可删除。任务列表有变化时返回 409 SESSION_SCHEDULES_CHANGED，保留任务而原会话任务正在执行时返回 409 SESSION_JOB_RUNNING。删除会话历史、反馈并关闭在途聊天。保留任务时待投递监控通知随任务转移。", errorResponses: { 409: { description: "确认清单有变化、原会话的任务仍在执行，或会话不可删除", schema: resp.errorResponse } } },
-  { operationId: "getAssistantInstructions", method: "get", path: "/api/assistant/instructions", tag: "助手设置", summary: "读取助手指令", auth: true, response: resp.instructionsResponse, hint: "所有聊天会话共用 INSTRUCTIONS.md；缺失为空串。独立于短信与新闻领域偏好。" },
-  { operationId: "saveAssistantInstructions", method: "put", path: "/api/assistant/instructions", tag: "助手设置", summary: "保存助手指令", auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse, hint: "整份替换、最后成功保存生效。所有聊天会话从下一轮重读，不能扩大工具/路径/审批权限。" },
+  { operationId: "getAssistantInstructions", method: "get", path: "/api/assistant/instructions", tag: "助手设置", summary: "读取助手指令", auth: true, response: resp.instructionsResponse, hint: "所有聊天会话共用 workspace/assistant/INSTRUCTIONS.md 原文（缺失为空串）。支持在文件最顶部使用 YAML frontmatter `include:` 引用同工作区内相对路径纯文本文件（模型注入前实时展开，缺失文件静默跳过，本接口仍返回原始文本）。独立于短信与新闻领域偏好。" },
+  { operationId: "saveAssistantInstructions", method: "put", path: "/api/assistant/instructions", tag: "助手设置", summary: "保存助手指令", auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse, hint: "整份替换并保留原文（含顶部 YAML frontmatter `include:`）；最后成功保存生效。所有聊天会话从下一轮重读并展开可用引用（缺失引用不影响保存或运行），不能扩大工具/路径/审批权限。" },
   { operationId: "getAssistantSkills", method: "get", path: "/api/assistant/skills", tag: "助手设置", summary: "读取全部可选技能及来源", auth: true, response: resp.skillsResponse,
     hint: "列出当前可选技能，不限于已启用项。来源 user=DATA_DIR/assets/skills 实例自有、builtin=内置自有、shared=服务端用户 ~/.agents/skills 通用目录。按名称合并，优先级 user > builtin > shared；关闭优先项不会回退同名低优先来源。默认开关：内置技能按随服务端发布的 skills-defaults 清单（当前 9 项默认开启），通用与实例自建技能一律默认关闭；手动保存的选择始终优先并绑定来源。返回 id/name/description/source/defaultEnabled/enabled，不返回物理路径。GET 不创建目录或私有 config.json。开关和资产由所有聊天会话共用。" },
   { operationId: "getAssistantSkill", method: "get", path: "/api/assistant/skills/:name", tag: "助手设置", summary: "读取技能正文及来源", auth: true, response: resp.skillDetailResponse,
@@ -278,7 +278,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getInformationPreferences",
     method: "get", path: "/api/information/preferences", tag: "信息后台", summary: "读取信息指令与自学习画像",
-    hint: "返回用户主动编写的领域指令 instructions（domains/sms/INSTRUCTIONS.md）与自学习灵敏度画像 learnedNotes；后台单周期判定与历史归档提炼都会携带实时消息反馈（feedbackExamples）演化 learnedNotes。",
+    hint: "返回用户主动编写的领域指令 instructions 原文（domains/sms/INSTRUCTIONS.md；支持在文件最顶部使用 YAML frontmatter `include:` 引用同工作区内相对路径纯文本文件，注入模型前实时展开，缺失文件静默跳过，本接口仍返回原始文本）与自学习灵敏度画像 learnedNotes；后台单周期判定与历史归档提炼都会携带实时消息反馈（feedbackExamples）演化 learnedNotes。",
     auth: true, response: information.informationPreferencesResponse,
     errorResponses: {
       503: { description: "服务正在关闭", schema: resp.errorResponse },
@@ -287,7 +287,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateInformationPreferences",
     method: "put", path: "/api/information/preferences", tag: "信息后台", summary: "保存信息领域指令",
-    hint: "保存用户指令 instructions（最多 20000 字符；空串清空）到 domains/sms/INSTRUCTIONS.md，最后保存生效，不写主会话 assistant/INSTRUCTIONS.md；也可通过主对话 domain_agent 工具修改。",
+    hint: "保存用户指令 instructions 原文（最多 20000 字符；空串清空；支持保留顶部 YAML frontmatter `include:` 引用，缺失引用不影响保存或运行）到 domains/sms/INSTRUCTIONS.md，最后保存生效，不写主会话 assistant/INSTRUCTIONS.md；也可通过主对话 domain_agent 工具修改。",
     auth: true, request: information.informationPreferencesRequestSchema, response: information.informationPreferencesResponse,
     errorResponses: {
       400: { description: "非法请求或超长 instructions", schema: resp.errorResponse },
@@ -506,14 +506,14 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getNewsPreferences",
     method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻指令与画像",
-    hint: "instructions 是保存在 workspace/domains/news/INSTRUCTIONS.md 的明确新闻指令；learnedNotes 是模型从逐篇反馈推断的只读兴趣摘要。两者分离，推断不覆盖明确 instructions、会话指令或全局 USER。",
+    hint: "instructions 是保存在 workspace/domains/news/INSTRUCTIONS.md 的明确新闻指令原文（支持在文件最顶部使用 YAML frontmatter `include:` 引用同工作区内相对路径纯文本文件，筛选时实时展开，缺失文件静默跳过，本接口仍返回原始文本）；learnedNotes 是模型从逐篇反馈推断的只读兴趣摘要。两者分离，推断不覆盖明确 instructions、会话指令或全局 USER。",
     auth: true, response: news.newsPreferencesResponseSchema,
     errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
   },
   {
     operationId: "updateNewsPreferences",
     method: "put", path: "/api/news/preferences", tag: "新闻", summary: "保存新闻领域指令",
-    hint: "instructions 最多 20000 字符，空串清空；最后成功保存生效。本接口和工作区文件页编辑同一份 workspace/domains/news/INSTRUCTIONS.md，也不触发模型；也可在主聊天通过 domain_agent 调整。",
+    hint: "instructions 最多 20000 字符，空串清空；最后成功保存生效，原样保留顶部 YAML frontmatter `include:` 引用（缺失引用不影响保存或筛选）。本接口和工作区文件页编辑同一份 workspace/domains/news/INSTRUCTIONS.md，也不触发模型；也可在主聊天通过 domain_agent 调整。",
     auth: true, request: news.newsPreferencesUpdateRequestSchema, response: news.newsPreferencesResponseSchema,
     errorResponses: {
       400: { description: "非法请求或超长 instructions", schema: resp.errorResponse },
@@ -611,13 +611,13 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getProfile",
     method: "get", path: "/api/profile", tag: "人设", summary: "读取 SOUL/USER 人设文本",
-    hint: "读取全局 workspace/assistant/SOUL.md（助手灵魂与人设定位）与 workspace/assistant/USER.md（用户画像与背景偏好）的自由文本内容；未设置或文件不存在时对应字段返回空串，不创建任何文件。如需编辑人设，通过 PUT /api/profile 保存。",
+    hint: "读取全局 workspace/assistant/SOUL.md（助手灵魂与人设定位）与 workspace/assistant/USER.md（用户画像与背景偏好）的原始文本内容；未设置或文件不存在时对应字段返回空串，不创建任何文件。两者均支持在文件最顶部使用 YAML frontmatter `include:` 引用同工作区内相对路径纯文本文件（模型注入前实时展开，缺失文件静默跳过，本接口仍返回原始文本）。如需编辑人设，通过 PUT /api/profile 保存。",
     auth: true, response: resp.profileResponse,
   },
   {
     operationId: "updateProfile",
     method: "put", path: "/api/profile", tag: "人设", summary: "保存 SOUL/USER 人设",
-    hint: "下一轮对话注入生效；传空串等于清空该段人设。",
+    hint: "原样保存（含顶部 YAML frontmatter `include:` 引用），下一轮对话注入前自动展开可用引用（缺失引用不影响保存或运行）；传空串等于清空该段人设。",
     auth: true, request: req.saveProfileSchema, response: resp.profileResponse,
   },
   // ---- 工作区快照 ----

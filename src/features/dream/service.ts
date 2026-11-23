@@ -22,10 +22,13 @@ import { sliceWindow, splitBatches } from "./window.js";
 
 export type DreamNotesPort = {
   readUser: () => Promise<string>;
+  readResolvedUser?: () => Promise<string>;
   writeUserIfUnchanged: (content: string, expected: string) => Promise<boolean>;
   readSoul: () => Promise<string>;
+  readResolvedSoul?: () => Promise<string>;
   writeSoulIfUnchanged: (content: string, expected: string) => Promise<boolean>;
   readInstructions: () => Promise<string>;
+  readResolvedInstructions?: () => Promise<string>;
   writeInstructionsIfUnchanged: (content: string, expected: string) => Promise<boolean>;
 };
 
@@ -185,9 +188,9 @@ export const createDreamService = (deps: DreamDependencies) => {
 
         const [user, soul, instructions, memories] =
           await Promise.all([
-            notes.readUser(),
-            notes.readSoul(),
-            notes.readInstructions(),
+            (notes.readResolvedUser ?? notes.readUser)(),
+            (notes.readResolvedSoul ?? notes.readSoul)(),
+            (notes.readResolvedInstructions ?? notes.readInstructions)(),
             memory.list(),
           ]);
         const userPrompt = buildDreamInput(batch, {

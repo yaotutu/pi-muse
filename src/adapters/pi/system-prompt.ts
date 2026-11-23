@@ -2,7 +2,7 @@ import { buildDomainAgentsSystemPrompt } from "./domain-notification-context.js"
 import type { DomainAgentPromptSummary } from "../../features/domain-agents/types.js";
 import { ACTIVITY_TOOL_INSTRUCTIONS } from "./tools/activity.js";
 import type { DataLayout } from "../storage/data-layout.js";
-import { readProfileFile } from "../storage/profile-files.js";
+import { readResolvedProfileFile } from "../storage/workspace-document-includes.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
 import type { MemoryItem } from "../../features/memory/types.js";
 import { loadPrompt } from "../prompts/loader.js";
@@ -66,8 +66,8 @@ export const buildSystemPrompt = async ({
   );
 
   return capabilitySegments.join("\n") +
-    section("Your identity (SOUL)", (await readProfileFile(layout.soulFile, layout.workspaceDir)).trim()) +
-    section("The user (USER)", (await readProfileFile(layout.userFile, layout.workspaceDir)).trim()) +
+    section("Your identity (SOUL)", (await readResolvedProfileFile(layout.soulFile, layout.workspaceDir)).trim()) +
+    section("The user (USER)", (await readResolvedProfileFile(layout.userFile, layout.workspaceDir)).trim()) +
     section("Assistant instructions", assistantInstructions ?? "") +
     (await memory.renderForPrompt({ includeMemory: has("memory_search"), recalledMemories }));
 };

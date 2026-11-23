@@ -36,6 +36,16 @@
 
 ## 变更与须知记录
 
+### 2026-11-23 — 工作区指令与人设文件支持顶部 YAML Frontmatter `include:` 拆分引用
+
+- **影响端形态**：`rich-ui`、`all`
+- **类型**：`feature`
+- **契约入口**：`/docs`「助手设置」「人设」「信息后台」「新闻」
+- **要点与接入端注意**：
+  - **支持顶部 `include:` 拆分指令**：全部 5 份工作区托管 Markdown（`workspace/assistant/{SOUL,USER,INSTRUCTIONS}.md` 与 `workspace/domains/{sms,news}/INSTRUCTIONS.md`）均支持在文件最顶部使用标准 YAML Frontmatter（`---\ninclude:\n  - ./sub.md\n---` 或单条 `include: ./sub.md`）引用相对于当前文件目录的工作区纯文本文件。
+  - **原文读取/保存不变、注入前实时展开**：`GET`/`PUT` 接口及工作区文件编辑继续原样返回并保存含 frontmatter 的文本，绝不展平回写；服务端在组装模型提示词前实时展开（最多 5 层嵌套、自动环路/重复去重、上限 60,000 字符）。
+  - **缺失容错**：引用文件缺失、越出 `workspace/` 边界、遇到符号链接或非纯文本时静默跳过，不会报错或阻止保存与执行。
+
 ### 2026-11-23 — 领域偏好字段统一为 `instructions`，并移除 Dream 运行时提示词覆盖（Clean Break）
 
 - **影响端形态**：`rich-ui`、`webhook`、`all`

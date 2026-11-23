@@ -54,7 +54,7 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 
 所有静态系统提示词统一托管在仓库根目录 `prompts/`（全英文模板 + 中文索引 `prompts/README.md`；源码模式直读磁盘，构建时同步至 `dist/prompts/`；不做数据目录覆盖）。所有 Agent 统一遵循「系统提示词（`prompts/`） + 用户 `INSTRUCTIONS.md`（与自学习画像 `learnedNotes`） + 当次 `UNTRUSTED INPUT DATA`」三层拼装。
 
-主对话每轮装配顺序是 `prompts/assistant/base.md`、本轮实际工具说明（`prompts/assistant/tools/*.md` 及主聊天通过 `domain_agent` 管理的已注册领域清单 `prompts/assistant/domain-agents.md`）、SOUL、USER、共享助手 `workspace/assistant/INSTRUCTIONS.md`、memory 检索说明。助手指令在各聊天会话每轮重读，不能扩大工具权限。领域 Agent 各自读取本领域 `INSTRUCTIONS.md`。
+主对话每轮装配顺序是 `prompts/assistant/base.md`、本轮实际工具说明（`prompts/assistant/tools/*.md` 及主聊天通过 `domain_agent` 管理的已注册领域清单 `prompts/assistant/domain-agents.md`）、SOUL、USER、共享助手 `workspace/assistant/INSTRUCTIONS.md`、memory 检索说明。助手指令在各聊天会话每轮重读，不能扩大工具权限。领域 Agent 各自读取本领域 `INSTRUCTIONS.md`。全部 5 份工作区托管文档（`workspace/assistant/{SOUL,USER,INSTRUCTIONS}.md` 与 `workspace/domains/{sms,news}/INSTRUCTIONS.md`）均支持在文件最顶部使用 YAML Frontmatter `include:` 引用 `workspace/` 内相对路径的纯文本文件（读写 API 保持原文不拍平，注入模型前按当前文件所在目录实时展开，最多 5 层嵌套与 60,000 字符上限，环路/重复自动去重，缺失或越界静默跳过；`learnedNotes` 绝不解析 `include:`）。
 
 技能资产全局共用，开关全局保存并绑定 `source/name`；默认值只来自随服务端发布的内置清单 `assets/skills-defaults.json`（当前 9 项内置默认开启），通用与自建来源一律默认关闭，最终装配以手动选择优先。目录优先级为实例 `DATA_DIR/skills/` > 内置技能 > 服务端用户 `~/.agents/skills/`，来源在目录、维护视图和 HTTP 清单中一致；关闭不回退，同名新来源不继承旧选择。复用 pi loader 解析标准 SKILL.md，不写私有技能 config，也不发现个人 CLI 的其他配置、扩展或凭据。通用技能目录只读，入口链接规范化为真实技能根，内部链接与超限正文拒绝；共享脚本/extension.ts 不执行。自有可信扩展仍是服务端代码，路径 guard 不是操作系统沙箱。只有本轮启用技能的精确 SKILL.md 与支持的文本资源可作为 read 的额外只读例外；不扩大目录、代码或配置访问。子代理继承的是父轮来源身份与实际工具上限，不因同名来源变化获得新的技能。
 

@@ -197,6 +197,7 @@ export type CreateNewsScreeningDeps = {
   repository: NewsRepository;
   instructions: {
     read: () => Promise<string>;
+    readResolved?: () => Promise<string>;
     write: (content: string) => Promise<void>;
   };
   runModel: (input: NewsScreeningModelInput, signal: AbortSignal) => Promise<NewsScreeningModelOutcome>;
@@ -621,7 +622,7 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
     activeController = controller;
     let modelOutcome: NewsScreeningModelOutcome;
     try {
-      const instructions = await deps.instructions.read();
+      const instructions = await (deps.instructions.readResolved ?? deps.instructions.read)();
       modelOutcome = await deps.runModel({
         runId: claimed.runId,
         instructions,

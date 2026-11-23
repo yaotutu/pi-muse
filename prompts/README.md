@@ -8,8 +8,8 @@
 
 1. **系统提示词（`prompts/<agent>/*.md`）**：本目录中的英文模板，定义角色定位、默认决策基线（如短信的「默认静默」）、安全红线与输出语言约束。
 2. **用户专属指令 + 自学习画像（放入 `system` 后半段）**：
-   - 用户的持久化指令文件：`workspace/assistant/INSTRUCTIONS.md`、`workspace/domains/sms/INSTRUCTIONS.md`、`workspace/domains/news/INSTRUCTIONS.md`（以及全局 `SOUL.md` / `USER.md`）；
-   - 系统维护的只读/滚动自学习画像：`learnedNotes`。
+   - 用户的持久化指令与人设文档：全部 5 份工作区托管 Markdown（`workspace/assistant/{SOUL,USER,INSTRUCTIONS}.md`、`workspace/domains/sms/INSTRUCTIONS.md`、`workspace/domains/news/INSTRUCTIONS.md`）均支持在**文件最顶部**通过标准 YAML Frontmatter `include:` 引用同目录及 `workspace/` 内的相对路径纯文本（支持列表或单行路径，最多 5 层嵌套、自动环路去重与 60,000 字符展开上限；缺失/越界/非纯文本静默跳过不报错；HTTP 读取/保存保持原始文本，只在注入大模型前实时展开）；
+   - 系统维护的只读/滚动自学习画像：`learnedNotes`（严禁解析 `include:`，防止反向读取工作区其他文件）。
 3. **当次待处理输入（放入 `user`）**：用户的即时对话、或当批次待判定的原始短信/新闻与近期反馈示例（明确包在 `UNTRUSTED INPUT DATA` 边界内防注入）。
 
 ## 文件清单与作用说明

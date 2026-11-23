@@ -18,6 +18,7 @@ import { createSkillsService } from "../features/skills/service.js";
 import { createMemoryService } from "../features/memory/memory-service.js";
 import { createIdentityService } from "../features/identity/identity-service.js";
 import { readProfileFile, writeProfileFile } from "../adapters/storage/profile-files.js";
+import { readResolvedProfileFile } from "../adapters/storage/workspace-document-includes.js";
 import { createJobRepository } from "../adapters/storage/job-repository.js";
 import { createGoalRepository } from "../adapters/storage/goal-repository.js";
 import { createActionRepository } from "../adapters/storage/action-repository.js";
@@ -294,6 +295,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   );
   const domainInstructions = (file: string) => ({
     read: () => readProfileFile(file, layout.workspaceDir),
+    readResolved: () => readResolvedProfileFile(file, layout.workspaceDir),
     write: async (text: string) => { await writeProfileFile(file, text, undefined, layout.workspaceDir); },
   });
   const informationDeps = {
@@ -456,10 +458,13 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     repository: dreamRepository,
     notes: {
       readUser: () => readProfileFile(layout.userFile, layout.workspaceDir),
+      readResolvedUser: () => readResolvedProfileFile(layout.userFile, layout.workspaceDir),
       writeUserIfUnchanged: (content, expected) => identity.writeIfUnchanged("user", content, expected),
       readSoul: () => readProfileFile(layout.soulFile, layout.workspaceDir),
+      readResolvedSoul: () => readResolvedProfileFile(layout.soulFile, layout.workspaceDir),
       writeSoulIfUnchanged: (content, expected) => identity.writeIfUnchanged("soul", content, expected),
       readInstructions: () => readAssistantInstructions(layout.assistantInstructionsFile, layout.workspaceDir),
+      readResolvedInstructions: () => readResolvedProfileFile(layout.assistantInstructionsFile, layout.workspaceDir),
       writeInstructionsIfUnchanged: (content, expected) =>
         writeAssistantInstructions(layout.assistantInstructionsFile, content, expected, layout.workspaceDir),
     },

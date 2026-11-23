@@ -1,0 +1,207 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test, { type TestContext } from "node:test";
+import { createConfig } from "../../src/config/load-config.js";
+import { createFakeModel, type ModelRequest } from "../support/fake-model.js";
+import { waitForTest } from "../support/http-client.js";
+import { createService } from "../support/test-service.js";
+
+const requestText = (content: unknown): string =>
+  typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content
+          .map((part) => (typeof part === "object" && part !== null && "text" in part ? String((part as { text?: unknown }).text ?? "") : ""))
+          .join("")
+      : "";
+
+const systemPromptOf = (request: ModelRequest): string =>
+  requestText(request.messages.find((message) => message.role === "system")?.content);
+
+const userPromptOf = (request: ModelRequest): string =>
+  requestText(request.messages.findLast((message) => message.role === "user")?.content);
+
+const fixture = async (t: TestContext) => {
+  const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-include-int-"));
+  const model = await createFakeModel();
+  const service = await createService(createConfig({
+    schemaVersion: 1,
+    server: { host: "127.0.0.1" },
+    model: { baseUrl: model.baseUrl, id: "test-model", apiKey: "fake-include-key" },
+    runtime: { dataDir, runTimeoutMs: 10_000, schedulerIntervalMs: 60_000, monitorScanIntervalMs: 60_000 },
+  }));
+  t.after(async () => {
+    try { await service.close(); } finally {
+      try { await model.close(); } finally {
+        await rm(dataDir, { recursive: true, force: true });
+      }
+    }
+  });
+  const token = service.auth.login()!;
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const api = async (path: string, method = "GET", body?: unknown) => {
+    const res = await service.app.request(path, {
+      method,
+      headers,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    return { status: res.status, body: await res.json().catch(() => undefined) as unknown };
+  };
+  const runChat = async (content: string, runId = randomUUID()) => {
+    const conv = (await api("/api/conversation?sessionId=main")).body as { revision: string };
+    const res = await service.app.request("/api/conversation/run", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        sessionId: "main",
+        runId,
+        expectedRevision: conv.revision,
+        message: { id: randomUUID(), content },
+      }),
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+  };
+  return { api, dataDir, model, runChat, service };
+};
+
+test("main chat expands frontmatter includes across SOUL, USER, and INSTRUCTIONS while GET returns raw text and Dream write-back preserves frontmatter", async (t) => {
+  const h = await fixture(t);
+  const { workspaceDir } = h.service.layout;
+
+  await writeFile(join(workspaceDir, "assistant", "soul-tone.md"), "SOUL-EXTRA-TONE-DIRECT", "utf8");
+  await writeFile(join(workspaceDir, "assistant", "user-ctx.md"), "USER-EXTRA-TIMEZONE-UTC8", "utf8");
+  await writeFile(join(workspaceDir, "assistant", "sub-rule.md"), "ASSISTANT-SUB-RULE-CITATION", "utf8");
+  await writeFile(join(workspaceDir, "files", "shared-policy.md"), "SHARED-FILE-POLICY-CHECK", "utf8");
+
+  const rawSoul = "---\ninclude:\n  - ./soul-tone.md\n  - ./missing-soul.md\n---\n\nPrimary SOUL.";
+  const rawUser = "---\ninclude:\n  - ./user-ctx.md\n---\n\nPrimary USER.";
+  const rawInstructions = "---\ninclude:\n  - ./sub-rule.md\n  - ../files/shared-policy.md\n  - ./missing-inst.md\n---\n\nPrimary ASSISTANT rule.";
+
+  assert.equal((await h.api("/api/profile", "PUT", { soul: rawSoul, user: rawUser })).status, 200);
+  assert.equal((await h.api("/api/assistant/instructions", "PUT", { instructions: rawInstructions })).status, 200);
+
+  // Read APIs MUST preserve raw YAML frontmatter untouched.
+  assert.deepEqual((await h.api("/api/profile")).body, { soul: rawSoul, user: rawUser });
+  assert.deepEqual((await h.api("/api/assistant/instructions")).body, { instructions: rawInstructions });
+
+  const reqStart = h.model.requests.length;
+  await h.runChat("hello\n会话规则:回复前先核对时间");
+
+  const chatReq = h.model.requests.slice(reqStart).find((req) =>
+    systemPromptOf(req).includes("## Your identity (SOUL)"));
+  assert.ok(chatReq, "expected main chat model request");
+  const chatSystem = systemPromptOf(chatReq);
+  assert.ok(chatSystem.includes("Primary SOUL."));
+  assert.ok(chatSystem.includes("SOUL-EXTRA-TONE-DIRECT"));
+  assert.ok(chatSystem.includes("Primary USER."));
+  assert.ok(chatSystem.includes("USER-EXTRA-TIMEZONE-UTC8"));
+  assert.ok(chatSystem.includes("Primary ASSISTANT rule."));
+  assert.ok(chatSystem.includes("<!-- begin include: assistant/sub-rule.md -->\nASSISTANT-SUB-RULE-CITATION\n<!-- end include: assistant/sub-rule.md -->"));
+  assert.ok(chatSystem.includes("SHARED-FILE-POLICY-CHECK"));
+  assert.ok(!chatSystem.includes("missing-soul.md") && !chatSystem.includes("missing-inst.md"));
+
+  // Dream consolidation prompt receives expanded documents, while applying the pending suggestion keeps top frontmatter intact.
+  const dreamReqStart = h.model.requests.length;
+  const dreamRes = await h.api("/api/dream/run", "POST", {});
+  assert.equal(dreamRes.status, 200);
+  const overview = dreamRes.body as { pending: Array<{ id: string; suggestedTarget: string }> };
+  assert.equal(overview.pending.length, 1);
+
+  const dreamReq = h.model.requests.slice(dreamReqStart)[0]!;
+  const dreamUser = userPromptOf(dreamReq);
+  assert.ok(dreamUser.includes("SOUL-EXTRA-TONE-DIRECT"));
+  assert.ok(dreamUser.includes("USER-EXTRA-TIMEZONE-UTC8"));
+  assert.ok(dreamUser.includes("ASSISTANT-SUB-RULE-CITATION"));
+
+  const applied = await h.api(`/api/dream/pending/${overview.pending[0]!.id}`, "POST", { action: "apply" });
+  assert.equal(applied.status, 200);
+
+  const afterApply = (await h.api("/api/assistant/instructions")).body as { instructions: string };
+  assert.ok(afterApply.instructions.startsWith("---\ninclude:\n  - ./sub-rule.md"), "Dream apply must preserve top frontmatter");
+  assert.ok(afterApply.instructions.includes("回复前先核对时间"));
+});
+
+test("SMS and News expand workspace instructions includes while keeping HTTP GET raw and never expanding learnedNotes", async (t) => {
+  const h = await fixture(t);
+  const { workspaceDir } = h.service.layout;
+
+  await writeFile(join(workspaceDir, "domains", "sms", "bank.md"), "SMS-SUB-BANK-ALERTS", "utf8");
+  await writeFile(join(workspaceDir, "domains", "news", "topics.md"), "NEWS-SUB-AI-SYSTEMS", "utf8");
+  await writeFile(join(workspaceDir, "files", "vip.md"), "SHARED-VIP-CONTACT", "utf8");
+  await writeFile(join(workspaceDir, "files", "forbidden-secret.md"), "FORBIDDEN-SECRET-MUST-NOT-EXPAND", "utf8");
+
+  const smsRaw = "---\ninclude:\n  - ./bank.md\n  - ../../files/vip.md\n  - ./missing-sms.md\n---\n\nSMS root instructions.";
+  const newsRaw = "---\ninclude:\n  - ./topics.md\n  - ../../files/vip.md\n  - ./missing-news.md\n---\n\nNews root instructions.";
+
+  assert.equal((await h.api("/api/information/preferences", "PUT", { instructions: smsRaw })).status, 200);
+  assert.equal((await h.api("/api/news/preferences", "PUT", { instructions: newsRaw })).status, 200);
+
+  assert.equal(((await h.api("/api/information/preferences")).body as { instructions: string }).instructions, smsRaw);
+  assert.equal(((await h.api("/api/news/preferences")).body as { instructions: string }).instructions, newsRaw);
+
+  // Poison learnedNotes via archive run (or repository) with YAML frontmatter include; MUST NEVER expand.
+  assert.equal((await h.api("/api/information/archive/items", "POST", {
+    items: [{ source: "sms", externalId: "arch-poison-1", content: "ARCHIVE_PROFILE:---\ninclude:\n  - ../../files/forbidden-secret.md\n---\nlearned-sms-only" }],
+  })).status, 200);
+  assert.equal((await h.api("/api/information/archive/run", "POST", { background: false })).status, 200);
+
+  assert.equal((await h.api("/api/information/settings", "PUT", { enabled: true, batchWindowSeconds: 3600 })).status, 200);
+  assert.equal((await h.api("/api/information/items", "POST", {
+    items: [{ source: "sms", externalId: "sms-inc-1", content: "NOTIFY Package arrived pickup code 1234" }],
+  })).status, 200);
+
+  const smsReqStart = h.model.requests.length;
+  assert.equal((await h.api("/api/information/runs", "POST", {})).status, 200);
+  const smsReq = h.model.requests.slice(smsReqStart).find((req) => systemPromptOf(req).includes("SMS/information decision worker"));
+  assert.ok(smsReq, "expected SMS realtime model request");
+  const smsSystem = systemPromptOf(smsReq);
+  assert.ok(smsSystem.includes("SMS root instructions."));
+  assert.ok(smsSystem.includes("<!-- begin include: domains/sms/bank.md -->\nSMS-SUB-BANK-ALERTS\n<!-- end include: domains/sms/bank.md -->"));
+  assert.ok(smsSystem.includes("SHARED-VIP-CONTACT"));
+  assert.ok(smsSystem.includes("learned-sms-only"));
+  assert.ok(!smsSystem.includes("FORBIDDEN-SECRET-MUST-NOT-EXPAND"), "learnedNotes must never expand include directives");
+
+  // Trigger News screening with poisoned learnedNotes as well.
+  const now = new Date().toISOString();
+  const newsReqStart = h.model.requests.length;
+  await h.service.newsRepository.update((state) => ({
+    state: {
+      ...state,
+      processing: {
+        ...state.processing,
+        preferences: { learnedNotes: "---\ninclude:\n  - ../../files/forbidden-secret.md\n---\nlearned-news-only" },
+        items: [{
+          id: "news_inc_1",
+          source: "newssource_1",
+          externalId: "inc-art-1",
+          title: "AI Systems release",
+          content: "NOTIFY new AI kernel notes",
+          receivedAt: now,
+          acceptedAt: now,
+          status: "pending",
+          metadata: { sourceId: "newssource_1", sourceTitle: "Tech Feed", url: "https://example.com/1" },
+        }],
+      },
+    },
+    result: undefined,
+  }));
+
+  const runDone = await waitForTest(async () => {
+    const r = (await h.service.newsRepository.read()).processing.runs[0];
+    return r && r.status !== "running" ? r : undefined;
+  }, "news screening run", 8000);
+  assert.equal(runDone.status, "completed");
+
+  const newsReq = h.model.requests.slice(newsReqStart).find((req) => systemPromptOf(req).includes("personal RSS news screening"));
+  assert.ok(newsReq, "expected News screening model request");
+  const newsSystem = systemPromptOf(newsReq);
+  assert.ok(newsSystem.includes("News root instructions."));
+  assert.ok(newsSystem.includes("<!-- begin include: domains/news/topics.md -->\nNEWS-SUB-AI-SYSTEMS\n<!-- end include: domains/news/topics.md -->"));
+  assert.ok(newsSystem.includes("SHARED-VIP-CONTACT"));
+  assert.ok(newsSystem.includes("learned-news-only"));
+  assert.ok(!newsSystem.includes("FORBIDDEN-SECRET-MUST-NOT-EXPAND"), "News learnedNotes must never expand include directives");
+});
