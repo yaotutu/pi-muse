@@ -97,7 +97,7 @@ const newsProcessingSchema = z.strictObject({
   ),
 });
 
-export const newsDocumentSchema = z.strictObject({
+const newsDocumentSchema = z.strictObject({
   processing: newsProcessingSchema,
   schemaVersion: z.literal(1),
   sources: z.array(sourceSchema),
@@ -219,7 +219,7 @@ const NEWS_TABLES = [
   "news_analysis_decisions",
 ] as const;
 
-export const NEWS_META_ORIGIN_KEY = "news.origin";
+const NEWS_META_ORIGIN_KEY = "news.origin";
 const readMeta = (database: DatabaseSync, key: string): string | undefined => {
   const row = database.prepare("SELECT value FROM news_meta WHERE key = ?").get(key) as { value: string } | undefined;
   return row?.value;
@@ -417,7 +417,7 @@ const canonicalJson = (value: unknown): string => {
   return JSON.stringify(sort(value));
 };
 
-export const deepEqual = (left: unknown, right: unknown): boolean => {
+const deepEqual = (left: unknown, right: unknown): boolean => {
   if (left === right) return true;
   if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
   if (Array.isArray(left) !== Array.isArray(right)) return false;

@@ -4,8 +4,8 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 /**
- * SQLite 基础层：所有关系化业务域（当前为新闻）共用同一 Managed 实例，
- * 后续 AgentSQL 工具也复用该实例，不允许各开 writer 连接。
+ * SQLite 基础层：关系化业务域（main.sqlite 与 news.sqlite 各自对应唯一 Managed 实例）共用该基础层，
+ * 内置 database 工具也复用同一连接，不允许各开 writer 连接。
  *
  * 安全边界：
  * - 拒绝库文件或其父目录为符号链接，防止替换边界绕过 DATA_DIR 隔离。

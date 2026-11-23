@@ -26,7 +26,7 @@ import { SQLITE_MODULE_LEDGER_TABLE, type SqliteModule } from "./sqlite-modules.
  */
 export const SMS_SCHEMA_VERSION = 4;
 
-export const DEFAULT_INFORMATION_SETTINGS: InformationSettings = {
+const DEFAULT_INFORMATION_SETTINGS: InformationSettings = {
   enabled: false,
   batchWindowSeconds: 15,
 };

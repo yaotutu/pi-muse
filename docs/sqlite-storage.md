@@ -56,15 +56,15 @@
 | `workspace/assistant/{SOUL,USER}.md` | Markdown | 全局助手人设与用户资料 |
 | `workspace/assistant/INSTRUCTIONS.md`、`workspace/domains/{sms,news}/INSTRUCTIONS.md` | Markdown | 主助手与各领域 Agent 的用户指令 |
 | `prompts/**`（随仓库发布） | Markdown | 统一系统提示词模板（含 Dream、短信、新闻、主助手与工具说明） |
-| `profile/memory.md` | Markdown | 长期记忆条目，带稳定 id 供按 id 修改/删除 |
-| `profile/identity.json` | JSON | 身份设置，属于配置 |
-| `monitors.json` | JSON | 网页监控本次不迁数据库 |
-| `sessions.json`、`messages/**`、`sessions/<id>/skills.json` | JSON | 会话域整体不动 |
-| `workspace/**`、`skills/**`、`subagents/**`、`companions/**`、`browser/**`、`traces/**` | 文件 | 内容资产与诊断 |
-| `config.json`、`auth.key`、`agent/auth.json` | 配置/密钥 | 不入普通数据库 |
+| `state/assistant/memory.md` | Markdown | 长期记忆条目，带稳定 id 供按 id 修改/删除 |
+| `state/assistant/identity.json` | JSON | 身份设置，属于配置 |
+| `state/monitors.json` | JSON | 网页监控本次不迁数据库 |
+| `sessions/index.json`、`sessions/<id>/history/`、`state/assistant/skill-overrides.json` | JSON / JSONL | 会话元数据、对话历史与全局技能开关 |
+| `workspace/**`、`assets/{skills,subagents,companions}/**`、`runtime/{browser,traces,android-updates}/**` | 文件 | 工作区文档、扩展资产、运行时缓存与诊断 |
+| `config.json`、`runtime/auth/auth.key`、`runtime/auth/pi.json` | 配置/密钥 | 不入普通数据库 |
 
 ## 导入与恢复
 
-- 本次改造不提供旧 JSON 导入器；切换时按用户授权清空旧业务数据，历史数据无保留价值。
+- 不提供历史 JSON 导入器；结构版本不符或库文件损坏时显式报错，不自动迁移或静默重建。
 - 数据库事务只覆盖库内更新，不能回滚模型调用、通知投递或物理文件写入。
 - 备份使用一致快照或在线备份，不在写入中只复制主数据库文件而遗漏 WAL。

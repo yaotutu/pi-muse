@@ -110,7 +110,7 @@ Activity 与真实步骤保存在对应会话 JSONL custom entries，不建立�
 
 ## 数据布局与校验
 
-路径唯一来源是 `src/adapters/storage/data-layout.ts`。唯一工作区 `workspace/` 保存全局 `assistant/{SOUL,USER,INSTRUCTIONS}.md`、`domains/{sms,news}/INSTRUCTIONS.md` 与 `files/`；全局状态目录 `state/assistant/` 保存 `memory.md`、`identity.json` 与 `skill-overrides.json`；`sessions/index.json` 与 `sessions/<sessionId>/history/` 保存各会话元数据与 JSONL；默认业务库 `state/main.sqlite` 保存定时任务、目标、审批记录、短信、Dream 与消息反馈行为数据，新闻使用独立 `state/news.sqlite`，网页监控暂留 `state/monitors.json`。存储边界与判据见 [SQLite 存储约定](sqlite-storage.md)。
+路径唯一来源是 `src/adapters/storage/data-layout.ts`。唯一工作区 `workspace/` 保存全局 `assistant/{SOUL,USER,INSTRUCTIONS}.md`、`domains/{sms,news}/INSTRUCTIONS.md` 与 `files/`；全局状态目录 `state/assistant/` 保存 `memory.md`、`identity.json` 与 `skill-overrides.json`；`sessions/index.json` 与 `sessions/<sessionId>/history/` 保存各会话元数据与 JSONL；默认业务库 `state/main.sqlite` 保存定时任务、目标、审批记录、短信、通用用户习惯、Dream 与消息反馈行为数据，新闻使用独立 `state/news.sqlite`，网页监控暂留 `state/monitors.json`。存储边界与判据见 [SQLite 存储约定](sqlite-storage.md)。
 
 SQLite 表和字段采用 snake_case，领域表以模块名前缀区分，迁移版本单独登记。新闻文章、反馈、评论、批次和决定关系化保存，不以整份 JSON 文档替代关系表。保持原始业务 ID、顺序、时间及删除语义；来源是历史快照的关联不应错误级联删除文章。数据库内更新使用短事务，不在 SQL 事务内等待模型、网络或人工决定。
 

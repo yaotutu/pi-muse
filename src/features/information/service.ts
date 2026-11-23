@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { UserFeedbackSnapshot } from "../../shared/feedback.js";
 import type {
   ResolvedWorkspaceDocument,
