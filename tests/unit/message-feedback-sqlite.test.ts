@@ -14,8 +14,10 @@ import { ensureSqliteModules, SQLITE_MODULE_LEDGER_TABLE } from "../../src/adapt
 import {
   createMessageFeedbackSession,
   MessageFeedbackDomainError,
+  projectFeedback,
+  projectFeedbackMap,
 } from "../../src/features/messages/service.js";
-import type { MessageExecutionFact } from "../../src/features/messages/types.js";
+import type { MessageExecutionFact, MessageFeedbackDocument, ProjectedMessage } from "../../src/features/messages/types.js";
 
 const openFixture = async (t: TestContext, prefix: string, registerModule = true) => {
   const directory = await mkdtemp(join(tmpdir(), `${prefix}-`));
@@ -206,4 +208,98 @@ test("restart persistence, removeSession isolation and fail-closed validation ho
     )
     .run(otherSessionId);
   await assert.rejects(reopenedRepo.validateAll(), /Invalid message feedback row/);
+});
+
+test("projectFeedbackMap matches projectFeedback and isolates large-batch session.project results", async (t) => {
+  const { managed } = await openFixture(t, "pi-muse-msg-fb-batch-projection");
+  const repo = createMessageFeedbackRepository(managed);
+
+  const messageCount = 2000;
+  const facts: MessageExecutionFact[] = [];
+  const messages: Array<ProjectedMessage & { feedback?: { reaction: string | null; saved: boolean; comments: unknown[] } }> = [];
+  for (let i = 0; i < messageCount; i++) {
+    const id = `msg-${i}`;
+    const role = i % 2 === 0 ? "user" : "assistant";
+    facts.push(makeFact(id, role));
+    messages.push({ id, role });
+  }
+
+  // 制造 1000 条混合事件（含赞/踩变化、收藏切换、评论增删改以及回到中性态的条目）
+  const events: MessageFeedbackDocument["events"] = [];
+  for (let i = 0; i < 200; i++) {
+    const targetId = `msg-${i * 5}`;
+    const role = (i * 5) % 2 === 0 ? "user" : "assistant";
+    const commentId = `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`;
+    const eventBase = { messageId: targetId, role, at: "2026-11-23T08:00:00.000Z" } as const;
+    events.push(
+      {
+        id: `10000000-0000-4000-8000-${String(i * 5 + 1).padStart(12, "0")}`,
+        type: "reaction_changed",
+        from: null,
+        to: "like",
+        ...eventBase,
+      },
+      {
+        id: `10000000-0000-4000-8000-${String(i * 5 + 2).padStart(12, "0")}`,
+        type: "saved_changed",
+        from: false,
+        to: true,
+        ...eventBase,
+      },
+      {
+        id: `10000000-0000-4000-8000-${String(i * 5 + 3).padStart(12, "0")}`,
+        type: "comment_added",
+        commentId,
+        text: `note-${i}`,
+        ...eventBase,
+      },
+      {
+        id: `10000000-0000-4000-8000-${String(i * 5 + 4).padStart(12, "0")}`,
+        type: "comment_edited",
+        commentId,
+        fromText: `note-${i}`,
+        toText: `note-edited-${i}`,
+        ...eventBase,
+      },
+      {
+        id: `10000000-0000-4000-8000-${String(i * 5 + 5).padStart(12, "0")}`,
+        type: i % 4 === 0 ? "saved_changed" : "comment_deleted",
+        ...(i % 4 === 0 ? { from: true, to: false } : { commentId, text: `note-edited-${i}` }),
+        ...eventBase,
+      } as MessageFeedbackDocument["events"][number],
+    );
+  }
+  assert.equal(events.length, 1000);
+
+  await repo.update("main", "pi-batch", () => ({
+    document: { schemaVersion: 1, events },
+    result: undefined,
+  }));
+
+  const stored = await repo.read("main", "pi-batch");
+  const mapped = projectFeedbackMap(stored);
+  for (let i = 0; i < 200; i++) {
+    const id = `msg-${i * 5}`;
+    assert.deepEqual(mapped.get(id), projectFeedback(stored, id));
+  }
+
+  const session = createMessageFeedbackSession({
+    sessionId: "main",
+    piSessionId: () => "pi-batch",
+    facts: () => facts,
+    repository: repo,
+  });
+
+  const projected = await session.project(messages);
+  assert.equal(projected.length, messageCount);
+  assert.equal(projected[0]?.feedback?.reaction, "like");
+  assert.equal(projected[0]?.feedback?.saved, false);
+  assert.equal(projected[0]?.feedback?.comments.length, 1);
+  assert.equal(projected[5]?.feedback?.saved, true);
+  assert.deepEqual(projected[5]?.feedback?.comments, []);
+  assert.deepEqual(projected[1]?.feedback, { reaction: null, saved: false, comments: [] });
+
+  // 默认反馈对象必须相互独立，修改一个不影响其他消息
+  (projected[1]!.feedback!.comments as unknown[]).push({ id: "mutated" });
+  assert.deepEqual(projected[2]?.feedback?.comments, []);
 });

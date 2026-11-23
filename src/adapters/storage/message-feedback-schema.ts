@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { isSessionId } from "../../features/conversation/session-id.js";
-import { hasActiveFeedback, projectFeedback } from "../../features/messages/service.js";
+import {
+  emptyMessageFeedback,
+  hasActiveFeedback,
+  projectFeedback,
+  projectFeedbackMap,
+} from "../../features/messages/service.js";
 import type {
   FeedbackTargetRole,
   MessageFeedbackDocument,
@@ -408,8 +413,11 @@ export const applyMessageFeedbackDocument = (
     `DELETE FROM ${MESSAGE_FEEDBACK_STATES_TABLE} WHERE session_id = ? AND pi_session_id = ? AND message_id = ?`,
   );
 
+  const feedbackByMessage = affectedMessages.size > 1 ? projectFeedbackMap(next) : undefined;
   for (const messageId of affectedMessages) {
-    const projected = projectFeedback(next, messageId);
+    const projected = feedbackByMessage
+      ? (feedbackByMessage.get(messageId) ?? emptyMessageFeedback())
+      : projectFeedback(next, messageId);
     const meta = metaByMessage.get(messageId);
     if (!meta || !hasActiveFeedback(projected)) {
       deleteState.run(sessionId, piSessionId, messageId);

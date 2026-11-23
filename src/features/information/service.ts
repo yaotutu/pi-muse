@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isWorkspaceText } from "../../shared/workspace-text.js";
-import { projectFeedback } from "../messages/service.js";
+import { emptyMessageFeedback, projectFeedbackMap } from "../messages/service.js";
 import type { MessageFeedbackRepository } from "../messages/types.js";
 import { InformationError } from "./errors.js";
 import {
@@ -210,12 +210,12 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
           .map((pub) => ({ run, pub })),
       );
     if (!candidates.length) return [];
-    const document = await deps.feedback.read("main", piSessionId);
+    const feedbackByMessage = projectFeedbackMap(await deps.feedback.read("main", piSessionId));
     const itemById = new Map(state.items.map((item) => [item.id, item]));
     const examples: InformationFeedbackExample[] = [];
 
     for (const { run, pub } of candidates) {
-      const feedback = projectFeedback(document, pub.receipt!.messageId);
+      const feedback = feedbackByMessage.get(pub.receipt!.messageId) ?? emptyMessageFeedback();
       if (!feedback.reaction && !feedback.saved && !feedback.comments.length) continue;
       const comments = feedback.comments.slice(0, MAX_FEEDBACK_COMMENTS);
       examples.push({

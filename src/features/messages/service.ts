@@ -29,36 +29,90 @@ export const normalizeComment = (rawText: string): string => {
   return text;
 };
 
-export const projectFeedback = (
-  document: MessageFeedbackDocument,
-  messageId: string,
-): MessageFeedback => {
-  const reaction = document.events.findLast(
-    (event): event is Extract<MessageFeedbackEvent, { type: "reaction_changed" }> =>
-      event.type === "reaction_changed" && event.messageId === messageId,
-  );
-  const saved = document.events.findLast(
-    (event): event is Extract<MessageFeedbackEvent, { type: "saved_changed" }> =>
-      event.type === "saved_changed" && event.messageId === messageId,
-  );
-  const comments = new Map<string, MessageComment>();
-  for (const event of document.events) {
-    if (event.messageId !== messageId || event.type === "reaction_changed" || event.type === "saved_changed") continue;
-    if (event.type === "comment_added") {
-      comments.set(event.commentId, {
-        id: event.commentId, text: event.text, createdAt: event.at, updatedAt: event.at,
+type FeedbackAccumulator = {
+  reaction: MessageFeedback["reaction"];
+  saved: boolean;
+  comments: Map<string, MessageComment>;
+};
+
+export const emptyMessageFeedback = (): MessageFeedback => ({
+  reaction: null,
+  saved: false,
+  comments: [],
+});
+
+const createAccumulator = (): FeedbackAccumulator => ({
+  reaction: null,
+  saved: false,
+  comments: new Map<string, MessageComment>(),
+});
+
+const applyFeedbackEvent = (state: FeedbackAccumulator, event: MessageFeedbackEvent): void => {
+  switch (event.type) {
+    case "reaction_changed":
+      state.reaction = event.to;
+      return;
+    case "saved_changed":
+      state.saved = event.to;
+      return;
+    case "comment_added":
+      state.comments.set(event.commentId, {
+        id: event.commentId,
+        text: event.text,
+        createdAt: event.at,
+        updatedAt: event.at,
       });
-    } else if (event.type === "comment_edited") {
-      const comment = comments.get(event.commentId);
+      return;
+    case "comment_edited": {
+      const comment = state.comments.get(event.commentId);
       if (comment) {
         comment.text = event.toText;
         comment.updatedAt = event.at;
       }
-    } else {
-      comments.delete(event.commentId);
+      return;
+    }
+    case "comment_deleted":
+      state.comments.delete(event.commentId);
+      return;
+  }
+};
+
+const finalizeFeedback = (state: FeedbackAccumulator): MessageFeedback => ({
+  reaction: state.reaction,
+  saved: state.saved,
+  comments: [...state.comments.values()],
+});
+
+export const projectFeedbackMap = (
+  document: MessageFeedbackDocument,
+): Map<string, MessageFeedback> => {
+  const accumulators = new Map<string, FeedbackAccumulator>();
+  for (const event of document.events) {
+    let entry = accumulators.get(event.messageId);
+    if (!entry) {
+      entry = createAccumulator();
+      accumulators.set(event.messageId, entry);
+    }
+    applyFeedbackEvent(entry, event);
+  }
+  const projected = new Map<string, MessageFeedback>();
+  for (const [messageId, entry] of accumulators) {
+    projected.set(messageId, finalizeFeedback(entry));
+  }
+  return projected;
+};
+
+export const projectFeedback = (
+  document: MessageFeedbackDocument,
+  messageId: string,
+): MessageFeedback => {
+  const state = createAccumulator();
+  for (const event of document.events) {
+    if (event.messageId === messageId) {
+      applyFeedbackEvent(state, event);
     }
   }
-  return { reaction: reaction?.to ?? null, saved: saved?.to ?? false, comments: [...comments.values()] };
+  return finalizeFeedback(state);
 };
 
 export const hasActiveFeedback = (feedback: MessageFeedback): boolean =>
@@ -141,13 +195,14 @@ export const createMessageFeedbackSession = (input: {
       const scopePiSessionId = currentPiSessionId();
       const factMap = new Map(facts().map((fact) => [fact.id, fact]));
       const document = await input.repository.read(input.sessionId, scopePiSessionId);
+      const feedbackByMessage = projectFeedbackMap(document);
       if (input.repository.listStates) {
         const states = await input.repository.listStates(input.sessionId, scopePiSessionId, filter);
         const items: MessageFeedbackListItem[] = [];
         for (const state of states) {
           const fact = factMap.get(state.messageId);
           if (!fact || !available(fact)) continue;
-          const feedback = projectFeedback(document, state.messageId);
+          const feedback = feedbackByMessage.get(state.messageId) ?? emptyMessageFeedback();
           if (!matchesFilter(feedback, filter)) continue;
           items.push({
             messageId: state.messageId,
@@ -165,7 +220,7 @@ export const createMessageFeedbackSession = (input: {
       const items: MessageFeedbackListItem[] = [];
       for (const fact of facts()) {
         if (!available(fact)) continue;
-        const feedback = projectFeedback(document, fact.id);
+        const feedback = feedbackByMessage.get(fact.id) ?? emptyMessageFeedback();
         if (!matchesFilter(feedback, filter)) continue;
         const updatedAt = latestAtByMessage.get(fact.id) ?? fact.createdAt;
         items.push({
@@ -238,7 +293,9 @@ export const createMessageFeedbackSession = (input: {
     },
     async project<T extends ProjectedMessage>(messages: readonly T[]): Promise<T[]> {
       const executionFacts = new Map(input.facts().map((fact) => [`${fact.role}:${fact.id}`, fact]));
-      const document = await input.repository.read(input.sessionId, currentPiSessionId());
+      const feedbackByMessage = projectFeedbackMap(
+        await input.repository.read(input.sessionId, currentPiSessionId()),
+      );
       return messages.map((message) => {
         const fact = executionFacts.get(`${message.role}:${message.id}`);
         if (!fact || message.role === "tool") return message;
@@ -254,7 +311,7 @@ export const createMessageFeedbackSession = (input: {
         return {
           ...message,
           metadata: projected,
-          feedback: projectFeedback(document, message.id),
+          feedback: feedbackByMessage.get(message.id) ?? emptyMessageFeedback(),
         } as T;
       });
     },
