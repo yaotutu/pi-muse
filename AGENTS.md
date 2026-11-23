@@ -81,6 +81,8 @@ pnpm test:live --config <protected-config-path> --allow-live
 
 ## 完成要求
 
+- **逻辑与功能变更强制同步文档**：每次发生业务逻辑变更、功能增删改、配置/路径/提示词调整或用户可见行为变化时，必须在同一任务内同步更新受影响的工程文档（如 `docs/architecture.md`、`prompts/README.md`）、成对中英文用户手册（`docs/manual/` 与 `docs/manual/en/`，同步删除失效旧说明并按需更新导航及执行 `pnpm docs:build`）、契约自动文档与必要的 `docs/client-notes.md`；未同步文档不得视为任务完成；若确无文档影响须在交付说明中显式写明原因。
+
 多端协作与收件箱同步遵循顶部「角色与多端协作（开工先看）」。代码变更补对应回归并完成 `pnpm check`；其中模拟模型不替代当前真实后端和外部模型验收，真实调用费用已有长期授权。工具展示需实际 Web renderer、历史和错误态；协议需同步 contracts、契约测试与自动生成 `/docs`，在浏览器中实际核对 `/docs` 渲染与 `/openapi.json` 语义完整性，并在交付中明确列出对外部接入端的影响（新增 / 变更 / 破坏性变更，及是否更新 `docs/client-notes.md`），不再将 Android 模拟器客户端验收作为服务端任务前置门槛。失败与未运行项分别报告，不用历史结果代替。
 
 文档-only 检查差异、引用、命名与规则一致性，不启动业务/模型；涉及手册和站点时按文档指南构建。当前规则不积累提交流水，待办放 backlog，历史放 archive。
