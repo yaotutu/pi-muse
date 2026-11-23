@@ -1,8 +1,10 @@
 import { memoryInformationRules } from "../support/information-rules.js";
 import {
   createSubmitInformationResultTool,
-  createSubmitNewsScreeningTool,
 } from "../../src/adapters/pi/information-runner.js";
+import {
+  createSubmitNewsScreeningTool,
+} from "../../src/adapters/pi/news-runner.js";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

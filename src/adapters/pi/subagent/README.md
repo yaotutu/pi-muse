@@ -16,9 +16,8 @@ This is an adapted source integration, **not an unmodified upstream extension**:
   fields are removed. Single mode strictly requires exactly 1 task.
 - `constrainedSampling` is declared with `{ type: "json_schema", strict: "prefer" }` to guide
   providers supporting strict JSON Schema.
-- Child CLI spawning is replaced by an injected `createAgentSession` runner.
-- The runner uses the service's model and guarded tools; no CLI config, external
-  model credentials, unrestricted `cwd`, bash, or approval bypass is available.
+- Child CLI spawning is replaced by the shared deny-by-default `runSubagent` kernel (`../subagent-runner.ts`), used across chat delegation and background structured workers.
+- The runner uses the service's model and guarded tools; no CLI config, external model credentials, unrestricted `cwd`, bash, or approval bypass is available. In `parallel` mode, exclusive browser tools (`navigate`, `snapshot`, `act`, `tab`) are automatically excluded to prevent concurrent Chrome window contention.
 - Agent discovery is limited to bundled definitions and `DATA_DIR/subagents`.
 - CLI/TUI rendering and raw child message/stderr details are omitted. Parent
   model receives the bounded final result; existing presentation rules control

@@ -32,7 +32,9 @@
 ## 主要源码落点
 
 - `src/bootstrap/create-service.ts`：唯一 `ModelRuntime`、provider 与内存凭据的初始化；不同会话共享 runtime，不共享执行锁和上下文。
-- `src/adapters/pi/session-factory.ts`：每轮会话装配、模型选择、技能/工具裁剪、压缩设置、subagent child runner。
+- `src/adapters/pi/session-factory.ts`：主/专题持久化会话装配、模型选择、技能/工具裁剪、压缩设置及聊天 `subagent` 角色权限组合。
+- `src/adapters/pi/subagent-runner.ts`：唯一通用内存子代理内核（`runSubagent` / `runStructuredSubagent`），统一负责默认零权限隔离、禁止工具拦截、超时/取消、错误脱敏与追踪；供聊天 `subagent`、短信、新闻与 Dream 共用。
+- `src/adapters/pi/information-runner.ts`、`news-runner.ts`、`dream-runner.ts`：分别只保留各自领域的提示词组装与结构化提交工具，通过 `subagent-runner.ts` 执行。
 - `src/adapters/pi/resource-loader.ts`：向 SDK 提供明确的 system prompt、已启用技能和扩展，不发现个人 CLI 的 context files、prompt templates 或 themes。
 - `src/adapters/pi/session-history.ts`、`history-projection.ts`：权威 JSONL 读取、custom entry/context edit、revision 与展示历史投影。
 - `src/adapters/pi/execution.ts`：SDK 事件投影、取消/idle port，以及进入模型上下文和 JSONL 前的错误脱敏。
@@ -45,13 +47,13 @@
 - `skills` 只维护产品技能文本：实例保存仍由 pi 解析规则验收；允许的 references/assets 文本作为启用技能的 read-only 例外装配。资源必须依附合法实例 `SKILL.md`，不能创建/修改 `extension.ts`、脚本、config 或嵌套技能根。
 - 仅已启用自有技能目录中的可信 `extension.ts` 通过显式路径装配；通用来源一律不执行扩展。保留名或重复工具不会靠加载覆盖已注册工具。全局可选能力、技能开关与子角色约束共同收窄工具，不因发现资源就扩大权限。
 - 技能正文属于模型可读资源，extension 则是可信服务端代码；路径 guard 不是执行 extension 的操作系统沙箱。不能把“复用了 SDK 加载器”表述为恶意代码隔离保证。
-- 子代理只接收父会话许可的资源/工具上限，不加载个人 `~/.pi`，不复制父历史或会话指令。精确例外与隔离细则见 [文件工具与审批](architecture.md#文件工具与审批)和 [子代理](architecture.md#子代理subagent)。
+- 子代理默认零权限、仅接收调用方许可的资源/工具上限，不加载个人 `~/.pi`，不复制父历史或会话指令。精确例外与隔离细则见 [文件工具与审批](architecture.md#文件工具与审批)和 [通用 Sub-agent 与执行收口](architecture.md#通用-sub-agent-与执行收口)。
 
 ## Subagent 示例的本地适配
 
-官方包附带 `examples/extensions/subagent`，它是示例扩展，不是自动启用的内置后台任务系统。本项目保留编排语义，但将其启动 CLI 的 runner 改为受限的 `createAgentSession` 调用，并将入参统一收拢为顶层必填 `mode` + `tasks`（移除混传入口，声明 `constrainedSampling` strict prefer）；子会话使用 `SessionManager.inMemory`，结果回到父工具结果，不引入第二套执行或持久队列。
+官方包附带 `examples/extensions/subagent`，它是示例扩展，不是自动启用的内置后台任务系统。本项目保留编排语义，但将其启动 CLI 的 runner 改为统一通用内核 `runSubagent`（受限 `createAgentSession` 封装），并将入参统一收拢为顶层必填 `mode` + `tasks`（移除混传入口，声明 `constrainedSampling` strict prefer）；子会话使用 `SessionManager.inMemory`，`parallel` 并发模式下自动屏蔽独占的浏览器工具，结果回到父工具结果，不引入第二套执行或持久队列。
 
-源码来源、MIT 许可和本地差异见 [适配目录说明](../src/adapters/pi/subagent/README.md)。运行权限、并发限制、审批与旧 worker 数据处理统一以 [架构规范](architecture.md#子代理subagent)为准，HTTP 与工具展示以当前生成契约和自有 Web 为准，不复制历史 OpenMuse 报文作为兼容目标。
+源码来源、MIT 许可和本地差异见 [适配目录说明](../src/adapters/pi/subagent/README.md)。运行权限、并发限制、审批与旧 worker 数据处理统一以 [架构规范](architecture.md#通用-sub-agent-与执行收口)为准，HTTP 与工具展示以当前生成契约和自有 Web 为准，不复制历史 OpenMuse 报文作为兼容目标。
 
 ## 不因 SDK 或依赖存在而引入的能力
 

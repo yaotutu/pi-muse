@@ -58,11 +58,18 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 
 技能资产全局共用，开关全局保存并绑定 `source/name`；默认值只来自随服务端发布的内置清单 `assets/skills-defaults.json`（当前 9 项内置默认开启），通用与自建来源一律默认关闭，最终装配以手动选择优先。目录优先级为实例 `DATA_DIR/skills/` > 内置技能 > 服务端用户 `~/.agents/skills/`，来源在目录、维护视图和 HTTP 清单中一致；关闭不回退，同名新来源不继承旧选择。复用 pi loader 解析标准 SKILL.md，不写私有技能 config，也不发现个人 CLI 的其他配置、扩展或凭据。通用技能目录只读，入口链接规范化为真实技能根，内部链接与超限正文拒绝；共享脚本/extension.ts 不执行。自有可信扩展仍是服务端代码，路径 guard 不是操作系统沙箱。只有本轮启用技能的精确 SKILL.md 与支持的文本资源可作为 read 的额外只读例外；不扩大目录、代码或配置访问。子代理继承的是父轮来源身份与实际工具上限，不因同名来源变化获得新的技能。
 
-## 子代理纯函数
+## 通用 Sub-agent 与执行收口
 
-`subagent` 保留 single/parallel/chain 的角色编排，由 pi 内存 SessionManager 执行，不落盘、不创建任何目录、不保存独立会话身份或在线状态。它使用与父轮相同的工作区，结果文本直接返回父工具调用。
+全仓所有非持久化的独立内存子会话统一收口到唯一的通用组装内核 `src/adapters/pi/subagent-runner.ts`（`runSubagent` 与薄结构化组合封装 `runStructuredSubagent`），**不再按单个业务产物另造独立 Agent 执行器**：
 
-工具继承父轮实际工具上限，去掉递归委派、排程、监控、活动和指令修改；角色声明只能收窄。模型和 Key 继承父轮。文件修改仍绑定父会话/父运行的逐次人工审批。父 Stop、断流、超时和关闭传播取消并等待子执行收尾；失败不自动重试。
+- **默认零权限基座（Deny-by-default）**：每次执行创建独立 `SessionManager.inMemory`，不落盘、不创建会话目录、不发现个人 CLI 资源；不显式传入即零工具、零技能、零扩展。内核硬拦截 `bash` 与递归 `subagent`，调用方误传也会在执行前直接拒绝。
+- **按能力与提示词组装**：主聊天 `subagent` 工具（single / parallel / chain）、短信实时/归档/简报（`information-runner.ts`）、新闻筛选（`news-runner.ts`）和 Dream 整理（`dream-runner.ts`）共用同一套超时、`AbortSignal` 取消、错误脱敏、`modelTrace` 与资源释放；区别仅由调用方传入的系统提示词、允许工具集、结构化提交工具和是否压缩来表达。
+- **工具与资源并发分级**：
+  1. **无状态 / 只读工具**（如 `read/grep/find/ls`、`search_web/web_fetch`、`get_weather`、`memory_search`、`currentTime`、`domain_agent` 只读查询及各领域 `submit_*` 提交工具）：可自由并发使用，无共享状态冲突。
+  2. **共享持久化写工具**：无头后台子会话（短信、新闻、Dream）默认不授予交互式人工审批写工具（需要变更偏好/记忆时输出结构化结果或提案）；聊天派发的 `subagent` 按父轮权限上限与角色约束决定是否下放，其中文件写编辑继续绑定父会话/父运行的逐次人工审批及 `workspaceCommits` 物理路径串行锁，全局仓库写由各自串行队列兜底。
+  3. **独占共享资源**：真实浏览器工具（`navigate/snapshot/act/tab`）绑定实例唯一 Chrome；聊天 `subagent` 在 `single` / `chain` 顺序模式下可按父轮权限继承，在 `parallel` 并发模式下自动屏蔽，避免并发抢占同一桌面窗口。
+
+聊天侧 `subagent` 编排仍沿用父轮工作区与结果回传语义，不保存独立会话身份或在线状态；父 Stop、断流、超时和关闭传播取消并等待子执行收尾，失败不自动重试。
 
 ## 消息与反馈
 

@@ -1,20 +1,9 @@
-import { mkdir } from "node:fs/promises";
-import {
-  createAgentSession,
-  defineTool,
-  SessionManager,
-  SettingsManager,
-  type ModelRuntime,
-} from "@earendil-works/pi-coding-agent";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import type { Config } from "../../config/load-config.js";
 import { parseProposal, type ProposedChange } from "../../features/dream/proposal.js";
 import type { DreamProposeResult } from "../../features/dream/service.js";
-import type { DataLayout } from "../storage/data-layout.js";
-import { runWithModelTrace } from "../model-trace/context.js";
 import { loadPrompt } from "../prompts/loader.js";
-import { projectExecutionEvent } from "./execution.js";
-import { createResourceLoader } from "./resource-loader.js";
+import { runSubagent, type SubagentRuntimeDeps } from "./subagent-runner.js";
 
 export const PROPOSE_NOTES_TOOL_NAME = "propose_notes";
 
@@ -93,97 +82,51 @@ export const createProposeNotesTool = (
   });
 
 /**
- * 通过 createAgentSession 运行受限整理轮：
- * - 使用内存 SessionManager，不产生用户会话 JSONL，不污染来源会话历史；
- * - 不装配用户 skills、extensions、联网、委派或文件读写工具；
- * - 关闭压缩与自动重试，失败诚实返回。
+ * Dream 整理轮：直接复用唯一通用 runSubagent 内核，
+ * 只传结构化 propose_notes 工具与仓库内置提示词，不授予自由工具或聊天技能。
  */
-export const createDreamProposer = (deps: {
-  config: Config;
-  layout: DataLayout;
-  modelRuntime: ModelRuntime;
-}) => async (input: {
-  sessionId: string;
-  userPrompt: string;
-  signal?: AbortSignal;
-}): Promise<DreamProposeResult> => {
-  const { config, layout, modelRuntime } = deps;
-  if (!config.configured || !config.modelId) {
-    return { ok: false, error: "Model is not configured" };
-  }
-  const model = modelRuntime.getModel("personal", config.modelId);
-  if (!model) {
-    return { ok: false, error: "Model is not configured" };
-  }
-  await mkdir(layout.agentDir, { recursive: true, mode: 0o700 });
-  const systemPrompt = `${loadPrompt("dream/consolidate.md")}\n\n${loadPrompt("dream/hard-rules.md")}`;
-  const collected: ProposedChange[] = [];
-  let invalidCall = false;
-  const tool = createProposeNotesTool(
-    (changes) => {
-      collected.push(...changes);
-    },
-    () => {
-      invalidCall = true;
-    },
-  );
-  const { session } = await createAgentSession({
-    cwd: layout.agentDir,
-    agentDir: layout.agentDir,
-    modelRuntime,
-    model,
-    sessionManager: SessionManager.inMemory(layout.agentDir),
-    resourceLoader: createResourceLoader(systemPrompt),
-    thinkingLevel: "off",
-    customTools: [tool],
-    tools: [PROPOSE_NOTES_TOOL_NAME],
-    settingsManager: SettingsManager.inMemory({
-      compaction: { enabled: false },
-      retry: { enabled: false },
-    }),
-  });
+export const createDreamProposer =
+  (deps: SubagentRuntimeDeps) =>
+  async (input: {
+    sessionId: string;
+    userPrompt: string;
+    signal?: AbortSignal;
+  }): Promise<DreamProposeResult> => {
+    const systemPrompt = `${loadPrompt("dream/consolidate.md")}\n\n${loadPrompt("dream/hard-rules.md")}`;
+    const collected: ProposedChange[] = [];
+    let invalidCall = false;
+    const tool = createProposeNotesTool(
+      (changes) => {
+        collected.push(...changes);
+      },
+      () => {
+        invalidCall = true;
+      },
+    );
 
-  const abort = () => {
-    void session.abort().catch(() => undefined);
-  };
-  input.signal?.addEventListener("abort", abort, { once: true });
-  let stopReason: string | undefined;
-  const unsubscribe = session.subscribe((event) => {
-    if (event.type === "tool_execution_end" && event.isError) {
-      invalidCall = true;
-    }
-    const projected = projectExecutionEvent(event);
-    if (projected?.type === "assistant_end") {
-      stopReason = projected.reason;
-    }
-  });
-
-  try {
-    // Dream 整理轮按目标会话标注；模型调用与收尾都留在同一追踪上下文内。
-    return await runWithModelTrace({ sessionId: input.sessionId, kind: "dream" }, async () => {
-      input.signal?.throwIfAborted();
-      await session.prompt(input.userPrompt, { expandPromptTemplates: false });
-      await session.waitForIdle();
-      if (
-        input.signal?.aborted ||
-        !stopReason ||
-        stopReason === "error" ||
-        stopReason === "aborted"
-      ) {
-        return { ok: false, error: "Consolidation model request failed or was cancelled" } as const;
-      }
-      if (invalidCall && !collected.length) {
-        return { ok: false, error: "Model produced an invalid proposal" } as const;
-      }
-      return { ok: true, changes: collected } as const;
+    const run = await runSubagent(deps, {
+      cwd: deps.layout.agentDir,
+      systemPrompt,
+      prompt: input.userPrompt,
+      tools: [tool],
+      timeoutMs: null,
+      signal: input.signal,
+      trace: { sessionId: input.sessionId, kind: "dream" },
+      onEvent: (event) => {
+        if (event.type === "tool_execution_end" && event.isError) {
+          invalidCall = true;
+        }
+      },
     });
-  } catch {
-    await session.abort().catch(() => undefined);
-    await session.waitForIdle().catch(() => undefined);
-    return { ok: false, error: "Consolidation model request failed or was cancelled" };
-  } finally {
-    input.signal?.removeEventListener("abort", abort);
-    unsubscribe();
-    session.dispose();
-  }
-};
+
+    if (!run.ok) {
+      if (run.error === "MODEL_NOT_CONFIGURED") {
+        return { ok: false, error: "Model is not configured" };
+      }
+      return { ok: false, error: "Consolidation model request failed or was cancelled" };
+    }
+    if (invalidCall && !collected.length) {
+      return { ok: false, error: "Model produced an invalid proposal" };
+    }
+    return { ok: true, changes: collected };
+  };

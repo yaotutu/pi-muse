@@ -34,8 +34,8 @@ import { createInformationScheduler } from "../features/information/scheduler.js
 import {
   createInformationBriefingRunner,
   createInformationRunner,
-  createNewsScreeningRunner,
 } from "../adapters/pi/information-runner.js";
+import { createNewsScreeningRunner } from "../adapters/pi/news-runner.js";
 import {
   createDomainAgentRegistry,
   type DomainAgentRegistry,

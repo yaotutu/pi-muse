@@ -3,6 +3,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionFactory, type AgentToolResult, type AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
 
 export const SUBAGENT_TOOL_NAME = "subagent";
+export type SubagentMode = "single" | "parallel" | "chain";
 export type SubagentRole = { name: string; description: string; systemPrompt: string; tools?: string[] };
 export type SubagentResult = { agent: string; task: string; output: string; isError?: boolean };
 export type SubagentRunner = (
@@ -11,8 +12,9 @@ export type SubagentRunner = (
   parentToolCallId?: string,
   subagentId?: string,
   parentTools?: readonly string[],
+  mode?: SubagentMode,
 ) => Promise<SubagentResult>;
-type Details = { mode: "single" | "parallel" | "chain"; results: SubagentResult[]; denied?: boolean };
+type Details = { mode: SubagentMode; results: SubagentResult[]; denied?: boolean };
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -94,7 +96,7 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
         result = await run(role, task, signal, () => {
           // 仅报告进度，不把未结束的子会话原始消息/诊断塞入父会话。
           update?.({ content: [{ type: "text", text: `Subagent ${role.name} is working` }], details: { mode, results: results.filter(Boolean) } });
-        }, _id, childIds[index], parentTools);
+        }, _id, childIds[index], parentTools, mode);
       } catch {
         signal?.throwIfAborted();
         result = { agent: role.name, task, output: "Subagent execution failed", isError: true };
