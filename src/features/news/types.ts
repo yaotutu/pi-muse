@@ -1,5 +1,4 @@
 import type {
-  UserFeedbackComment,
   UserFeedbackSnapshot,
   UserReaction,
 } from "../../shared/feedback.js";
@@ -37,8 +36,6 @@ export type NewsArticleItem = {
 };
 
 export type NewsArticleReaction = UserReaction | null;
-
-export type NewsArticleFeedbackComment = UserFeedbackComment;
 
 export type NewsArticleFeedback = UserFeedbackSnapshot & {
   itemId: string;

@@ -23,8 +23,6 @@ import type { Goal, GoalStatus, Milestone } from "../../features/goals/types.js"
  * 全部保留，旧 JSON 文档不再被读取或双写。
  */
 
-const GOAL_STATUSES = ["active", "paused", "completed", "archived"] as const;
-
 export const goalsModule: SqliteModule = {
   id: "goals",
   version: 1,

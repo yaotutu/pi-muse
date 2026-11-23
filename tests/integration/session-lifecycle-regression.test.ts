@@ -10,7 +10,6 @@ import { serve } from "@hono/node-server";
 import { createService, enableBuiltinSkills } from "../support/test-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
-import { createMonitorScheduler } from "../../src/features/monitors/monitor-scheduler.js";
 
 const deferred = () => {
   let resolve!: () => void;

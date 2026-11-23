@@ -3,8 +3,6 @@ import type { Job } from "../../features/jobs/types.js";
 import { applyJobs, parseJobs, readJobs } from "./jobs-schema.js";
 import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 
-export { jobsModule } from "./jobs-schema.js";
-
 /**
  * 定时任务 repository 的 SQLite 实现。
  *

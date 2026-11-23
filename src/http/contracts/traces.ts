@@ -2,7 +2,6 @@ import { z } from "zod";
 import { modelTraceKindSchema, modelTraceRecordSchema, traceFileNameSchema } from "../../adapters/model-trace/schema.js";
 
 /** 诊断接口不向模型开放；复用只读 adapter 的记录校验，避免一期格式与 HTTP 详情漂移。 */
-export const traceKinds = modelTraceKindSchema.options;
 export const traceSummarySchema = z.object({
   fileName: traceFileNameSchema,
   meta: modelTraceRecordSchema.shape.meta,

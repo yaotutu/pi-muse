@@ -76,12 +76,6 @@ export type BrowserActStepResult = {
   error?: string;
 };
 
-export type BrowserActResult = {
-  ok: boolean;
-  results: BrowserActStepResult[];
-  snapshot: BrowserSnapshot;
-};
-
 export type BrowserUpload = {
   id: string;
   tabId: string;

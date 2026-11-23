@@ -153,7 +153,6 @@ test("projectExecutionEvent preserves controlled rejection message across tool_e
 // ---------------------------------------------------------------------------
 test("HTTP PATCH enforces strict schedule validation, boundary recalculation, and does not create agent on failure", async (t) => {
   const h = await fixture(t);
-  const jobsFile = join(h.dir, "jobs.json");
 
   // 记录本轮操作前的参考时刻，不用未注入服务时钟的固定未来日期。
   const reference = new Date();
@@ -242,7 +241,6 @@ test("deterministic concurrency gate: PATCH at '12:00' meets concurrent daily fl
   const h = await fixture(t);
   // 初始 daily 任务：PATCH { at: "12:00" } 在路由预检时合法
   const job = await h.service().jobs.add("race daily to once", true, "10:00", "main");
-  const jobsFile = join(h.dir, "jobs.json");
 
   const updateEntered = deferred();
   const updateProceed = deferred();
@@ -449,8 +447,6 @@ test("pi schedule tool over real HTTP rejects invalid daily time with preserved 
     return events;
   };
 
-  const jobsFile = join(dir, "jobs.json");
-
   // 1. 非法输入不创建任务；模型与 pi 原始历史保留原因，公开出口仍遵守摘要策略。
   for (const marker of ["bad1", "bad2", "bad3"]) {
     const jobsCountBefore: number = (await service!.jobs.list()).length;
@@ -498,10 +494,7 @@ test("pi schedule tool over real HTTP rejects invalid daily time with preserved 
 
   // 2. 合法边界 00:00 / 23:59：真实 pi 链路创建任务并按本地时区计算 nextRunAt
   const reference = new Date();
-  for (const [marker, at, hour, minute] of [
-    ["good1", "00:00", 0, 0],
-    ["good2", "23:59", 23, 59],
-  ] as const) {
+  for (const marker of ["good1", "good2"] as const) {
     const events = await run(`A03SCHED-${marker}`);
     assert.ok(events.some((event) => event.type === "RUN_FINISHED"), `${marker} run must finish`);
     const scheduleResults = events.filter(

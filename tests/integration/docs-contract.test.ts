@@ -955,7 +955,8 @@ test("docs: goals endpoints declare list, get, create, patch, toggle and delete 
   const list = paths["/api/goals"]?.get;
   assert.ok(list);
   assert.deepEqual(list.security, [{ bearerAuth: [] }]);
-  assert.match(list.description ?? "", /goals\.json/);
+  assert.match(list.description ?? "", /长期目标[\s\S]*全量返回目标列表，不分页/);
+  assert.doesNotMatch(list.description ?? "", /goals\.json/);
 
   const get = paths["/api/goals/{id}"]?.get;
   assert.ok(get);

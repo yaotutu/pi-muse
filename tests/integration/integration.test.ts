@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readdir, readFile, writeFile, stat, mkdir, symlink } from "node:fs/promises";
+import { mkdtemp, rm, readdir, readFile, writeFile, stat, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";

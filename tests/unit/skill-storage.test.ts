@@ -9,7 +9,6 @@ import { createSkillsService, UnknownSkillError } from "../../src/features/skill
 import { readAssistantInstructions, writeAssistantInstructions } from "../../src/adapters/storage/assistant-instructions.js";
 import { instructionsTool } from "../../src/adapters/pi/tools/instructions.js";
 
-const sessionId = "00000000-0000-4000-8000-000000000001";
 const document = (name: string, body = "# Body\n") => `---\nname: ${name}\ndescription: A skill used for testing.\n---\n${body}`;
 const putSkill = async (root: string, name: string, content = document(name)) => {
   const directory = join(root, name);

@@ -50,7 +50,6 @@ export const parseProposal = (value: unknown): ProposedChange[] | undefined => {
   return parsed;
 };
 
-export type NoteTargets = "user" | "soul" | "instructions";
 export type Rejected = { change: ProposedChange; reason: string };
 
 /** 校验的上下文：当前内容与会话身份，全部来自服务端读取，不来自模型。 */

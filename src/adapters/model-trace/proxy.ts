@@ -159,7 +159,7 @@ export const createModelTraceProxy = async (deps: {
         return;
       }
       record.meta.httpStatus = upstreamResponse.status;
-      await pipeUpstream(upstreamResponse, response, capture, abort.signal);
+      await pipeUpstream(upstreamResponse, response, capture);
     } catch {
       capture.failure ??= "proxy request failed";
       if (!response.headersSent) response.writeHead(502, { "content-type": "application/json" });
@@ -207,7 +207,6 @@ export const createModelTraceProxy = async (deps: {
     upstreamResponse: Response,
     response: ServerResponse,
     capture: NonNullable<ModelTraceRecord["response"]>,
-    signal: AbortSignal,
   ) => {
     const headers: Record<string, string> = {};
     upstreamResponse.headers.forEach((value, name) => {

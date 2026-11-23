@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { ApprovalViewDto } from "./approvals.js";
 import { messageFeedbackResponse, messageMetadataResponse } from "./messages.js";
 
 /**
@@ -33,7 +32,6 @@ export const sessionResponse = z.object({
   ),
   mode: z.literal("live"),
 });
-export const okResponse = z.object({ ok: z.literal(true) });
 export const errorResponse = z.object({
   error: z.string().describe("人类可读错误；敏感细节（密钥/供应商响应）一律不透出"),
   code: z.string().optional().describe("机器可读业务错误码（如 MEMORY_CAPACITY_REACHED, REVISION_CONFLICT 等）"),
@@ -141,7 +139,6 @@ export const jobsResponse = z.object({
   jobs: z.array(jobItem).describe("定时任务列表"),
 });
 
-export const taskView = jobItem;
 export const runEvent = z.object({
   id: z.string(),
   taskId: z.string(),
@@ -159,11 +156,6 @@ export const jobDetail = z.object({
 export const deleteJobResponse = z.object({
   ok: z.literal(true),
   id: z.string().describe("被删除的定时任务 ID"),
-});
-
-export const taskDetail = z.object({
-  task: jobItem,
-  events: z.array(runEvent).describe("最近一次运行与控制操作的时间线"),
 });
 
 export const goalView = z.object({
@@ -210,7 +202,6 @@ export const monitorItem = z.object({
   checks: z.number().describe("累计检查次数"),
   error: z.string().optional().describe("上次抓取失败标记"),
 });
-export const monitorView = monitorItem;
 export const monitorsResponse = z.object({
   monitors: z.array(monitorItem).describe("网页监控列表"),
 });
@@ -281,19 +272,11 @@ export type JobDto = z.infer<typeof jobItem>;
 export type JobDetailDto = z.infer<typeof jobDetail>;
 export type JobsResponseDto = z.infer<typeof jobsResponse>;
 export type DeleteJobResponseDto = z.infer<typeof deleteJobResponse>;
-export type TaskDto = z.infer<typeof taskView>;
-export type TaskDetailDto = z.infer<typeof taskDetail>;
 export type RunEventDto = z.infer<typeof runEvent>;
 export type MemoryDto = z.infer<typeof memoryItem>;
 export type GoalDto = z.infer<typeof goalView>;
 export type MonitorItemDto = z.infer<typeof monitorItem>;
 export type MonitorDto = MonitorItemDto;
-/**
- * 兼容别名：自有 Web 在迁移到 GET /api/approvals 与审批 View 前仍按 ActionDto 引用。
- * 它现在就是审批完整视图类型，不再包含旧 payload/actions 列表结构；
- * 旧 reader（/api/actions*）已下线，无历史兼容层。
- */
-export type ActionDto = ApprovalViewDto;
 export type IdentitySnapshotDto = z.infer<typeof identitySnapshot>;
 export type SessionDto = z.infer<typeof sessionRecord>;
 

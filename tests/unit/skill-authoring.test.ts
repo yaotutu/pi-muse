@@ -84,7 +84,7 @@ const text = (result: Awaited<ReturnType<typeof call>>) => {
 };
 
 test("skills save validates with pi, creates default-off instance skill, and previews skill scope", async (t) => {
-  const { layout, service, actions, tool } = await fixture(t);
+  const { layout, service, actions } = await fixture(t);
   const approvingTool = createSkillsTool({
     layout,
     skills: service,

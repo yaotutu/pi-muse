@@ -105,12 +105,6 @@ export const updateGoalSchema = z.object({
     "completed 会自动勾掉全部里程碑；重新激活不回退勾选记录",
   ),
 });
-export const editGoalSchema = updateGoalSchema;
-export const goalStatusSchema = z.object({
-  status: z.enum(["active", "paused", "completed", "archived"]).describe(
-    "completed 会自动勾掉全部里程碑；重新激活不回退勾选记录",
-  ),
-});
 
 // ---------------------------------------------------------------------------
 // 监控：网页周期监控（change=指纹变化，contains=关键词命中）

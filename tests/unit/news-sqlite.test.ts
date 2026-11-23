@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
   openNewsRepository,
 } from "../../src/adapters/storage/news-repository.js";
-import { ensureNewsSchema, parseNewsState } from "../../src/adapters/storage/news-schema.js";
+import { parseNewsState } from "../../src/adapters/storage/news-schema.js";
 import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
 import { defaultNewsState } from "../../src/features/news/types.js";
 import type { NewsArticleItem } from "../../src/features/news/types.js";

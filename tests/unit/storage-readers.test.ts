@@ -12,12 +12,6 @@ import { createJobRepository } from "../../src/adapters/storage/job-repository.j
 import { InvalidDocumentError } from "../../src/adapters/storage/document-schemas.js";
 import { defaultIdentity } from "../../src/features/identity/types.js";
 
-const setup = async (t: TestContext) => {
-  const directory = await mkdtemp(join(tmpdir(), "personal-bot-storage-readers-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  return { directory, file: join(directory, "document.json") };
-};
-
 const memorySetup = async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), "personal-bot-storage-readers-memory-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -132,7 +126,7 @@ test("memory markdown writer recovers after the damaged file is explicitly repai
   await assert.rejects(repository.update(() => ({ result: undefined })), InvalidDocumentError);
   // 修复必须是调用者明确的外部动作，repository 不自动清空、不重试。
   await writeFile(file, "# 长期记忆\n");
-  await repository.update((state) => ({
+  await repository.update(() => ({
     state: { memories: [{ id: "ok", text: "修复后", source: "test", createdAt: "2026-10-10T00:00:00.000Z", updatedAt: "2026-10-10T00:00:00.000Z" }] },
     result: undefined,
   }));

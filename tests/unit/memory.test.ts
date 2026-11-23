@@ -33,7 +33,7 @@ const item = (id: string, text = id): MemoryItem => ({
 });
 
 test("memory and identity live in separate documents and survive repository recreation", async (t) => {
-  const { file, identityFile, repository, identityRepository, memory, identity } = await setup(t);
+  const { file, identityFile, repository, memory, identity } = await setup(t);
   assert.deepEqual(await memory.list(), []);
   assert.deepEqual(await identity.get(), defaultIdentity);
   const added = await memory.add("  likes tea  ", "Apps UI");

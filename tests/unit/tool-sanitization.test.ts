@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { guardTool } from "../../src/adapters/pi/tools/path-guard.js";

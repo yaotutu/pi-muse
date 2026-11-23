@@ -4,32 +4,23 @@ import type {
   ChatMessageDto,
   ConversationSnapshotDto,
   DreamOverviewDto,
-  DreamPendingDto,
   GoalDto,
   InstructionsDto,
   MemoriesResponseDto,
   MemoryDto,
   MonitorDto,
-  TaskDto,
   JobDto,
-  JobDetailDto,
   JobsResponseDto,
-  DeleteJobResponseDto,
   GoalsResponseDto,
-  DeleteGoalResponseDto,
   SessionDto,
-  ResetSessionDto,
-  DeleteSessionDto,
 } from "../../../src/http/contracts/responses.js";
 import type { TraceDetailDto, TraceSummaryDto, TracesQueryDto, TracesResponseDto } from "../../../src/http/contracts/traces.js";
 export type { TraceDetailDto, TraceSummaryDto, TracesQueryDto, TracesResponseDto };
 import type { RunRequestDto } from "../../../src/http/contracts/rest.js";
 import {
-  messageFeedbackEventsResponse,
   messageFeedbackListResponse,
   messageFeedbackResponse,
   type MessageFeedbackDto,
-  type MessageFeedbackEventsDto,
   type MessageFeedbackListDto,
 } from "../../../src/http/contracts/messages.js";
 import { sseEventSchema, type SseEvent } from "../../../src/http/contracts/sse-events.js";
@@ -49,32 +40,17 @@ export type {
   SessionStatusDto,
   ApprovalViewDto,
   ActivityUpdatedEventDto,
-  SessionStatusUpdatedEventDto,
-  ApprovalPendingEventDto,
-  ApprovalUpdatedEventDto,
   ConversationUpdatedEventDto,
-  ReadyEventDto,
 };
 export type {
   JobDto,
-  JobDetailDto,
-  JobsResponseDto,
-  DeleteJobResponseDto,
-  GoalsResponseDto,
-  DeleteGoalResponseDto,
-  TaskDto,
   MemoryDto,
   MonitorDto,
   GoalDto,
   SessionDto,
-  ResetSessionDto,
-  DeleteSessionDto,
   DreamOverviewDto,
-  DreamPendingDto,
-  InstructionsDto,
 };
 export type IdentityDto = NonNullable<IdentitySnapshotDto["identity"]>;
-export type MilestoneDto = GoalDto["milestones"][number];
 /**
  * 服务端 API 客户端：类型来自服务端契约模块（编译期对齐）。
  * token 持久化在 localStorage；401 时清除并要求重新登录。
@@ -167,7 +143,7 @@ export const createSession = async (title?: string): Promise<SessionDto> => {
 
 export const resetSession = async (
   sessionId: string,
-): Promise<ResetSessionDto> => {
+): Promise<unknown> => {
   const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
     method: "POST",
     body: JSON.stringify({}),
@@ -195,7 +171,7 @@ export const deleteSession = async (
   sessionId: string,
   scheduleDisposition: "delete" | "move-to-main",
   scheduleRevision: string,
-): Promise<DeleteSessionDto> => {
+): Promise<unknown> => {
   const response = await request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
     method: "DELETE",
     body: JSON.stringify({ scheduleDisposition, scheduleRevision }),
@@ -222,30 +198,6 @@ const messageFeedbackBase = (sessionId: string, messageId: string) =>
 const feedbackFailure = async (response: Response, action: string): Promise<never> => {
   const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
   throw new ApiError(response.status, failure?.error ?? `${action}失败`);
-};
-
-export const getMessageFeedback = async (
-  input: { sessionId: string; piSessionId: string; messageId: string },
-  signal?: AbortSignal,
-): Promise<MessageFeedbackDto> => {
-  const response = await request(
-    `${messageFeedbackBase(input.sessionId, input.messageId)}?piSessionId=${encodeURIComponent(input.piSessionId)}`,
-    { signal },
-  );
-  if (!response.ok) await feedbackFailure(response, "读取反馈");
-  return messageFeedbackResponse.parse(await response.json());
-};
-
-export const getMessageFeedbackEvents = async (
-  input: { sessionId: string; piSessionId: string; messageId: string },
-  signal?: AbortSignal,
-): Promise<MessageFeedbackEventsDto> => {
-  const response = await request(
-    `${messageFeedbackBase(input.sessionId, input.messageId)}/events?piSessionId=${encodeURIComponent(input.piSessionId)}`,
-    { signal },
-  );
-  if (!response.ok) await feedbackFailure(response, "读取反馈历史");
-  return messageFeedbackEventsResponse.parse(await response.json());
 };
 
 export const setMessageReaction = async (
@@ -283,39 +235,6 @@ export const listMessageFeedback = async (
   );
   if (!response.ok) await feedbackFailure(response, "读取反馈列表");
   return messageFeedbackListResponse.parse(await response.json());
-};
-
-export const addMessageComment = async (
-  input: { sessionId: string; piSessionId: string; messageId: string; text: string },
-): Promise<MessageFeedbackDto> => {
-  const response = await request(messageFeedbackBase(input.sessionId, input.messageId) + "/comments", {
-    method: "POST",
-    body: JSON.stringify({ piSessionId: input.piSessionId, text: input.text }),
-  });
-  if (!response.ok) await feedbackFailure(response, "新增评论");
-  return messageFeedbackResponse.parse(await response.json());
-};
-
-export const editMessageComment = async (
-  input: { sessionId: string; piSessionId: string; messageId: string; commentId: string; text: string },
-): Promise<MessageFeedbackDto> => {
-  const response = await request(
-    `${messageFeedbackBase(input.sessionId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}`,
-    { method: "PATCH", body: JSON.stringify({ piSessionId: input.piSessionId, text: input.text }) },
-  );
-  if (!response.ok) await feedbackFailure(response, "编辑评论");
-  return messageFeedbackResponse.parse(await response.json());
-};
-
-export const deleteMessageComment = async (
-  input: { sessionId: string; piSessionId: string; messageId: string; commentId: string },
-): Promise<MessageFeedbackDto> => {
-  const response = await request(
-    `${messageFeedbackBase(input.sessionId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}?piSessionId=${encodeURIComponent(input.piSessionId)}`,
-    { method: "DELETE" },
-  );
-  if (!response.ok) await feedbackFailure(response, "删除评论");
-  return messageFeedbackResponse.parse(await response.json());
 };
 
 /** 输入和事件均来自服务端契约，不再维护独立字段副本。 */
@@ -412,12 +331,6 @@ export const listJobs = async (
   return data.jobs;
 };
 
-export const getJob = async (id: string, signal?: AbortSignal): Promise<JobDetailDto> => {
-  const response = await request(`/api/jobs/${encodeURIComponent(id)}`, { signal });
-  if (!response.ok) throw new ApiError(response.status, "无法加载定时任务详情");
-  return response.json();
-};
-
 export const controlJob = async (
   id: string,
   action: "pause" | "resume" | "cancel" | "retry",
@@ -431,23 +344,6 @@ export const controlJob = async (
     return { ok: false, error: data.error ?? `操作失败 (${response.status})` };
   }
   return { ok: true };
-};
-
-export const controlTask = controlJob;
-
-export const updateJob = async (
-  id: string,
-  updates: { prompt?: string; daily?: boolean; at?: string },
-): Promise<JobDto> => {
-  const response = await request(`/api/jobs/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    body: JSON.stringify(updates),
-  });
-  if (!response.ok) {
-    const data = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(response.status, data.error ?? "修改失败");
-  }
-  return response.json();
 };
 
 export const deleteJob = async (id: string): Promise<void> => {
@@ -706,12 +602,6 @@ export const listMonitors = async (query?: {
   return (data as { monitors: MonitorDto[] }).monitors;
 };
 
-export const getMonitor = async (id: string): Promise<MonitorDto> => {
-  const response = await request(`/api/monitors/${id}`);
-  if (!response.ok) throw new ApiError(response.status, "获取监控详情失败");
-  return response.json();
-};
-
 export const createMonitor = async (input: {
   url: string;
   condition: "change" | "contains";
@@ -737,24 +627,6 @@ export const controlMonitor = async (
     body: JSON.stringify({ action }),
   });
   if (!response.ok) throw new ApiError(response.status, "操作失败");
-  return response.json();
-};
-
-export const updateMonitor = async (
-  id: string,
-  input: {
-    title?: string;
-    url?: string;
-    condition?: "change" | "contains";
-    value?: string;
-    intervalMinutes?: number;
-  },
-): Promise<MonitorDto> => {
-  const response = await request(`/api/monitors/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(input),
-  });
-  if (!response.ok) throw new ApiError(response.status, "更新失败");
   return response.json();
 };
 

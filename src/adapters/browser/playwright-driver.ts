@@ -16,7 +16,6 @@ import {
   type BrowserDownloadEvent,
   type BrowserDriver,
   type BrowserFrame,
-  type BrowserInputEvent,
   type BrowserTab,
   type BrowserUpload,
   type BrowserUploadFile,

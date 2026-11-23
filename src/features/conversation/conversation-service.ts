@@ -4,7 +4,6 @@ import { ConversationError, rejectConversation } from "./errors.js";
 import { validateConversationInput } from "./validate-input.js";
 import type { ConversationDependencies, ConversationExecution } from "./ports.js";
 import type { CancelReason, ConversationEvent, ConversationInput, ConversationResult, ConversationTurn, ConversationNotification, ConversationNotificationReceipt, ConversationSnapshot } from "./types.js";
-import type { MessageFeedbackSession } from "../messages/service.js";
 import { attachmentIdentity, buildConversationPrompt } from "./attachments.js";
 import { buildExecutionBoundary } from "./execution-boundary.js";
 

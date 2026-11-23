@@ -5,7 +5,6 @@ import {
   type StepKind,
   type StepStatus,
 } from "../../features/activities/types.js";
-import type { ActivityCursor } from "../../features/activities/query.js";
 
 /**
  * 执行活动（Activity）的 HTTP 契约：只读查询接口的请求/响应 schema 与分页游标编解码。

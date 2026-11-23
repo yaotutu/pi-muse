@@ -105,7 +105,7 @@ test("both conversations read the same flat files while traversal and absolute p
 
 // 3. 符号链接（文件、目录、断链）无论直接还是递归访问，都不能跟随到另一会话/实例配置/外部目录/shared/同根环回。
 test("symlinks are never dereferenced even when listed or discovered through find", async (t) => {
-  const { directory, rootA, rootB, sharedDir, layout, toolsA } = await setupWorkspace(t);
+  const { directory, rootA, layout, toolsA } = await setupWorkspace(t);
   const outside = join(directory, "outside");
   const otherRoot = join(directory, "trip-note.md");
   await mkdir(outside, { recursive: true });
@@ -261,7 +261,7 @@ test("reading a valid PNG file returns an image content block", async (t) => {
 
 // 7. 两个会话对同一 shared 文件并发提交审批，只能有一个真正写入。
 test("two sessions approving the same shared file only let one commit, even when versions race", async (t) => {
-  const { directory, layout, rootA, rootB, sharedDir } = await setupWorkspace(t);
+  const { layout, rootA, rootB, sharedDir } = await setupWorkspace(t);
   await writeFile(join(sharedDir, "note.md"), "original");
   const repository = memoryRepository();
   const actions = createActionService(repository);

@@ -24,15 +24,6 @@ const runNode = (args: string[], cwd: string): { status: number; stdout: string;
   return { status: result.status ?? -1, stdout: result.stdout, stderr: result.stderr };
 };
 
-const runTsx = (args: string[], cwd: string): { status: number; stdout: string; stderr: string } => {
-  // 直接走 tsx 包的 cli.mjs，避免 .bin 下的 shell 包装
-  const result = spawnSync("node", [resolve(projectRoot, "node_modules/tsx/dist/cli.mjs"), ...args], {
-    cwd,
-    encoding: "utf8",
-  });
-  return { status: result.status ?? -1, stdout: result.stdout, stderr: result.stderr };
-};
-
 test("src 分支：getBuiltinSkillsDir 不依赖 process.cwd()，恒指项目根 assets/skills", () => {
   const foreignCwd = mkdtempSync(resolve(tmpdir(), "builtin-skills-src-"));
   try {

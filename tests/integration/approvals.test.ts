@@ -19,7 +19,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { Buffer } from "node:buffer";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -39,7 +39,6 @@ import {
   approvalSummary,
   approvalView,
   pendingApprovalsResponse,
-  type ApprovalPageDto,
   type ApprovalSummaryDto,
   type ApprovalViewDto,
 } from "../../src/http/contracts/approvals.js";

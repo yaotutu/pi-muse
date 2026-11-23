@@ -170,17 +170,6 @@ export const browserInputMessageSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("insert_text"), text: z.string().min(1).max(2000) }),
 ]);
 
-export const browserFrameMetadataSchema = z.strictObject({
-  type: z.literal("frame"),
-  frameId: z.number().describe("客户端 ack 时回传的帧 ID"),
-  tabId: z.string().describe("帧所属标签页"),
-  sessionId: z.string().describe("CDP screencast session；ack 时必须原样回传"),
-  width: z.number().describe("帧的 CSS 宽度"),
-  height: z.number().describe("帧的 CSS 高度"),
-  mimeType: z.literal("image/jpeg"),
-  timestamp: z.number().describe("帧时间戳"),
-});
-
 export const browserServerTabsMessageSchema = z.strictObject({
   type: z.literal("tabs"),
   tabs: z.array(browserTab),

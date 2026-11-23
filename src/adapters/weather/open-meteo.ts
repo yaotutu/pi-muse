@@ -1,7 +1,6 @@
 import { safePublicGet } from "../web/http-transport.js";
 import type {
   WeatherLocation,
-  WeatherReport,
   WeatherTransport,
 } from "../../features/weather/types.js";
 

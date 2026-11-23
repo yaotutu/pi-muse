@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addMemory, createGoal, decideApproval, editMemory, forgetMemory, getSessionSnapshot, getGoal, getMemory, getToken, listGoals, listMemories, listMessageFeedback, listPendingApprovals, login, removeGoal, runConversation, setGoalStatus, setMessageReaction, setMessageSaved, subscribeAuth, toggleGoalMilestone, updateGoal } from "../../web/src/lib/api.js";
+import { addMemory, createGoal, decideApproval, editMemory, forgetMemory, getSessionSnapshot, getGoal, getMemory, getToken, listGoals, listMemories, listMessageFeedback, listPendingApprovals, login, removeGoal, runConversation, setMessageReaction, setMessageSaved, subscribeAuth, toggleGoalMilestone, updateGoal } from "../../web/src/lib/api.js";
 
 /** 只替换浏览器边界，复用真实 API 客户端；认证失效必须发布到 React 订阅而非只删缓存。 */
 test("login rejects wrong keys normally and API 401 immediately invalidates the shared authentication state", async (t) => {

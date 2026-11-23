@@ -775,7 +775,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "listGoals",
     method: "get", path: "/api/goals", tag: "目标", summary: "查询目标列表",
-    hint: "独立读取 goals.json，支持 status、category 过滤以及 sort/order 排序（默认按 updatedAt 倒序）。全量返回目标列表，不分页。未声明或重复查询参数返回 400。",
+    hint: "查询全部长期目标，支持 status、category 过滤以及 sort/order 排序（默认按 updatedAt 倒序）。全量返回目标列表，不分页。未声明或重复查询参数返回 400。",
     auth: true, query: req.goalsQuerySchema, response: resp.goalsResponse,
   },
   {

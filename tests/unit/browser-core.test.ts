@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BrowserContext, CDPSession, Page } from "playwright-core";
+import type { BrowserContext, Page } from "playwright-core";
 import { createPlaywrightBrowserDriver } from "../../src/adapters/browser/playwright-driver.js";
 import { createBrowserService } from "../../src/features/browser/browser-service.js";
 import { BrowserError } from "../../src/features/browser/types.js";

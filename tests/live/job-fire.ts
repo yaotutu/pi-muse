@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -8,7 +8,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { createService } from '../../src/bootstrap/create-service.js';
 import { createConfig } from '../../src/config/load-config.js';
 import { createLiveModel, redactApiKey } from '../support/live-model.js';
-import { createTestClient } from '../support/http-client.js';
 
 const configPath = process.argv[2];
 if (!configPath || !process.argv.includes('--allow-live')) {
@@ -39,7 +38,6 @@ if (!configPath || !process.argv.includes('--allow-live')) {
     const login = await fetch(base + '/api/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accessKey: 'job-fire-access' }) });
     assert.equal(login.status, 200);
     const { token } = await login.json() as { token: string };
-    const client = createTestClient(() => base, token, 240_000);
     const get = async (path: string) => { const response = await fetch(base + path, { headers: { authorization: `Bearer ${token}` } }); assert.equal(response.status, 200, path); return response.json(); };
 
     // 定时任务没有公开创建接口，只能由模型的 schedule 工具或服务层创建；这里用服务层避免重复模型轮。

@@ -204,7 +204,7 @@ test("approval repository round-trips records with execution by parsing and pres
     execution: { status: "succeeded", startedAt: at, finishedAt: at, result: "ok" },
   });
 
-  await store.repository.update((items) => ({ items: [withExecution], result: undefined }));
+  await store.repository.update(() => ({ items: [withExecution], result: undefined }));
   const read = await store.repository.read();
   assert.equal(read.length, 1);
   assert.deepEqual(read[0], withExecution);

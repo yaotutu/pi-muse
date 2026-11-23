@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test, { type TestContext } from "node:test";
+import test from "node:test";
 import { InvalidDocumentError } from "../../src/adapters/storage/document-schemas.js";
 import { parseActions } from "../../src/adapters/storage/actions-schema.js";
 import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";

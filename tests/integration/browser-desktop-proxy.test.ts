@@ -32,7 +32,7 @@ const mintCookie = async (desktop: ReturnType<typeof createBrowserDesktop>) => {
 };
 
 test("concurrent launch tickets stay independent; consumption is one-time", async (t) => {
-  const upstream = await listen((request, response) => {
+  const upstream = await listen((_request, response) => {
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<html>vnc</html>");
   });

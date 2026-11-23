@@ -27,11 +27,6 @@ import {
  * - 通知连接断开不取消聊天、任务或子代理；不提供锁屏系统推送。
  */
 
-/** 单个 SSE 事件（含 event/data 帧与 JSON 编码）允许的最大 UTF-8 字节数。 */
-export const MAX_SSE_EVENT_BYTES = 8 * 1024 * 1024;
-/** ready 事件允许的最大 UTF-8 字节数（完整当前集合可能大于单个增量事件）。 */
-export const MAX_SSE_READY_BYTES = 12 * 1024 * 1024;
-
 const instanceIdSchema = z
   .uuid()
   .describe(

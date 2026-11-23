@@ -1,6 +1,5 @@
 import type {
   WeatherReport,
-  WeatherResult,
   WeatherService,
   WeatherTransport,
 } from "./types.js";

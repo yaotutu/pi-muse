@@ -207,7 +207,7 @@ test("execution 只允许挂在 approved 上，且各状态的 finished_at/resul
   }
 
   // 合法组合：五个执行状态都能落库并原样读回。
-  const legal: PendingAction[] = (["running", "succeeded", "failed", "cancelled", "unknown"] as const).map((status, index) =>
+  const legal: PendingAction[] = (["running", "succeeded", "failed", "cancelled", "unknown"] as const).map((status) =>
     record({
       id: `exec-${status}`,
       status: "approved",

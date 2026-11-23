@@ -117,8 +117,6 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     const client = createTestClient(() => baseUrl, token, 120_000);
     serviceVersion = (await client.json("/api/health")).serviceVersion;
 
-    const jobsFile = join(dataDir, "jobs.json");
-
     // -------------------------------------------------------------------------
     // 阶段 A：真实对话 + 真实模型调用 schedule 工具创建任务（5 个独立测试智能体）
     // -------------------------------------------------------------------------
@@ -470,7 +468,7 @@ if (parsed.kind === "help") {
   process.stderr.write(parsed.message + "\n");
   process.exitCode = 2;
 } else {
-  await execute(parsed.options).catch((err) => {
+  await execute(parsed.options).catch(() => {
     process.stderr.write("Live setup/report failed; configuration and provider details are not printed.\n");
     process.exitCode = 1;
   });

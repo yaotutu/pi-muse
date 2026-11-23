@@ -41,7 +41,7 @@ import {
   type DomainAgentRegistry,
 } from "../features/domain-agents/registry.js";
 import { openNewsRepository } from "../adapters/storage/news-repository.js";
-import { openSqliteDatabase, type ManagedSqliteDatabase } from "../adapters/storage/sqlite-database.js";
+import { openSqliteDatabase } from "../adapters/storage/sqlite-database.js";
 import { ensureSqliteModules } from "../adapters/storage/sqlite-modules.js";
 import { mainSqliteModules } from "../adapters/storage/sqlite-registry.js";
 import { createDatabaseToolStore } from "../adapters/storage/database-tool-store.js";

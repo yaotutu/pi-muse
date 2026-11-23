@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";

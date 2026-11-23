@@ -12,7 +12,6 @@ import { createService } from "../support/test-service.js";
 import { conversationResponse } from "../../src/http/contracts/responses.js";
 import { waitForTest } from "../support/http-client.js";
 
-type Snapshot = ReturnType<typeof conversationResponse.parse>;
 type RunDetail = {
   run: {
     id: string;
@@ -483,7 +482,6 @@ test("information runner allows one invalid correction but rejects duplicate or 
 
 test("automatic scheduler processes an immediate batch and restart preserves pending facts", async (t) => {
   const h = await fixture(t);
-  const sessionId = "main";
   await h.setupPipeline({ enabled: true, batchWindowSeconds: 0 });
   await h.call(`/api/information/items`, {
     method: "POST", body: JSON.stringify({ items: [{ source: "imap", externalId: "auto", content: "NOTIFY automatic item" }] }),
