@@ -34,7 +34,7 @@ const parseQuery = <T>(
   return schema.safeParse(Object.fromEntries(query.entries()));
 };
 
-/** 信息后台 HTTP 入口：实时单周期与历史归档两条路径隔离，共用规则与自学习画像。 */
+/** 信息后台 HTTP 入口：实时单周期与历史归档两条路径隔离，共用用户指令、长期行为习惯与未消化反馈热缓冲。 */
 export const createInformationRoutes = (dependencies: HttpDependencies) => {
   const app = new Hono();
   const { information } = dependencies;

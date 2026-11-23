@@ -11,30 +11,32 @@ import {
 import { loadPrompt } from "../prompts/loader.js";
 import { runStructuredSubagent, type SubagentRuntimeDeps } from "./subagent-runner.js";
 
-export const SUBMIT_HABIT_UPDATES_TOOL_NAME = "submit_habit_updates";
+const SUBMIT_HABIT_UPDATES_TOOL_NAME = "submit_habit_updates";
+
+export const habitOperationsArraySchema = Type.Array(
+  Type.Object(
+    {
+      op: Type.Union([
+        Type.Literal("add"),
+        Type.Literal("edit"),
+        Type.Literal("delete"),
+      ]),
+      id: Type.Optional(Type.String({ description: "Existing habit ID (required for edit/delete; omit for add)." })),
+      text: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_HABIT_TEXT_LENGTH })),
+    },
+    { additionalProperties: false },
+  ),
+  { maxItems: MAX_HABITS_PER_DOMAIN },
+);
 
 const habitUpdatesParameters = Type.Object(
   {
-    operations: Type.Array(
-      Type.Object(
-        {
-          op: Type.Union([
-            Type.Literal("add"),
-            Type.Literal("edit"),
-            Type.Literal("delete"),
-          ]),
-          id: Type.Optional(Type.String({ description: "Existing habit ID (required for edit/delete; omit for add)." })),
-          text: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_HABIT_TEXT_LENGTH })),
-        },
-        { additionalProperties: false },
-      ),
-      { maxItems: MAX_HABITS_PER_DOMAIN },
-    ),
+    operations: habitOperationsArraySchema,
   },
   { additionalProperties: false },
 );
 
-export const createSubmitHabitUpdatesTool = (
+const createSubmitHabitUpdatesTool = (
   existingIds: ReadonlySet<string>,
   onSubmitted: (operations: HabitOperation[]) => void,
 ) =>

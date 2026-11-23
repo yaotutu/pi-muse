@@ -1,11 +1,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { formatHabitsForPrompt } from "../../features/habits/operations.js";
-import {
-  MAX_HABITS_PER_DOMAIN,
-  MAX_HABIT_TEXT_LENGTH,
-  type HabitItem,
-} from "../../features/habits/types.js";
+import type { HabitItem } from "../../features/habits/types.js";
 import {
   ARCHIVE_BRIEFING_MAX_LENGTH,
   INFORMATION_MAX_NOTIFICATIONS,
@@ -22,19 +18,22 @@ import type {
   InformationModelResult,
 } from "../../features/information/types.js";
 import { loadPrompt } from "../prompts/loader.js";
+import { habitOperationsArraySchema } from "./habit-runner.js";
 import { runStructuredSubagent, type SubagentRuntimeDeps } from "./subagent-runner.js";
 
 export const SUBMIT_INFORMATION_RESULT_TOOL_NAME = "submit_information_result";
 export const SUBMIT_INFORMATION_BRIEFING_TOOL_NAME = "submit_information_briefing";
 
+const decisionsArraySchema = Type.Array(
+  Type.Object({
+    itemId: Type.String(),
+    decision: Type.Union([Type.Literal("silent"), Type.Literal("notify")]),
+    reason: Type.String({ minLength: 1, maxLength: INFORMATION_REASON_MAX_LENGTH }),
+  }, { additionalProperties: false }),
+);
+
 const realtimeParameters = Type.Object({
-  decisions: Type.Array(
-    Type.Object({
-      itemId: Type.String(),
-      decision: Type.Union([Type.Literal("silent"), Type.Literal("notify")]),
-      reason: Type.String({ minLength: 1, maxLength: INFORMATION_REASON_MAX_LENGTH }),
-    }, { additionalProperties: false }),
-  ),
+  decisions: decisionsArraySchema,
   notifications: Type.Array(
     Type.Object({
       itemIds: Type.Array(Type.String(), { minItems: 1 }),
@@ -45,23 +44,8 @@ const realtimeParameters = Type.Object({
 }, { additionalProperties: false });
 
 const archiveBatchParameters = Type.Object({
-  decisions: Type.Array(
-    Type.Object({
-      itemId: Type.String(),
-      decision: Type.Union([Type.Literal("silent"), Type.Literal("notify")]),
-      reason: Type.String({ minLength: 1, maxLength: INFORMATION_REASON_MAX_LENGTH }),
-    }, { additionalProperties: false }),
-  ),
-  habitOperations: Type.Optional(
-    Type.Array(
-      Type.Object({
-        op: Type.Union([Type.Literal("add"), Type.Literal("edit"), Type.Literal("delete")]),
-        id: Type.Optional(Type.String({ description: "Existing habit ID (required for edit/delete)." })),
-        text: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_HABIT_TEXT_LENGTH })),
-      }, { additionalProperties: false }),
-      { maxItems: MAX_HABITS_PER_DOMAIN },
-    ),
-  ),
+  decisions: decisionsArraySchema,
+  habitOperations: Type.Optional(habitOperationsArraySchema),
 }, { additionalProperties: false });
 
 const briefingParameters = Type.Object({

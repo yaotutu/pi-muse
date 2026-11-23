@@ -18,7 +18,7 @@
   - `caveat`：多形态接入端（尤其嵌入式/语音/无头端）极易踩坑的协议细节或交互边界。
 - **不要记录**：纯内部重构、未改变对外协议的 bug 修复、测试与文档排版调整，以及针对单个其他项目的建议或旧/无用文件提醒（这类非契约类跨项目留言请写入工作区根目录收件箱 `client-requests.md` 的 `NOTE-*` 区块，写完即止，其余不管）。
 - **不要抄写 Schema**：写清楚“变了什么、哪类端受影响、接入端要注意什么、去 `/docs` 哪里查精确定义”，禁止手抄 JSON Schema 或字段清单。
-- **倒序维护与定期清理**：新条目插在下方列表最顶部；已被后续变更覆盖，或已完全沉淀进 `/docs` 与 [client-integration-guide.md](client-integration-guide.md) 的长期稳定条目，可适时清理归并，保持文档精炼。
+- **倒序维护与定期清理**：新条目插在下方列表最顶部；已被后续变更覆盖，或已完全沉淀进 `/docs` 与 [client-integration-guide.md](client-integration-guide.md) 的长期稳定条目，必须立即清理或直接改写为最新事实，禁止保留失效旧表述再打括号补丁，保持文档精炼。
 
 ### 记录模板
 
@@ -80,7 +80,7 @@
 - **类型**：`breaking`
 - **契约入口**：`/docs`「信息后台」「新闻」「记忆」「工作区文件」（以 `/openapi.json` 为准）
 - **要点与接入端注意**：
-  - **偏好请求/响应字段统一更名为 `instructions`**：`GET / PUT /api/information/preferences` 与 `GET / PUT /api/news/preferences` 原字段 `notes` 统一更名为 `instructions`（与 `/api/assistant/instructions` 对齐，自学习画像仍统一为 `learnedNotes`）；短信日常实时筛选系统提示词收紧为「默认静默（Default-Silent）」基线 + 四级优先级。
+  - **偏好请求/响应字段统一更名为 `instructions`**：`GET / PUT /api/information/preferences` 与 `GET / PUT /api/news/preferences` 原字段 `notes` 统一更名为 `instructions`（与 `/api/assistant/instructions` 对齐）；短信日常实时筛选系统提示词收紧为「默认静默（Default-Silent）」基线 + 四级优先级。
   - **工作区领域文件统一命名为 `INSTRUCTIONS.md`**：`workspace/domains/sms/RULES.md` 与 `workspace/domains/news/RULES.md` 统一更名为 `workspace/domains/sms/INSTRUCTIONS.md` 与 `workspace/domains/news/INSTRUCTIONS.md`。
   - **Dream 移除运行时提示词字段**：所有静态系统提示词统一托管在服务端仓库 `prompts/`；`GET /api/dream` 不再返回 `globalPrompt` 与 `defaultPrompt`，`PUT /api/dream` 仅接受 `{ enabled: boolean }`（不再接收 `prompt`）。
 
@@ -91,8 +91,8 @@
 - **契约入口**：`/docs`「信息后台」（具体字段以 `/openapi.json` 为准）
 - **要点与接入端注意**：
   - **移除旧首轮与混用开关**：`POST /api/information/items` 移除 `bulkImport`（单批恢复 1–100 条，固定进入日常 `queue: "realtime"`）；`POST /api/information/runs` 不再接收 `forceInitial` / `background` / `retryFailed`，仅用于立即触发一次日常实时单周期；响应不再返回 `initialAnalysisCompleted` 或 `mode`。
-  - **新增独立历史归档通道**：历史短信导入改调 `POST /api/information/archive/items`（1–500 条，`queue: "archive"`，与实时调度彻底隔离）；导入后显式调用 `POST /api/information/archive/run`（`{ background?, retryFailed? }`）逐批提炼更新 `learnedNotes` 灵敏度画像，并在归档清零后至多发送 1 条不超过 1200 字简报。
-  - **状态与列表字段更新**：`GET /api/information/status` 返回 `{ enabled, batchWindowSeconds, running, pendingCount, failedCount, archive: { running, pendingCount, processedCount, failedCount }, lastRunAt, lastError }`；条目新增 `queue`（`realtime | archive`），run 新增 `kind`（`realtime | archive`）且支持按 `queue` / `kind` 过滤分页。`learnedNotes` 自学习画像与主对话消息反馈闭环继续对实时与归档双向生效。
+  - **新增独立历史归档通道**：历史短信导入改调 `POST /api/information/archive/items`（1–500 条，`queue: "archive"`，与实时调度彻底隔离）；导入后显式调用 `POST /api/information/archive/run`（`{ background?, retryFailed? }`）逐批提炼增量习惯写入通用 `habits` 引擎，并在归档清零后至多发送 1 条不超过 1200 字简报。
+  - **状态与列表字段更新**：`GET /api/information/status` 返回 `{ enabled, batchWindowSeconds, running, pendingCount, failedCount, archive: { running, pendingCount, processedCount, failedCount }, lastRunAt, lastError }`；条目新增 `queue`（`realtime | archive`），run 新增 `kind`（`realtime | archive`）且支持按 `queue` / `kind` 过滤分页。长期习惯列表与主对话消息反馈闭环继续对实时与归档双向生效。
 
 ### 2026-11-22 — 建立多形态接入端须知机制与当前协议关键注意点
 

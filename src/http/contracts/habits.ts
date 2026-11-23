@@ -57,8 +57,3 @@ export const deleteHabitResponse = z.strictObject({
 export const consolidateHabitsRequestSchema = z
   .strictObject({})
   .describe("必填有效 JSON 空对象 {}；触发立即归纳该领域未消化反馈");
-
-export type HabitItemDto = z.infer<typeof habitItemSchema>;
-export type HabitDomainOverviewDto = z.infer<typeof habitDomainOverviewResponse>;
-export type CreateHabitRequestDto = z.infer<typeof createHabitRequestSchema>;
-export type UpdateHabitRequestDto = z.infer<typeof updateHabitRequestSchema>;
