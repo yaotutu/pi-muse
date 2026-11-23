@@ -1,20 +1,14 @@
 import { defineTool, type AgentToolResult, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { DomainAgentError, type DomainAgentRegistry } from "../../../features/domain-agents/registry.js";
-import { DOMAIN_RULES_MAX_LENGTH, type DomainQueryAction } from "../../../features/domain-agents/types.js";
+import { DOMAIN_INSTRUCTIONS_MAX_LENGTH, type DomainQueryAction } from "../../../features/domain-agents/types.js";
 import { InformationError } from "../../../features/information/errors.js";
 import { NewsError } from "../../../features/news/errors.js";
+import { loadPrompt } from "../../prompts/loader.js";
 
 export const DOMAIN_AGENT_TOOL_NAME = "domain_agent";
 
-export const DOMAIN_AGENT_TOOL_INSTRUCTIONS = [
-  "Inspect and configure Pi Muse's registered background domain agents (such as sms and news).",
-  "Actions:",
-  "- list: view all registered domain agents, whether each is enabled, and capabilities.",
-  "- get_rules: read a domain's explicit rules (`notes`), learned sensitivity profile (`learnedNotes`), and feedback examples.",
-  "- update_rules: update a domain's explicit rules (`notes`). Always call `get_rules` first, concisely merge new user rules without losing existing rules, and submit the complete rule file for user approval.",
-  "- query: read-only inspection of domain items, articles, sources, or runs via `queryAction` (`overview` | `items` | `item` | `runs` | `run`).",
-].join("\n");
+export const DOMAIN_AGENT_TOOL_INSTRUCTIONS = loadPrompt("assistant/tools/domain-agent.md");
 
 type DomainAgentToolResult = { error: string } | Record<string, unknown>;
 
@@ -36,7 +30,7 @@ export const createDomainAgentTool = (
   registry: DomainAgentRegistry,
   context?: {
     readOnly?: boolean;
-    writeRules?: (domainId: string, notes: string, toolCallId: string, signal: AbortSignal | undefined, toolContext: ExtensionToolContext) => Promise<{ isError?: boolean }>;
+    writeInstructions?: (domainId: string, instructions: string, toolCallId: string, signal: AbortSignal | undefined, toolContext: ExtensionToolContext) => Promise<{ isError?: boolean }>;
   },
 ) =>
   defineTool({
@@ -47,13 +41,13 @@ export const createDomainAgentTool = (
       {
         action: Type.Union([
           Type.Literal("list"),
-          Type.Literal("get_rules"),
-          Type.Literal("update_rules"),
+          Type.Literal("get_instructions"),
+          Type.Literal("update_instructions"),
           Type.Literal("query"),
         ]),
         domain: Type.Optional(Type.String({ description: "Target domain ID such as sms or news." })),
-        notes: Type.Optional(Type.String({ description: "Complete merged explicit rules text for update_rules." })),
-        reason: Type.Optional(Type.String({ description: "Brief explanation for why the domain rules are being updated." })),
+        instructions: Type.Optional(Type.String({ description: "Complete merged explicit user instructions text for update_instructions." })),
+        reason: Type.Optional(Type.String({ description: "Brief explanation for why the domain instructions are being updated." })),
         queryAction: Type.Optional(
           Type.Union([
             Type.Literal("overview"),
@@ -84,30 +78,30 @@ export const createDomainAgentTool = (
         if (!domain) {
           return rejected("domain is required for this action.");
         }
-        if (params.action === "get_rules") {
-          const result = await registry.getRules(domain);
+        if (params.action === "get_instructions") {
+          const result = await registry.getInstructions(domain);
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
             details: result,
           };
         }
-        if (params.action === "update_rules") {
+        if (params.action === "update_instructions") {
           if (context?.readOnly) {
-            return rejected("Subagent sessions cannot modify domain rules; only read-only domain inspection is allowed.");
+            return rejected("Subagent sessions cannot modify domain instructions; only read-only domain inspection is allowed.");
           }
-          if (typeof params.notes !== "string" || params.notes.length > DOMAIN_RULES_MAX_LENGTH) {
-            return rejected(`notes must be a string of at most ${DOMAIN_RULES_MAX_LENGTH} characters`);
+          if (typeof params.instructions !== "string" || params.instructions.length > DOMAIN_INSTRUCTIONS_MAX_LENGTH) {
+            return rejected(`instructions must be a string of at most ${DOMAIN_INSTRUCTIONS_MAX_LENGTH} characters`);
           }
-          if (!context?.writeRules) return rejected("Approved rule writing is unavailable.");
+          if (!context?.writeInstructions) return rejected("Approved instruction writing is unavailable.");
           signal?.throwIfAborted();
-          const current = await registry.getRules(domain);
+          const current = await registry.getInstructions(domain);
           signal?.throwIfAborted();
-          if (current.notes === params.notes) {
-            return { content: [{ type: "text", text: "Domain rules are unchanged." }], details: { updated: false } };
+          if (current.instructions === params.instructions) {
+            return { content: [{ type: "text", text: "Domain instructions are unchanged." }], details: { updated: false } };
           }
-          const saved = await context.writeRules(current.domainId, params.notes, toolCallId, signal, toolContext);
-          if (saved.isError) return rejected("Rule change did not report success. Check the file approval result before trying again.");
-          const result = { domainId: current.domainId, name: current.name, notes: params.notes, updated: true };
+          const saved = await context.writeInstructions(current.domainId, params.instructions, toolCallId, signal, toolContext);
+          if (saved.isError) return rejected("Instruction change did not report success. Check the file approval result before trying again.");
+          const result = { domainId: current.domainId, name: current.name, instructions: params.instructions, updated: true };
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
             details: result,

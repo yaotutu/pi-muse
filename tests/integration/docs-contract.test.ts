@@ -1004,8 +1004,8 @@ test("docs: memory and Dream endpoints pin layering, capacity, prompt inheritanc
   const globalGet = paths["/api/dream"]?.get;
   const globalPut = paths["/api/dream"]?.put;
   assert.ok(globalGet && globalPut);
-  assert.deepEqual(Object.keys(responseSchema(globalGet as never).properties ?? {}).sort(), ["cursors","defaultPrompt","enabled","globalPrompt","intervalHours","lastRun","pending","running"].sort());
-  assert.deepEqual(Object.keys(globalPut.requestBody?.content["application/json"]?.schema.properties ?? {}).sort(),["enabled","prompt"]);
+  assert.deepEqual(Object.keys(responseSchema(globalGet as never).properties ?? {}).sort(), ["cursors","enabled","intervalHours","lastRun","pending","running"].sort());
+  assert.deepEqual(Object.keys(globalPut.requestBody?.content["application/json"]?.schema.properties ?? {}).sort(),["enabled"]);
   const dreamRun = paths["/api/dream/run"]?.post;
   const pending = paths["/api/dream/pending/{pendingId}"]?.post;
   assert.ok(dreamRun && pending);

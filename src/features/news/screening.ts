@@ -16,7 +16,7 @@ export const NEWS_BATCH_ITEMS = 12;
 export const NEWS_BATCH_CHARS = 60_000;
 export const NEWS_REASON_MAX_LENGTH = 1000;
 export const NEWS_LEARNED_NOTES_MAX_LENGTH = 2000;
-export const NEWS_PREFERENCES_NOTES_MAX_LENGTH = 20_000;
+export const NEWS_PREFERENCES_INSTRUCTIONS_MAX_LENGTH = 20_000;
 
 const MAX_FEEDBACK_ITEMS = 20;
 const MAX_FEEDBACK_COMMENTS = 5;
@@ -123,7 +123,7 @@ export type NewsArticleFeedbackExample = {
 
 export type NewsScreeningModelInput = {
   runId: string;
-  rulesNotes: string;
+  instructions: string;
   learnedNotes: string;
   feedbackExamples: NewsArticleFeedbackExample[];
   items: Array<{
@@ -195,7 +195,7 @@ const decodeCursor = <T extends Record<string, unknown>>(value: string): T | und
 
 export type CreateNewsScreeningDeps = {
   repository: NewsRepository;
-  rules: {
+  instructions: {
     read: () => Promise<string>;
     write: (content: string) => Promise<void>;
   };
@@ -490,29 +490,29 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
   };
 
   const getPreferences = async () => {
-    const [notes, state] = await Promise.all([deps.rules.read(), deps.repository.read()]);
+    const [instructions, state] = await Promise.all([deps.instructions.read(), deps.repository.read()]);
     return {
-      notes,
+      instructions,
       learnedNotes: state.processing.preferences.learnedNotes,
     };
   };
 
-  const savePreferences = async (input: { notes: string }) => {
+  const savePreferences = async (input: { instructions: string }) => {
     ensureOpen();
-    if (typeof input.notes !== "string" || !isWorkspaceText(input.notes)) {
-      throw new NewsError("INVALID_INPUT", "Preferences notes contain invalid control characters");
+    if (typeof input.instructions !== "string" || !isWorkspaceText(input.instructions)) {
+      throw new NewsError("INVALID_INPUT", "Preferences instructions contain invalid control characters");
     }
-    if (input.notes.length > NEWS_PREFERENCES_NOTES_MAX_LENGTH) {
+    if (input.instructions.length > NEWS_PREFERENCES_INSTRUCTIONS_MAX_LENGTH) {
       throw new NewsError(
         "INVALID_INPUT",
-        `Preferences notes must be at most ${NEWS_PREFERENCES_NOTES_MAX_LENGTH} characters`,
+        `Preferences instructions must be at most ${NEWS_PREFERENCES_INSTRUCTIONS_MAX_LENGTH} characters`,
       );
     }
-    const notes = input.notes;
-    await deps.rules.write(notes);
+    const instructions = input.instructions;
+    await deps.instructions.write(instructions);
     const state = await deps.repository.read();
     return {
-      notes,
+      instructions,
       learnedNotes: state.processing.preferences.learnedNotes,
     };
   };
@@ -621,10 +621,10 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
     activeController = controller;
     let modelOutcome: NewsScreeningModelOutcome;
     try {
-      const rulesNotes = await deps.rules.read();
+      const instructions = await deps.instructions.read();
       modelOutcome = await deps.runModel({
         runId: claimed.runId,
-        rulesNotes,
+        instructions,
         learnedNotes: claimed.learnedNotes,
         feedbackExamples: claimed.feedbackExamples,
         items: claimed.items.map((item) => ({

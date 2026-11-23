@@ -38,6 +38,7 @@ const tempDir = async (t: TestContext, prefix: string): Promise<string> => {
 const makeSandbox = async (t: TestContext, prefix: string): Promise<string> => {
   const sandbox = await tempDir(t, prefix);
   await mkdir(join(sandbox, "src", "bootstrap"), { recursive: true });
+  await mkdir(join(sandbox, "prompts"), { recursive: true });
   await mkdir(join(sandbox, "assets"), { recursive: true });
   await mkdir(join(sandbox, "scripts"), { recursive: true });
   await copyFile(resolve(projectRoot, "package.json"), join(sandbox, "package.json"));
@@ -77,9 +78,13 @@ test("collectSourceHash changes when source files change", async (t) => {
   assert.notEqual(hashAfter, hashBefore);
   assert.match(hashAfter, /^[0-9a-f]{64}$/);
 
-  // 改资源 / package.json 都应引起 hash 变化。
+  // 改提示词 / 资源 / package.json 都应引起 hash 变化。
+  await writeFile(join(sandbox, "prompts", "prompt.md"), "prompt");
+  const hashPrompt = await collectSourceHash(sandbox);
+  assert.notEqual(hashPrompt, hashAfter);
+
   await writeFile(join(sandbox, "assets", "marker.txt"), "tick");
-  assert.notEqual(await collectSourceHash(sandbox), hashAfter);
+  assert.notEqual(await collectSourceHash(sandbox), hashPrompt);
 
   await writeFile(join(sandbox, "package.json"), `${JSON.stringify(JSON.parse(await readFile(join(sandbox, "package.json"), "utf8")))}\n`);
   assert.match(await collectSourceHash(sandbox), /^[0-9a-f]{64}$/);
@@ -105,6 +110,7 @@ test("collectSourceHash ignores files outside the whitelist", async (t) => {
 test("collectSourceHash rejects symlinks inside the whitelist", async (t) => {
   const sandbox = await tempDir(t, "symlink");
   await mkdir(join(sandbox, "src"), { recursive: true });
+  await mkdir(join(sandbox, "prompts"), { recursive: true });
   await mkdir(join(sandbox, "assets"), { recursive: true });
   await mkdir(join(sandbox, "scripts"), { recursive: true });
   await copyFile(resolve(projectRoot, "package.json"), join(sandbox, "package.json"));
@@ -326,6 +332,7 @@ test("tsc single-file compile produces loadable dist artifact that requires serv
 test("tsconfig whitelist picks up multiple tsconfig variants", async (t) => {
   const sandbox = await tempDir(t, "tsconfig");
   await mkdir(join(sandbox, "src"), { recursive: true });
+  await mkdir(join(sandbox, "prompts"), { recursive: true });
   await mkdir(join(sandbox, "assets"), { recursive: true });
   await mkdir(join(sandbox, "scripts"), { recursive: true });
   await writeFile(join(sandbox, "package.json"), '{"version":"0.0.0"}\n');

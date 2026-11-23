@@ -63,7 +63,7 @@ export const createDomainAgentRegistry = (options: CreateDomainAgentRegistryOpti
         summary: domain.summary,
         enabled: domain.isEnabled ? await domain.isEnabled() : true,
         capabilities: {
-          rules: true as const,
+          instructions: true as const,
           query: Boolean(domain.query),
         },
       })),
@@ -71,9 +71,9 @@ export const createDomainAgentRegistry = (options: CreateDomainAgentRegistryOpti
     return { domains };
   };
 
-  const getRules = async (domainId: string) => {
+  const getInstructions = async (domainId: string) => {
     const domain = requireDomain(domainId);
-    const snapshot = await domain.rules.read();
+    const snapshot = await domain.instructions.read();
     return {
       domainId: domain.id,
       name: domain.name,
@@ -101,7 +101,7 @@ export const createDomainAgentRegistry = (options: CreateDomainAgentRegistryOpti
   return {
     describeForPrompt,
     list,
-    getRules,
+    getInstructions,
     query,
   };
 };

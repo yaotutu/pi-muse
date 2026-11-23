@@ -16,7 +16,7 @@ export const serviceVersionSchema = z.object({
   version: z.string().describe("服务包版本；不单独用作部署提交标识"),
   commit: z.string().nullable().describe("启动/构建时的完整 Git commit；无法取得时为 null"),
   dirty: z.boolean().nullable().describe("启动/构建时有未提交改动为 true；无法核验 Git 状态为 null，不能把 commit 当作精确产物"),
-  sourceHash: z.string().regex(/^[a-f0-9]{64}$/).describe("SHA-256 源码指纹：src/assets/scripts、包/锁文件及 TS 配置的有序路径与字节；不含实例数据。dirty=true 时应以此核验实际代码"),
+  sourceHash: z.string().regex(/^[a-f0-9]{64}$/).describe("SHA-256 源码指纹：src/prompts/assets/scripts、包/锁文件及 TS 配置的有序路径与字节；不含实例数据。dirty=true 时应以此核验实际代码"),
   mode: z.enum(["source", "build"]).describe("source=源码进程启动快照，build=构建时固定快照；均不随每次请求重新读取仓库"),
   builtAt: z.string().nullable().describe("build 的构建时间（ISO 8601）；source 为 null"),
 }).describe("运行服务的不可变版本快照；与 OpenAPI x-service-version 和 /docs 展示一致");
@@ -262,7 +262,7 @@ export const dreamRunView = z.object({
 });
 export const dreamOverviewResponse = z.object({
   enabled: z.boolean(), cursors: z.record(z.string(), z.string()), lastRun: dreamRunView.optional(), pending: z.array(dreamPendingItem),
-  globalPrompt: z.string(), defaultPrompt: z.string(), intervalHours: z.number().int().positive(), running: z.boolean(),
+  intervalHours: z.number().int().positive(), running: z.boolean(),
 });
 export type DreamPendingDto = z.infer<typeof dreamPendingItem>;
 export type DreamOverviewDto = z.infer<typeof dreamOverviewResponse>;

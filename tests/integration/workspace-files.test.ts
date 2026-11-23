@@ -320,8 +320,8 @@ test("workspace managed Markdown and settings endpoints read and replace the sam
     { path: "assistant/USER.md", settings: "/api/profile", key: "user" },
     { path: "assistant/SOUL.md", settings: "/api/profile", key: "soul" },
     { path: "assistant/INSTRUCTIONS.md", settings: "/api/assistant/instructions", key: "instructions" },
-    { path: "domains/news/RULES.md", settings: "/api/news/preferences", key: "notes" },
-    { path: "domains/sms/RULES.md", settings: "/api/information/preferences", key: "notes" },
+    { path: "domains/news/INSTRUCTIONS.md", settings: "/api/news/preferences", key: "instructions" },
+    { path: "domains/sms/INSTRUCTIONS.md", settings: "/api/information/preferences", key: "instructions" },
   ];
   for (const { path, settings, key } of entries) {
     const file = `/api/workspace/files/content?path=${path}`;

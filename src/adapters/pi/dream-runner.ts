@@ -12,6 +12,7 @@ import { parseProposal, type ProposedChange } from "../../features/dream/proposa
 import type { DreamProposeResult } from "../../features/dream/service.js";
 import type { DataLayout } from "../storage/data-layout.js";
 import { runWithModelTrace } from "../model-trace/context.js";
+import { loadPrompt } from "../prompts/loader.js";
 import { projectExecutionEvent } from "./execution.js";
 import { createResourceLoader } from "./resource-loader.js";
 
@@ -103,7 +104,6 @@ export const createDreamProposer = (deps: {
   modelRuntime: ModelRuntime;
 }) => async (input: {
   sessionId: string;
-  systemPrompt: string;
   userPrompt: string;
   signal?: AbortSignal;
 }): Promise<DreamProposeResult> => {
@@ -116,6 +116,7 @@ export const createDreamProposer = (deps: {
     return { ok: false, error: "Model is not configured" };
   }
   await mkdir(layout.agentDir, { recursive: true, mode: 0o700 });
+  const systemPrompt = `${loadPrompt("dream/consolidate.md")}\n\n${loadPrompt("dream/hard-rules.md")}`;
   const collected: ProposedChange[] = [];
   let invalidCall = false;
   const tool = createProposeNotesTool(
@@ -132,7 +133,7 @@ export const createDreamProposer = (deps: {
     modelRuntime,
     model,
     sessionManager: SessionManager.inMemory(layout.agentDir),
-    resourceLoader: createResourceLoader(input.systemPrompt),
+    resourceLoader: createResourceLoader(systemPrompt),
     thinkingLevel: "off",
     customTools: [tool],
     tools: [PROPOSE_NOTES_TOOL_NAME],

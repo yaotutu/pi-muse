@@ -36,6 +36,16 @@
 
 ## 变更与须知记录
 
+### 2026-11-23 — 领域偏好字段统一为 `instructions`，并移除 Dream 运行时提示词覆盖（Clean Break）
+
+- **影响端形态**：`rich-ui`、`webhook`、`all`
+- **类型**：`breaking`
+- **契约入口**：`/docs`「信息后台」「新闻」「记忆」「工作区文件」（以 `/openapi.json` 为准）
+- **要点与接入端注意**：
+  - **偏好请求/响应字段统一更名为 `instructions`**：`GET / PUT /api/information/preferences` 与 `GET / PUT /api/news/preferences` 原字段 `notes` 统一更名为 `instructions`（与 `/api/assistant/instructions` 对齐，自学习画像仍统一为 `learnedNotes`）；短信日常实时筛选系统提示词收紧为「默认静默（Default-Silent）」基线 + 四级优先级。
+  - **工作区领域文件统一命名为 `INSTRUCTIONS.md`**：`workspace/domains/sms/RULES.md` 与 `workspace/domains/news/RULES.md` 统一更名为 `workspace/domains/sms/INSTRUCTIONS.md` 与 `workspace/domains/news/INSTRUCTIONS.md`。
+  - **Dream 移除运行时提示词字段**：所有静态系统提示词统一托管在服务端仓库 `prompts/`；`GET /api/dream` 不再返回 `globalPrompt` 与 `defaultPrompt`，`PUT /api/dream` 仅接受 `{ enabled: boolean }`（不再接收 `prompt`）。
+
 ### 2026-11-22 — 短信/信息后台 Clean Break 双通道重构（`/api/information/*` 破坏性调整）
 
 - **影响端形态**：`webhook`、`rich-ui`

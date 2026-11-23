@@ -55,7 +55,7 @@ export const instructionsTool = (
           content: [{ type: "text", text: "Instruction editing is unavailable." }],
           details: { denied: true }, isError: true,
         };
-        return write(id, { path: managedWorkspaceTexts.instructions, content }, signal, onUpdate, context);
+        return write(id, { path: managedWorkspaceTexts.assistantInstructions, content }, signal, onUpdate, context);
       }
 
       return {

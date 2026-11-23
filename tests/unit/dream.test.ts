@@ -8,7 +8,8 @@ import {
   sessionHistoryDir,
 } from "../../src/adapters/storage/data-layout.js";
 import { InvalidDocumentError } from "../../src/adapters/storage/document-schemas.js";
-import { createDreamPromptPort, createDreamRepository } from "../../src/adapters/storage/dream-repository.js";
+import { createDreamRepository } from "../../src/adapters/storage/dream-repository.js";
+import { loadPrompt } from "../../src/adapters/prompts/loader.js";
 import { dreamModule } from "../../src/adapters/storage/dream-schema.js";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
 import { createIdentityRepository } from "../../src/adapters/storage/identity-repository.js";
@@ -21,9 +22,6 @@ import {
 } from "../../src/adapters/storage/assistant-instructions.js";
 import {
   buildDreamInput,
-  composePrompt,
-  DEFAULT_DREAM_PROMPT,
-  fixedRules,
 } from "../../src/features/dream/prompt.js";
 import {
   appendInstructions,
@@ -48,14 +46,11 @@ const setup = async (t: TestContext) => {
       writeProfileFile(which === "soul" ? layout.soulFile : layout.userFile, content, expected),
   });
   const memory = createMemoryService(memoryRepo, identity);
-  // 机器状态在 main.sqlite 的 dream_* 表；提示文本仍是 profile/DREAM.md 文件事实。
+  // 机器状态在 main.sqlite 的 dream_* 表；系统提示词统一由仓库 prompts/dream/ 托管。
   const database = await openSqliteDatabase(join(dir, "main.sqlite"));
   t.after(() => database.close());
   await database.serialize(() => ensureSqliteModules(database, [dreamModule]));
-  const repository = Object.assign(
-    createDreamRepository(database),
-    createDreamPromptPort(layout),
-  );
+  const repository = createDreamRepository(database);
   return { dir, layout, database, memory, identity, repository };
 };
 
@@ -145,13 +140,12 @@ test("proposal planner requires review before modifying shared instructions", ()
   assert.ok(withBoth.includes(differentMulti));
 });
 
-test("global Dream prompt falls back to defaults and fixed safety rules remain separate", () => {
-  assert.equal(composePrompt(""),DEFAULT_DREAM_PROMPT);
-  assert.equal(composePrompt("  GLOBAL  "),"GLOBAL");
-  assert.match(DEFAULT_DREAM_PROMPT,/USER, SOUL, MEMORY, and INSTRUCTIONS are global targets/);
-  assert.match(DEFAULT_DREAM_PROMPT,/durable guideline explicitly intended for all conversations/);
-  assert.match(DEFAULT_DREAM_PROMPT,/not this conversation's business\s+preferences/);
-  const rules = fixedRules();
+test("global Dream system prompts and hard rules load from prompts/dream/", () => {
+  const consolidate = loadPrompt("dream/consolidate.md");
+  assert.match(consolidate, /USER, SOUL, MEMORY, and INSTRUCTIONS are global targets/);
+  assert.match(consolidate, /durable guideline explicitly intended for all conversations/);
+  assert.match(consolidate, /not this conversation's business\s+preferences/);
+  const rules = loadPrompt("dream/hard-rules.md");
   assert.match(rules, /Never save credentials/);
   assert.match(rules, /must use target=pending/);
   assert.match(rules, /Do not copy a local preference or a one-off request to a shared target/);
@@ -189,10 +183,6 @@ test("profile files and dream repository enforce strict validation, conditional 
   assert.equal((database.database.prepare("SELECT COUNT(*) AS total FROM dream_cursors").get() as { total: number }).total, 0);
   assert.equal((database.database.prepare("SELECT COUNT(*) AS total FROM dream_pending").get() as { total: number }).total, 0);
   await assert.rejects(stat(join(layout.profileDir, "dream.json")), { code: "ENOENT" });
-  // 提示文本端口读写 profile/DREAM.md，不进数据库。
-  assert.equal(await repository.readGlobalPrompt(), "");
-  await repository.writeGlobalPrompt("# dream rules");
-  assert.equal(await readProfileFile(layout.dreamFile), "# dream rules");
 
   // 4. 损坏的行必须在读取时抛 InvalidDocumentError("dream")，不静默过滤。
   const statement = database.database.prepare("UPDATE dream_state SET last_run_json = ?");

@@ -523,7 +523,7 @@ export const getDreamOverview = async (): Promise<DreamOverviewDto> => {
   return response.json();
 };
 
-export const updateDream = async (patch: { enabled?: boolean; prompt?: string }): Promise<DreamOverviewDto> => {
+export const updateDream = async (patch: { enabled: boolean }): Promise<DreamOverviewDto> => {
   const response = await request("/api/dream", { method: "PUT", body: JSON.stringify(patch) });
   if (!response.ok) throw new ApiError(response.status, "保存 Dream 配置失败");
   return response.json();

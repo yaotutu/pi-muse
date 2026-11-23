@@ -187,7 +187,7 @@ test("information batch records its own kind, sessionId and informationRunId", a
     const trace = (await readTraces(h.dataDir)).find(({ trace }) => trace.meta.kind === "information:notifications")!;
     assert.equal(trace.trace.meta.sessionId, sessionId);
     assert.equal(trace.trace.meta.extra?.informationRunId, runId);
-    assert.ok(trace.trace.request.system.includes("structured information decision worker"));
+    assert.ok(trace.trace.request.system.includes("structured SMS/information decision worker"));
     assert.ok(JSON.stringify(trace.trace.request.messages).includes("NOTIFY trace batch"));
     assert.ok(trace.trace.request.tools.some((tool) => tool.function?.name === "submit_information_result"));
     assert.equal(trace.trace.meta.httpStatus, 200);

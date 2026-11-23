@@ -7,7 +7,7 @@
  * - 源码模式由本模块直接收集所有字段（含真实 git）；构建脚本同样调用 collectServiceVersion，
  *   不存在空骨架二次填充；
  * - runtime build 仅 load dist/service-version.json，缺失直接抛错而非伪装仍是 build；
- * - 白名单覆盖 src/ assets/ scripts/ package.json pnpm-lock.yaml tsconfig*.json；
+ * - 白名单覆盖 src/ prompts/ assets/ scripts/ package.json pnpm-lock.yaml tsconfig*.json；
  *   根文件 / 目录 / tsconfig 走 lstat 检测符号链接，链接则拒绝；
  * - 字段集合固定，不允许额外字段写入 API，避免私有路径泄漏。
  */
@@ -28,7 +28,7 @@ export type ServiceVersion = {
 };
 
 // 白名单：相对项目根；新增资源只能增加 entry，不可扩大扫描范围（避免把 .pi-muse 等实例数据拉入 hash）。
-const SOURCE_ENTRIES = ["src", "assets", "scripts", "package.json", "pnpm-lock.yaml"] as const;
+const SOURCE_ENTRIES = ["src", "prompts", "assets", "scripts", "package.json", "pnpm-lock.yaml"] as const;
 const TSCONFIG_PREFIX = "tsconfig";
 
 // 项目根 = bootstrap 上两级；源码和构建产物都按此规则。

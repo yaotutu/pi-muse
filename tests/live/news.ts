@@ -231,7 +231,7 @@ const execute = async (options: NewsLiveOptions) => {
     const sessions = (await expect("sessions", "/api/sessions", 200)) as { sessions: Array<{ id: string }> };
     assert.deepEqual(sessions.sessions.map((session)=>session.id),["main"]);
     const instructions = (await expect("main instructions", "/api/assistant/instructions", 200)) as { instructions:string };
-    assert.equal(coldPreferences.notes,instructions.instructions);
+    assert.equal(coldPreferences.instructions,instructions.instructions);
     // 合成新闻验收明确给出偏好，不把生产默认短信规则或默认技能开关当作推荐前提。
     const newsTestNotes = [
       "本次是隔离新闻推荐验收，不是短信紧急通知筛选。",
@@ -239,9 +239,9 @@ const execute = async (options: NewsLiveOptions) => {
       "参考逐篇喜欢、不喜欢、收藏与评论。出现有效反馈后，在 learnedNotes 中总结简短偏好；没有反馈时不编造偏好。",
     ].join("\n");
     const configuredPreferences = newsPreferencesResponseSchema.parse(await expect("set synthetic news preferences", "/api/news/preferences", 200, {
-      method: "PUT", body: JSON.stringify({ notes: newsTestNotes }),
+      method: "PUT", body: JSON.stringify({ instructions: newsTestNotes }),
     }));
-    assert.equal(configuredPreferences.notes, newsTestNotes);
+    assert.equal(configuredPreferences.instructions, newsTestNotes);
     const mainHistoryBefore = await expect("main history", "/api/conversation?sessionId=main", 200);
 
     const firstSource = (await expect("add first source", "/api/news/sources", 200, {
@@ -397,7 +397,7 @@ const execute = async (options: NewsLiveOptions) => {
     assert.equal(restartedArticle.feedback.reaction, "like");
     assert.equal(restartedArticle.feedback.saved, true);
     assert.equal(restartedPreferences.learnedNotes, learned.learnedNotes);
-    assert.equal(restartedPreferences.notes, newsTestNotes);
+    assert.equal(restartedPreferences.instructions, newsTestNotes);
     // 重启后仍只有同一 main 身份；新闻不创建独立聊天身份。
     assert.ok(((await expect("restarted sessions", "/api/sessions", 200)) as {
       sessions: Array<{ id: string }>;

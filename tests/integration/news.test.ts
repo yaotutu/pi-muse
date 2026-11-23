@@ -151,7 +151,7 @@ test("ordinary information HTTP contracts do not expose internal recommendation 
   assert.deepEqual(await settings.json(), { enabled: false, batchWindowSeconds: 15 });
   const preferences = await service.app.request("/api/information/preferences", { headers });
   assert.equal(preferences.status, 200);
-  assert.deepEqual(await preferences.json(), { notes: "", learnedNotes: "", feedbackExamples: [] });
+  assert.deepEqual(await preferences.json(), { instructions: "", learnedNotes: "", feedbackExamples: [] });
 });
 
 test("SMS preferences stay decoupled from main instructions without creating hidden sessions", async (t) => {
@@ -161,7 +161,7 @@ test("SMS preferences stay decoupled from main instructions without creating hid
   const saved = await service.app.request("/api/information/preferences", {
     method: "PUT",
     headers,
-    body: JSON.stringify({ notes: "只提醒验证码与账单" }),
+    body: JSON.stringify({ instructions: "只提醒验证码与账单" }),
   });
   assert.equal(saved.status, 200);
   assert.equal(await readAssistantInstructions(service.layout.assistantInstructionsFile), "");
@@ -176,12 +176,12 @@ test("news preferences persist in their own Markdown document", async (t) => {
   const saved = await service.app.request("/api/news/preferences", {
     method: "PUT",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ notes: "关注 AI 工程，屏蔽八卦" }),
+    body: JSON.stringify({ instructions: "关注 AI 工程，屏蔽八卦" }),
   });
   assert.equal(saved.status, 200);
-  assert.deepEqual(await saved.json(), { notes: "关注 AI 工程，屏蔽八卦", learnedNotes: "" });
+  assert.deepEqual(await saved.json(), { instructions: "关注 AI 工程，屏蔽八卦", learnedNotes: "" });
   assert.equal(await readAssistantInstructions(instructionsPath), "MAIN-ONLY-INSTRUCTION\n");
-  assert.equal(await readFile(service.layout.newsRulesFile, "utf8"), "关注 AI 工程，屏蔽八卦");
+  assert.equal(await readFile(service.layout.newsInstructionsFile, "utf8"), "关注 AI 工程，屏蔽八卦");
 });
 
 test("initialization preserves explicitly empty main instructions", async (t) => {
@@ -219,7 +219,7 @@ for(const scenario of ["valid","object-notifications","duplicate"] as const) {
     assert.deepEqual(Object.keys(tool.function.parameters.properties).sort(),["decisions","learnedNotes"]);
     assert.equal("notifications" in tool.function.parameters.properties,false);
     const systemText=String(model.requests[0].messages.find((m)=>m.role==="system")?.content ?? "");
-    assert.ok(systemText.includes("## Explicit News preference rules"));
+    assert.ok(systemText.includes("## User Instructions (workspace/domains/news/INSTRUCTIONS.md)"));
     assert.ok(!systemText.includes("Enabled skill guidance"));
     assert.ok(!systemText.includes("Main conversation instructions"));
     if(scenario==="valid")assert.equal((await repo.read()).processing.preferences.learnedNotes,"");

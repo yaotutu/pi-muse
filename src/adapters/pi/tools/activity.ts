@@ -1,27 +1,13 @@
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { ActivityError, type ActivityOverview, type ActivityRun } from "../../../features/activities/types.js";
+import { loadPrompt } from "../../prompts/loader.js";
 
 /** 供主 Agent registry 引用的稳定工具名，避免装配处散落字符串。 */
 export const ACTIVITY_TOOL_NAME = "activity";
 
-/**
- * 活动登记是纯状态记录：它不执行、不排队、不派生子代理，也不扩大任何权限。
- * 描述只表达“什么时候该登记/该完成”的语义边界，不穷举工作类型；
- * 具体字段与长度限制在 execute 中显式校验，确保模型省略可选参数时不会误写空值。
- */
-export const ACTIVITY_TOOL_INSTRUCTIONS = [
-  "Register a work activity when the user has entrusted you with an outcome and you are actually starting to advance it.",
-  "Actions: start (title + goal + deliverable), resume (activityId), update (progress), wait (progress is the question for the user), complete (result).",
-  "Do not enumerate work types and do not decide from keywords, elapsed time, tool calls or subagent usage. Ordinary conversation, explanations, clarification, discussion, plan review and simple lookups are not activities.",
-  "One activity covers the whole entrusted goal; tools, files, approvals and subagents contribute steps only and never register activities themselves.",
-  "When continuing the same work in a later run, call resume with the existing activityId; every run must resume explicitly instead of starting a duplicate.",
-  "start requires a short title (max 160 characters), the goal to achieve, and the deliverable the user will receive (goal and deliverable max 2000 characters).",
-  "update records meaningful progress; wait asks the user a blocking question and marks the activity as waiting (progress max 2000 characters).",
-  "complete may only be declared after all goals are actually achieved and the final deliverable is ready (result max 2000 characters). It records a pending completion that takes effect only if the final run succeeds and is delivered; starting or resuming new work afterwards invalidates it.",
-  "An approval is not a successful commit: do not treat an approved write as completed work.",
-  "This tool only records activity state. It does not queue work, run anything in the background, or expand permissions.",
-].join(" ");
+/** 从统一提示词目录加载活动工具说明书；语义边界与校验由服务端强约束。 */
+export const ACTIVITY_TOOL_INSTRUCTIONS = loadPrompt("assistant/tools/activity.md");
 
 const TITLE_MAX_LENGTH = 160;
 const TEXT_MAX_LENGTH = 2000;

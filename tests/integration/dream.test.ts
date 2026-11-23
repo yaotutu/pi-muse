@@ -127,9 +127,10 @@ test("Dream integration: non-main chat holds shared instruction and profile sugg
   assert.equal(savedInst.status, 200);
   assert.deepEqual(savedInst.body, { instructions: "保持礼貌。" });
 
-  const savedDream = await json("/api/dream", "PUT", { enabled:true, prompt: "只提取与商务邮件格式相关的规则。" });
-  assert.equal(savedDream.status,200);
-  assert.equal(dreamOverviewResponse.parse(savedDream.body).enabled,true);
+  const savedDream = await json("/api/dream", "PUT", { enabled: true });
+  assert.equal(savedDream.status, 200);
+  assert.equal(dreamOverviewResponse.parse(savedDream.body).enabled, true);
+  assert.equal((await json("/api/dream", "PUT", { enabled: true, prompt: "removed" })).status, 400);
 
   // 2. 在邮件会话产生一条同时含会话规则与全局用户偏好的消息。
   await chat(

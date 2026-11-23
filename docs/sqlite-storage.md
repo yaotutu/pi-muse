@@ -51,9 +51,9 @@
 
 | 数据 | 形式 | 说明 |
 | --- | --- | --- |
-| `profile/SOUL.md`、`profile/USER.md` | Markdown | 人设与用户资料 |
-| `sessions/<id>/INSTRUCTIONS.md` | Markdown | 会话规则 |
-| `profile/DREAM.md` | Markdown | Dream 提示词；机器状态在数据库 |
+| `workspace/assistant/{SOUL,USER}.md` | Markdown | 全局助手人设与用户资料 |
+| `workspace/assistant/INSTRUCTIONS.md`、`workspace/domains/{sms,news}/INSTRUCTIONS.md` | Markdown | 主助手与各领域 Agent 的用户指令 |
+| `prompts/**`（随仓库发布） | Markdown | 统一系统提示词模板（含 Dream、短信、新闻、主助手与工具说明） |
 | `profile/memory.md` | Markdown | 长期记忆条目，带稳定 id 供按 id 修改/删除 |
 | `profile/identity.json` | JSON | 身份设置，属于配置 |
 | `monitors.json` | JSON | 网页监控本次不迁数据库 |

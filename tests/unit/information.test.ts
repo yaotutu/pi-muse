@@ -57,7 +57,7 @@ const fixture = (options?: {
   const { repository, readState } = memoryRepo(options?.initial);
   const notifications: Array<{ text: string; id: string }> = [];
   const service = createInformationService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: {
@@ -147,7 +147,7 @@ test("manual and automatic realtime runs contend on one synchronously reserved g
   let capturedIds: string[] = [];
   const base = fixture();
   const service = createInformationService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: base.repository,
     retainMain: async () => ({
       conversation: {
@@ -186,7 +186,7 @@ test("processing setup failures mark the run failed and release the global slot"
   let modelCalled = false;
   const base = fixture();
   const service = createInformationService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: base.repository,
     retainMain: async () => { throw new Error("retain I/O failed"); },
     feedback: { read: async () => emptyFeedback() } as never,
@@ -208,7 +208,7 @@ test("cancellation while retain is pending releases main and reverts items to pe
   let retainStarted = false;
   let retainReleased = false;
   const service = createInformationService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: base.repository,
     retainMain: async () => {
       retainStarted = true;
@@ -241,7 +241,7 @@ test("cancellation after a successful model result preserves model success and m
   const modelGate = deferred<void>();
   let itemId: string | undefined;
   const service = createInformationService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: base.repository,
     retainMain: async () => ({
       conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }) },
@@ -276,7 +276,7 @@ test("pause barrier is nested and aborts active model rounds cleanly", async () 
   const gate = deferred<void>();
   let started = false;
   const service = createInformationService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: base.repository,
     retainMain: async () => ({
       conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }) },
@@ -329,7 +329,7 @@ test("pagination binds cursor to queue and status filters and omits nextCursor o
   }));
   const { repository } = memoryRepo({ ...defaultInformationState(), items });
   const service = createInformationService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository,
     retainMain: async () => undefined,
     feedback: { read: async () => emptyFeedback() } as never,
@@ -370,7 +370,7 @@ test("feedback examples expose current projections and storage failures loudly",
   };
   const { repository } = memoryRepo(initial);
   const service = createInformationService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }) },
@@ -396,7 +396,7 @@ test("feedback examples expose current projections and storage failures loudly",
   assert.equal(preferences.feedbackExamples[0]?.items[0]?.contentTruncated, true);
 
   const failingService = createInformationService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }) },
@@ -418,7 +418,7 @@ test("realtime runs persist and evolve learnedNotes while archive channel stays 
   const sentNotifications: Array<{ text: string; id: string }> = [];
 
   const service = createInformationService({
-    rules: memoryInformationRules("优先提醒银行与快递"),
+    instructions: memoryInformationRules("优先提醒银行与快递"),
     repository,
     retainMain: async () => ({
       conversation: {
@@ -509,7 +509,7 @@ test("archive failure stops briefing until retryFailed drains remaining items cl
   let round = 0;
 
   const service = createInformationService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository,
     retainMain: async () => ({
       conversation: {

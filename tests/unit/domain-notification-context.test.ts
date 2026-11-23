@@ -32,8 +32,8 @@ test("domain prompt lists registered domains, card isolation, and rule persisten
   assert.match(text, /`news` \(新闻助手\): 筛选 RSS 文章并维护推荐偏好/);
   assert.match(text, /excluded from your conversation context by default/);
   assert.match(text, /【领域引用:<domainId>】\.\.\.【引用结束】/);
-  assert.match(text, /Call `get_rules` for that `domain` first/);
-  assert.match(text, /Call `update_rules`/);
+  assert.match(text, /Call `get_instructions` for that `domain` first/);
+  assert.match(text, /Call `update_instructions`/);
   assert.match(text, /NEVER store domain filtering\/notification rules ONLY in global `memory`/);
 });
 

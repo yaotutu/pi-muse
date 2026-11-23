@@ -3,8 +3,8 @@ import test from "node:test";
 import { createDomainAgentRegistry, DomainAgentError } from "../../src/features/domain-agents/registry.js";
 import { createDomainAgentTool, DOMAIN_AGENT_TOOL_NAME } from "../../src/adapters/pi/tools/domain-agent.js";
 
-test("domain agent registry lists domains, reads rules, and validates inputs", async () => {
-  const smsNotes = "快递取件码需要提醒";
+test("domain agent registry lists domains, reads instructions, and validates inputs", async () => {
+  const smsInstructions = "快递取件码需要提醒";
   let newsEnabled = true;
   const registry = createDomainAgentRegistry({
     domains: [
@@ -13,8 +13,8 @@ test("domain agent registry lists domains, reads rules, and validates inputs", a
         name: "短信助手",
         summary: "筛选短信通知",
         isEnabled: async () => false,
-        rules: {
-          read: async () => ({ notes: smsNotes, learnedNotes: "已学习招行账单", feedbackExamples: [] }),
+        instructions: {
+          read: async () => ({ instructions: smsInstructions, learnedNotes: "已学习招行账单", feedbackExamples: [] }),
         },
         query: async (input) => ({ queriedAction: input.action, status: input.status ?? null, limit: input.limit ?? null }),
       },
@@ -23,8 +23,8 @@ test("domain agent registry lists domains, reads rules, and validates inputs", a
         name: "新闻助手",
         summary: "推荐 RSS 新闻",
         isEnabled: async () => newsEnabled,
-        rules: {
-          read: async () => ({ notes: "AI 工程", learnedNotes: "" }),
+        instructions: {
+          read: async () => ({ instructions: "AI 工程", learnedNotes: "" }),
         },
       },
     ],
@@ -37,15 +37,15 @@ test("domain agent registry lists domains, reads rules, and validates inputs", a
 
   const listed = await registry.list();
   assert.deepEqual(listed.domains, [
-    { id: "sms", name: "短信助手", summary: "筛选短信通知", enabled: false, capabilities: { rules: true, query: true } },
-    { id: "news", name: "新闻助手", summary: "推荐 RSS 新闻", enabled: true, capabilities: { rules: true, query: false } },
+    { id: "sms", name: "短信助手", summary: "筛选短信通知", enabled: false, capabilities: { instructions: true, query: true } },
+    { id: "news", name: "新闻助手", summary: "推荐 RSS 新闻", enabled: true, capabilities: { instructions: true, query: false } },
   ]);
 
-  const rules = await registry.getRules("sms");
+  const rules = await registry.getInstructions("sms");
   assert.deepEqual(rules, {
     domainId: "sms",
     name: "短信助手",
-    notes: "快递取件码需要提醒",
+    instructions: "快递取件码需要提醒",
     learnedNotes: "已学习招行账单",
     feedbackExamples: [],
   });
@@ -59,47 +59,47 @@ test("domain agent registry lists domains, reads rules, and validates inputs", a
 
   await assert.rejects(() => registry.query("news", { action: "overview" }), { code: "INVALID_INPUT" });
   await assert.rejects(() => registry.query("sms", { action: "items", limit: 101 }), { code: "INVALID_INPUT" });
-  await assert.rejects(() => registry.getRules("unknown"), { code: "NOT_FOUND" });
-  await assert.rejects(() => registry.getRules("INVALID!"), { code: "INVALID_INPUT" });
+  await assert.rejects(() => registry.getInstructions("unknown"), { code: "NOT_FOUND" });
+  await assert.rejects(() => registry.getInstructions("INVALID!"), { code: "INVALID_INPUT" });
 
   assert.throws(() => createDomainAgentRegistry({
     domains: [
-      { id: "BadId", name: "bad", summary: "bad", rules: { read: async () => ({ notes: "", learnedNotes: "" }) } },
+      { id: "BadId", name: "bad", summary: "bad", instructions: { read: async () => ({ instructions: "", learnedNotes: "" }) } },
     ],
   }), DomainAgentError);
   assert.throws(() => createDomainAgentRegistry({
     domains: [
-      { id: "dup", name: "a", summary: "a", rules: { read: async () => ({ notes: "", learnedNotes: "" }) } },
-      { id: "dup", name: "b", summary: "b", rules: { read: async () => ({ notes: "", learnedNotes: "" }) } },
+      { id: "dup", name: "a", summary: "a", instructions: { read: async () => ({ instructions: "", learnedNotes: "" }) } },
+      { id: "dup", name: "b", summary: "b", instructions: { read: async () => ({ instructions: "", learnedNotes: "" }) } },
     ],
   }), DomainAgentError);
   newsEnabled = false;
 });
 
 test("domain_agent tool handles read/write actions and enforces read-only mode in child subagents", async () => {
-  let smsNotes = "";
+  let smsInstructions = "";
   const registry = createDomainAgentRegistry({
     domains: [
       {
         id: "sms",
         name: "短信助手",
         summary: "短信",
-        rules: {
-          read: async () => ({ notes: smsNotes, learnedNotes: "learned" }),
+        instructions: {
+          read: async () => ({ instructions: smsInstructions, learnedNotes: "learned" }),
         },
         query: async (input) => ({ action: input.action, count: 1 }),
       },
     ],
   });
   const deniedTool = createDomainAgentTool(registry);
-  const denied = await deniedTool.execute("no-writer", { action: "update_rules", domain: "sms", notes: "blocked" }, undefined, undefined, {} as never);
+  const denied = await deniedTool.execute("no-writer", { action: "update_instructions", domain: "sms", instructions: "blocked" }, undefined, undefined, {} as never);
   assert.equal(denied.isError, true);
-  assert.equal(smsNotes, "");
+  assert.equal(smsInstructions, "");
   const mainTool = createDomainAgentTool(registry, {
-    writeRules: async (domainId, text, toolCallId) => {
+    writeInstructions: async (domainId, text, toolCallId) => {
       assert.equal(domainId, "sms");
       assert.equal(toolCallId, "2");
-      smsNotes = text;
+      smsInstructions = text;
       return {};
     },
   });
@@ -110,13 +110,13 @@ test("domain_agent tool handles read/write actions and enforces read-only mode i
   assert.match((listResult.content[0] as { text: string }).text, /"sms"/);
 
   const updateResult = await mainTool.execute("2", {
-    action: "update_rules",
+    action: "update_instructions",
     domain: "sms",
-    notes: "信用卡还款提醒",
+    instructions: "信用卡还款提醒",
     reason: "用户指定",
   }, undefined, undefined, {} as never);
   assert.equal(updateResult.isError, undefined);
-  assert.equal(smsNotes, "信用卡还款提醒");
+  assert.equal(smsInstructions, "信用卡还款提醒");
 
   const queryResult = await mainTool.execute("3", {
     action: "query",
@@ -128,18 +128,18 @@ test("domain_agent tool handles read/write actions and enforces read-only mode i
 
   const childTool = createDomainAgentTool(registry, { readOnly: true });
   const deniedUpdate = await childTool.execute("4", {
-    action: "update_rules",
+    action: "update_instructions",
     domain: "sms",
-    notes: "forged",
+    instructions: "forged",
   }, undefined, undefined, {} as never);
   assert.equal(deniedUpdate.isError, true);
-  assert.equal(smsNotes, "信用卡还款提醒");
+  assert.equal(smsInstructions, "信用卡还款提醒");
 
-  const childRead = await childTool.execute("5", { action: "get_rules", domain: "sms" }, undefined, undefined, {} as never);
+  const childRead = await childTool.execute("5", { action: "get_instructions", domain: "sms" }, undefined, undefined, {} as never);
   assert.equal(childRead.isError, undefined);
 });
 
-test("stopping a turn during rule read prevents asking for approval", async () => {
+test("stopping a turn during instruction read prevents asking for approval", async () => {
   let finishRead!: () => void;
   let entered!: () => void;
   const reading = new Promise<void>((resolve) => { entered = resolve; });
@@ -150,21 +150,21 @@ test("stopping a turn during rule read prevents asking for approval", async () =
       id: "news",
       name: "News",
       summary: "News preferences",
-      rules: {
+      instructions: {
         read: async () => {
           entered();
           await blocked;
-          return { notes: "", learnedNotes: "" };
+          return { instructions: "", learnedNotes: "" };
         },
       },
     }],
   });
   const controller = new AbortController();
-  const tool = createDomainAgentTool(registry, { writeRules: async () => { writes++; return {}; } });
+  const tool = createDomainAgentTool(registry, { writeInstructions: async () => { writes++; return {}; } });
   const change = tool.execute("cancelled-update", {
-    action: "update_rules",
+    action: "update_instructions",
     domain: "news",
-    notes: "Changed",
+    instructions: "Changed",
   }, controller.signal, undefined, {} as never);
   await reading;
   controller.abort();

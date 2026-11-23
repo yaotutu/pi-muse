@@ -39,6 +39,7 @@ import { loadSubagentRoles } from "../storage/subagent-roles.js";
 import { createSubagentExtension, SUBAGENT_TOOL_NAME, type SubagentRole } from "./subagent/extension.js";
 import { projectExecutionEvent } from "./execution.js";
 import { runWithModelTrace } from "../model-trace/context.js";
+import { renderPrompt } from "../prompts/loader.js";
 import type { ActivityRun, ActivityObservation } from "../../features/activities/types.js";
 import { createActivityObserver } from "./activity-observer.js";
 import { createToolPresentation, type ToolPresentation } from "../ag-ui/tool-presentation.js";
@@ -366,7 +367,9 @@ export async function openPi(deps: PiDeps) {
       domainAgents: domainAgentsForSession?.describeForPrompt(),
     },
   ) +
-    (child ? `\n\n## Subagent role\n${child.role.systemPrompt}\nYou have an isolated context and the same workspace as the caller. Return the result directly. You cannot delegate or schedule work.` : "");
+    (child
+      ? `\n\n${renderPrompt("assistant/subagent-child.md", { ROLE_SYSTEM_PROMPT: child.role.systemPrompt })}`
+      : "");
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);
 
   // provider 与内存凭据由 bootstrap 唯一初始化；每轮仅查询模型，避免修改共享 runtime。

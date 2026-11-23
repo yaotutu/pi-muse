@@ -127,12 +127,12 @@ export const newsRefreshResponseSchema = z.strictObject({
 });
 
 export const newsPreferencesResponseSchema = z.strictObject({
-  notes: z.string().max(20000).describe("用户明确保存的偏好备注"),
-  learnedNotes: z.string().max(20000).describe("模型从文章反馈推断的偏好摘要；不覆盖明确 notes"),
+  instructions: z.string().max(20000).describe("用户明确保存的新闻筛选指令（domains/news/INSTRUCTIONS.md）"),
+  learnedNotes: z.string().max(20000).describe("模型从文章反馈推断的只读自学习画像；不覆盖明确 instructions"),
 });
 
 export const newsPreferencesUpdateRequestSchema = z.strictObject({
-  notes: z.string().max(20000).refine(isWorkspaceText).describe("空串等于清空；最后成功保存生效"),
+  instructions: z.string().max(20000).refine(isWorkspaceText).describe("空串等于清空；最后成功保存生效"),
 });
 
 export type NewsStatusDto = z.infer<typeof newsStatusResponseSchema>;

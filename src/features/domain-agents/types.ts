@@ -1,11 +1,11 @@
 /** 领域子 Agent 标识格式；稳定小写字母开头，兼作工具参数、通知归属与引用头标识。 */
 export const DOMAIN_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 
-/** 单领域显式规则上限，与 HTTP 偏好契约一致。 */
-export const DOMAIN_RULES_MAX_LENGTH = 20_000;
+/** 单领域显式指令上限，与 HTTP 偏好契约一致。 */
+export const DOMAIN_INSTRUCTIONS_MAX_LENGTH = 20_000;
 
-export type DomainRulesSnapshot = {
-  notes: string;
+export type DomainInstructionsSnapshot = {
+  instructions: string;
   learnedNotes: string;
   feedbackExamples?: unknown[];
 };
@@ -32,8 +32,8 @@ export type DomainAgentRegistration = {
   name: string;
   summary: string;
   isEnabled?: () => Promise<boolean>;
-  rules: {
-    read: () => Promise<DomainRulesSnapshot>;
+  instructions: {
+    read: () => Promise<DomainInstructionsSnapshot>;
   };
   query?: (input: DomainQueryInput) => Promise<Record<string, unknown>>;
 };

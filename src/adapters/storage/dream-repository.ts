@@ -1,26 +1,14 @@
 import type { DreamRepository } from "../../features/dream/types.js";
-import type { DreamPromptsPort } from "../../features/dream/service.js";
 import { applyDreamState, ensureDreamModule, parseDreamState, readDreamState } from "./dream-schema.js";
-import type { DataLayout } from "./data-layout.js";
 import type { ManagedSqliteDatabase } from "./sqlite-database.js";
-import { readProfileFile, writeProfileFile } from "./profile-files.js";
 
 /**
- * Dream 状态仓储：机器状态在 main.sqlite 的 dream_* 表，提示文本仍是
- * profile/DREAM.md 文件事实（由组装层用 createDreamPromptPort 组合）。
+ * Dream 状态仓储：机器状态与待确认建议在 main.sqlite 的 dream_* 表中维护；
+ * Dream 系统提示词统一托管在仓库 `prompts/dream/` 目录。
  */
 export type DreamStorage = DreamRepository & {
   reconcileOnStart(): Promise<void>;
 };
-
-/**
- * 提示词端口：配置提示词固定为 profile/DREAM.md，不进数据库。
- * 组装层把本端口与状态仓储合并后交给 DreamService，领域层不需要改动。
- */
-export const createDreamPromptPort = (layout: DataLayout): DreamPromptsPort => ({
-  readGlobalPrompt: () => readProfileFile(layout.dreamFile),
-  writeGlobalPrompt: async (content) => { await writeProfileFile(layout.dreamFile, content); },
-});
 
 /**
  * 仓储语义与既有实现一致：

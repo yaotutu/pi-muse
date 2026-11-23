@@ -43,7 +43,7 @@ const MAX_FEEDBACK_ITEMS = 20;
 const MAX_FEEDBACK_COMMENTS = 5;
 const FEEDBACK_TEXT_LENGTH = 1000;
 const FEEDBACK_CONTENT_LENGTH = 2000;
-const PREFERENCES_NOTES_MAX_LENGTH = 20_000;
+const PREFERENCES_INSTRUCTIONS_MAX_LENGTH = 20_000;
 const CONTENT_EXCERPT_MAX = 400;
 
 const SOURCE_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,127}$/;
@@ -95,17 +95,17 @@ const sanitizeError = (error: unknown): string => {
 const clipText = (text: string, maxLength: number) =>
   text.length > maxLength ? { text: text.slice(0, maxLength), truncated: true } : { text, truncated: false };
 
-const normalizeNotes = (notes: string): string => {
-  if (typeof notes !== "string" || !isWorkspaceText(notes)) {
-    throw new InformationError("INVALID_INPUT", "Invalid preferences notes");
+const normalizeInstructions = (instructions: string): string => {
+  if (typeof instructions !== "string" || !isWorkspaceText(instructions)) {
+    throw new InformationError("INVALID_INPUT", "Invalid preferences instructions");
   }
-  if (notes.length > PREFERENCES_NOTES_MAX_LENGTH) {
+  if (instructions.length > PREFERENCES_INSTRUCTIONS_MAX_LENGTH) {
     throw new InformationError(
       "INVALID_INPUT",
-      `Preferences notes must be at most ${PREFERENCES_NOTES_MAX_LENGTH} characters`,
+      `Preferences instructions must be at most ${PREFERENCES_INSTRUCTIONS_MAX_LENGTH} characters`,
     );
   }
-  return notes;
+  return instructions;
 };
 
 const validateInputItem = (input: InformationInputItem): void => {
@@ -149,7 +149,7 @@ const validateInputItem = (input: InformationInputItem): void => {
 export type CreateInformationServiceDeps = {
   domainId?: string;
   repository: InformationRepository;
-  rules: {
+  instructions: {
     read: () => Promise<string>;
     write: (content: string) => Promise<void>;
   };
@@ -177,8 +177,9 @@ export type CreateInformationServiceDeps = {
 /**
  * 短信/信息后台领域服务（Clean Break 版）。
  *
- * 严格分离两条路径，且共享用户规则（RULES.md）、自学习敏感度画像（learnedNotes）与主对话反馈闭环：
- * 1. 日常实时单周期（queue = "realtime"）：接入 -> 到期/触发 -> 取批 + 画像/规则/反馈 ->
+ * 严格分离两条路径，且共享用户指令（workspace/domains/sms/INSTRUCTIONS.md）、
+ * 自学习敏感度画像（learnedNotes）与主对话反馈闭环：
+ * 1. 日常实时单周期（queue = "realtime"）：接入 -> 到期/触发 -> 取批 + 画像/指令/反馈 ->
  *    一次受限模型判定 -> 落库 decisions/learnedNotes/pending publications -> 投递主对话。
  * 2. 历史批量归档（queue = "archive"）：独立入口导入，不触发实时调度；逐批演化 learnedNotes，
  *    当归档队列全部清零（pending === 0 && failed === 0）时最多生成 1 条 <=1200 字简报发主对话。
@@ -242,18 +243,18 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
   };
 
   const loadPromptContext = async (state: InformationState): Promise<{
-    rulesNotes: string;
+    instructions: string;
     learnedNotes: string;
     feedbackExamples: InformationFeedbackExample[];
   }> => {
-    const [rulesNotes, retained] = await Promise.all([deps.rules.read(), deps.retainMain()]);
+    const [instructions, retained] = await Promise.all([deps.instructions.read(), deps.retainMain()]);
     const learnedNotes = state.preferences.learnedNotes;
     if (!retained) {
-      return { rulesNotes, learnedNotes, feedbackExamples: [] };
+      return { instructions, learnedNotes, feedbackExamples: [] };
     }
     try {
       const examples = await feedbackExamples(state, retained.conversation.piSessionId());
-      return { rulesNotes, learnedNotes, feedbackExamples: examples };
+      return { instructions, learnedNotes, feedbackExamples: examples };
     } finally {
       retained.release();
     }
@@ -284,18 +285,18 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
   };
 
   const getPreferences = async (): Promise<InformationPreferencesView> => {
-    const [rulesNotes, state] = await Promise.all([deps.rules.read(), deps.repository.read()]);
+    const [instructions, state] = await Promise.all([deps.instructions.read(), deps.repository.read()]);
     const retained = await deps.retainMain();
     if (!retained) {
       return {
-        notes: rulesNotes,
+        instructions,
         learnedNotes: state.preferences.learnedNotes,
         feedbackExamples: [],
       };
     }
     try {
       return {
-        notes: rulesNotes,
+        instructions,
         learnedNotes: state.preferences.learnedNotes,
         feedbackExamples: await feedbackExamples(state, retained.conversation.piSessionId()),
       };
@@ -304,10 +305,10 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     }
   };
 
-  const savePreferences = async (input: { notes: string }): Promise<InformationPreferencesView> => {
+  const savePreferences = async (input: { instructions: string }): Promise<InformationPreferencesView> => {
     ensureOpen();
-    const notes = normalizeNotes(input.notes);
-    await deps.rules.write(notes);
+    const instructions = normalizeInstructions(input.instructions);
+    await deps.instructions.write(instructions);
     return getPreferences();
   };
 
@@ -799,7 +800,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
           runId: claimed.run.id,
           sessionId: "main",
           kind: claimed.run.kind,
-          rulesNotes: context.rulesNotes,
+          instructions: context.instructions,
           learnedNotes: context.learnedNotes,
           feedbackExamples: context.feedbackExamples,
           items: claimed.items.map((item) => ({
@@ -947,7 +948,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
       const outcome = await deps.synthesizeBriefing({
         runId: lastRunId,
         sessionId: "main",
-        rulesNotes: context.rulesNotes,
+        instructions: context.instructions,
         learnedNotes: context.learnedNotes,
         feedbackExamples: context.feedbackExamples,
         totalScanned,

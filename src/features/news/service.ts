@@ -214,9 +214,9 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
 
   const preferences = () => deps.screening.getPreferences();
 
-  const savePreferences = async (notes: string) => {
+  const savePreferences = async (instructions: string) => {
     requireOpen();
-    return await deps.screening.savePreferences({ notes });
+    return await deps.screening.savePreferences({ instructions });
   };
 
   const start = () => {

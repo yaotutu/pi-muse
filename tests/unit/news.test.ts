@@ -102,7 +102,7 @@ test("recommendation processing projects decisions without retaining or notifyin
   let failNext = false;
   let modelInput: NewsScreeningModelInput | undefined;
   const screening = createNewsScreeningService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: newsRepository,
     runModel: async (input) => {
       modelInput = input;
@@ -145,13 +145,13 @@ test("recommendation processing projects decisions without retaining or notifyin
   assert.ok(all.articles.every((article) => article.content === "Details"));
   await screening.runDue();
   assert.deepEqual(modelInput?.feedbackExamples, []);
-  assert.equal(modelInput?.rulesNotes, "Prefer primary sources and substantive engineering detail.");
+  assert.equal(modelInput?.instructions, "Prefer primary sources and substantive engineering detail.");
 
   const recommended = await news.listArticles({ view: "recommended", savedOnly: false, limit: 20 });
   assert.equal(recommended.articles.length, 1);
   assert.equal(recommended.articles[0]?.recommendation?.reason, "substantive release");
   assert.deepEqual(await news.preferences(), {
-    notes: "Prefer primary sources and substantive engineering detail.",
+    instructions: "Prefer primary sources and substantive engineering detail.",
     learnedNotes: "Values substantive releases.",
   });
 
@@ -192,7 +192,7 @@ test("touching an old article makes its feedback recent for the next model input
   });
   let captured: NewsScreeningModelInput | undefined;
   const screening = createNewsScreeningService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: newsStorage.repository,
     runModel: async (input) => {
       captured = input;
@@ -234,7 +234,7 @@ test("news pagination returns null nextCursor for an exact full page", async (t)
     await rm(dataDir, { recursive: true, force: true });
   });
   const screening = createNewsScreeningService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: newsStorage.repository,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
@@ -280,7 +280,7 @@ test("background refresh keeps failed articles failed while explicit refresh req
     await rm(dataDir, { recursive: true, force: true });
   });
   const screening = createNewsScreeningService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: newsStorage.repository,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
@@ -323,7 +323,7 @@ test("concurrent news refresh is rejected without queueing", async (t) => {
     await rm(dataDir, { recursive: true, force: true });
   });
   const screening = createNewsScreeningService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: newsStorage.repository,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
@@ -363,7 +363,7 @@ test("one broken RSS source does not block another and its error stays controlle
     await rm(dataDir, { recursive: true, force: true });
   });
   const screening = createNewsScreeningService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: newsStorage.repository,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
@@ -429,7 +429,7 @@ const rssFixture = async (
     databaseFile: layout.newsDatabaseFile,
   });
   const screening = createNewsScreeningService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository: newsStorage.repository,
     runModel,
   });

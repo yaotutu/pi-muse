@@ -391,9 +391,9 @@ export async function createFakeModel() {
       if (ruleMatch) {
         event({ role: "assistant" });
         event(toolCall("domain_agent", {
-          action: "update_rules",
+          action: "update_instructions",
           domain: ruleMatch[1]!,
-          notes: ruleMatch[2]!.trim(),
+          instructions: ruleMatch[2]!.trim(),
           reason: "test rule update",
         }));
         event({}, "tool_calls");

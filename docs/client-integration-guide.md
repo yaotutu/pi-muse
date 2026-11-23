@@ -212,7 +212,7 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
 
 服务端采用「**单一主助手 + 多个独立后台领域 Agent**」架构：
 
-- **规则板与隔离原则**：每个领域 Agent 拥有独立提示词、独立用户显式规则板 `notes`（保存即覆盖，与工作区 `workspace/domains/<id>/RULES.md` 同步）以及模型根据反馈沉淀的只读自学习画像 `learnedNotes`（不可覆盖 `notes`）。后台领域 Agent **不读取**主聊天技能、`INSTRUCTIONS.md` 或全局 `memory`。在主聊天中，用户提到领域过滤/偏好时，主助手会调用 `domain_agent` 工具协同查询或提议更新对应领域规则（更新规则仍走模型文件审批）。
+- **指令文件与隔离原则**：每个领域 Agent 拥有独立系统提示词（仓库托管 `prompts/`）、独立用户显式指令 `instructions`（保存即覆盖，与工作区 `workspace/domains/<id>/INSTRUCTIONS.md` 同步）以及模型根据反馈沉淀的只读自学习画像 `learnedNotes`（不可覆盖 `instructions`）。后台领域 Agent **不读取**主聊天技能、`workspace/assistant/INSTRUCTIONS.md` 或全局 `memory`。在主聊天中，用户提到领域过滤/偏好时，主助手会调用 `domain_agent` 工具（`get_instructions` / `update_instructions`）协同查询或提议更新对应领域指令（更新仍走模型文件审批）。
 - **主聊天通知隔离与结构化引用约定（推荐 `rich-ui`）**：
   - 后台重要通知会由服务端写入 `main` 会话历史，该消息带有可靠元数据：`metadata.source === "notification"`、`metadata.notificationId` 以及 `metadata.domainId`（如 `"sms"`、`"news"`）。
   - 服务端在每次送入主模型上下文前，**默认过滤掉所有带 `domainId` 的通知卡片**，避免零碎通知污染主对话。
@@ -224,7 +224,7 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
     ```
   - 发送后，主助手即可在当轮上下文看到这段引用，并能准确将后续规则改动通过 `domain_agent` 路由到对应领域。
 - **信息/短信后台接入（`/api/information/*`，适合 `webhook` / 投喂端 / `rich-ui`）**：
-  - 本组端点均为全局路径（不带 `:sessionId`）；开关与窗口（`enabled`、`batchWindowSeconds` 0–3600）由 `/api/information/settings` 管理；偏好与自学习画像由 `/api/information/preferences`（`notes`、`learnedNotes`、`feedbackExamples`）管理。
+  - 本组端点均为全局路径（不带 `:sessionId`）；开关与窗口（`enabled`、`batchWindowSeconds` 0–3600）由 `/api/information/settings` 管理；用户指令与自学习画像由 `/api/information/preferences`（`instructions`、`learnedNotes`、`feedbackExamples`）管理。
   - **日常实时接入**：调用 `POST /api/information/items`（1–100 条，进入 `queue: "realtime"`），以 `(source, externalId)` 为幂等键（同内容幂等回读，不同内容 `409 CONFLICT` 不覆盖原文；后台禁用时 `409 DISABLED`）；可通过 `POST /api/information/runs`（空请求体 `{}`）立即触发一次单周期判定并推送通知到 `main`。
   - **历史批量归档**：与实时调度完全隔离——导入调用 `POST /api/information/archive/items`（1–500 条，进入 `queue: "archive"`），完成后显式调用 `POST /api/information/archive/run`（`{ background?, retryFailed? }`）逐批演化 `learnedNotes` 并在清零后发至多 1 条 <= 1200 字简报；进度通过 `GET /api/information/status` 的 `archive.{running, pendingCount, processedCount, failedCount}` 轮询。
 - **新闻阅读与推荐（`/api/news/*`，适合 `rich-ui`）**：

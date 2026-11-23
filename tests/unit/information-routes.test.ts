@@ -23,7 +23,7 @@ test("global preferences save main rules before retaining main for feedback", as
   let hubDepth = 0;
   const order: string[] = [];
   const information = createInformationService({
-    rules: memoryInformationRules("old"),
+    instructions: memoryInformationRules("old"),
     repository,
 
     retainMain: async () => {
@@ -57,10 +57,10 @@ test("global preferences save main rules before retaining main for feedback", as
   const app = createInformationRoutes(dependencies);
   const response = await app.request("/preferences", {
     method: "PUT",
-    body: JSON.stringify({ notes: "latest" }),
+    body: JSON.stringify({ instructions: "latest" }),
   });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { notes: "latest", learnedNotes: "", feedbackExamples: [] });
+  assert.deepEqual(await response.json(), { instructions: "latest", learnedNotes: "", feedbackExamples: [] });
   assert.deepEqual(order, ["retain", "release"]);
 });
 
@@ -83,7 +83,7 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
   let retainReleased = false;
   const retainGate = new Promise<void>((resolve) => { releaseRetain = resolve; });
   const information = createInformationService({
-    rules: memoryInformationRules(),
+    instructions: memoryInformationRules(),
     repository,
 
     retainMain: async () => {

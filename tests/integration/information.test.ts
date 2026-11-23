@@ -69,8 +69,8 @@ const fixture = async (t: TestContext) => {
     const response = await service.app.request(path, { headers, ...init });
     return { status: response.status, body: await response.json().catch(() => undefined) as unknown };
   };
-  const setupPipeline = async (settings: { enabled: boolean; batchWindowSeconds: number }, notes = "") => {
-    assert.equal((await call(`/api/information/preferences`, { method: "PUT", body: JSON.stringify({ notes }) })).status, 200);
+  const setupPipeline = async (settings: { enabled: boolean; batchWindowSeconds: number }, instructions = "") => {
+    assert.equal((await call(`/api/information/preferences`, { method: "PUT", body: JSON.stringify({ instructions }) })).status, 200);
     const saved = await call(`/api/information/settings`, {
       method: "PUT", body: JSON.stringify(settings),
     });
@@ -376,31 +376,31 @@ test("domain_agent stays declared and SMS cards remain excluded regardless of sm
   // 领域规则走统一文件审批，配置页和文件页读取同一原文。
   const instructionsPath = join(h.dataDir, "workspace", "assistant", "INSTRUCTIONS.md");
   await writeFile(instructionsPath, "MAIN-ONLY-RULE\n", "utf8");
-  for (const [domain, endpoint, notes] of [
+  for (const [domain, endpoint, instructions] of [
     ["sms", "/api/information/preferences", "信用卡还款必须提醒我"],
     ["news", "/api/news/preferences", "少推娱乐新闻，关注系统架构"],
   ] as const) {
     const before = (await h.call(endpoint)).body;
-    const run = h.runChat(sessionId, `设定领域规则:${domain}:${notes}`);
+    const run = h.runChat(sessionId, `设定领域规则:${domain}:${instructions}`);
     const action = await waitForTest(async () => (await h.service().actions.snapshotPending())[0], "domain rule approval");
     assert.equal(action.kind, "file_write");
-    assert.equal(action.payload.path, `domains/${domain}/RULES.md`);
-    assert.equal(action.payload.content, notes);
+    assert.equal(action.payload.path, `domains/${domain}/INSTRUCTIONS.md`);
+    assert.equal(action.payload.content, instructions);
     assert.deepEqual((await h.call(endpoint)).body, before, "unapproved write must not change preferences");
     assert.equal((await h.call(`/api/approvals/${action.id}/decision`, { method: "POST", body: JSON.stringify({ decision: "approve" }) })).status, 200);
     assert.match(await run, /RUN_FINISHED/);
-    assert.equal(((await h.call(endpoint)).body as { notes: string }).notes, notes);
-    assert.equal(await readFile(join(h.dataDir, "workspace", "domains", domain, "RULES.md"), "utf8"), notes);
-    const path = `domains/${domain}/RULES.md`;
+    assert.equal(((await h.call(endpoint)).body as { instructions: string }).instructions, instructions);
+    assert.equal(await readFile(join(h.dataDir, "workspace", "domains", domain, "INSTRUCTIONS.md"), "utf8"), instructions);
+    const path = `domains/${domain}/INSTRUCTIONS.md`;
     const fileEndpoint = `/api/workspace/files/content?path=${encodeURIComponent(path)}`;
-    const fromSettings = `  ${notes}\n\n`;
-    assert.equal((await h.call(endpoint, { method: "PUT", body: JSON.stringify({ notes: fromSettings }) })).status, 200);
+    const fromSettings = `  ${instructions}\n\n`;
+    assert.equal((await h.call(endpoint, { method: "PUT", body: JSON.stringify({ instructions: fromSettings }) })).status, 200);
     assert.equal(((await h.call(fileEndpoint)).body as { content: string }).content, fromSettings);
-    const fromFiles = `# 用户规则\n\n${notes}\n`;
+    const fromFiles = `# 用户指令\n\n${instructions}\n`;
     assert.equal((await h.call("/api/workspace/files/text", {
       method: "PUT", body: JSON.stringify({ path, content: fromFiles, confirmed: true }),
     })).status, 200);
-    assert.equal(((await h.call(endpoint)).body as { notes: string }).notes, fromFiles);
+    assert.equal(((await h.call(endpoint)).body as { instructions: string }).instructions, fromFiles);
   }
   assert.equal(await readFile(instructionsPath, "utf8"), "MAIN-ONLY-RULE\n");
 });

@@ -34,11 +34,11 @@ export const informationFeedbackExampleResponse = z.strictObject({
 });
 
 export const informationPreferencesRequestSchema = z.strictObject({
-  notes: z.string().max(20_000).refine(isWorkspaceText, "Invalid text").describe("用户主动编写的信息关注偏好与过滤规则"),
+  instructions: z.string().max(20_000).refine(isWorkspaceText, "Invalid text").describe("用户主动编写的信息后台指令（domains/sms/INSTRUCTIONS.md）"),
 });
 
 export const informationPreferencesResponse = z.strictObject({
-  notes: z.string().describe("用户主动编写的规则文本"),
+  instructions: z.string().describe("用户主动编写的领域指令文本"),
   learnedNotes: z.string().describe("服务端随实时处理、历史归档与消息反馈持续沉淀的自学习敏感度画像"),
   feedbackExamples: z.array(informationFeedbackExampleResponse).describe("main 当前 pi 历史仍可投影的最新消息反馈例证"),
 });

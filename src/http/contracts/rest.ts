@@ -252,13 +252,9 @@ export const dreamTargetSchema = z
   .describe(
     "笔记归属目标：user=全局 USER.md，soul=全局 SOUL.md，instructions=全局助手指令 INSTRUCTIONS.md，memory=按需检索的长期记忆",
   );
-export const saveGlobalDreamSchema = z.object({
-  globalPrompt: z
-    .string()
-    .max(20000)
-    .describe("全局 Dream 整理提示词（profile/DREAM.md）；传空串清空覆盖，回退为内置默认提示词"),
+export const updateDreamSchema = z.strictObject({
+  enabled: z.boolean().describe("是否启用 Dream 后台自动记忆整理"),
 });
-export const updateDreamSchema = z.strictObject({ enabled: z.boolean().optional(), prompt: z.string().max(20000).optional() });
 export const resolveDreamPendingSchema = z.object({
   action: z
     .enum(["apply", "dismiss"])

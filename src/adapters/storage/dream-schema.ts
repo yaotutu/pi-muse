@@ -69,9 +69,8 @@ export const parseDreamState = (value: unknown): DreamState => {
 /**
  * Dream 机器状态在 main.sqlite 的表结构与行映射。
  *
- * owner 边界：Dream 是实例全局服务，状态与待决项都存在这里；提示文本仍由
- * profile/DREAM.md 承载（文件事实不迁库），本模块只保存开关、游标、最近运行
- * 与待确认建议。
+ * owner 边界：Dream 是实例全局服务，状态与待决项都存在这里；系统提示词统一由服务端
+ * 仓库 `prompts/dream/` 维护，本模块只保存开关、游标、最近运行与待确认建议。
  *
  * 设计要点：
  * - dream_state 是单例：开关与最近一次整理轮；lastRun 形状随领域演进，

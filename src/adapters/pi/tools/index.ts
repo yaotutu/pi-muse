@@ -95,11 +95,11 @@ const registrations = [
     const write = writableTools(deps)[0]?.execute;
     return [createDomainAgentTool(deps.domainAgents, {
       readOnly: isSubagent(deps),
-      writeRules: write ? async (domainId, notes, toolCallId, signal, context) => {
-        const path = domainId === "news" ? managedWorkspaceTexts.newsRules
-          : domainId === "sms" ? managedWorkspaceTexts.smsRules : undefined;
+      writeInstructions: write ? async (domainId, instructions, toolCallId, signal, context) => {
+        const path = domainId === "news" ? managedWorkspaceTexts.newsInstructions
+          : domainId === "sms" ? managedWorkspaceTexts.smsInstructions : undefined;
         if (!path) return { isError: true };
-        return write(toolCallId, { path, content: notes }, signal, undefined, context);
+        return write(toolCallId, { path, content: instructions }, signal, undefined, context);
       } : undefined,
     })];
   } },

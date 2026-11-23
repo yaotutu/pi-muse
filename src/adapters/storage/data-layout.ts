@@ -9,13 +9,13 @@ export { isSessionId } from "../../features/conversation/session-id.js";
 export type DataLayout = {
   root: string; companionsDir: string; profileDir: string; workspaceDir: string; sessionsDir: string; sessionIndexFile: string;
   assistantInstructionsFile: string; assistantSkillOverridesFile: string;
-  stateDir: string; newsRulesFile: string; smsRulesFile: string; agentDir: string; piAuthFile: string;
+  stateDir: string; newsInstructionsFile: string; smsInstructionsFile: string; agentDir: string; piAuthFile: string;
   /** 长期记忆是给人读写的纯文本；身份设置是配置 JSON。 */
   memoryMarkdownFile: string; identityFile: string;
   /** 网页监控本次保持 JSON 文件，不迁数据库。 */
   monitorsFile: string;
   mainDatabaseFile: string; newsDatabaseFile: string;
-  soulFile: string; userFile: string; dreamFile: string; authKeyFile: string;
+  soulFile: string; userFile: string; authKeyFile: string;
   androidUpdatesDir: string; browserProfileDir: string; browserDownloadsDir: string; skillsDir: string; subagentsDir: string; tracesDir: string;
 };
 export const createDataLayout = (dataDir: string): DataLayout => {
@@ -32,14 +32,14 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     companionsDir: join(assets, "companions"),
     assistantInstructionsFile: join(assistant, "INSTRUCTIONS.md"),
     assistantSkillOverridesFile: join(profileDir, "skill-overrides.json"),
-    newsRulesFile: join(workspaceDir, "domains", "news", "RULES.md"),
-    smsRulesFile: join(workspaceDir, "domains", "sms", "RULES.md"),
+    newsInstructionsFile: join(workspaceDir, "domains", "news", "INSTRUCTIONS.md"),
+    smsInstructionsFile: join(workspaceDir, "domains", "sms", "INSTRUCTIONS.md"),
     sessionIndexFile: join(sessionsDir, "index.json"),
     agentDir: join(runtime, "pi"), piAuthFile: join(runtime, "auth", "pi.json"),
     memoryMarkdownFile: join(profileDir, "memory.md"), identityFile: join(profileDir, "identity.json"),
     monitorsFile: join(stateDir, "monitors.json"),
     mainDatabaseFile: join(stateDir, "main.sqlite"), newsDatabaseFile: join(stateDir, "news.sqlite"),
-    soulFile: join(assistant, "SOUL.md"), userFile: join(assistant, "USER.md"), dreamFile: join(profileDir, "DREAM.md"),
+    soulFile: join(assistant, "SOUL.md"), userFile: join(assistant, "USER.md"),
     authKeyFile: join(runtime, "auth", "auth.key"),
     androidUpdatesDir: join(runtime, "android-updates"),
     browserProfileDir: join(runtime, "browser", "profile"),
@@ -90,7 +90,13 @@ export const ensureLayout = async (layout: DataLayout): Promise<void> => {
 
 /** 列表直接展示实际文件，首次初始化为空，已有内容保持原样。 */
 export const initializeWorkspaceDocuments = async (layout: DataLayout): Promise<void> => {
-  for (const file of [layout.assistantInstructionsFile, layout.soulFile, layout.userFile, layout.newsRulesFile, layout.smsRulesFile]) {
+  for (const file of [
+    layout.assistantInstructionsFile,
+    layout.soulFile,
+    layout.userFile,
+    layout.newsInstructionsFile,
+    layout.smsInstructionsFile,
+  ]) {
     try { await writeFile(file, "", { flag: "wx", mode: 0o600 }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
   }

@@ -4,9 +4,9 @@ import { ASSISTANT_TEXT_LIMIT } from "../../features/identity/types.js";
 export const managedWorkspaceTexts = {
   user: "assistant/USER.md",
   soul: "assistant/SOUL.md",
-  instructions: "assistant/INSTRUCTIONS.md",
-  newsRules: "domains/news/RULES.md",
-  smsRules: "domains/sms/RULES.md",
+  assistantInstructions: "assistant/INSTRUCTIONS.md",
+  smsInstructions: "domains/sms/INSTRUCTIONS.md",
+  newsInstructions: "domains/news/INSTRUCTIONS.md",
 } as const;
 
 export const managedWorkspaceTarget = (root: string, target: string) =>

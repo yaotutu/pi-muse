@@ -3,12 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { ASSISTANT_TEXT_LIMIT } from "../identity/types.js";
 import type { ObserveWork } from "../workspace/session-presence.js";
 import { MemoryChangedError, MemoryLimitError, MemoryTextError, type MemoryService } from "../memory/memory-service.js";
-import {
-  buildDreamInput,
-  composePrompt,
-  DEFAULT_DREAM_PROMPT,
-  fixedRules,
-} from "./prompt.js";
+import { buildDreamInput } from "./prompt.js";
 import {
   appendInstructions,
   appendNote,
@@ -34,11 +29,6 @@ export type DreamNotesPort = {
   writeInstructionsIfUnchanged: (content: string, expected: string) => Promise<boolean>;
 };
 
-export type DreamPromptsPort = {
-  readGlobalPrompt: () => Promise<string>;
-  writeGlobalPrompt: (content: string) => Promise<void>;
-};
-
 export type DreamConversationsPort = {
   listSessionIds: () => Promise<string[]>;
   sessionExists: (sessionId: string) => Promise<boolean>;
@@ -55,20 +45,19 @@ export type DreamProposeResult =
 export type DreamDependencies = {
   observeWork?: ObserveWork;
   waitingChanged?: (sessionId: string, waiting: boolean) => void;
-  repository: DreamRepository & DreamPromptsPort & { reconcileOnStart: () => Promise<void> };
+  repository: DreamRepository & { reconcileOnStart: () => Promise<void> };
   notes: DreamNotesPort;
   memory: Pick<MemoryService, "list" | "add" | "edit" | "forget">;
   conversations: DreamConversationsPort;
   propose: (input: {
     /** 目标会话；用于模型调用追踪标注，不参与整理决策。 */
     sessionId: string;
-    systemPrompt: string;
     userPrompt: string;
     signal?: AbortSignal;
   }) => Promise<DreamProposeResult>;
 };
 
-export type DreamOverview = DreamState & { globalPrompt: string; defaultPrompt: string; intervalHours: number; running: boolean };
+export type DreamOverview = DreamState & { intervalHours: number; running: boolean };
 export type DreamRunResult = { ok: true; state: DreamOverview } | { ok: false; code: "not_found" | "conflict"; message: string };
 export type DreamResolveResult = DreamRunResult;
 
@@ -95,9 +84,9 @@ export const createDreamService = (deps: DreamDependencies) => {
   const listSessionIds = conversations.listSessionIds;
 
   const describeAll = async (): Promise<DreamOverview> => {
-    const [state, globalPrompt] = await Promise.all([repository.read(), repository.readGlobalPrompt()]);
+    const state = await repository.read();
     deps.waitingChanged?.("main", state.pending.length > 0);
-    return { ...state, globalPrompt, defaultPrompt: DEFAULT_DREAM_PROMPT, intervalHours: DREAM_INTERVAL_HOURS, running: Boolean(activeRun) };
+    return { ...state, intervalHours: DREAM_INTERVAL_HOURS, running: Boolean(activeRun) };
   };
 
   /** 执行单个会话的一轮整理；manual=false（定时扫描）在无新消息时静默跳过，不落盘。 */
@@ -194,19 +183,13 @@ export const createDreamService = (deps: DreamDependencies) => {
           break;
         }
 
-        const [state, globalPrompt, user, soul, instructions, memories] =
+        const [user, soul, instructions, memories] =
           await Promise.all([
-            repository.read(),
-            repository.readGlobalPrompt(),
             notes.readUser(),
             notes.readSoul(),
             notes.readInstructions(),
             memory.list(),
           ]);
-        const systemPrompt =
-          composePrompt(globalPrompt) +
-          "\n\n" +
-          fixedRules();
         const userPrompt = buildDreamInput(batch, {
           user,
           soul,
@@ -216,7 +199,6 @@ export const createDreamService = (deps: DreamDependencies) => {
 
         const proposed = await propose({
           sessionId,
-          systemPrompt,
           userPrompt,
           signal: controller.signal,
         });
@@ -330,9 +312,8 @@ export const createDreamService = (deps: DreamDependencies) => {
     reconcileOnStart: () => repository.reconcileOnStart(),
     isBusy: () => dispatching || Boolean(activeRun),
     describeAll,
-    updateSettings: async (patch: { enabled?: boolean; prompt?: string }) => {
-      if (patch.prompt !== undefined) await repository.writeGlobalPrompt(patch.prompt);
-      if (patch.enabled !== undefined) await repository.update((state) => ({ state: { ...state, enabled: patch.enabled! }, result: undefined }));
+    updateSettings: async (patch: { enabled: boolean }) => {
+      await repository.update((state) => ({ state: { ...state, enabled: patch.enabled }, result: undefined }));
       return describeAll();
     },
     runNow: async (signal?: AbortSignal): Promise<DreamRunResult> => {

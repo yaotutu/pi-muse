@@ -112,7 +112,7 @@ export const createNewsRoutes = (dependencies: Pick<HttpDependencies, "news">) =
   app.put("/preferences", async (c) => {
     const parsed = newsPreferencesUpdateRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid news preferences", code: "INVALID_INPUT" }, 400);
-    return handle(c, () => news.savePreferences(parsed.data.notes));
+    return handle(c, () => news.savePreferences(parsed.data.instructions));
   });
   return app;
 };

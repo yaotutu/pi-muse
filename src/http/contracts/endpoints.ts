@@ -267,7 +267,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateInformationSettings",
     method: "put", path: "/api/information/settings", tag: "信息后台", summary: "保存信息后台设置",
-    hint: "整份替换 enabled 与 batchWindowSeconds（0–3600；0 表示下一调度周期立即处理）。短信子 Agent 使用独立偏好 notes 与自学习 learnedNotes，不写入主会话 INSTRUCTIONS.md。禁用时拒绝实时接入与 runNow 并取消在途轮，未处理队列保留；最后保存生效。",
+    hint: "整份替换 enabled 与 batchWindowSeconds（0–3600；0 表示下一调度周期立即处理）。短信子 Agent 使用独立指令 instructions（domains/sms/INSTRUCTIONS.md）与自学习 learnedNotes，不写入主会话 assistant/INSTRUCTIONS.md。禁用时拒绝实时接入与 runNow 并取消在途轮，未处理队列保留；最后保存生效。",
     auth: true, request: information.informationSettingsRequestSchema, response: information.informationSettingsResponse,
     errorResponses: {
       400: { description: "非法请求或窗口范围", schema: resp.errorResponse },
@@ -277,8 +277,8 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "getInformationPreferences",
-    method: "get", path: "/api/information/preferences", tag: "信息后台", summary: "读取信息偏好与自学习画像",
-    hint: "返回用户主动编写的规则 notes（sms/RULES.md）与自学习灵敏度画像 learnedNotes；后台单周期判定与历史归档提炼都会携带实时消息反馈（feedbackExamples）演化 learnedNotes。",
+    method: "get", path: "/api/information/preferences", tag: "信息后台", summary: "读取信息指令与自学习画像",
+    hint: "返回用户主动编写的领域指令 instructions（domains/sms/INSTRUCTIONS.md）与自学习灵敏度画像 learnedNotes；后台单周期判定与历史归档提炼都会携带实时消息反馈（feedbackExamples）演化 learnedNotes。",
     auth: true, response: information.informationPreferencesResponse,
     errorResponses: {
       503: { description: "服务正在关闭", schema: resp.errorResponse },
@@ -286,11 +286,11 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "updateInformationPreferences",
-    method: "put", path: "/api/information/preferences", tag: "信息后台", summary: "保存信息偏好备注",
-    hint: "保存用户规则 notes（最多 20000 字符；空串清空）到 sms/RULES.md，最后保存生效，不写主会话 INSTRUCTIONS.md；也可通过主对话 domain_agent 工具修改。",
+    method: "put", path: "/api/information/preferences", tag: "信息后台", summary: "保存信息领域指令",
+    hint: "保存用户指令 instructions（最多 20000 字符；空串清空）到 domains/sms/INSTRUCTIONS.md，最后保存生效，不写主会话 assistant/INSTRUCTIONS.md；也可通过主对话 domain_agent 工具修改。",
     auth: true, request: information.informationPreferencesRequestSchema, response: information.informationPreferencesResponse,
     errorResponses: {
-      400: { description: "非法请求或超长 notes", schema: resp.errorResponse },
+      400: { description: "非法请求或超长 instructions", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
@@ -505,19 +505,19 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "getNewsPreferences",
-    method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻偏好",
-    hint: "notes 是保存在 workspace/domains/news/RULES.md 的明确新闻规则；learnedNotes 是模型从逐篇反馈推断的只读兴趣摘要。两者分离，推断不覆盖明确备注、会话规则或全局 USER。",
+    method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻指令与画像",
+    hint: "instructions 是保存在 workspace/domains/news/INSTRUCTIONS.md 的明确新闻指令；learnedNotes 是模型从逐篇反馈推断的只读兴趣摘要。两者分离，推断不覆盖明确 instructions、会话指令或全局 USER。",
     auth: true, response: news.newsPreferencesResponseSchema,
     errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
   },
   {
     operationId: "updateNewsPreferences",
-    method: "put", path: "/api/news/preferences", tag: "新闻", summary: "保存新闻明确偏好",
-    hint: "notes 最多 20000 字符，空串清空；最后成功保存生效。本接口和工作区文件页编辑同一份 workspace/domains/news/RULES.md，也不触发模型；也可在主聊天通过 domain_agent 调整。",
+    method: "put", path: "/api/news/preferences", tag: "新闻", summary: "保存新闻领域指令",
+    hint: "instructions 最多 20000 字符，空串清空；最后成功保存生效。本接口和工作区文件页编辑同一份 workspace/domains/news/INSTRUCTIONS.md，也不触发模型；也可在主聊天通过 domain_agent 调整。",
     auth: true, request: news.newsPreferencesUpdateRequestSchema, response: news.newsPreferencesResponseSchema,
     errorResponses: {
-      400: { description: "非法请求或超长 notes", schema: resp.errorResponse },
-      503: { description: "服务正在关闭；偏好未保存", schema: resp.errorResponse },
+      400: { description: "非法请求或超长 instructions", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；指令未保存", schema: resp.errorResponse },
     },
   },
   // ---- 增量聊天（AG-UI SSE 输出）----
@@ -727,13 +727,13 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getGlobalDream",
     method: "get", path: "/api/dream", tag: "记忆", summary: "读取 Dream 后台记忆整理全局概览",
-    hint: "返回全局 DREAM.md 提示词、内置默认提示词、固定 2 小时周期、当前是否有整理轮在运行，以及所有已知会话的 Dream 状态与待决建议汇总。",
+    hint: "返回 Dream 启用开关、固定 2 小时周期、当前是否有整理轮在运行，以及所有已知会话的 Dream 状态与待决建议汇总；系统整理提示词统一托管在服务端仓库 prompts/dream/。",
     auth: true, response: resp.dreamOverviewResponse,
   },
   {
     operationId: "updateGlobalDream",
-    method: "put", path: "/api/dream", tag: "记忆", summary: "保存全局 Dream 整理提示词",
-    hint: "保存 profile/DREAM.md；传空串清空自定义覆盖并回退为内置默认提示词。服务端安全硬规则固定拼入，不受此文件覆盖。",
+    method: "put", path: "/api/dream", tag: "记忆", summary: "更新 Dream 后台整理开关",
+    hint: "保存全局 Dream 后台自动整理开关 enabled；系统整理提示词由服务端仓库 prompts/dream/ 统一维护，不再支持运行时覆盖。",
     auth: true, request: req.updateDreamSchema, response: resp.dreamOverviewResponse,
   },
   {

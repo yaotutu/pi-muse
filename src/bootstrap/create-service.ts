@@ -74,7 +74,7 @@ import { createWorkspaceFileService } from "../features/workspace/files-service.
 import { workspaceFileCommits } from "../adapters/workspace/file-commit-queue.js";
 import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
 import { createActivityService } from "../features/activities/service.js";
-import { createDreamRepository, createDreamPromptPort } from "../adapters/storage/dream-repository.js";
+import { createDreamRepository } from "../adapters/storage/dream-repository.js";
 import { readAssistantInstructions, writeAssistantInstructions } from "../adapters/storage/assistant-instructions.js";
 import { createDreamService } from "../features/dream/service.js";
 import { createDreamScheduler } from "../features/dream/scheduler.js";
@@ -150,9 +150,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
   const skills = createSkillsService(createSkillRepository(layout, options.sharedSkillsDir));
   const messageFeedbackRepository = createMessageFeedbackRepository(layout);
-  const dreamStorage = createDreamRepository(mainDatabase);
-  const dreamPrompts = createDreamPromptPort(layout);
-  const dreamRepository = { ...dreamStorage, ...dreamPrompts };
+  const dreamRepository = createDreamRepository(mainDatabase);
   const informationRepository = createInformationRepository(mainDatabase);
   const sessionRepository = createSessionRepository(layout.sessionIndexFile);
   const sessionStorage = createSessionStorage(layout);
@@ -294,7 +292,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     },
     listSessionSnapshots,
   );
-  const domainRules = (file: string) => ({
+  const domainInstructions = (file: string) => ({
     read: () => readProfileFile(file, layout.workspaceDir),
     write: async (text: string) => { await writeProfileFile(file, text, undefined, layout.workspaceDir); },
   });
@@ -304,11 +302,11 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     feedback: messageFeedbackRepository,
     runModel: createInformationRunner({ config, layout, modelRuntime }),
   };
-  // 短信领域规则与学习画像分别存入工作区和业务仓储。
+  // 短信领域指令与学习画像分别存入工作区和业务仓储。
   information = createInformationService({
     ...informationDeps,
     domainId: "sms",
-    rules: domainRules(layout.smsRulesFile),
+    instructions: domainInstructions(layout.smsInstructionsFile),
     synthesizeBriefing: createInformationBriefingRunner({ config, layout, modelRuntime }),
     repository: informationRepository,
   });
@@ -335,11 +333,11 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     const pending = [newsStorage.database.close(), mainDatabase.close()];
     return Promise.allSettled(pending);
   };
-  // 新闻领域读取自己的规则文件和学习画像。
+  // 新闻领域读取自己的用户指令文件和自学习画像。
   const newsScreening = createNewsScreeningService({
     observeWork: workspaceEvents.presence.observe,
     repository: newsRepository,
-    rules: domainRules(layout.newsRulesFile),
+    instructions: domainInstructions(layout.newsInstructionsFile),
     runModel: createNewsScreeningRunner({ config, layout, modelRuntime }),
   });
   const informationScheduler = createInformationScheduler(information);
@@ -355,9 +353,9 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
       {
         id: "sms",
         name: "短信助手",
-        summary: "后台分析与过滤手机短信（账单还款、快递取件码、行程航班、安全验证等），屏蔽营销广告并维护短信提醒规则与画像。",
+        summary: "后台分析与过滤手机短信（账单还款、快递取件码、行程航班、安全验证等），屏蔽营销广告并维护短信指令与画像。",
         isEnabled: async () => (await information!.getSettings()).enabled,
-        rules: {
+        instructions: {
           read: () => information!.getPreferences(),
         },
         query: (input) => information!.query(input),
@@ -365,9 +363,9 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
       {
         id: "news",
         name: "新闻助手",
-        summary: "后台抓取 RSS 新闻源并按用户阅读偏好筛选推荐文章，维护新闻筛选规则与兴趣画像。",
+        summary: "后台抓取 RSS 新闻源并按用户阅读偏好筛选推荐文章，维护新闻指令与兴趣画像。",
         isEnabled: async () => true,
-        rules: {
+        instructions: {
           read: () => news.preferences(),
         },
         query: async (input) => {

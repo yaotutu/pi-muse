@@ -132,8 +132,6 @@ export const SettingsView = () => {
             <label><input type="checkbox" checked={dreamOverview.enabled} onChange={(e) => void updateDream({ enabled: e.target.checked }).then(setDreamOverview, (e: Error) => flash(e.message))} />启用后台整理</label>
             <button disabled={runningDream} onClick={() => { setRunningDream(true); void runDream().then(setDreamOverview, (e: Error) => flash(e.message)).finally(() => setRunningDream(false)); }}>{runningDream ? "整理中" : "立即整理"}</button>
             {dreamOverview.lastRun && <p>最近结果：{dreamOverview.lastRun.status} · {dreamOverview.lastRun.processed} 条 {dreamOverview.lastRun.error}</p>}
-            <textarea className="w-full border p-2" rows={8} value={dreamOverview.globalPrompt} placeholder={dreamOverview.defaultPrompt} onChange={(e) => setDreamOverview({ ...dreamOverview, globalPrompt: e.target.value })} />
-            <button onClick={() => void updateDream({ prompt: dreamOverview.globalPrompt }).then(setDreamOverview, (e: Error) => flash(e.message))}>保存全局提示词</button>
             {dreamOverview.pending.map((item) => <div className="border p-2" key={item.id}>
               <p className="whitespace-pre-wrap">{item.text}</p>
               <select value={pendingTargets[item.id] ?? item.suggestedTarget} onChange={(e) => setPendingTargets({ ...pendingTargets, [item.id]: e.target.value as "user" | "soul" | "instructions" | "memory" })}>{Object.entries(TARGET_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>

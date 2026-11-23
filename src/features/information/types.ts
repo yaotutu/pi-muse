@@ -24,7 +24,7 @@ export type InformationFeedbackExample = {
 };
 
 export type InformationPreferencesView = {
-  notes: string;
+  instructions: string;
   learnedNotes: string;
   feedbackExamples: InformationFeedbackExample[];
 };
@@ -126,7 +126,7 @@ export type InformationModelInput = {
   runId: string;
   sessionId: string;
   kind: InformationRunKind;
-  rulesNotes: string;
+  instructions: string;
   learnedNotes: string;
   feedbackExamples: InformationFeedbackExample[];
   items: Array<{
@@ -158,7 +158,7 @@ export type InformationArchiveCandidate = {
 export type InformationBriefingInput = {
   runId: string;
   sessionId: string;
-  rulesNotes: string;
+  instructions: string;
   learnedNotes: string;
   feedbackExamples: InformationFeedbackExample[];
   totalScanned: number;
