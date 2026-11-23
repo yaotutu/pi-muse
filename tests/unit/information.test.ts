@@ -1,18 +1,30 @@
 import { memoryInformationRules } from "../support/information-rules.js";
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import {
   createSubmitInformationBriefingTool,
   createSubmitInformationResultTool,
 } from "../../src/adapters/pi/information-runner.js";
+import { createInformationRepository } from "../../src/adapters/storage/information-repository.js";
+import {
+  canonicalJson,
+  ensureSmsModule,
+  parsePublicationsJson,
+  readSmsSettingsSync,
+  smsModule,
+  writeSmsSettingsSync,
+} from "../../src/adapters/storage/sms-schema.js";
+import type { ManagedSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
 import type { HabitItem, HabitOperation } from "../../src/features/habits/types.js";
 import { createInformationService } from "../../src/features/information/service.js";
-import {
-  defaultInformationState,
-  type InformationBriefingInput,
-  type InformationPublicationReceipt,
-  type InformationRepository,
-  type InformationState,
+import type {
+  InformationBriefingInput,
+  InformationItem,
+  InformationPublicationReceipt,
+  InformationRun,
+  InformationSettings,
 } from "../../src/features/information/types.js";
 import {
   ARCHIVE_BRIEFING_MAX_LENGTH,
@@ -27,30 +39,137 @@ const deferred = <T = void>() => {
   return { promise, resolve, reject };
 };
 
-const memoryRepo = (initial: InformationState = defaultInformationState()) => {
-  let state = structuredClone(initial);
-  const repository: InformationRepository = {
-    read: async () => structuredClone(state),
-    update: async (change) => {
-      const changed = await change(structuredClone(state));
-      if (changed.state) state = changed.state;
-      return changed.result;
+type SeedInformationState = {
+  settings?: InformationSettings;
+  items?: InformationItem[];
+  runs?: InformationRun[];
+};
+
+const memoryRepo = (initial: SeedInformationState = {}) => {
+  const database = new DatabaseSync(":memory:", { enableForeignKeyConstraints: true });
+  let pending: Promise<unknown> = Promise.resolve();
+  const managed: ManagedSqliteDatabase = {
+    database,
+    serialize: <T>(work: () => T | Promise<T>) => {
+      const next = pending.then(work, work);
+      pending = next.then(() => undefined, () => undefined);
+      return next;
     },
-    validateAll: async () => undefined,
-    nextRealtimeDue: async () => {
-      if (!state.settings.enabled) return false;
-      const first = state.items.find((item) => item.queue === "realtime" && item.status === "pending");
-      if (!first) return false;
-      return Date.now() >= Date.parse(first.acceptedAt) + state.settings.batchWindowSeconds * 1000;
+    transaction: <T>(work: () => T) => {
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        const result = work();
+        database.exec("COMMIT");
+        return result;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
     },
-    reconcileOnStart: async () => undefined,
+    close: async () => { database.close(); },
   };
-  return { repository, readState: () => structuredClone(state) };
+  ensureSqliteModules(managed, [smsModule]);
+  ensureSmsModule(managed);
+  if (initial.settings) {
+    writeSmsSettingsSync(database, initial.settings);
+  }
+  if (initial.items?.length) {
+    const insertItem = database.prepare(
+      "INSERT INTO sms_items (id, position, queue, source, external_id, title, content, received_at, accepted_at, status, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    initial.items.forEach((item, index) => {
+      insertItem.run(
+        item.id,
+        index + 1,
+        item.queue,
+        item.source,
+        item.externalId,
+        item.title ?? null,
+        item.content,
+        item.receivedAt,
+        item.acceptedAt,
+        item.status,
+        item.runId ?? null,
+      );
+    });
+  }
+  if (initial.runs?.length) {
+    const insertRun = database.prepare(
+      "INSERT INTO sms_runs (id, position, kind, status, created_at, started_at, finished_at, model_status, model_error, has_decisions, publications_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    const insertRunItem = database.prepare("INSERT INTO sms_run_items (run_id, position, item_id) VALUES (?, ?, ?)");
+    const insertDecision = database.prepare("INSERT INTO sms_decisions (run_id, position, item_id, decision, reason) VALUES (?, ?, ?, ?, ?)");
+    initial.runs.forEach((run, index) => {
+      insertRun.run(
+        run.id,
+        index + 1,
+        run.kind,
+        run.status,
+        run.createdAt,
+        run.startedAt,
+        run.finishedAt ?? null,
+        run.model?.status ?? null,
+        run.model?.error ?? null,
+        run.decisions !== undefined ? 1 : 0,
+        canonicalJson(run.publications ?? []),
+      );
+      run.itemIds.forEach((itemId, pos) => insertRunItem.run(run.id, pos, itemId));
+      run.decisions?.forEach((d, pos) => insertDecision.run(run.id, pos, d.itemId, d.decision, d.reason));
+    });
+  }
+  const readState = () => {
+    const settings = readSmsSettingsSync(database);
+    const itemRows = database.prepare(
+      "SELECT id, queue, source, external_id, title, content, received_at, accepted_at, status, run_id FROM sms_items ORDER BY position ASC",
+    ).all() as Array<{
+      id: string; queue: "realtime" | "archive"; source: string; external_id: string;
+      title: string | null; content: string; received_at: string; accepted_at: string;
+      status: "pending" | "processing" | "processed" | "failed"; run_id: string | null;
+    }>;
+    const items: InformationItem[] = itemRows.map((row) => ({
+      id: row.id,
+      queue: row.queue,
+      source: row.source,
+      externalId: row.external_id,
+      ...(row.title !== null ? { title: row.title } : {}),
+      content: row.content,
+      receivedAt: row.received_at,
+      acceptedAt: row.accepted_at,
+      status: row.status,
+      ...(row.run_id !== null ? { runId: row.run_id } : {}),
+    }));
+    const runRows = database.prepare(
+      "SELECT id, kind, status, created_at, started_at, finished_at, model_status, model_error, has_decisions, publications_json FROM sms_runs ORDER BY position ASC",
+    ).all() as Array<{
+      id: string; kind: "realtime" | "archive"; status: "running" | "completed" | "failed" | "cancelled";
+      created_at: string; started_at: string; finished_at: string | null;
+      model_status: "succeeded" | "failed" | null; model_error: string | null;
+      has_decisions: number; publications_json: string;
+    }>;
+    const runs: InformationRun[] = runRows.map((row) => {
+      const itemIds = (database.prepare("SELECT item_id FROM sms_run_items WHERE run_id = ? ORDER BY position ASC").all(row.id) as Array<{ item_id: string }>).map((r) => r.item_id);
+      const decisionRows = database.prepare("SELECT item_id, decision, reason FROM sms_decisions WHERE run_id = ? ORDER BY position ASC").all(row.id) as Array<{ item_id: string; decision: "silent" | "notify"; reason: string }>;
+      return {
+        id: row.id,
+        kind: row.kind,
+        itemIds,
+        status: row.status,
+        createdAt: row.created_at,
+        startedAt: row.started_at,
+        ...(row.finished_at !== null ? { finishedAt: row.finished_at } : {}),
+        ...(row.model_status !== null ? { model: { status: row.model_status, ...(row.model_error !== null ? { error: row.model_error } : {}) } } : {}),
+        ...(row.has_decisions === 1 ? { decisions: decisionRows.map((d) => ({ itemId: d.item_id, decision: d.decision, reason: d.reason })) } : {}),
+        publications: parsePublicationsJson(row.publications_json),
+      };
+    });
+    return { settings, items, runs };
+  };
+  return { repository: createInformationRepository(managed), readState };
 };
 
 const fixture = (options?: {
   notify?: (text: string, id: string) => Promise<InformationPublicationReceipt>;
-  initial?: InformationState;
+  initial?: SeedInformationState;
 }) => {
   const { repository, readState } = memoryRepo(options?.initial);
   const notifications: Array<{ text: string; id: string }> = [];
@@ -316,17 +435,17 @@ test("pause barrier is nested and aborts active model rounds cleanly", async () 
 
 test("pagination binds cursor to queue and status filters and omits nextCursor on final page", async () => {
   const at = new Date().toISOString();
-  const items: InformationState["items"] = [0, 1, 2, 3, 4].map((index) => ({
+  const items = [0, 1, 2, 3, 4].map((index) => ({
     id: `item-${index}`,
-    queue: index === 4 ? "archive" : "realtime",
+    queue: (index === 4 ? "archive" : "realtime") as "archive" | "realtime",
     source: "sms",
     externalId: String(index),
     content: `content-${index}`,
     receivedAt: at,
     acceptedAt: at,
-    status: index === 3 ? "processed" : "pending",
+    status: (index === 3 ? "processed" : "pending") as "processed" | "pending",
   }));
-  const { repository } = memoryRepo({ ...defaultInformationState(), items });
+  const { repository } = memoryRepo({ items });
   const service = createInformationService({
     instructions: memoryInformationRules(),
     repository,
@@ -351,8 +470,7 @@ test("pagination binds cursor to queue and status filters and omits nextCursor o
 
 test("buildHabitSignal clips items/comments cleanly and preferences expose hot buffer and storage failures loudly", async () => {
   const at = new Date().toISOString();
-  const initial: InformationState = {
-    ...defaultInformationState(),
+  const initial: SeedInformationState = {
     items: [{
       id: "item-1", queue: "realtime", source: "sms", externalId: "x",
       title: "Original title", content: "A".repeat(2500), receivedAt: at, acceptedAt: at, status: "processed",
@@ -402,11 +520,8 @@ test("buildHabitSignal clips items/comments cleanly and preferences expose hot b
   });
   const preferences = await bufferedService.getPreferences();
   assert.equal(preferences.unconsolidatedFeedbackCount, 1);
-  assert.equal(preferences.feedbackExamples.length, 1);
-  assert.equal(preferences.feedbackExamples[0]?.reaction, "like");
-  assert.equal(preferences.feedbackExamples[0]?.saved, true);
-  assert.deepEqual(preferences.feedbackExamples[0]?.comments, ["latest"]);
-  assert.equal(preferences.feedbackExamples[0]?.items[0]?.contentTruncated, true);
+  assert.deepEqual(preferences.includes, []);
+  assert.deepEqual(preferences.habits, []);
 
   const failingService = createInformationService({
     instructions: memoryInformationRules(),
@@ -423,7 +538,6 @@ test("buildHabitSignal clips items/comments cleanly and preferences expose hot b
 
 test("archive channel incrementally updates habits across batches and isolates realtime until runArchive", async () => {
   const { repository } = memoryRepo({
-    ...defaultInformationState(),
     settings: { enabled: true, batchWindowSeconds: 0 },
   });
   const storedHabits: HabitItem[] = [];
@@ -541,7 +655,7 @@ test("archive channel incrementally updates habits across batches and isolates r
 });
 
 test("archive failure stops briefing until retryFailed drains remaining items cleanly", async () => {
-  const { repository } = memoryRepo(defaultInformationState());
+  const { repository } = memoryRepo();
   const sent: string[] = [];
   let failBatch2 = true;
   let round = 0;
@@ -650,4 +764,38 @@ test("parseInformationBriefingResult and archive tool schemas enforce strict bou
   const briefingTool = createSubmitInformationBriefingTool(["c1"], () => undefined);
   const okBriefing = await briefingTool.execute("b", { text: "归档完毕", itemIds: [] } as never, undefined, undefined, {} as never);
   assert.equal(okBriefing.isError, undefined);
+});
+
+test("runNow({ retryFailed: true }) requeues failed realtime items and projects decision and reason", async () => {
+  const { repository } = memoryRepo({ settings: { enabled: true, batchWindowSeconds: 0 } });
+  let round = 0;
+  const service = createInformationService({
+    instructions: memoryInformationRules(),
+    repository,
+    retainMain: async () => undefined,
+    runModel: async (input) => {
+      round += 1;
+      if (round === 1) return { ok: false, error: "MODEL_REQUEST_FAILED" };
+      return {
+        ok: true,
+        result: {
+          decisions: input.items.map((item) => ({ itemId: item.id, decision: "silent" as const, reason: "routine verification" })),
+          notifications: [],
+        },
+      };
+    },
+  });
+
+  await service.ingest([{ source: "sms", externalId: "u-retry-1", content: "login code 1234" }]);
+  const failedRun = await service.runNow();
+  assert.equal(failedRun.run.status, "failed");
+
+  await assert.rejects(service.runNow(), { code: "NO_PENDING" });
+  const retriedRun = await service.runNow({ retryFailed: true });
+  assert.equal(retriedRun.run.status, "completed");
+
+  const page = await service.listItems({ limit: 10 });
+  assert.equal(page.items[0]?.status, "processed");
+  assert.equal(page.items[0]?.decision, "silent");
+  assert.equal(page.items[0]?.reason, "routine verification");
 });

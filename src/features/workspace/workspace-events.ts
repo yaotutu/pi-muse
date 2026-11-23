@@ -6,13 +6,15 @@ import { createSessionPresence, type SessionPresence } from "./session-presence.
 
 /** 活动进入终态的集合：这些状态不再出现在 ready.activities，变化只通过 activity_updated 通知一次。 */
 const ACTIVITY_TERMINAL: ReadonlySet<ActivityOverview["status"]> = new Set(["completed", "failed", "stopped", "interrupted"]);
+export type DomainUpdateScope = "items" | "runs" | "habits" | "preferences" | "settings";
 export type WorkspaceUpdate =
   | { event: "session_presence_updated"; presence: SessionPresence }
   | { event: "session_status_updated"; status: SessionStatus }
   | { event: "approval_pending" | "approval_updated"; approval: PendingAction }
   | { event: "activity_updated"; activity: ActivityOverview }
   | { event: "session_directory_updated" }
-  | { event: "conversation_updated"; conversation: { sessionId: string; piSessionId: string } };
+  | { event: "conversation_updated"; conversation: { sessionId: string; piSessionId: string } }
+  | { event: "domain_updated"; domain: string; scope: DomainUpdateScope };
 type Subscriber = { notify: (event: WorkspaceUpdate) => void; close: () => void };
 export class ExecutionCapacityError extends Error {
   constructor() { super("Too many active executions (maximum 32)"); }
@@ -80,6 +82,11 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
     conversationHistoryChanged: (conversation: { sessionId: string; piSessionId: string }) => {
       if (closed) return;
       publish({ event: "conversation_updated", conversation });
+    },
+    /** 后台领域数据（条目、运行、习惯、偏好或设置）变更时的轻量失效信号。 */
+    domainChanged: (domain: string, scope: DomainUpdateScope) => {
+      if (closed) return;
+      publish({ event: "domain_updated", domain, scope });
     },
     /**
      * 活动概览投影推送：由会话服务在活动状态变化时调用。

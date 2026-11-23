@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import type {
+  ResolvedWorkspaceDocument,
+  WorkspaceIncludeDiagnostic,
+} from "../../shared/workspace-includes.js";
 import { isWorkspaceText } from "../../shared/workspace-text.js";
 import type { HabitsService } from "../habits/service.js";
 import type { HabitItem, HabitPromptContext, HabitSignalPayload } from "../habits/types.js";
@@ -17,6 +21,7 @@ export const NEWS_BATCH_ITEMS = 12;
 export const NEWS_BATCH_CHARS = 60_000;
 export const NEWS_REASON_MAX_LENGTH = 1000;
 export const NEWS_PREFERENCES_INSTRUCTIONS_MAX_LENGTH = 20_000;
+export const MAX_RETAINED_NEWS_ARTICLES = 2000;
 
 const MAX_FEEDBACK_ITEMS = 20;
 const MAX_FEEDBACK_COMMENTS = 5;
@@ -193,10 +198,13 @@ export type CreateNewsScreeningDeps = {
   instructions: {
     read: () => Promise<string>;
     readResolved?: () => Promise<string>;
+    inspect?: () => Promise<ResolvedWorkspaceDocument>;
     write: (content: string) => Promise<void>;
   };
   habits?: Pick<HabitsService, "getPromptContext">;
+  maxRetainedArticles?: number;
   onFeedbackChanged?: (payload: HabitSignalPayload) => Promise<void> | void;
+  onChanged?: (scope: "items" | "runs" | "preferences") => void;
   runModel: (input: NewsScreeningModelInput, signal: AbortSignal) => Promise<NewsScreeningModelOutcome>;
   observeWork?: (
     sessionId: string,
@@ -254,11 +262,16 @@ const signalsToNewsExamples = (signals: readonly HabitSignalPayload[]): NewsArti
       };
     });
 
-/** 独立的新闻筛选领域服务：承接 RSS 文章入库、受限推荐筛选、点赞收藏评论反馈（经通用习惯引擎热缓冲+定期归纳）。 */
+/**
+ * 独立的新闻筛选领域服务（Clean Break v3）：
+ * - 去除无实际开关入口的伪 settings，支持超限文章有界裁剪（永不删除带反馈文章）。
+ * - 偏好视图对称返回 instructions + includes 诊断 + habits + unconsolidatedFeedbackCount。
+ */
 export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
   const habitsPort: Pick<HabitsService, "getPromptContext"> = deps.habits ?? {
     getPromptContext: async () => emptyHabitContext(),
   };
+  const maxRetainedArticles = Math.max(1, deps.maxRetainedArticles ?? MAX_RETAINED_NEWS_ARTICLES);
   let closed = false;
   let pauseDepth = 0;
   let activeController: AbortController | undefined;
@@ -267,6 +280,13 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
   const isPaused = () => pauseDepth > 0;
   const ensureOpen = () => {
     if (closed) throw new NewsError("SHUTDOWN", "News screening service is closing");
+  };
+  const notifyChanged = (scope: "items" | "runs" | "preferences") => {
+    try {
+      deps.onChanged?.(scope);
+    } catch {
+      // SSE 通知异常不影响核心存储。
+    }
   };
 
   const emptyFeedbackFor = (itemId: string): NewsArticleFeedback => ({
@@ -336,14 +356,14 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
     ensureOpen();
     if (!inputs.length) return [];
     const now = new Date().toISOString();
-    return deps.repository.update((state) => {
+    const accepted = await deps.repository.update((state) => {
       const seenKeys = new Set(state.processing.items.map((item) => `${item.source}\0${item.externalId}`));
-      const accepted: NewsArticleItem[] = [];
+      const next: NewsArticleItem[] = [];
       for (const input of inputs) {
         const key = `${input.source}\0${input.externalId}`;
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
-        accepted.push({
+        next.push({
           id: `news_${randomUUID()}`,
           source: input.source,
           externalId: input.externalId,
@@ -355,18 +375,20 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
           ...(input.metadata ? { metadata: input.metadata } : {}),
         });
       }
-      if (!accepted.length) return { result: [] };
+      if (!next.length) return { result: [] };
       return {
         state: {
           ...state,
           processing: {
             ...state.processing,
-            items: [...state.processing.items, ...accepted],
+            items: [...state.processing.items, ...next],
           },
         },
-        result: accepted,
+        result: next,
       };
     });
+    if (accepted.length > 0) notifyChanged("items");
+    return accepted;
   };
 
   const retryFailed = async (): Promise<{ resetDeferred: boolean }> => {
@@ -375,7 +397,7 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
       const state = await deps.repository.read();
       return { resetDeferred: state.processing.items.some((item) => item.status === "failed") };
     }
-    return deps.repository.update<{ resetDeferred: boolean }>((state) => {
+    const result = await deps.repository.update<{ resetDeferred: boolean; resetCount: number }>((state) => {
       let resetCount = 0;
       const items = state.processing.items.map((item) => {
         if (item.status !== "failed") return item;
@@ -383,15 +405,17 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
         const { runId: _drop, ...rest } = item;
         return { ...rest, status: "pending" as const };
       });
-      if (!resetCount) return { result: { resetDeferred: false } };
+      if (!resetCount) return { result: { resetDeferred: false, resetCount: 0 } };
       return {
         state: {
           ...state,
           processing: { ...state.processing, items },
         },
-        result: { resetDeferred: false },
+        result: { resetDeferred: false, resetCount },
       };
     });
+    if (result.resetCount > 0) notifyChanged("items");
+    return { resetDeferred: result.resetDeferred };
   };
 
   const listArticles = async (options: {
@@ -522,13 +546,25 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
     });
   };
 
+  const readInstructionsWithIncludes = async (): Promise<{
+    instructions: string;
+    includes: WorkspaceIncludeDiagnostic[];
+  }> => {
+    if (deps.instructions.inspect) {
+      const inspected = await deps.instructions.inspect();
+      return { instructions: inspected.raw, includes: inspected.includes };
+    }
+    return { instructions: await deps.instructions.read(), includes: [] };
+  };
+
   const getPreferences = async () => {
-    const [instructions, habitCtx] = await Promise.all([
-      deps.instructions.read(),
+    const [{ instructions, includes }, habitCtx] = await Promise.all([
+      readInstructionsWithIncludes(),
       habitsPort.getPromptContext("news"),
     ]);
     return {
       instructions,
+      includes,
       habits: habitCtx.habits,
       unconsolidatedFeedbackCount: habitCtx.unconsolidatedCount,
     };
@@ -545,14 +581,9 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
         `Preferences instructions must be at most ${NEWS_PREFERENCES_INSTRUCTIONS_MAX_LENGTH} characters`,
       );
     }
-    const instructions = input.instructions;
-    await deps.instructions.write(instructions);
-    const habitCtx = await habitsPort.getPromptContext("news");
-    return {
-      instructions,
-      habits: habitCtx.habits,
-      unconsolidatedFeedbackCount: habitCtx.unconsolidatedCount,
-    };
+    await deps.instructions.write(input.instructions);
+    notifyChanged("preferences");
+    return getPreferences();
   };
 
   const listRuns = async (options: {
@@ -604,12 +635,38 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
     return { run, items };
   };
 
+  const pruneCompletedArticles = (
+    items: readonly NewsArticleItem[],
+    runs: readonly NewsScreeningRun[],
+    articleFeedback: readonly NewsArticleFeedback[],
+  ) => {
+    const feedbackIds = new Set(articleFeedback.map((fb) => fb.itemId));
+    const prunable = items
+      .filter((item) => item.status === "processed" && !feedbackIds.has(item.id))
+      .sort((a, b) => a.acceptedAt.localeCompare(b.acceptedAt) || a.id.localeCompare(b.id));
+    if (prunable.length <= maxRetainedArticles) {
+      return { items: [...items], runs: [...runs] };
+    }
+    const dropIds = new Set(prunable.slice(0, prunable.length - maxRetainedArticles).map((item) => item.id));
+    const remainingItems = items.filter((item) => !dropIds.has(item.id));
+    const remainingRuns: NewsScreeningRun[] = [];
+    for (const run of runs) {
+      const nextItemIds = run.itemIds.filter((id) => !dropIds.has(id));
+      if (!nextItemIds.length) continue;
+      remainingRuns.push({
+        ...run,
+        itemIds: nextItemIds,
+        ...(run.decisions ? { decisions: run.decisions.filter((d) => !dropIds.has(d.itemId)) } : {}),
+      });
+    }
+    return { items: remainingItems, runs: remainingRuns };
+  };
+
   const executeBatch = async (): Promise<void> => {
     const claimed = await deps.repository.update<{
       runId: string;
       items: NewsArticleItem[];
     } | null>((state) => {
-      if (!state.processing.settings.enabled) return { result: null };
       const pending = state.processing.items.filter((item) => item.status === "pending");
       if (!pending.length) return { result: null };
       const selected: NewsArticleItem[] = [];
@@ -629,7 +686,6 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
         createdAt: now,
         startedAt: now,
         itemIds: selected.map((item) => item.id),
-        publications: [],
       };
       return {
         state: {
@@ -693,27 +749,38 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
       }
       if (parsed) {
         const hasRecommendations = parsed.decisions.some((d) => d.decision === "notify");
-        await deps.repository.update((state) => ({
-          state: {
-            ...state,
-            processing: {
-              ...state.processing,
-              items: state.processing.items.map((item) =>
-                claimedIdSet.has(item.id) ? { ...item, status: "processed" as const } : item),
-              runs: state.processing.runs.map((run) =>
-                run.id === claimed.runId
-                  ? {
-                      ...run,
-                      status: "completed" as const,
-                      finishedAt,
-                      model: { status: "succeeded" as const },
-                      decisions: parsed!.decisions,
-                    }
-                  : run),
+        await deps.repository.update((state) => {
+          const updatedItems = state.processing.items.map((item) =>
+            claimedIdSet.has(item.id) ? { ...item, status: "processed" as const } : item);
+          const updatedRuns = state.processing.runs.map((run) =>
+            run.id === claimed.runId
+              ? {
+                  ...run,
+                  status: "completed" as const,
+                  finishedAt,
+                  model: { status: "succeeded" as const },
+                  decisions: parsed!.decisions,
+                }
+              : run);
+          const pruned = pruneCompletedArticles(
+            updatedItems,
+            updatedRuns,
+            state.processing.articleFeedback,
+          );
+          return {
+            state: {
+              ...state,
+              processing: {
+                ...state.processing,
+                items: pruned.items,
+                runs: pruned.runs,
+              },
             },
-          },
-          result: undefined,
-        }));
+            result: undefined,
+          };
+        });
+        notifyChanged("items");
+        notifyChanged("runs");
         finishWork?.("succeeded", hasRecommendations);
         return;
       }
@@ -741,21 +808,18 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
       },
       result: undefined,
     }));
+    notifyChanged("items");
+    notifyChanged("runs");
     finishWork?.("failed");
   };
 
   const nextDue = async (): Promise<boolean> => {
     if (closed || isPaused() || activePromise) return false;
     if (deps.repository.hasPendingArticle) {
-      const hasPending = await deps.repository.hasPendingArticle();
-      if (!hasPending) return false;
+      return deps.repository.hasPendingArticle();
     }
     const state = await deps.repository.read();
-    if (!state.processing.settings.enabled) return false;
-    const firstPending = state.processing.items.find((item) => item.status === "pending");
-    if (!firstPending) return false;
-    const dueAt = Date.parse(firstPending.acceptedAt) + state.processing.settings.batchWindowSeconds * 1000;
-    return Number.isNaN(dueAt) || Date.now() >= dueAt;
+    return state.processing.items.some((item) => item.status === "pending");
   };
 
   const runDue = async (): Promise<void> => {

@@ -14,19 +14,12 @@ import {
 } from "../../features/news/types.js";
 
 /**
- * news.sqlite 的表结构与行映射：
- * - 核心字段/关系（含文章来源快照与 URL）入列；run.publications 作为新闻
- *   正常不产生、但旧聚合允许的可变形状事实保留为规范 JSON payload 列。
- * - 读取只声明显式列：Agent 加列/加表不破坏严格解析；写入只 UPDATE/INSERT
- *   显式列，行级 diff 不整表重写，Agent 扩展数据不会被抹掉。
- * - 故意不加指向 news_sources 的外键：删除源必须保留文章与反馈。
- *   feedback/comments/run 明细/decisions 对文章、反馈、批次使用外键；
- *   已删除新闻源的 source_id/source 快照不引用 sources 表。
- * - 数组顺序（文章接纳序、反馈触达序、run itemIds/decisions 序）用
- *   position 列保真；游标分页的时间并列由 id 决胜，不依赖 position。
+ * news.sqlite 的表结构与行映射（Clean Break v3）：
+ * - v3 清理 news_state 中已废弃的 settings_mode / preferences_learned_notes / initial_analysis_completed /
+ *   settings_* 死列，以及 news_analysis_runs 中的 kind / publications_json 死列。
+ * - 读取只声明显式列，写入使用行级 diff，保证 Agent 扩展表/列不被抹掉。
  */
-
-const NEWS_SCHEMA_VERSION = 2;
+export const NEWS_SCHEMA_VERSION = 3;
 
 const publicFeedUrl = z.string().url().max(2048).regex(/^https?:\/\//).refine((value) => {
   const url = new URL(value);
@@ -48,10 +41,6 @@ const sourceSchema = z.strictObject({
 });
 
 const newsProcessingSchema = z.strictObject({
-  settings: z.strictObject({
-    enabled: z.boolean(),
-    batchWindowSeconds: z.number().int().min(0).max(3600),
-  }),
   articleFeedback: z.array(
     z.strictObject({
       itemId: z.string().min(1).max(128),
@@ -104,7 +93,6 @@ const newsProcessingSchema = z.strictObject({
           reason: z.string().min(1).max(1000),
         }),
       ).optional(),
-      publications: z.tuple([]),
     }),
   ),
 });
@@ -117,7 +105,7 @@ export const newsDocumentSchema = z.strictObject({
   lastError: z.string().max(300).nullable(),
 });
 
-/** 与旧 news.json 相同的严格校验；SQLite 写入前与读取后都执行同一规则。 */
+/** SQLite 写入前与读取后都执行严格一致性校验。 */
 export const parseNewsState = (value: unknown): NewsState => {
   const result = newsDocumentSchema.safeParse(value);
   if (!result.success) throw new Error("Invalid news document");
@@ -148,11 +136,6 @@ const NEWS_TABLE_DDL = [
   `CREATE TABLE IF NOT EXISTS news_state (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     schema_version INTEGER NOT NULL CHECK (schema_version = 1),
-    settings_enabled INTEGER NOT NULL CHECK (settings_enabled IN (0, 1)),
-    settings_batch_window_seconds INTEGER NOT NULL,
-    settings_mode TEXT NOT NULL CHECK (settings_mode IN ('notifications', 'recommendations')),
-    preferences_learned_notes TEXT NOT NULL,
-    initial_analysis_completed INTEGER CHECK (initial_analysis_completed IN (0, 1)),
     last_refreshed_at TEXT,
     last_error TEXT
   )`,
@@ -204,11 +187,9 @@ const NEWS_TABLE_DDL = [
     created_at TEXT NOT NULL,
     started_at TEXT NOT NULL,
     finished_at TEXT,
-    kind TEXT CHECK (kind IN ('initial_summary', 'incremental')),
     model_status TEXT CHECK (model_status IN ('succeeded', 'failed')),
     model_error TEXT,
-    has_decisions INTEGER NOT NULL CHECK (has_decisions IN (0, 1)),
-    publications_json TEXT NOT NULL
+    has_decisions INTEGER NOT NULL CHECK (has_decisions IN (0, 1))
   )`,
   `CREATE TABLE IF NOT EXISTS news_analysis_run_items (
     run_id TEXT NOT NULL REFERENCES news_analysis_runs(id),
@@ -250,24 +231,16 @@ const tableExists = (database: DatabaseSync, table: string): boolean =>
 const insertDefaultStateRow = (database: DatabaseSync): void => {
   const state = defaultNewsState();
   database.prepare(
-    "INSERT INTO news_state (id, schema_version, settings_enabled, settings_batch_window_seconds, settings_mode, preferences_learned_notes, initial_analysis_completed, last_refreshed_at, last_error) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO news_state (id, schema_version, last_refreshed_at, last_error) VALUES (1, ?, ?, ?)",
   ).run(
     state.schemaVersion,
-    state.processing.settings.enabled ? 1 : 0,
-    state.processing.settings.batchWindowSeconds,
-    "recommendations",
-    "",
-    0,
     state.lastRefreshedAt,
     state.lastError,
   );
 };
 
 /**
- * 建库/校验结构。只有调用方确认本次新建的“空库”（user_version 0、无内置
- * 表、至多一个 header 页）才写入默认结构与来源标记；已初始化的库缺表、缺单例状态行或缺来源标记都视为结构损坏并显式
- * 失败——Agent 删表/清空状态不能被 CREATE IF NOT EXISTS 加默认值静默当成
- * 空新闻。整体在一个同步事务内完成，失败不落半初始化结构。
+ * 建库/校验结构（Clean Break v3）：仅空库初始化当前 v3 结构，已有旧版本或损坏库直接显式报错，不留迁移分支。
  */
 export const ensureNewsSchema = (managed: ManagedSqliteDatabase, initialize = true): void => {
   managed.transaction(() => {
@@ -277,21 +250,13 @@ export const ensureNewsSchema = (managed: ManagedSqliteDatabase, initialize = tr
     const pageCount = Number((database.prepare("PRAGMA page_count").get() as { page_count: number })?.page_count ?? 0);
     const isEmptyDatabase = version === 0 && existingTables.length === 0 && pageCount <= 1;
     if (!initialize || !isEmptyDatabase) {
-      if (version !== NEWS_SCHEMA_VERSION && version !== 1) {
+      if (version !== NEWS_SCHEMA_VERSION) {
         throw new Error(`Invalid news database: unsupported schema version ${version}`);
       }
       for (const table of NEWS_TABLES) {
         if (!existingTables.includes(table)) {
           throw new Error(`Invalid news database: missing table ${table}`);
         }
-      }
-      // v1→v2 是纯增列升级：只补可空的源失败分类，旧行保持 NULL（读取时省略字段）。
-      if (version === 1) {
-        const columns = database.prepare("PRAGMA table_info(news_sources)").all() as Array<{ name: string }>;
-        if (!columns.some((column) => column.name === "last_error_details")) {
-          database.exec("ALTER TABLE news_sources ADD COLUMN last_error_details TEXT");
-        }
-        database.exec(`PRAGMA user_version = ${NEWS_SCHEMA_VERSION}`);
       }
       if (!database.prepare("SELECT 1 FROM news_state WHERE id = 1").get()) {
         throw new Error("Invalid news database: missing news_state row");
@@ -317,10 +282,6 @@ const parsePayload = (raw: string | null, label: string): unknown => {
   }
 };
 
-/**
- * 源失败分类的可选列：SQL NULL 表示旧库/旧行从未写入分类（读取时省略字段），
- * 文本 null 表示成功抓取后显式清空（读取时保留 null）。
- */
 const parseSourceDetails = (raw: string | null): NewsSourceFailure | null | undefined =>
   raw === null ? undefined : parsePayload(raw, "source error details") as NewsSourceFailure | null;
 
@@ -341,22 +302,20 @@ type FeedbackRow = { item_id: string; position: number; reaction: "like" | "disl
 type CommentRow = { id: string; item_id: string; position: number; text: string; created_at: string; updated_at: string };
 type RunRow = {
   id: string; position: number; status: NewsScreeningRun["status"]; created_at: string; started_at: string;
-  finished_at: string | null; kind: string | null; model_status: "succeeded" | "failed" | null;
-  model_error: string | null; has_decisions: number; publications_json: string;
+  finished_at: string | null; model_status: "succeeded" | "failed" | null;
+  model_error: string | null; has_decisions: number;
 };
 type RunItemRow = { run_id: string; position: number; item_id: string };
 type DecisionRow = { run_id: string; position: number; item_id: string; decision: "silent" | "notify"; reason: string };
 type StateRow = {
-  schema_version: number; settings_enabled: number; settings_batch_window_seconds: number;
-  settings_mode: "notifications" | "recommendations"; preferences_learned_notes: string;
-  initial_analysis_completed: number | null; last_refreshed_at: string | null; last_error: string | null;
+  schema_version: number; last_refreshed_at: string | null; last_error: string | null;
 };
 
-/** 从显式列装配完整 NewsState 聚合，并按旧 JSON 文档同一规则严格校验。 */
+/** 从显式列装配完整 NewsState 聚合，并执行严格一致性校验。 */
 export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
   const database = managed.database;
   const stateRow = database.prepare(
-    "SELECT schema_version, settings_enabled, settings_batch_window_seconds, settings_mode, preferences_learned_notes, initial_analysis_completed, last_refreshed_at, last_error FROM news_state WHERE id = 1",
+    "SELECT schema_version, last_refreshed_at, last_error FROM news_state WHERE id = 1",
   ).get() as StateRow | undefined;
   if (!stateRow) throw new Error("Invalid news database: missing news_state row");
   const sources = (database.prepare(
@@ -420,7 +379,7 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
     decisionsByRun.set(row.run_id, list);
   }
   const runs = (database.prepare(
-    "SELECT id, position, status, created_at, started_at, finished_at, kind, model_status, model_error, has_decisions, publications_json FROM news_analysis_runs ORDER BY position",
+    "SELECT id, position, status, created_at, started_at, finished_at, model_status, model_error, has_decisions FROM news_analysis_runs ORDER BY position",
   ).all() as RunRow[]).map<NewsScreeningRun>((row) => ({
     id: row.id,
     itemIds: runItemsByRun.get(row.id) ?? [],
@@ -432,19 +391,9 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
       ? { model: { status: row.model_status, ...(row.model_error !== null ? { error: row.model_error } : {}) } }
       : {}),
     ...(row.has_decisions === 1 ? { decisions: decisionsByRun.get(row.id) ?? [] } : {}),
-    publications: parsePayload(row.publications_json, "run publications") as NewsScreeningRun["publications"],
   }));
-  const processing = {
-    settings: {
-      enabled: stateRow.settings_enabled === 1,
-      batchWindowSeconds: stateRow.settings_batch_window_seconds,
-    },
-    items,
-    runs,
-    articleFeedback,
-  };
   return parseNewsState({
-    processing,
+    processing: { items, runs, articleFeedback },
     schemaVersion: stateRow.schema_version,
     sources,
     lastRefreshedAt: stateRow.last_refreshed_at,
@@ -452,7 +401,6 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
   });
 };
 
-/** 稳定 key 序列化：同一逻辑 payload 不因对象 key 顺序产生不同存储字节。 */
 const canonicalJson = (value: unknown): string => {
   const sort = (input: unknown): unknown => {
     if (Array.isArray(input)) return input.map(sort);
@@ -485,20 +433,11 @@ export const deepEqual = (left: unknown, right: unknown): boolean => {
 
 const projectStateRow = (state: NewsState) => ({
   schema_version: state.schemaVersion,
-  settings_enabled: state.processing.settings.enabled ? 1 : 0,
-  settings_batch_window_seconds: state.processing.settings.batchWindowSeconds,
-  settings_mode: "recommendations",
-  preferences_learned_notes: "",
-  initial_analysis_completed: 0,
   last_refreshed_at: state.lastRefreshedAt,
   last_error: state.lastError,
 });
 
-/**
- * 行级 diff 提交：prev 是本次事务前从库读回的聚合，next 是业务回调产生并
- * 严格校验后的新聚合。只增删改发生变化的行，不整表重写；删除顺序先子后父，
- * 写入顺序先父后子，满足外键。
- */
+/** 行级 diff 提交：只增删改发生变化的行，满足外键顺序并保留 Agent 扩展列。 */
 export const applyNewsState = (managed: ManagedSqliteDatabase, previous: NewsState, next: NewsState): void => {
   const database = managed.database;
 
@@ -506,20 +445,14 @@ export const applyNewsState = (managed: ManagedSqliteDatabase, previous: NewsSta
   const nextStateRow = projectStateRow(next);
   if (!deepEqual(prevStateRow, nextStateRow)) {
     database.prepare(
-      "UPDATE news_state SET schema_version = ?, settings_enabled = ?, settings_batch_window_seconds = ?, settings_mode = ?, preferences_learned_notes = ?, initial_analysis_completed = ?, last_refreshed_at = ?, last_error = ? WHERE id = 1",
+      "UPDATE news_state SET schema_version = ?, last_refreshed_at = ?, last_error = ? WHERE id = 1",
     ).run(
       nextStateRow.schema_version,
-      nextStateRow.settings_enabled,
-      nextStateRow.settings_batch_window_seconds,
-      nextStateRow.settings_mode,
-      nextStateRow.preferences_learned_notes,
-      nextStateRow.initial_analysis_completed,
       nextStateRow.last_refreshed_at,
       nextStateRow.last_error,
     );
   }
 
-  // 历史文章会持续增长，移除检测用集合，避免每次反馈写入都做全量平方级扫描。
   const nextSourceIds = new Set(next.sources.map((source) => source.id));
   const nextArticleIds = new Set(next.processing.items.map((item) => item.id));
   const nextFeedbackIds = new Set(next.processing.articleFeedback.map((feedback) => feedback.itemId));
@@ -533,7 +466,6 @@ export const applyNewsState = (managed: ManagedSqliteDatabase, previous: NewsSta
   const nextCommentsByItem = new Map(next.processing.articleFeedback.map((feedback) => [feedback.itemId, feedback.comments]));
   const allCommentItemIds = new Set([...prevCommentsByItem.keys(), ...nextCommentsByItem.keys()]);
 
-  // 删除阶段：评论 → 反馈 → run 明细/决策 → run → 文章 → 源。
   for (const itemId of allCommentItemIds) {
     const prevComments = prevCommentsByItem.get(itemId) ?? [];
     const nextComments = nextCommentsByItem.get(itemId) ?? [];
@@ -557,13 +489,14 @@ export const applyNewsState = (managed: ManagedSqliteDatabase, previous: NewsSta
     database.prepare("DELETE FROM news_analysis_runs WHERE id = ?").run(run.id);
   }
   for (const item of removedArticleIds) {
+    database.prepare("DELETE FROM news_analysis_run_items WHERE item_id = ?").run(item.id);
+    database.prepare("DELETE FROM news_analysis_decisions WHERE item_id = ?").run(item.id);
     database.prepare("DELETE FROM news_articles WHERE id = ?").run(item.id);
   }
   for (const source of removedSourceIds) {
     database.prepare("DELETE FROM news_sources WHERE id = ?").run(source.id);
   }
 
-  // 写入阶段：文章 → run → 反馈 → 评论 → run 明细/决策 → 源。
   const prevArticleById = new Map(previous.processing.items.map((item, index) => [item.id, { item, index }]));
   next.processing.items.forEach((item, index) => {
     const old = prevArticleById.get(item.id);
@@ -587,7 +520,6 @@ export const applyNewsState = (managed: ManagedSqliteDatabase, previous: NewsSta
   const prevRunById = new Map(previous.processing.runs.map((run, index) => [run.id, { run, index }]));
   next.processing.runs.forEach((run, index) => {
     const old = prevRunById.get(run.id);
-    const publicationsJson = canonicalJson(run.publications);
     const hasDecisions = run.decisions === undefined ? 0 : 1;
     const runRowChanged = !old ||
       old.index !== index ||
@@ -597,12 +529,11 @@ export const applyNewsState = (managed: ManagedSqliteDatabase, previous: NewsSta
       old.run.finishedAt !== run.finishedAt ||
       (old.run.model?.status ?? null) !== (run.model?.status ?? null) ||
       (old.run.model?.error ?? null) !== (run.model?.error ?? null) ||
-      (old.run.decisions === undefined ? 0 : 1) !== hasDecisions ||
-      canonicalJson(old.run.publications) !== publicationsJson;
+      (old.run.decisions === undefined ? 0 : 1) !== hasDecisions;
     if (runRowChanged) {
       database.prepare(
-        "INSERT INTO news_analysis_runs (id, position, status, created_at, started_at, finished_at, kind, model_status, model_error, has_decisions, publications_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET position = excluded.position, status = excluded.status, created_at = excluded.created_at, started_at = excluded.started_at, finished_at = excluded.finished_at, kind = excluded.kind, model_status = excluded.model_status, model_error = excluded.model_error, has_decisions = excluded.has_decisions, publications_json = excluded.publications_json",
-      ).run(run.id, index, run.status, run.createdAt, run.startedAt, run.finishedAt ?? null, null, run.model?.status ?? null, run.model?.error ?? null, hasDecisions, publicationsJson);
+        "INSERT INTO news_analysis_runs (id, position, status, created_at, started_at, finished_at, model_status, model_error, has_decisions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET position = excluded.position, status = excluded.status, created_at = excluded.created_at, started_at = excluded.started_at, finished_at = excluded.finished_at, model_status = excluded.model_status, model_error = excluded.model_error, has_decisions = excluded.has_decisions",
+      ).run(run.id, index, run.status, run.createdAt, run.startedAt, run.finishedAt ?? null, run.model?.status ?? null, run.model?.error ?? null, hasDecisions);
     }
     if (!old || !deepEqual(old.run.itemIds, run.itemIds)) {
       for (let position = run.itemIds.length; position < (old?.run.itemIds.length ?? 0); position++) {

@@ -18,7 +18,7 @@ import { createSkillsService } from "../features/skills/service.js";
 import { createMemoryService } from "../features/memory/memory-service.js";
 import { createIdentityService } from "../features/identity/identity-service.js";
 import { readProfileFile, writeProfileFile } from "../adapters/storage/profile-files.js";
-import { readResolvedProfileFile } from "../adapters/storage/workspace-document-includes.js";
+import { inspectProfileFile, readResolvedProfileFile } from "../adapters/storage/workspace-document-includes.js";
 import { createJobRepository } from "../adapters/storage/job-repository.js";
 import { createGoalRepository } from "../adapters/storage/goal-repository.js";
 import { createActionRepository } from "../adapters/storage/action-repository.js";
@@ -308,6 +308,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   const domainInstructions = (file: string) => ({
     read: () => readProfileFile(file, layout.workspaceDir),
     readResolved: () => readResolvedProfileFile(file, layout.workspaceDir),
+    inspect: () => inspectProfileFile(file, layout.workspaceDir),
     write: async (text: string) => { await writeProfileFile(file, text, undefined, layout.workspaceDir); },
   });
   const smsInstructions = domainInstructions(layout.smsInstructionsFile);
@@ -330,6 +331,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
       },
     ],
     consolidateModel: createHabitConsolidationRunner({ config, layout, modelRuntime }),
+    onChanged: (domain) => workspaceEvents.domainChanged(domain, "habits"),
     observeWork: workspaceEvents.presence.observe,
   });
   const habitsScheduler = createHabitsScheduler(habits);
@@ -337,6 +339,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     observeWork: workspaceEvents.presence.observe,
     retainMain: () => conversationHub.retainSession("main"),
     habits,
+    onChanged: (scope: "items" | "runs" | "preferences" | "settings") => workspaceEvents.domainChanged("sms", scope),
     runModel: createInformationRunner({ config, layout, modelRuntime }),
   };
   // 短信领域指令存入工作区，行为习惯与热缓冲统一由 habits 模块托管。
@@ -377,6 +380,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     instructions: newsInstructions,
     habits,
     onFeedbackChanged: (payload) => habits.recordSignal("news", payload.targetId, payload),
+    onChanged: (scope) => workspaceEvents.domainChanged("news", scope),
     runModel: createNewsScreeningRunner({ config, layout, modelRuntime }),
   });
   const informationScheduler = createInformationScheduler(information);
@@ -386,6 +390,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     repository: newsRepository,
     screening: newsScreening,
     fetchFeed: (url, signal) => fetchRss2(url, config.web, signal),
+    onChanged: (scope) => workspaceEvents.domainChanged("news", scope),
   });
   domainAgents = createDomainAgentRegistry({
     domains: [

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { messageFeedbackResponse, messageMetadataResponse } from "./messages.js";
+import { workspaceIncludeDiagnosticSchema } from "./workspace-includes.js";
 
 /**
  * 响应契约（zod v4）：每个端点 200 响应的形状，全部从现有路由投影提炼。
@@ -111,6 +112,7 @@ export const profileResponse = z.object({
 });
 export const instructionsResponse = z.object({
   instructions: z.string().describe("各聊天会话共用的助手指令文本（INSTRUCTIONS.md）"),
+  includes: z.array(workspaceIncludeDiagnosticSchema).describe("文档顶部 YAML frontmatter `include:` 引用展开诊断"),
 });
 export type InstructionsDto = z.infer<typeof instructionsResponse>;
 

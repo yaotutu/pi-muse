@@ -26,6 +26,7 @@ export type NewsServiceDependencies = {
   repository: NewsRepository;
   screening: NewsScreeningService;
   fetchFeed: (url: string, signal: AbortSignal) => Promise<ParsedFeed>;
+  onChanged?: (scope: "items" | "runs" | "preferences") => void;
 };
 
 /** RSS collection is a thin edge over information ingestion; no separate ranking loop. */
@@ -91,6 +92,7 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
         result: undefined,
       };
     });
+    deps.onChanged?.("items");
     return { source, skipped: parsed.skipped };
   };
 
@@ -105,6 +107,7 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
       };
     });
     if (!deleted) throw new NewsError("NOT_FOUND", "RSS source not found");
+    deps.onChanged?.("items");
     return { deleted: true as const, sourceId };
   };
 
@@ -171,6 +174,7 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
         ? (await deps.screening.retryFailed()).resetDeferred
         : false;
       finish?.(failed ? "failed" : "succeeded", added > 0);
+      deps.onChanged?.("items");
       return { added, skipped, resetDeferred };
     })();
     activeRefresh = work;

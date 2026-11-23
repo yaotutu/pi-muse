@@ -1,3 +1,4 @@
+import type { WorkspaceIncludeDiagnostic } from "../../shared/workspace-includes.js";
 import type { HabitItem, HabitOperation } from "../habits/types.js";
 
 export type InformationSettings = {
@@ -24,9 +25,9 @@ export type InformationFeedbackExample = {
 
 export type InformationPreferencesView = {
   instructions: string;
+  includes: WorkspaceIncludeDiagnostic[];
   habits: HabitItem[];
   unconsolidatedFeedbackCount: number;
-  feedbackExamples: InformationFeedbackExample[];
 };
 
 export type InformationInputItem = {
@@ -40,6 +41,8 @@ export type InformationInputItem = {
 export type InformationQueue = "realtime" | "archive";
 export type InformationItemStatus = "pending" | "processing" | "processed" | "failed";
 
+export type InformationDecisionType = "silent" | "notify";
+
 export type InformationItem = {
   id: string;
   queue: InformationQueue;
@@ -51,9 +54,9 @@ export type InformationItem = {
   acceptedAt: string;
   status: InformationItemStatus;
   runId?: string;
+  decision?: InformationDecisionType;
+  reason?: string;
 };
-
-export type InformationDecisionType = "silent" | "notify";
 
 export type InformationDecision = {
   itemId: string;
@@ -94,20 +97,6 @@ export type InformationRun = {
   decisions?: InformationDecision[];
   publications: InformationPublication[];
 };
-
-export type InformationState = {
-  schemaVersion: 3;
-  settings: InformationSettings;
-  items: InformationItem[];
-  runs: InformationRun[];
-};
-
-export const defaultInformationState = (): InformationState => ({
-  schemaVersion: 3,
-  settings: { enabled: false, batchWindowSeconds: 15 },
-  items: [],
-  runs: [],
-});
 
 export type InformationNotificationDraft = {
   itemIds: string[];
@@ -196,11 +185,86 @@ export type InformationArchiveRunResult = {
   briefingPublished: boolean;
 };
 
+export type InformationStatusSummary = {
+  enabled: boolean;
+  batchWindowSeconds: number;
+  hasRunningRow: boolean;
+  pendingCount: number;
+  failedCount: number;
+  archivePendingCount: number;
+  archiveProcessedCount: number;
+  archiveFailedCount: number;
+  lastRunAt: string | null;
+  lastError: string | null;
+};
+
 export type InformationRepository = {
-  read: () => Promise<InformationState>;
-  update: <T>(
-    change: (state: InformationState) => { state?: InformationState; result: T } | Promise<{ state?: InformationState; result: T }>,
-  ) => Promise<T>;
+  getSettings: () => Promise<InformationSettings>;
+  saveSettings: (settings: InformationSettings) => Promise<InformationSettings>;
+  ingestItems: (
+    queue: InformationQueue,
+    inputs: readonly InformationInputItem[],
+    now: string,
+  ) => Promise<{ accepted: InformationItem[]; responseItems: InformationItem[]; skippedCount: number }>;
+  listItems: (options: {
+    queue?: InformationQueue;
+    status?: InformationItemStatus;
+    limit: number;
+    after?: { at: string; id: string };
+  }) => Promise<{ items: InformationItem[]; hasMore: boolean }>;
+  getItem: (itemId: string) => Promise<{ item: InformationItem; runs: InformationRun[] } | undefined>;
+  listRuns: (options: {
+    kind?: InformationRunKind;
+    status?: InformationRunStatus;
+    limit: number;
+    after?: { at: string; id: string };
+  }) => Promise<{ runs: InformationRun[]; hasMore: boolean }>;
+  getRun: (runId: string) => Promise<{ run: InformationRun; items: InformationItem[] } | undefined>;
+  getStatusSummary: () => Promise<InformationStatusSummary>;
+  requeueFailed: (queue: InformationQueue) => Promise<number>;
+  claimBatch: (
+    queue: InformationQueue,
+    options: { forceRealtime: boolean; maxItems: number; maxChars: number; now: string },
+  ) => Promise<{ run: InformationRun; items: InformationItem[] } | null>;
+  revertClaimedRun: (runId: string, itemIds: readonly string[], finishedAt: string) => Promise<InformationRun>;
+  markRunFailed: (
+    runId: string,
+    itemIds: readonly string[],
+    errorMessage: string,
+    finishedAt: string,
+  ) => Promise<InformationRun>;
+  completeModelRound: (input: {
+    runId: string;
+    itemIds: readonly string[];
+    decisions: readonly InformationDecision[];
+    publications: readonly InformationPublication[];
+    finishedAt: string;
+  }) => Promise<InformationRun>;
+  updatePublication: (
+    runId: string,
+    notificationId: string,
+    update: { status: "published" | "failed"; receipt?: InformationPublicationReceipt; error?: string },
+  ) => Promise<void>;
+  failPendingPublications: (runId: string, reason: string) => Promise<void>;
+  finalizeDelivery: (
+    runId: string,
+    finishedAt: string,
+    interruptReason: string,
+  ) => Promise<InformationRun>;
+  setRunPublications: (runId: string, publications: readonly InformationPublication[]) => Promise<void>;
+  getNotificationContext: (notificationId: string) => Promise<{
+    runId: string;
+    publication: InformationPublication;
+    items: InformationItem[];
+  } | undefined>;
+  getArchiveBriefingWave: () => Promise<{
+    itemsById: Map<string, InformationItem>;
+    waveRuns: InformationRun[];
+  } | null>;
+  pruneHistory: (limits?: {
+    maxProcessedRealtimeItems?: number;
+    maxProcessedArchiveItems?: number;
+  }) => Promise<{ deletedItems: number; deletedRuns: number }>;
   validateAll: () => Promise<void>;
   nextRealtimeDue: () => Promise<boolean>;
   reconcileOnStart: () => Promise<void>;

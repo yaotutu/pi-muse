@@ -37,6 +37,8 @@ export const createHabitsRoutes = (dependencies: Pick<HttpDependencies, "habits"
     }
   };
 
+  app.get("/", (c) => handle(c, async () => ({ domains: await habits.listDomainSummaries() })));
+
   app.get("/:domain", (c) => handle(c, () => habits.getOverview(c.req.param("domain"))));
 
   app.post("/:domain", async (c) => {

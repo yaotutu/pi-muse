@@ -36,19 +36,23 @@
 
 ## 变更与须知记录
 
-### 2026-11-23 — 通用用户习惯定期归纳引擎上线，偏好响应移除 `learnedNotes` 改为 `habits` + 热缓冲
+### 2026-11-23 — 领域偏好/习惯契约对称化、短信 SQLite v4 决策投影、`include:` 诊断与 `domain_updated` 事件
 
 - **影响端形态**：`rich-ui`、`all`
 - **类型**：`breaking`、`feature`
-- **契约入口**：`/docs`「习惯」「信息后台」「新闻」（以 `/openapi.json` 为准）
+- **契约入口**：`/docs`「习惯」「信息后台」「新闻」「助手设置」「事件与通知」（以 `/openapi.json` 为准）
 - **要点与接入端注意**：
-  - **严格解析器必改预警（P0 — 字段移除与替换）**：
-    - `GET / PUT /api/information/preferences` 响应移除 `learnedNotes: string`，改为 `{ instructions, habits, unconsolidatedFeedbackCount, feedbackExamples }`；其中 `habits` 为结构化长期行为习惯数组（上限 50 条），`feedbackExamples` 现只保留**尚未被归纳消化**的近期反馈热缓冲样本（归纳提交成功后清空）。
-    - `GET / PUT /api/news/preferences` 响应移除 `learnedNotes: string`，改为 `{ instructions, habits, unconsolidatedFeedbackCount }`。
-  - **新增通用习惯管理与触发接口（`/api/habits/:domain`）**：
-    - `GET /api/habits/:domain` 读取领域（如 `sms`、`news`）完整习惯清单、未消化计数（`unconsolidatedCount`）、自动阈值（`autoThreshold=5`）、定时周期（2 小时）、游标 `cursorSeq` 与最近归纳状态。
-    - `POST /api/habits/:domain`（`{ text }`）、`PATCH /api/habits/:domain/:habitId`（`{ text }`）、`DELETE /api/habits/:domain/:habitId` 支持用户手动增删改任意习惯条文（1–300 字符）；每领域上限 50 条，超限返回 `409 LIMIT_EXCEEDED`。
-    - `POST /api/habits/:domain/consolidate`（必须传空对象 `{}`）手动立即触发该领域未消化反馈的增量归纳；仅在模型返回且结构化校验通过后原子推进游标并清理热缓冲，失败绝不丢失原反馈。
+  - **严格解析器必改预警（P0 — 偏好与习惯接口重构）**：
+    - `GET / PUT /api/information/preferences` 与 `GET / PUT /api/news/preferences` 统一返回完全对称的结构：`{ instructions, includes, habits, unconsolidatedFeedbackCount }`；移除 `learnedNotes: string` 与短信侧冗余的 HTTP `feedbackExamples` 字段。
+    - `GET / PUT /api/assistant/instructions` 返回 `{ instructions, includes }`；其中 `includes` 为顶部 YAML Frontmatter `include:` 的只读解析诊断数组（`path`、`status: loaded | missing | invalid | cycle | depth_exceeded | truncated | empty`、可选 `resolvedPath`），接口继续保持与保存原始文本。
+  - **通用习惯管理新增域发现与待归纳明细（`/api/habits` & `/api/habits/:domain`）**：
+    - 新增 `GET /api/habits`，返回全部已注册领域摘要 `{ domains: [...] }`（含 `domain`、`name`、`summary`、`running`、`habitsCount`、`unconsolidatedCount`、`autoThreshold`、`intervalMs`、`lastRunAt`、`lastRunStatus`）。
+    - `GET /api/habits/:domain` 新增 `name`、`summary` 与 `pendingSignals`（热缓冲中待归纳反馈摘要，含 `targetId`、`kind`、`summary`、`reaction`、`saved`、`comments`、`commentsTruncated`、`updatedAt`），便于前端统一展示短信与新闻待消化反馈；习惯 CRUD 与手动归纳 `POST /api/habits/:domain/consolidate`（传 `{}`）继续由本组端点负责。
+  - **信息后台条目直接投影判定结果与实时失败重试**：
+    - `GET /api/information/items` 与 `GET /api/information/items/:itemId` 对已评估条目直接返回可选字段 `decision`（`"silent" | "notify"`）与 `reason`（模型给出的筛选理由），客户端无需再关联 `runs` 手动拼装列表展示原因。
+    - `POST /api/information/runs` 支持传 `{}` 或可选 `{ retryFailed?: boolean }`（默认 `false`），允许手动立即重试日常实时队列中的 `failed` 条目。
+  - **新增工作区领域失效事件 `domain_updated`（`GET /api/events`）**：
+    - `GET /api/events` 新增 `domain_updated` 事件，载荷 `{ instanceId, domain, scope }`（`scope` 为 `items | runs | habits | preferences | settings`）；接入端收到后按对应 `domain` 与 `scope` 定向刷新视图，无需高频轮询。
 
 ### 2026-11-23 — 消息反馈新增 `saved` 收藏原语与条件列表接口，底层迁移至 `main.sqlite`
 
@@ -56,12 +60,12 @@
 - **类型**：`feature`（对严格字段白名单解析器为 `breaking`）
 - **契约入口**：`/docs`「消息反馈」（以 `/openapi.json` 为准）
 - **要点与接入端注意**：
-  - **严格解析器必改预警（P0）**：`MessageFeedback` 返回体（含历史 `messages[].feedback`）新增必填字段 `saved: boolean`，原始事件流新增 `saved_changed` 事件类型，信息偏好 `feedbackExamples[]` 亦新增 `saved: boolean`。使用严格字段白名单（如 `hasOnlyKeys`）或详尽 `type` 枚举校验的客户端（例如 React Native 端 `parseMessageFeedback` / `parseFeedbackEvent`），**必须先适配新增字段与事件类型**，否则拉取历史和事件流会报错拦截。
+  - **严格解析器必改预警（P0）**：`MessageFeedback` 返回体（含历史 `messages[].feedback`）新增必填字段 `saved: boolean`，原始事件流新增 `saved_changed` 事件类型。使用严格字段白名单（如 `hasOnlyKeys`）或详尽 `type` 枚举校验的客户端（例如 React Native 端 `parseMessageFeedback` / `parseFeedbackEvent`），**必须先适配新增字段与事件类型**，否则拉取历史和事件流会报错拦截。
   - **全消息类型统一人类行为原语（`like` / `dislike` / `saved` / `comments`）**：全部会话消息反馈响应与历史消息回读对象新增 `saved: boolean` 字段（默认 `false`），与现有 `reaction`（`"like" | "dislike" | null`）和 `comments` 共享底层语义（与 `news` 领域对齐）。
   - **新增收藏与列表检索接口**：
     - `PUT /api/sessions/:sessionId/messages/:messageId/feedback/saved`（body：`{ piSessionId, saved }`）独立切换单条消息收藏状态，不改变点赞/点踩或评论，追加 `saved_changed` 原始审计事件。
     - `GET /api/sessions/:sessionId/messages/feedback?piSessionId=...&saved=...&reaction=...` 按当前 `piSessionId` 与可选 `saved` / `reaction` 条件返回有活跃行为记录的消息列表（`messageId`、`role`、`feedback: { reaction, saved, comments }`、`updatedAt`）。
-  - **领域消费对齐（信息后台 `feedbackExamples`）**：`GET /api/information/preferences` 返回的示例新增 `saved: boolean`；仅收藏未点赞/评论的通知消息也会作为反馈样本进入 `feedbackExamples`。
+  - **领域消费对齐（习惯热缓冲 `pendingSignals`）**：仅收藏未点赞/评论的通知消息也会作为反馈样本写入对应领域的习惯热缓冲（可通过 `GET /api/habits/sms` 的 `pendingSignals` 查看）。
   - **存储层迁移至 `main.sqlite`**：`sessions/<sessionId>/feedback/` 目录不再使用，反馈事件流与索引状态统一保存在 `main.sqlite` 的 `message_feedback_events` 与 `message_feedback_states` 表，对外 HTTP 契约保持兼容扩展。
 
 ### 2026-11-23 — 工作区指令与人设文件支持顶部 YAML Frontmatter `include:` 拆分引用
@@ -71,7 +75,7 @@
 - **契约入口**：`/docs`「助手设置」「人设」「信息后台」「新闻」
 - **要点与接入端注意**：
   - **支持顶部 `include:` 拆分指令**：全部 5 份工作区托管 Markdown（`workspace/assistant/{SOUL,USER,INSTRUCTIONS}.md` 与 `workspace/domains/{sms,news}/INSTRUCTIONS.md`）均支持在文件最顶部使用标准 YAML Frontmatter（`---\ninclude:\n  - ./sub.md\n---` 或单条 `include: ./sub.md`）引用相对于当前文件目录的工作区纯文本文件。
-  - **原文读取/保存不变、注入前实时展开**：`GET`/`PUT` 接口及工作区文件编辑继续原样返回并保存含 frontmatter 的文本，绝不展平回写；服务端在组装模型提示词前实时展开（最多 5 层嵌套、自动环路/重复去重、上限 60,000 字符）。
+  - **原文读取/保存不变、注入前实时展开并附带诊断**：`GET`/`PUT` 接口及工作区文件编辑继续原样返回并保存含 frontmatter 的文本，绝不展平回写；服务端在组装模型提示词前实时展开（最多 5 层嵌套、自动环路/重复去重、上限 60,000 字符），并通过接口 `includes` 字段返回各引用路径状态（`loaded` / `missing` / `invalid` / `cycle` / `depth_exceeded` / `truncated` / `empty`）。
   - **缺失容错**：引用文件缺失、越出 `workspace/` 边界、遇到符号链接或非纯文本时静默跳过，不会报错或阻止保存与执行。
 
 ### 2026-11-23 — 领域偏好字段统一为 `instructions`，并移除 Dream 运行时提示词覆盖（Clean Break）
@@ -90,7 +94,7 @@
 - **类型**：`breaking`
 - **契约入口**：`/docs`「信息后台」（具体字段以 `/openapi.json` 为准）
 - **要点与接入端注意**：
-  - **移除旧首轮与混用开关**：`POST /api/information/items` 移除 `bulkImport`（单批恢复 1–100 条，固定进入日常 `queue: "realtime"`）；`POST /api/information/runs` 不再接收 `forceInitial` / `background` / `retryFailed`，仅用于立即触发一次日常实时单周期；响应不再返回 `initialAnalysisCompleted` 或 `mode`。
+  - **移除旧首轮与混用开关**：`POST /api/information/items` 移除 `bulkImport`（单批恢复 1–100 条，固定进入日常 `queue: "realtime"`）；`POST /api/information/runs` 不再接收 `forceInitial` / `background`（现仅可选 `{ retryFailed?: boolean }` 用于日常实时单周期）；响应不再返回 `initialAnalysisCompleted` 或 `mode`。
   - **新增独立历史归档通道**：历史短信导入改调 `POST /api/information/archive/items`（1–500 条，`queue: "archive"`，与实时调度彻底隔离）；导入后显式调用 `POST /api/information/archive/run`（`{ background?, retryFailed? }`）逐批提炼增量习惯写入通用 `habits` 引擎，并在归档清零后至多发送 1 条不超过 1200 字简报。
   - **状态与列表字段更新**：`GET /api/information/status` 返回 `{ enabled, batchWindowSeconds, running, pendingCount, failedCount, archive: { running, pendingCount, processedCount, failedCount }, lastRunAt, lastError }`；条目新增 `queue`（`realtime | archive`），run 新增 `kind`（`realtime | archive`）且支持按 `queue` / `kind` 过滤分页。长期习惯列表与主对话消息反馈闭环继续对实时与归档双向生效。
 

@@ -289,6 +289,7 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
       return { ...state, activities, notices };
     }
     case "session_directory_updated":
+    case "domain_updated":
       return state;
     case "conversation_updated": {
       const update = action.data;

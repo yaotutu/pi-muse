@@ -71,11 +71,39 @@ export type HabitDomainMeta = {
   lastRunError: string | null;
 };
 
+export type HabitPendingSignal = {
+  targetId: string;
+  kind: string;
+  summary: string;
+  reaction: UserReaction | null;
+  saved: boolean;
+  comments: string[];
+  commentsTruncated: boolean;
+  updatedAt: string;
+};
+
+export type HabitDomainSummary = {
+  domain: string;
+  name: string;
+  summary: string;
+  running: boolean;
+  habitsCount: number;
+  unconsolidatedCount: number;
+  autoThreshold: number;
+  intervalMs: number;
+  lastRunAt: string | null;
+  lastRunStatus: HabitRunStatus | null;
+  lastRunError: string | null;
+};
+
 export type HabitDomainOverview = {
   domain: string;
+  name: string;
+  summary: string;
   running: boolean;
   habits: HabitItem[];
   unconsolidatedCount: number;
+  pendingSignals: HabitPendingSignal[];
   autoThreshold: number;
   intervalMs: number;
   cursorSeq: number;

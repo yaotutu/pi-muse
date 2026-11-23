@@ -42,7 +42,7 @@ Read status, sources and articles after an unknown collection result. A failed l
 
 ## Storage {#storage}
 
-Sources, articles, reactions, saves, comments, analysis batches, and recommendations are stored in the server's separate `news.sqlite`, rather than rewriting a complete news JSON document at runtime, while jobs, goals, approvals, SMS state, Dream state, and shared consolidated habits (`habits` and unconsolidated hot-buffer signals) live in `main.sqlite`. Chat history remains managed by pi JSONL.
+Sources, articles, reactions, saves, comments, analysis batches, and recommendations are stored in the server's separate `news.sqlite` (retaining up to 2,000 processed articles without feedback, while articles with reactions, saves, or comments are never pruned), rather than rewriting a complete news JSON document at runtime, while jobs, goals, approvals, SMS state, Dream state, and shared consolidated habits (`habits` and unconsolidated hot-buffer signals) live in `main.sqlite`. Chat history remains managed by pi JSONL.
 
 The news API and the agent's [database tool](database.md) operate on the same news data. The agent can query, modify, extend schemas or drop tables without per-SQL approval. Breaking built-in table structures can make news unavailable; the system does not silently rebuild an empty database. Database operations do not automatically recompute previous recommendations or rerun a model.
 

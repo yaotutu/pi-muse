@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isWorkspaceText } from "../../shared/workspace-text.js";
 import { newsSourceFailureCategories } from "../../features/news/errors.js";
 import { habitItemSchema } from "./habits.js";
+import { workspaceIncludeDiagnosticSchema } from "./workspace-includes.js";
 
 const publicHttpUrlSchema = z.string().url().max(2048).regex(/^https?:\/\//i).refine((value) => {
   const url = new URL(value);
@@ -129,6 +130,7 @@ export const newsRefreshResponseSchema = z.strictObject({
 
 export const newsPreferencesResponseSchema = z.strictObject({
   instructions: z.string().max(20000).describe("用户明确保存的新闻筛选指令（domains/news/INSTRUCTIONS.md）"),
+  includes: z.array(workspaceIncludeDiagnosticSchema).describe("INSTRUCTIONS.md 顶部 YAML frontmatter `include:` 引用展开诊断"),
   habits: z.array(habitItemSchema).describe("通用习惯引擎从文章反馈自动归纳（或用户手动维护）的行为习惯列表"),
   unconsolidatedFeedbackCount: z.number().int().nonnegative().describe("去重后尚未归纳成长期习惯的文章反馈热缓冲条数"),
 });
@@ -137,22 +139,5 @@ export const newsPreferencesUpdateRequestSchema = z.strictObject({
   instructions: z.string().max(20000).refine(isWorkspaceText).describe("空串等于清空；最后成功保存生效"),
 });
 
-export type NewsStatusDto = z.infer<typeof newsStatusResponseSchema>;
-export type NewsSourceDto = z.infer<typeof newsSourceResponseSchema>;
-export type NewsSourceListDto = z.infer<typeof newsSourceListResponseSchema>;
-export type NewsCreateSourceRequestDto = z.infer<typeof newsCreateSourceRequestSchema>;
-export type NewsCreateSourceResponseDto = z.infer<typeof newsCreateSourceResponseSchema>;
-export type NewsDeleteSourceResponseDto = z.infer<typeof newsDeleteSourceResponseSchema>;
 export type NewsArticleDto = z.infer<typeof newsArticleResponseSchema>;
-export type NewsArticlesQueryDto = z.infer<typeof newsArticlesQuerySchema>;
 export type NewsArticleListDto = z.infer<typeof newsArticleListResponseSchema>;
-export type NewsArticleDetailDto = z.infer<typeof newsArticleDetailResponseSchema>;
-export type NewsFeedbackDto = z.infer<typeof newsFeedbackSchema>;
-export type NewsReactionRequestDto = z.infer<typeof newsReactionRequestSchema>;
-export type NewsSavedRequestDto = z.infer<typeof newsSavedRequestSchema>;
-export type NewsCommentCreateRequestDto = z.infer<typeof newsCommentCreateRequestSchema>;
-export type NewsFeedbackResponseDto = z.infer<typeof newsFeedbackResponseSchema>;
-export type NewsRefreshRequestDto = z.infer<typeof newsRefreshRequestSchema>;
-export type NewsRefreshResponseDto = z.infer<typeof newsRefreshResponseSchema>;
-export type NewsPreferencesResponseDto = z.infer<typeof newsPreferencesResponseSchema>;
-export type NewsPreferencesUpdateRequestDto = z.infer<typeof newsPreferencesUpdateRequestSchema>;

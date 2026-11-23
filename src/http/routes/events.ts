@@ -54,6 +54,7 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
             : event.event === "activity_updated" ? event.activity
             : event.event === "conversation_updated" ? event.conversation
             : event.event === "session_directory_updated" ? {}
+            : event.event === "domain_updated" ? { domain: event.domain, scope: event.scope }
             : event.event === "approval_pending" ? presentApproval(event.approval) : presentApprovalResolution(event.approval);
           const bytes = frame(event.event, { instanceId: events.instanceId, ...data });
           if (bytes.byteLength > MAX_EVENT_BYTES) { disconnect(); return; }
@@ -61,7 +62,8 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
           const key = event.event === "session_status_updated" ? `run:${event.status.sessionId}:${event.status.runId}`
             : event.event === "session_presence_updated" ? `presence:${event.presence.sessionId}`
             : event.event === "activity_updated" ? `activity:${event.activity.id}`
-            : event.event === "session_directory_updated" ? "session-directory" : "";
+            : event.event === "session_directory_updated" ? "session-directory"
+            : event.event === "domain_updated" ? `domain:${event.domain}:${event.scope}` : "";
           const existing = key ? queue.find((item) => item.key === key) : undefined;
           if (existing) { queuedBytes -= existing.bytes.byteLength; existing.bytes = bytes; }
           else queue.push({ key, bytes });

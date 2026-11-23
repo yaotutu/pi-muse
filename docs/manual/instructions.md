@@ -64,9 +64,9 @@ include: [./bank.md, ./快递规则.md]
 
 ### 存盘与展开行为 {#include-storage-behavior}
 
-- **读写始终保持原文**：HTTP 接口（`/api/assistant/instructions`、`/api/profile`、`/api/information/preferences`、`/api/news/preferences`）、工作区文件编辑器以及助手读取工具均返回并保存含顶部 `include:` 的原始 Markdown，绝不会把展开内容拍平写回主文件。
+- **读写始终保持原文并附带诊断**：HTTP 接口（`/api/assistant/instructions`、`/api/profile`、`/api/information/preferences`、`/api/news/preferences`）、工作区文件编辑器以及助手读取工具均返回并保存含顶部 `include:` 的原始 Markdown，绝不会把展开内容拍平写回主文件。其中 `/api/assistant/instructions`、`/api/information/preferences` 与 `/api/news/preferences` 会额外返回 `includes` 诊断数组，逐项说明每个引用的状态（`loaded`、`missing`、`invalid`、`cycle`、`depth_exceeded`、`truncated`、`empty`）及工作区相对路径。
 - **注入模型前实时展开**：每次聊天轮、短信判定、新闻筛选及 Dream 查重都会重新读取并展开所有引用文件；修改任意被引入的子文件后，从下一轮模型调用起立即生效，不需要重新保存主文件。
-- **缺失或非法引用静默跳过**：被引用的文件尚未创建、已删除、越界或不是纯文本时，服务端静默跳过该条目并保留其余有效规则，不会阻止保存或中断执行。
+- **缺失或非法引用静默跳过**：被引用的文件尚未创建、已删除、越界或不是纯文本时，服务端仅记入 `includes` 诊断状态并在组装提示词时跳过该条目、保留其余有效规则，不会阻止保存或中断执行。
 - **与 Dream 协作**：Dream 整理记忆时会读取展开后的完整文档用于查重对比；你在确认待决建议并应用到 `USER.md`、`SOUL.md` 或 `INSTRUCTIONS.md` 时，写回过程基于原始文本在末尾去重追加，不会破坏文件顶部的 `include:` 块。
 
 ## 短信与新闻领域规则 {#sms-and-news-domains}

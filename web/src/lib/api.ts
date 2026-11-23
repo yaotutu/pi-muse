@@ -33,6 +33,7 @@ import {
   type ApprovalPendingEventDto,
   type ApprovalUpdatedEventDto,
   type ConversationUpdatedEventDto,
+  type DomainUpdatedEventDto,
   type ReadyEventDto,
 } from "../../../src/http/contracts/workspace-events.js";
 export type { SseEvent };
@@ -645,7 +646,8 @@ export type WorkspaceEvent =
   | { type: "approval_updated"; data: ApprovalUpdatedEventDto }
   | { type: "activity_updated"; data: ActivityUpdatedEventDto }
   | { type: "session_directory_updated"; data: { instanceId: string } }
-  | { type: "conversation_updated"; data: ConversationUpdatedEventDto };
+  | { type: "conversation_updated"; data: ConversationUpdatedEventDto }
+  | { type: "domain_updated"; data: DomainUpdatedEventDto };
 
 /**
  * 订阅工作区 SSE 实时流（GET /api/events）。
@@ -741,6 +743,12 @@ export const subscribeWorkspaceEvents = async (
             const parsed = workspaceEvents.conversation_updated.safeParse(payload);
             if (!parsed.success) throw invalid();
             event = { type: "conversation_updated", data: parsed.data };
+            break;
+          }
+          case "domain_updated": {
+            const parsed = workspaceEvents.domain_updated.safeParse(payload);
+            if (!parsed.success) throw invalid();
+            event = { type: "domain_updated", data: parsed.data };
             break;
           }
           default:

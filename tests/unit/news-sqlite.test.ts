@@ -6,7 +6,7 @@ import test from "node:test";
 import {
   openNewsRepository,
 } from "../../src/adapters/storage/news-repository.js";
-import { parseNewsState } from "../../src/adapters/storage/news-schema.js";
+import { NEWS_SCHEMA_VERSION, parseNewsState } from "../../src/adapters/storage/news-schema.js";
 import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
 import { defaultNewsState } from "../../src/features/news/types.js";
 import type { NewsArticleItem } from "../../src/features/news/types.js";
@@ -26,10 +26,9 @@ const article = (id: string, overrides: Partial<NewsArticleItem> = {}): NewsArti
   ...overrides,
 });
 
-/** 覆盖被删源文章、取消反馈、相同时间 run 顺序、重跑批次与投递 payload 的合成旧文档。 */
+/** 覆盖被删源文章、取消反馈、相同时间 run 顺序、重跑批次的合成测试文档。 */
 const legacyDocument = () => ({
   processing: {
-    settings: { enabled: true, batchWindowSeconds: 0 },
     items: [
       article("info_kept_1", { runId: "inforun_1" }),
       article("info_gone_1", {
@@ -51,7 +50,6 @@ const legacyDocument = () => ({
           { itemId: "info_kept_1", decision: "notify", reason: "substantive" },
           { itemId: "info_gone_1", decision: "silent", reason: "routine" },
         ],
-        publications: [],
       },
       {
         id: "inforun_2",
@@ -61,7 +59,6 @@ const legacyDocument = () => ({
         startedAt: TIMESTAMP,
         finishedAt: TIMESTAMP,
         model: { status: "failed", error: "model down" },
-        publications: [],
       },
     ],
     articleFeedback: [
@@ -271,41 +268,41 @@ test("update callback failures leave the database untouched and strict parsing r
   await assert.rejects(repository.read(), /Invalid news document/);
 });
 
-test("a v1 news database upgrades in place by adding optional source failure details", async (t) => {
-  const directory = await tempDirectory("pi-muse-news-sqlite-upgrade");
+test("news sqlite v3 enforces strict schema version and drops dead legacy columns", async (t) => {
+  assert.equal(NEWS_SCHEMA_VERSION, 3);
+  const directory = await tempDirectory("pi-muse-news-sqlite-v3");
   t.after(() => rm(directory, { recursive: true, force: true }));
   const databaseFile = join(directory, "news.sqlite");
-  const first = await openNewsRepository({ databaseFile });
-  await first.repository.update((state) => ({
-    state: {
-      ...state,
-      sources: [{
-        id: "newssource_legacy", title: "Legacy", url: "https://example.com/feed.xml",
-        createdAt: TIMESTAMP, lastFetchedAt: null, lastError: "RSS source fetch or parse failed",
-      }],
-    },
-    result: undefined,
-  }));
-  await first.database.close();
-  const raw = await openSqliteDatabase(databaseFile);
-  raw.database.exec("ALTER TABLE news_sources DROP COLUMN last_error_details");
-  raw.database.exec("PRAGMA user_version = 1");
-  await raw.close();
-
-  const upgraded = await openNewsRepository({ databaseFile });
+  const handle = await openNewsRepository({ databaseFile });
   try {
     assert.equal(
-      (upgraded.database.database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version,
-      2,
+      (handle.database.database.prepare("PRAGMA user_version").get() as { user_version: number }).user_version,
+      3,
     );
-    const columns = upgraded.database.database.prepare("PRAGMA table_info(news_sources)").all() as Array<{ name: string }>;
-    assert.ok(columns.some((column) => column.name === "last_error_details"));
-    const source = (await upgraded.repository.read()).sources[0]!;
-    assert.equal(source.lastError, "RSS source fetch or parse failed");
-    assert.equal(Object.hasOwn(source, "lastErrorDetails"), false, "legacy rows keep the field absent");
+    const stateColumns = (handle.database.database.prepare("PRAGMA table_info(news_state)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    for (const removed of [
+      "settings_enabled",
+      "settings_batch_window_seconds",
+      "settings_mode",
+      "preferences_learned_notes",
+      "initial_analysis_completed",
+    ]) {
+      assert.equal(stateColumns.includes(removed), false, `news_state must not retain ${removed}`);
+    }
+    const runColumns = (handle.database.database.prepare("PRAGMA table_info(news_analysis_runs)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    for (const removed of ["kind", "publications_json"]) {
+      assert.equal(runColumns.includes(removed), false, `news_analysis_runs must not retain ${removed}`);
+    }
   } finally {
-    await upgraded.database.close();
+    await handle.database.close();
   }
+
+  const raw = await openSqliteDatabase(databaseFile);
+  raw.database.exec("PRAGMA user_version = 2");
+  await raw.close();
+  await assert.rejects(openNewsRepository({ databaseFile }), /unsupported schema version 2/);
 });
 
 test("structural damage to an initialized news database fails startup explicitly", async (t) => {

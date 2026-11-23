@@ -370,5 +370,5 @@ test("assistant instructions model update is approved and detects a newer settin
     headers, method: "POST", body: jsonBody({ decision: "approve" }),
   })).status, 200);
   assert.equal((await pending).isError, true);
-  assert.deepEqual(await (await request(service, settings, { headers })).json(), { instructions: "newer user edit" });
+  assert.deepEqual(await (await request(service, settings, { headers })).json(), { instructions: "newer user edit", includes: [] });
 });

@@ -125,7 +125,7 @@ test("Dream integration: non-main chat holds shared instruction and profile sugg
     instructions: "保持礼貌。",
   });
   assert.equal(savedInst.status, 200);
-  assert.deepEqual(savedInst.body, { instructions: "保持礼貌。" });
+  assert.deepEqual(savedInst.body, { instructions: "保持礼貌。", includes: [] });
 
   const savedDream = await json("/api/dream", "PUT", { enabled: true });
   assert.equal(savedDream.status, 200);

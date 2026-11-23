@@ -31,11 +31,11 @@
 
 | 库 | 表 | 归属 |
 | --- | --- | --- |
-| `news.sqlite` | `news_sources`、`news_articles`、`news_article_feedback`、`news_article_comments`、`news_analysis_runs`、`news_analysis_run_items`、`news_analysis_decisions`、`news_state`、`news_meta` | 新闻 |
+| `news.sqlite` | `news_sources`、`news_articles`、`news_article_feedback`、`news_article_comments`、`news_analysis_runs`、`news_analysis_run_items`、`news_analysis_decisions`、`news_state`、`news_meta` | 新闻（`user_version = 3`：已清理 `news_state`/`news_analysis_runs` 历史废弃列；筛后有界保留最多 2,000 篇无反馈文章，含用户反馈的文章永不裁剪） |
 | `main.sqlite` | `jobs` | 定时任务 |
 | `main.sqlite` | `goals`、`goal_milestones` | 目标 |
 | `main.sqlite` | `actions` | 审批记录与执行回执 |
-| `main.sqlite` | `sms_state`、`sms_items`、`sms_runs`、`sms_run_items`、`sms_decisions` | 短信管线（Clean Break v3：`sms_items` 区分 `queue=realtime/archive` 并建有 `(queue, status, position)` 索引） |
+| `main.sqlite` | `sms_state`、`sms_items`、`sms_runs`、`sms_run_items`、`sms_decisions` | 短信管线（模块 `v4`：直接 SQL 查询/事务读写与游标分页，建有 `(queue, status, position)`、`(accepted_at DESC, id DESC)`、`(started_at DESC, id DESC)`、`(item_id, run_id)` 索引，并有界清理终态历史同时保留待处理/运行中/失败条目） |
 | `main.sqlite` | `habit_domains`、`habit_items`、`habit_signals` | 通用用户习惯引擎（消费游标、长期行为习惯条文及按 `seq` 保序的未消化反馈热缓冲） |
 | `main.sqlite` | `dream_state`、`dream_cursors`、`dream_pending` | Dream 机器状态 |
 | `main.sqlite` | `message_feedback_events`、`message_feedback_states` | 消息级用户行为（点赞/点踩、`saved` 收藏、评论 append-only 事件流与索引状态） |
@@ -45,7 +45,7 @@
 
 - 业务 ID 保持不变，时间沿用 UTC ISO 8601，业务发生时间与系统接纳时间分开。
 - 关系用外键，幂等用唯一约束；删除规则逐项明确。历史快照不错误依赖配置记录继续存在。
-- 显式选择列，按行 diff 提交；只动变化行，不整表清空重写，Agent 增加的列与自建表不被抹掉。
+- 显式选择列并只改受影响行（`news.sqlite` 按行 diff 提交，`sms_*` 直接 SQL 定向读写/分页），不整表清空重写，Agent 增加的列与自建表不被抹掉。
 - JSON 只用于确有必要的变形 payload，不把整个业务聚合塞成一行。
 - 会话仍在 JSON/JSONL，因此 `origin_session_id` 等只是字符串，不建跨存储外键；删除会话由领域服务显式清理。
 

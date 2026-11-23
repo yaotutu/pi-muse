@@ -153,9 +153,9 @@ test("ordinary information HTTP contracts do not expose internal recommendation 
   assert.equal(preferences.status, 200);
   assert.deepEqual(await preferences.json(), {
     instructions: "",
+    includes: [],
     habits: [],
     unconsolidatedFeedbackCount: 0,
-    feedbackExamples: [],
   });
 });
 
@@ -184,7 +184,7 @@ test("news preferences persist in their own Markdown document", async (t) => {
     body: JSON.stringify({ instructions: "关注 AI 工程，屏蔽八卦" }),
   });
   assert.equal(saved.status, 200);
-  assert.deepEqual(await saved.json(), { instructions: "关注 AI 工程，屏蔽八卦", habits: [], unconsolidatedFeedbackCount: 0 });
+  assert.deepEqual(await saved.json(), { instructions: "关注 AI 工程，屏蔽八卦", includes: [], habits: [], unconsolidatedFeedbackCount: 0 });
   assert.equal(await readAssistantInstructions(instructionsPath), "MAIN-ONLY-INSTRUCTION\n");
   assert.equal(await readFile(service.layout.newsInstructionsFile, "utf8"), "关注 AI 工程，屏蔽八卦");
 });
@@ -217,7 +217,6 @@ for(const scenario of ["valid","object-notifications","duplicate"] as const) {
     const run=await waitForTest(async()=>{const current=(await repo.read()).processing.runs[0];return current && current.status!=="running"?current:undefined;},"news analysis",8000);
     assert.equal(run.status,scenario==="valid"?"completed":"failed");
     assert.equal(run.model?.status,scenario==="valid"?"succeeded":"failed");
-    assert.deepEqual(run.publications,[]);
     assert.deepEqual((await (await service.conversationHub.forSession("main")).snapshot()).messages,[]);
     assert.deepEqual((await service.sessions.list()).map((s)=>s.id),["main"]);
     const tool=(model.requests[0].tools as {function:{name:string;parameters:{properties:Record<string,unknown>;required:string[]}}}[]).find((tool)=>tool.function.name==="submit_information_result")!;

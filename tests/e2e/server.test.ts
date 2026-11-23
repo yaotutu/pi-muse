@@ -249,7 +249,7 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
   await readHistoryInvalidation();
   const spec = await client.json("/openapi.json");
   assert.deepEqual(Object.keys(spec.paths["/api/events"].get.responses["200"]["x-sse-events"]).sort(),
-    ["activity_updated", "session_presence_updated", "session_status_updated", "approval_pending", "approval_updated", "conversation_updated", "session_directory_updated", "ready"].sort());
+    ["activity_updated", "session_presence_updated", "session_status_updated", "approval_pending", "approval_updated", "conversation_updated", "session_directory_updated", "domain_updated", "ready"].sort());
   // 结束服务应关闭长连接，客户端读到 EOF。
   await service.stop();
   // 运行终态后还可能有最新的空闲头像帧；必须校验后排空，而非把它误认成额外业务操作。

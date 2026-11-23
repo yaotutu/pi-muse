@@ -130,6 +130,15 @@ export const workspaceEvents = {
         "客户端只应对对应 sessionId/piSessionId 标记历史失效并读取 GET /api/conversation 权威历史，不得伪造状态事件。" +
         "没有实际历史变更的重放、排队或同 ID 幂等 noop 不产生失效事件。",
     ),
+  domain_updated: z
+    .strictObject({
+      instanceId: instanceIdSchema,
+      domain: z.string().min(1).describe("发生变更的领域 ID，如 sms 或 news。"),
+      scope: z.enum(["items", "runs", "habits", "preferences", "settings"]).describe("发生变更的子视图范围，客户端仅按需刷新对应区块。"),
+    })
+    .describe(
+      "后台领域（如 sms/news）条目、执行记录、行为习惯、偏好或设置发生变化时的轻量失效通知；同一 (domain, scope) 在缓冲中合并，clients 只按需重读对应只读接口。",
+    ),
 } as const;
 
 export const WORKSPACE_SSE_DESCRIPTION = [
@@ -188,3 +197,4 @@ export type ApprovalPendingEventDto = z.infer<typeof workspaceEvents.approval_pe
 export type ApprovalUpdatedEventDto = z.infer<typeof workspaceEvents.approval_updated>;
 export type ActivityUpdatedEventDto = z.infer<typeof workspaceEvents.activity_updated>;
 export type ConversationUpdatedEventDto = z.infer<typeof workspaceEvents.conversation_updated>;
+export type DomainUpdatedEventDto = z.infer<typeof workspaceEvents.domain_updated>;

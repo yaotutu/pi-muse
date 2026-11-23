@@ -153,6 +153,7 @@ test("recommendation processing projects decisions without retaining or notifyin
   assert.equal(recommended.articles[0]?.recommendation?.reason, "substantive release");
   assert.deepEqual(await news.preferences(), {
     instructions: "Prefer primary sources and substantive engineering detail.",
+    includes: [],
     habits: [],
     unconsolidatedFeedbackCount: 0,
   });
@@ -691,4 +692,48 @@ test("news storage accepts optional failure details without migrating legacy sou
   } finally {
     await second.database.close();
   }
+});
+
+test("news screening enforces bounded article retention while keeping articles with feedback", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-muse-news-retention-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const handle = await openNewsRepository({ databaseFile: join(dir, "news.sqlite") });
+  t.after(() => handle.database.close());
+
+  const at = (min: number) => `2026-11-23T08:0${min}:00.000Z`;
+  await handle.repository.update((state) => ({
+    state: {
+      ...state,
+      processing: {
+        ...state.processing,
+        items: [
+          { id: "a1-feedback", source: "s1", externalId: "1", title: "One", content: "c1", receivedAt: at(1), acceptedAt: at(1), status: "pending", metadata: { sourceId: "s1", sourceTitle: "Feed", url: null } },
+          { id: "a2-old", source: "s1", externalId: "2", title: "Two", content: "c2", receivedAt: at(2), acceptedAt: at(2), status: "pending", metadata: { sourceId: "s1", sourceTitle: "Feed", url: null } },
+          { id: "a3-old", source: "s1", externalId: "3", title: "Three", content: "c3", receivedAt: at(3), acceptedAt: at(3), status: "pending", metadata: { sourceId: "s1", sourceTitle: "Feed", url: null } },
+          { id: "a4-keep", source: "s1", externalId: "4", title: "Four", content: "c4", receivedAt: at(4), acceptedAt: at(4), status: "pending", metadata: { sourceId: "s1", sourceTitle: "Feed", url: null } },
+          { id: "a5-keep", source: "s1", externalId: "5", title: "Five", content: "c5", receivedAt: at(5), acceptedAt: at(5), status: "pending", metadata: { sourceId: "s1", sourceTitle: "Feed", url: null } },
+        ],
+        articleFeedback: [{ itemId: "a1-feedback", reaction: "like", saved: false, comments: [] }],
+      },
+    },
+    result: undefined,
+  }));
+
+  const screening = createNewsScreeningService({
+    repository: handle.repository,
+    instructions: { read: async () => "", write: async () => undefined },
+    maxRetainedArticles: 2,
+    runModel: async (input) => ({
+      ok: true,
+      result: {
+        decisions: input.items.map((item) => ({ itemId: item.id, decision: "notify" as const, reason: "ok" })),
+      },
+    }),
+  });
+
+  await screening.runDue();
+  const after = await handle.repository.read();
+  const remainingIds = after.processing.items.map((item) => item.id);
+  // a1-feedback must never be pruned; a4-keep & a5-keep are the 2 newest feedback-free articles; a2-old & a3-old are pruned.
+  assert.deepEqual(remainingIds, ["a1-feedback", "a4-keep", "a5-keep"]);
 });

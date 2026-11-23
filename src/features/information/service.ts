@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { UserFeedbackSnapshot } from "../../shared/feedback.js";
+import type {
+  ResolvedWorkspaceDocument,
+  WorkspaceIncludeDiagnostic,
+} from "../../shared/workspace-includes.js";
 import { isWorkspaceText } from "../../shared/workspace-text.js";
 import type { HabitsService } from "../habits/service.js";
 import type { HabitPromptContext, HabitSignalPayload } from "../habits/types.js";
@@ -30,7 +34,6 @@ import type {
   InformationRunKind,
   InformationRunStatus,
   InformationSettings,
-  InformationState,
   InformationStatus,
 } from "./types.js";
 
@@ -64,7 +67,6 @@ const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
 type Cursor = {
   id: string;
   at: string;
-  status?: string;
   scope?: string;
 };
 
@@ -80,7 +82,6 @@ const decodeCursor = (value: string): Cursor | undefined => {
     return {
       id: parsed.id,
       at: parsed.at,
-      ...(typeof parsed.status === "string" ? { status: parsed.status } : {}),
       ...(typeof parsed.scope === "string" ? { scope: parsed.scope } : {}),
     };
   } catch {
@@ -153,6 +154,7 @@ export type CreateInformationServiceDeps = {
   instructions: {
     read: () => Promise<string>;
     readResolved?: () => Promise<string>;
+    inspect?: () => Promise<ResolvedWorkspaceDocument>;
     write: (content: string) => Promise<void>;
   };
   retainMain: () => Promise<{
@@ -167,6 +169,7 @@ export type CreateInformationServiceDeps = {
     release: () => void;
   } | undefined>;
   habits?: Pick<HabitsService, "getPromptContext" | "applyOperations">;
+  onChanged?: (scope: "items" | "runs" | "preferences" | "settings") => void;
   runModel: (input: InformationModelInput, signal: AbortSignal) => Promise<InformationModelOutcome>;
   synthesizeBriefing?: (input: InformationBriefingInput, signal: AbortSignal) => Promise<InformationBriefingOutcome>;
   observeWork?: (
@@ -204,14 +207,10 @@ const signalsToFeedbackExamples = (signals: readonly HabitSignalPayload[]): Info
     }));
 
 /**
- * 短信/信息后台领域服务（Clean Break + 通用习惯引擎版）。
- *
- * 严格分离两条路径，且共享用户指令（workspace/domains/sms/INSTRUCTIONS.md）、
- * 通用长期习惯列表（habits）与未消化反馈热缓冲（habit_signals）：
- * 1. 日常实时单周期（queue = "realtime"）：接入 -> 到期/触发 -> 取批 + 习惯/指令/热缓冲样本 ->
- *    一次受限模型判定 -> 落库 decisions/pending publications -> 投递主对话。
- * 2. 历史批量归档（queue = "archive"）：独立入口导入，不触发实时调度；逐批向通用习惯库
- *    增量提交 habitOperations，当归档队列清零时最多生成 1 条 <=1200 字简报发主对话。
+ * 短信/信息后台领域服务（Clean Break v4）：
+ * - 存储完全下沉为精确 SQL 查询与原子事务，支持条目直接投影 decision/reason 与有界历史裁剪。
+ * - 用户偏好对称收敛为 instructions + includes 诊断 + habits + unconsolidatedFeedbackCount。
+ * - 日常实时通道支持 retryFailed 重跑失败条目，状态变化发出 domain_updated 轻量失效事件。
  */
 export const createInformationService = (deps: CreateInformationServiceDeps) => {
   const domainId = deps.domainId ?? "sms";
@@ -229,37 +228,34 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
   const ensureOpen = () => {
     if (closed) throw new InformationError("SHUTDOWN", "Information service is closing");
   };
+  const notifyChanged = (scope: "items" | "runs" | "preferences" | "settings") => {
+    try {
+      deps.onChanged?.(scope);
+    } catch {
+      // SSE/观察通知失败不中断核心存储流。
+    }
+  };
 
   /** 将主对话中的短信通知交互反馈投影为通用 HabitSignalPayload（含撤销清空状态，便于从热缓冲剔除）。 */
   const buildHabitSignal = async (
     notificationId: string,
     feedback: UserFeedbackSnapshot,
   ): Promise<HabitSignalPayload | undefined> => {
-    const state = await deps.repository.read();
-    let matchedRun: InformationRun | undefined;
-    let matchedPub: InformationPublication | undefined;
-    for (const run of state.runs) {
-      const pub = run.publications.find((entry) => entry.notificationId === notificationId);
-      if (pub) {
-        matchedRun = run;
-        matchedPub = pub;
-        break;
-      }
-    }
-    if (!matchedRun || !matchedPub) return undefined;
-    const itemById = new Map(state.items.map((item) => [item.id, item]));
+    const context = await deps.repository.getNotificationContext(notificationId);
+    if (!context) return undefined;
+    const itemById = new Map(context.items.map((item) => [item.id, item]));
     const recentComments = feedback.comments.slice(-MAX_FEEDBACK_COMMENTS);
     return {
-      targetId: matchedPub.notificationId,
+      targetId: context.publication.notificationId,
       kind: "sms_notification",
-      summary: clipText(matchedPub.text, FEEDBACK_TEXT_LENGTH).text,
+      summary: clipText(context.publication.text, FEEDBACK_TEXT_LENGTH).text,
       reaction: feedback.reaction,
       saved: feedback.saved,
       comments: recentComments.map((comment) => clipText(comment.text, FEEDBACK_TEXT_LENGTH).text),
       commentsTruncated:
         feedback.comments.length > MAX_FEEDBACK_COMMENTS ||
         recentComments.some((comment) => comment.text.length > FEEDBACK_TEXT_LENGTH),
-      items: matchedPub.itemIds.slice(0, MAX_FEEDBACK_ITEMS).map((itemId) => {
+      items: context.publication.itemIds.slice(0, MAX_FEEDBACK_ITEMS).map((itemId) => {
         const item = itemById.get(itemId);
         const clipped = clipText(item?.content ?? "", FEEDBACK_CONTENT_LENGTH);
         return {
@@ -270,7 +266,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
           contentTruncated: clipped.truncated,
         };
       }),
-      meta: { runId: matchedRun.id },
+      meta: { runId: context.runId },
       updatedAt: new Date().toISOString(),
     };
   };
@@ -287,10 +283,18 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     };
   };
 
-  const getSettings = async (): Promise<InformationSettings> => {
-    const { settings } = await deps.repository.read();
-    return { enabled: settings.enabled, batchWindowSeconds: settings.batchWindowSeconds };
+  const readInstructionsWithIncludes = async (): Promise<{
+    instructions: string;
+    includes: WorkspaceIncludeDiagnostic[];
+  }> => {
+    if (deps.instructions.inspect) {
+      const inspected = await deps.instructions.inspect();
+      return { instructions: inspected.raw, includes: inspected.includes };
+    }
+    return { instructions: await deps.instructions.read(), includes: [] };
   };
+
+  const getSettings = (): Promise<InformationSettings> => deps.repository.getSettings();
 
   const saveSettings = async (settings: InformationSettings): Promise<InformationSettings> => {
     ensureOpen();
@@ -302,25 +306,21 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     ) {
       throw new InformationError("INVALID_INPUT", "Invalid information settings");
     }
-    return deps.repository.update((state) => ({
-      state: {
-        ...state,
-        settings: { enabled: settings.enabled, batchWindowSeconds: settings.batchWindowSeconds },
-      },
-      result: { enabled: settings.enabled, batchWindowSeconds: settings.batchWindowSeconds },
-    }));
+    const saved = await deps.repository.saveSettings(settings);
+    notifyChanged("settings");
+    return saved;
   };
 
   const getPreferences = async (): Promise<InformationPreferencesView> => {
-    const [instructions, habitCtx] = await Promise.all([
-      deps.instructions.read(),
+    const [{ instructions, includes }, habitCtx] = await Promise.all([
+      readInstructionsWithIncludes(),
       habitsPort.getPromptContext(domainId),
     ]);
     return {
       instructions,
+      includes,
       habits: habitCtx.habits,
       unconsolidatedFeedbackCount: habitCtx.unconsolidatedCount,
-      feedbackExamples: signalsToFeedbackExamples(habitCtx.unconsolidatedSignals),
     };
   };
 
@@ -328,6 +328,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     ensureOpen();
     const instructions = normalizeInstructions(input.instructions);
     await deps.instructions.write(instructions);
+    notifyChanged("preferences");
     return getPreferences();
   };
 
@@ -343,76 +344,14 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     if (!inputs.length) return { items: [], skippedCount: 0 };
 
     const now = new Date().toISOString();
-    return deps.repository.update((state) => {
-      if (queue === "realtime" && !state.settings.enabled) {
-        throw new InformationError("DISABLED", "Information background is disabled");
-      }
-      const existingByKey = new Map(state.items.map((item) => [`${item.source}\0${item.externalId}`, item]));
-      const accepted: InformationItem[] = [];
-      const responseItems: InformationItem[] = [];
-      const seenResponseIds = new Set<string>();
-      let skippedCount = 0;
-
-      for (const input of inputs) {
-        const key = `${input.source}\0${input.externalId}`;
-        const existing = existingByKey.get(key);
-        if (existing) {
-          const timeMismatch =
-            input.receivedAt !== undefined &&
-            Date.parse(existing.receivedAt) !== Date.parse(input.receivedAt);
-          if (
-            existing.content !== input.content ||
-            (existing.title ?? undefined) !== (input.title ?? undefined) ||
-            timeMismatch
-          ) {
-            throw new InformationError(
-              "CONFLICT",
-              `Conflicting content for existing source=${input.source} externalId=${input.externalId}`,
-            );
-          }
-          skippedCount++;
-          if (!seenResponseIds.has(existing.id)) {
-            seenResponseIds.add(existing.id);
-            responseItems.push(existing);
-          }
-          continue;
-        }
-        const created: InformationItem = {
-          id: `info_${randomUUID()}`,
-          queue,
-          source: input.source,
-          externalId: input.externalId,
-          ...(input.title !== undefined ? { title: input.title } : {}),
-          content: input.content,
-          receivedAt: input.receivedAt ?? now,
-          acceptedAt: now,
-          status: "pending",
-        };
-        existingByKey.set(key, created);
-        seenResponseIds.add(created.id);
-        accepted.push(created);
-        responseItems.push(created);
-      }
-
-      if (!accepted.length) {
-        return {
-          result: {
-            items: queue === "archive" ? [] : responseItems,
-            skippedCount,
-          },
-        };
-      }
-      return {
-        state: {
-          ...state,
-          items: [...state.items, ...accepted],
-        },
-        result: {
-          items: queue === "archive" ? accepted : responseItems,
-          skippedCount,
-        },
-      };
-    });
+    const ingested = await deps.repository.ingestItems(queue, inputs, now);
+    if (ingested.accepted.length > 0) {
+      notifyChanged("items");
+    }
+    return {
+      items: queue === "archive" ? ingested.accepted : ingested.responseItems,
+      skippedCount: ingested.skippedCount,
+    };
   };
 
   /** 日常实时短信入库，进入实时调度队列。 */
@@ -430,43 +369,34 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     limit?: number;
     cursor?: string;
   }) => {
-    const state = await deps.repository.read();
     const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
     const scope = `${options.queue ?? "all"}:${options.status ?? "all"}`;
-    let after: Cursor | undefined;
+    let after: { at: string; id: string } | undefined;
     if (options.cursor !== undefined) {
       const decoded = decodeCursor(options.cursor);
       if (!decoded || decoded.scope !== scope) {
         throw new InformationError("INVALID_INPUT", "Invalid items cursor");
       }
-      after = decoded;
+      after = { at: decoded.at, id: decoded.id };
     }
-    const ordered = [...state.items]
-      .filter((item) => (!options.status || item.status === options.status) && (!options.queue || item.queue === options.queue))
-      .sort((a, b) => b.acceptedAt.localeCompare(a.acceptedAt) || b.id.localeCompare(a.id));
-    const startIndex = after
-      ? ordered.findIndex((item) =>
-          item.acceptedAt.localeCompare(after!.at) < 0 ||
-          (item.acceptedAt === after!.at && item.id.localeCompare(after!.id) < 0))
-      : 0;
-    const slice = startIndex === -1 ? [] : ordered.slice(startIndex, startIndex + limit);
-    const hasMore = startIndex !== -1 && startIndex + limit < ordered.length;
-    const last = slice.at(-1);
+    const { items, hasMore } = await deps.repository.listItems({
+      queue: options.queue,
+      status: options.status,
+      limit,
+      after,
+    });
+    const last = items.at(-1);
     return {
-      items: slice,
+      items,
       ...(hasMore && last ? { nextCursor: encodeCursor({ id: last.id, at: last.acceptedAt, scope }) } : {}),
     };
   };
 
   const getItem = async (rawItemId: string) => {
     const itemId = validId(rawItemId, "itemId");
-    const state = await deps.repository.read();
-    const item = state.items.find((candidate) => candidate.id === itemId);
-    if (!item) throw new InformationError("NOT_FOUND", `Unknown information item: ${itemId}`);
-    const runs = [...state.runs]
-      .filter((run) => run.itemIds.includes(itemId))
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
-    return { item, runs };
+    const detail = await deps.repository.getItem(itemId);
+    if (!detail) throw new InformationError("NOT_FOUND", `Unknown information item: ${itemId}`);
+    return detail;
   };
 
   const listRuns = async (options: {
@@ -475,191 +405,62 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     limit?: number;
     cursor?: string;
   }) => {
-    const state = await deps.repository.read();
     const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
     const scope = `${options.kind ?? "all"}:${options.status ?? "all"}`;
-    let after: Cursor | undefined;
+    let after: { at: string; id: string } | undefined;
     if (options.cursor !== undefined) {
       const decoded = decodeCursor(options.cursor);
       if (!decoded || decoded.scope !== scope) {
         throw new InformationError("INVALID_INPUT", "Invalid runs cursor");
       }
-      after = decoded;
+      after = { at: decoded.at, id: decoded.id };
     }
-    const ordered = [...state.runs]
-      .filter((run) => (!options.status || run.status === options.status) && (!options.kind || run.kind === options.kind))
-      .sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
-    const startIndex = after
-      ? ordered.findIndex((run) =>
-          run.startedAt.localeCompare(after!.at) < 0 ||
-          (run.startedAt === after!.at && run.id.localeCompare(after!.id) < 0))
-      : 0;
-    const slice = startIndex === -1 ? [] : ordered.slice(startIndex, startIndex + limit);
-    const hasMore = startIndex !== -1 && startIndex + limit < ordered.length;
-    const last = slice.at(-1);
+    const { runs, hasMore } = await deps.repository.listRuns({
+      kind: options.kind,
+      status: options.status,
+      limit,
+      after,
+    });
+    const last = runs.at(-1);
     return {
-      runs: slice,
+      runs,
       ...(hasMore && last ? { nextCursor: encodeCursor({ id: last.id, at: last.startedAt, scope }) } : {}),
     };
   };
 
   const getRun = async (rawRunId: string) => {
     const runId = validId(rawRunId, "runId");
-    const state = await deps.repository.read();
-    const run = state.runs.find((candidate) => candidate.id === runId);
-    if (!run) throw new InformationError("NOT_FOUND", `Unknown information run: ${runId}`);
-    const itemById = new Map(state.items.map((item) => [item.id, item]));
-    const items = run.itemIds.map((id) => itemById.get(id)).filter((item): item is InformationItem => Boolean(item));
-    return { run, items };
+    const detail = await deps.repository.getRun(runId);
+    if (!detail) throw new InformationError("NOT_FOUND", `Unknown information run: ${runId}`);
+    return detail;
   };
 
   const getStatus = async (): Promise<InformationStatus> => {
-    const state = await deps.repository.read();
-    let pendingCount = 0;
-    let failedCount = 0;
-    let archivePendingCount = 0;
-    let archiveProcessedCount = 0;
-    let archiveFailedCount = 0;
-
-    for (const item of state.items) {
-      if (item.queue === "realtime") {
-        if (item.status === "pending") pendingCount++;
-        else if (item.status === "failed") failedCount++;
-      } else {
-        if (item.status === "pending") archivePendingCount++;
-        else if (item.status === "processed") archiveProcessedCount++;
-        else if (item.status === "failed") archiveFailedCount++;
-      }
-    }
-
-    const latestRun = [...state.runs].sort((a, b) =>
-      b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id),
-    )[0];
-    let lastError: string | null = null;
-    if (latestRun?.status === "failed") {
-      lastError = latestRun.model?.error ?? "MODEL_REQUEST_FAILED";
-    } else if (latestRun) {
-      const failedPub = latestRun.publications.find((pub) => pub.status === "failed" && pub.error);
-      if (failedPub?.error) lastError = failedPub.error;
-    }
-
+    const summary = await deps.repository.getStatusSummary();
     return {
-      enabled: state.settings.enabled,
-      batchWindowSeconds: state.settings.batchWindowSeconds,
-      running: Boolean(activeRunPromise || activeArchiveLoop || state.runs.some((run) => run.status === "running")),
-      pendingCount,
-      failedCount,
+      enabled: summary.enabled,
+      batchWindowSeconds: summary.batchWindowSeconds,
+      running: Boolean(activeRunPromise || activeArchiveLoop || summary.hasRunningRow),
+      pendingCount: summary.pendingCount,
+      failedCount: summary.failedCount,
       archive: {
         running: Boolean(activeArchiveLoop),
-        pendingCount: archivePendingCount,
-        processedCount: archiveProcessedCount,
-        failedCount: archiveFailedCount,
+        pendingCount: summary.archivePendingCount,
+        processedCount: summary.archiveProcessedCount,
+        failedCount: summary.archiveFailedCount,
       },
-      lastRunAt: latestRun?.finishedAt ?? latestRun?.startedAt ?? null,
-      lastError,
+      lastRunAt: summary.lastRunAt,
+      lastError: summary.lastError,
     };
   };
 
-  const claimBatch = async (
-    queue: InformationQueue,
-    options: { forceRealtime: boolean },
-  ): Promise<{ run: InformationRun; items: InformationItem[]; state: InformationState } | null> => {
-    const maxItems = queue === "realtime" ? MAX_INFORMATION_ITEMS_PER_BATCH : MAX_ARCHIVE_ITEMS_PER_BATCH;
-    return deps.repository.update((state) => {
-      if (queue === "realtime" && !options.forceRealtime && !state.settings.enabled) {
-        return { result: null };
-      }
-      const pending = state.items.filter((item) => item.queue === queue && item.status === "pending");
-      if (!pending.length) return { result: null };
-      if (queue === "realtime" && !options.forceRealtime) {
-        const dueAt = Date.parse(pending[0]!.acceptedAt) + state.settings.batchWindowSeconds * 1000;
-        if (!Number.isNaN(dueAt) && Date.now() < dueAt) return { result: null };
-      }
-
-      const selected: InformationItem[] = [];
-      let chars = 0;
-      for (const item of pending) {
-        if (selected.length >= maxItems) break;
-        if (selected.length > 0 && chars + item.content.length > MAX_INFORMATION_BATCH_CHARS) break;
-        selected.push(item);
-        chars += item.content.length;
-      }
-      const now = new Date().toISOString();
-      const runId = `inforun_${randomUUID()}`;
-      const selectedIds = new Set(selected.map((item) => item.id));
-      const run: InformationRun = {
-        id: runId,
-        kind: queue,
-        status: "running",
-        createdAt: now,
-        startedAt: now,
-        itemIds: selected.map((item) => item.id),
-        publications: [],
-      };
-      const nextState: InformationState = {
-        ...state,
-        items: state.items.map((item) =>
-          selectedIds.has(item.id) ? { ...item, status: "processing" as const, runId } : item),
-        runs: [...state.runs, run],
-      };
-      return { state: nextState, result: { run, items: selected, state: nextState } };
+  const claimBatch = (queue: InformationQueue, options: { forceRealtime: boolean }) =>
+    deps.repository.claimBatch(queue, {
+      forceRealtime: options.forceRealtime,
+      maxItems: queue === "realtime" ? MAX_INFORMATION_ITEMS_PER_BATCH : MAX_ARCHIVE_ITEMS_PER_BATCH,
+      maxChars: MAX_INFORMATION_BATCH_CHARS,
+      now: new Date().toISOString(),
     });
-  };
-
-  const markRunFailed = async (runId: string, itemIds: readonly string[], errorMessage: string) => {
-    const finishedAt = new Date().toISOString();
-    const idSet = new Set(itemIds);
-    return deps.repository.update((state) => {
-      let updatedRun!: InformationRun;
-      const nextRuns = state.runs.map((run) => {
-        if (run.id !== runId) return run;
-        updatedRun = {
-          ...run,
-          status: "failed",
-          finishedAt,
-          model: { status: "failed", error: errorMessage },
-        };
-        return updatedRun;
-      });
-      return {
-        state: {
-          ...state,
-          items: state.items.map((item) => (idSet.has(item.id) ? { ...item, status: "failed" as const } : item)),
-          runs: nextRuns,
-        },
-        result: updatedRun,
-      };
-    });
-  };
-
-  const markRunCancelled = async (runId: string, itemIds: readonly string[]) => {
-    const finishedAt = new Date().toISOString();
-    const idSet = new Set(itemIds);
-    return deps.repository.update((state) => {
-      let updatedRun!: InformationRun;
-      const nextRuns = state.runs.map((run) => {
-        if (run.id !== runId) return run;
-        updatedRun = {
-          ...run,
-          status: "cancelled",
-          finishedAt,
-        };
-        return updatedRun;
-      });
-      return {
-        state: {
-          ...state,
-          items: state.items.map((item) => {
-            if (!idSet.has(item.id) || item.status !== "processing") return item;
-            const { runId: _drop, ...rest } = item;
-            return { ...rest, status: "pending" as const };
-          }),
-          runs: nextRuns,
-        },
-        result: updatedRun,
-      };
-    });
-  };
 
   /**
    * 投递指定 run 上挂起的 pending notifications 到主对话。
@@ -669,52 +470,24 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     runId: string,
     signal: AbortSignal,
   ): Promise<InformationRun> => {
-    const snapshot = await deps.repository.read();
-    const currentRun = snapshot.runs.find((run) => run.id === runId);
-    if (!currentRun) throw new InformationError("NOT_FOUND", `Run missing during delivery: ${runId}`);
+    const initialDetail = await deps.repository.getRun(runId);
+    if (!initialDetail) throw new InformationError("NOT_FOUND", `Run missing during delivery: ${runId}`);
+    const currentRun = initialDetail.run;
 
     const retained = await deps.retainMain();
     if (!retained) {
-      const finishedAt = new Date().toISOString();
-      return deps.repository.update((state) => {
-        let finalRun!: InformationRun;
-        const runs = state.runs.map((run) => {
-          if (run.id !== runId) return run;
-          finalRun = {
-            ...run,
-            status: "completed",
-            finishedAt,
-            publications: run.publications.map((pub) =>
-              pub.status === "pending" ? { ...pub, status: "failed" as const, error: "Main session unavailable" } : pub),
-          };
-          return finalRun;
-        });
-        return { state: { ...state, runs }, result: finalRun };
-      });
+      return deps.repository.finalizeDelivery(runId, new Date().toISOString(), "Main session unavailable");
     }
 
     try {
       for (const publication of currentRun.publications) {
         if (publication.status !== "pending") continue;
-        const latest = await deps.repository.read();
+        const latestSettings = await getSettings();
         const aborted = signal.aborted || isPaused() || closed;
-        const realtimeDisabled = currentRun.kind === "realtime" && !latest.settings.enabled;
+        const realtimeDisabled = currentRun.kind === "realtime" && !latestSettings.enabled;
         if (aborted || realtimeDisabled) {
           const reason = realtimeDisabled ? "Information background disabled" : "Cancelled before notification delivery";
-          await deps.repository.update((state) => ({
-            state: {
-              ...state,
-              runs: state.runs.map((run) =>
-                run.id !== runId
-                  ? run
-                  : {
-                      ...run,
-                      publications: run.publications.map((pub) =>
-                        pub.status === "pending" ? { ...pub, status: "failed" as const, error: reason } : pub),
-                    }),
-            },
-            result: undefined,
-          }));
+          await deps.repository.failPendingPublications(runId, reason);
           break;
         }
 
@@ -729,59 +502,24 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
           errorText = sanitizeError(error);
         }
 
-        await deps.repository.update((state) => ({
-          state: {
-            ...state,
-            runs: state.runs.map((run) => {
-              if (run.id !== runId) return run;
-              return {
-                ...run,
-                publications: run.publications.map((pub) => {
-                  if (pub.notificationId !== publication.notificationId) return pub;
-                  if (receipt) {
-                    return {
-                      ...pub,
-                      status: "published" as const,
-                      receipt,
-                    };
-                  }
-                  return {
-                    ...pub,
-                    status: "failed" as const,
-                    error: errorText ?? "Notification failed",
-                  };
-                }),
-              };
-            }),
-          },
-          result: undefined,
-        }));
+        await deps.repository.updatePublication(
+          runId,
+          publication.notificationId,
+          receipt
+            ? { status: "published", receipt }
+            : { status: "failed", error: errorText ?? "Notification failed" },
+        );
       }
     } finally {
       retained.release();
     }
 
-    const finishedAt = new Date().toISOString();
-    return deps.repository.update((state) => {
-      let finalRun!: InformationRun;
-      const runs = state.runs.map((run) => {
-        if (run.id !== runId) return run;
-        finalRun = {
-          ...run,
-          status: "completed",
-          finishedAt,
-          publications: run.publications.map((pub) =>
-            pub.status === "pending" ? { ...pub, status: "failed" as const, error: "Delivery interrupted" } : pub),
-        };
-        return finalRun;
-      });
-      return { state: { ...state, runs }, result: finalRun };
-    });
+    return deps.repository.finalizeDelivery(runId, new Date().toISOString(), "Delivery interrupted");
   };
 
   /** 执行单次批次：realtime 直接生成并投递通知；archive 仅更新决策与增量习惯操作。 */
   const executeSingleBatch = async (
-    claimed: { run: InformationRun; items: InformationItem[]; state: InformationState },
+    claimed: { run: InformationRun; items: InformationItem[] },
   ): Promise<InformationRun> => {
     const isRealtime = claimed.run.kind === "realtime";
     const finishWork = deps.observeWork?.(
@@ -799,16 +537,35 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         context = await loadPromptContext();
       } catch (error) {
         if (controller.signal.aborted || isPaused() || closed) {
-          const cancelled = await markRunCancelled(claimed.run.id, claimed.run.itemIds);
+          const cancelled = await deps.repository.revertClaimedRun(
+            claimed.run.id,
+            claimed.run.itemIds,
+            new Date().toISOString(),
+          );
+          notifyChanged("items");
+          notifyChanged("runs");
           finishWork?.("failed");
           return cancelled;
         }
-        await markRunFailed(claimed.run.id, claimed.run.itemIds, sanitizeError(error));
+        await deps.repository.markRunFailed(
+          claimed.run.id,
+          claimed.run.itemIds,
+          sanitizeError(error),
+          new Date().toISOString(),
+        );
+        notifyChanged("items");
+        notifyChanged("runs");
         finishWork?.("failed");
         throw error;
       }
       if (controller.signal.aborted || isPaused() || closed) {
-        const cancelled = await markRunCancelled(claimed.run.id, claimed.run.itemIds);
+        const cancelled = await deps.repository.revertClaimedRun(
+          claimed.run.id,
+          claimed.run.itemIds,
+          new Date().toISOString(),
+        );
+        notifyChanged("items");
+        notifyChanged("runs");
         finishWork?.("failed");
         return cancelled;
       }
@@ -841,11 +598,24 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
 
       if (!outcome.ok) {
         if (outcome.error === "CANCELLED" || controller.signal.aborted) {
-          const cancelled = await markRunCancelled(claimed.run.id, claimed.run.itemIds);
+          const cancelled = await deps.repository.revertClaimedRun(
+            claimed.run.id,
+            claimed.run.itemIds,
+            new Date().toISOString(),
+          );
+          notifyChanged("items");
+          notifyChanged("runs");
           finishWork?.("failed");
           return cancelled;
         }
-        const failed = await markRunFailed(claimed.run.id, claimed.run.itemIds, outcome.error);
+        const failed = await deps.repository.markRunFailed(
+          claimed.run.id,
+          claimed.run.itemIds,
+          outcome.error,
+          new Date().toISOString(),
+        );
+        notifyChanged("items");
+        notifyChanged("runs");
         finishWork?.("failed");
         return failed;
       }
@@ -859,7 +629,14 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
           existingHabitIds,
         });
       } catch {
-        const failed = await markRunFailed(claimed.run.id, claimed.run.itemIds, "INVALID_MODEL_RESULT");
+        const failed = await deps.repository.markRunFailed(
+          claimed.run.id,
+          claimed.run.itemIds,
+          "INVALID_MODEL_RESULT",
+          new Date().toISOString(),
+        );
+        notifyChanged("items");
+        notifyChanged("runs");
         finishWork?.("failed");
         return failed;
       }
@@ -872,42 +649,34 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         status: "pending",
       }));
 
-      const claimedIdSet = new Set(claimed.run.itemIds);
-      const updatedRun = await deps.repository.update((state) => {
-        let savedRun!: InformationRun;
-        const runs = state.runs.map((run) => {
-          if (run.id !== claimed.run.id) return run;
-          savedRun = {
-            ...run,
-            status: pendingPublications.length ? "running" : "completed",
-            ...(pendingPublications.length ? {} : { finishedAt: now }),
-            model: { status: "succeeded" },
-            decisions: parsed.decisions,
-            publications: pendingPublications,
-          };
-          return savedRun;
-        });
-        return {
-          state: {
-            ...state,
-            items: state.items.map((item) =>
-              claimedIdSet.has(item.id) ? { ...item, status: "processed" as const } : item),
-            runs,
-          },
-          result: savedRun,
-        };
+      const updatedRun = await deps.repository.completeModelRound({
+        runId: claimed.run.id,
+        itemIds: claimed.run.itemIds,
+        decisions: parsed.decisions,
+        publications: pendingPublications,
+        finishedAt: now,
       });
 
       if (!isRealtime && parsed.habitOperations?.length) {
         await habitsPort.applyOperations(domainId, parsed.habitOperations, "consolidated", expectedUpdatedAt);
       }
 
+      notifyChanged("items");
+      notifyChanged("runs");
+
       if (!pendingPublications.length) {
+        if (isRealtime) {
+          await deps.repository.pruneHistory().catch(() => undefined);
+        }
         finishWork?.("succeeded", parsed.decisions.every((d) => d.decision === "silent"));
         return updatedRun;
       }
 
       const delivered = await deliverPendingPublications(claimed.run.id, controller.signal);
+      if (isRealtime) {
+        await deps.repository.pruneHistory().catch(() => undefined);
+      }
+      notifyChanged("runs");
       finishWork?.("succeeded", false);
       return delivered;
     } finally {
@@ -918,26 +687,10 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
   /** 当历史归档队列全部处理完成（pending === 0 && failed === 0）时，最多发出 1 条 <= 1200 字总结简报。 */
   const maybePublishArchiveBriefing = async (lastRunId: string): Promise<boolean> => {
     if (!deps.synthesizeBriefing) return false;
-    const state = await deps.repository.read();
-    const archiveItems = state.items.filter((item) => item.queue === "archive");
-    if (!archiveItems.length) return false;
-    if (archiveItems.some((item) => item.status === "pending" || item.status === "processing" || item.status === "failed")) {
-      return false;
-    }
+    const wave = await deps.repository.getArchiveBriefingWave();
+    if (!wave) return false;
 
-    const archiveRuns = state.runs
-      .filter((run) => run.kind === "archive" && run.status === "completed")
-      .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
-    // 只收集最近一次已发简报之后的这一波归档批次，避免重复汇总早期已汇报批次。
-    const waveRuns: InformationRun[] = [];
-    for (let i = archiveRuns.length - 1; i >= 0; i--) {
-      const run = archiveRuns[i]!;
-      if (run.publications.length > 0) break;
-      waveRuns.unshift(run);
-    }
-    if (!waveRuns.length) return false;
-
-    const itemById = new Map(archiveItems.map((item) => [item.id, item]));
+    const { itemsById, waveRuns } = wave;
     let totalScanned = 0;
     let silentCount = 0;
     const candidates: InformationArchiveCandidate[] = [];
@@ -949,7 +702,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
           continue;
         }
         if (candidates.length >= MAX_BRIEFING_CANDIDATES) continue;
-        const item = itemById.get(decision.itemId);
+        const item = itemsById.get(decision.itemId);
         if (!item) continue;
         candidates.push({
           itemId: item.id,
@@ -982,21 +735,14 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
       }, controller.signal);
 
       if (!outcome.ok) {
-        const failedPub: InformationPublication = {
+        await deps.repository.setRunPublications(lastRunId, [{
           notificationId: `info-notification-${lastRunId}-0`,
           text: "(archive briefing failed)",
           itemIds: [],
           status: "failed",
           error: outcome.error,
-        };
-        await deps.repository.update((current) => ({
-          state: {
-            ...current,
-            runs: current.runs.map((run) =>
-              run.id === lastRunId ? { ...run, publications: [failedPub] } : run),
-          },
-          result: undefined,
-        }));
+        }]);
+        notifyChanged("runs");
         return false;
       }
 
@@ -1005,46 +751,32 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         { text: outcome.text, itemIds: outcome.itemIds },
         candidateIds,
       );
-      const pendingPub: InformationPublication = {
+      await deps.repository.setRunPublications(lastRunId, [{
         notificationId: `info-notification-${lastRunId}-0`,
         text: parsed.text.slice(0, ARCHIVE_BRIEFING_MAX_LENGTH),
         itemIds: parsed.itemIds,
         status: "pending",
-      };
-      await deps.repository.update((current) => ({
-        state: {
-          ...current,
-          runs: current.runs.map((run) =>
-            run.id === lastRunId ? { ...run, publications: [pendingPub] } : run),
-        },
-        result: undefined,
-      }));
+      }]);
       const delivered = await deliverPendingPublications(lastRunId, controller.signal);
+      notifyChanged("runs");
       return delivered.publications.some((pub) => pub.status === "published");
     } catch (error) {
-      const failedPub: InformationPublication = {
+      await deps.repository.setRunPublications(lastRunId, [{
         notificationId: `info-notification-${lastRunId}-0`,
         text: "(archive briefing failed)",
         itemIds: [],
         status: "failed",
         error: sanitizeError(error),
-      };
-      await deps.repository.update((current) => ({
-        state: {
-          ...current,
-          runs: current.runs.map((run) =>
-            run.id === lastRunId ? { ...run, publications: [failedPub] } : run),
-        },
-        result: undefined,
-      }));
+      }]);
+      notifyChanged("runs");
       return false;
     } finally {
       if (activeController === controller) activeController = undefined;
     }
   };
 
-  /** 手动立即触发一次实时待处理队列分析（queue = "realtime"）。 */
-  const runNow = async (): Promise<{ run: InformationRun; items: InformationItem[] }> => {
+  /** 手动立即触发一次实时待处理队列分析（queue = "realtime"）；支持 retryFailed 重置失败条目并立即重跑。 */
+  const runNow = async (options?: { retryFailed?: boolean }): Promise<{ run: InformationRun; items: InformationItem[] }> => {
     ensureOpen();
     if (isPaused()) throw new InformationError("SESSION_PAUSED", "Information background is paused");
     if (activeRunPromise || activeArchiveLoop) {
@@ -1055,17 +787,20 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
       if (!currentSettings.enabled) {
         throw new InformationError("DISABLED", "Information background is disabled");
       }
+      if (options?.retryFailed) {
+        const resetCount = await deps.repository.requeueFailed("realtime");
+        if (resetCount > 0) notifyChanged("items");
+      }
       const claimed = await claimBatch("realtime", { forceRealtime: true });
       if (!claimed) {
         throw new InformationError("NO_PENDING", "No pending realtime information items");
       }
       const run = await executeSingleBatch(claimed);
-      const itemMap = new Map(claimed.items.map((item) => [item.id, item]));
-      const latest = await deps.repository.read();
-      const finalItems = run.itemIds
-        .map((id) => latest.items.find((item) => item.id === id) ?? itemMap.get(id))
-        .filter((item): item is InformationItem => Boolean(item));
-      return { run, items: finalItems };
+      const detail = await deps.repository.getRun(run.id);
+      return {
+        run: detail?.run ?? run,
+        items: detail?.items ?? claimed.items,
+      };
     })();
     activeRunPromise = runPromise;
     try {
@@ -1087,23 +822,11 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     }
 
     if (options?.retryFailed) {
-      await deps.repository.update((state) => ({
-        state: {
-          ...state,
-          items: state.items.map((item) => {
-            if (item.queue !== "archive" || item.status !== "failed") return item;
-            const { runId: _drop, ...rest } = item;
-            return { ...rest, status: "pending" as const };
-          }),
-        },
-        result: undefined,
-      }));
+      const resetCount = await deps.repository.requeueFailed("archive");
+      if (resetCount > 0) notifyChanged("items");
     }
 
-    const initialState = await deps.repository.read();
-    const initialPending = initialState.items.filter(
-      (item) => item.queue === "archive" && item.status === "pending",
-    ).length;
+    const initialPending = (await deps.repository.getStatusSummary()).archivePendingCount;
     if (initialPending === 0) {
       throw new InformationError("NO_PENDING", "No pending archive items");
     }
@@ -1130,6 +853,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
       if (!closed && !isPaused() && lastRunId) {
         briefingPublished = await maybePublishArchiveBriefing(lastRunId);
       }
+      await deps.repository.pruneHistory().catch(() => undefined);
     };
 
     if (options?.background) {
@@ -1153,10 +877,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     activeArchiveLoop = loop;
     await loop;
 
-    const endState = await deps.repository.read();
-    const remainingPendingCount = endState.items.filter(
-      (item) => item.queue === "archive" && item.status === "pending",
-    ).length;
+    const remainingPendingCount = (await deps.repository.getStatusSummary()).archivePendingCount;
     return {
       status: remainingPendingCount === 0 && failedCount === 0 ? "completed" : "partial",
       runsCount,

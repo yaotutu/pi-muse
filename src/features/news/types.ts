@@ -61,23 +61,15 @@ export type NewsScreeningRun = {
     error?: string;
   };
   decisions?: NewsScreeningDecision[];
-  publications: [];
-};
-
-export type NewsProcessingSettings = {
-  enabled: boolean;
-  batchWindowSeconds: number;
 };
 
 export type NewsProcessingState = {
-  settings: NewsProcessingSettings;
   articleFeedback: NewsArticleFeedback[];
   items: NewsArticleItem[];
   runs: NewsScreeningRun[];
 };
 
 export const defaultNewsProcessingState = (): NewsProcessingState => ({
-  settings: { enabled: true, batchWindowSeconds: 0 },
   articleFeedback: [],
   items: [],
   runs: [],

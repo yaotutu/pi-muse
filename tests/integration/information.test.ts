@@ -221,11 +221,19 @@ test("information HTTP ingestion, SDK decisions, notifications and feedback proj
     method: "PUT", body: JSON.stringify({ piSessionId: receipt.piSessionId, saved: true }),
   });
   const preferences = await h.call(`/api/information/preferences`);
-  const examples = (preferences.body as { feedbackExamples: Array<{ comments: string[]; reaction: string; saved: boolean; items: Array<{ source: string }> }> }).feedbackExamples;
-  assert.equal(examples[0]?.reaction, "like");
-  assert.equal(examples[0]?.saved, true);
-  assert.deepEqual(examples[0]?.comments, ["latest preference"]);
-  assert.equal(examples[0]?.items[0]?.source, "rss");
+  const prefsBody = preferences.body as { unconsolidatedFeedbackCount: number; habits: unknown[]; includes: unknown[] };
+  assert.equal(prefsBody.unconsolidatedFeedbackCount, 1);
+  assert.deepEqual(prefsBody.includes, []);
+  const smsHabits = await h.call(`/api/habits/sms`);
+  const pendingSignals = (smsHabits.body as {
+    pendingSignals: Array<{ targetId: string; kind: string; summary: string; reaction: string | null; saved: boolean; comments: string[] }>;
+  }).pendingSignals;
+  assert.equal(pendingSignals.length, 1);
+  assert.equal(pendingSignals[0]?.kind, "sms_notification");
+  assert.equal(pendingSignals[0]?.reaction, "like");
+  assert.equal(pendingSignals[0]?.saved, true);
+  assert.deepEqual(pendingSignals[0]?.comments, ["latest preference"]);
+  assert.ok(pendingSignals[0]?.summary.includes("INFORMATION-NOTIFY"));
 
   const silent = await h.call(`/api/information/items`, {
     method: "POST", body: JSON.stringify({ items: [{ source: "rss", externalId: "silent-only", content: "silent only batch" }] }),
@@ -640,4 +648,58 @@ test("archive bulk import distills habits across batches and publishes one final
   assert.equal(notifications.length, 1);
   assert.match(notifications[0]!.content ?? "", /ARCHIVE-BRIEFING/);
   assert.ok(h.model.requests.slice(baselineRequests).some((req) => requestToolNames(req).includes("submit_information_briefing")));
+});
+
+test("information items project decision and reason and POST /runs retryFailed retries failed realtime items", async (t) => {
+  const h = await fixture(t);
+  await h.setupPipeline({ enabled: true, batchWindowSeconds: 3600 });
+
+  // First ingest a message that triggers model failure.
+  await h.call("/api/information/items", {
+    method: "POST",
+    body: JSON.stringify({ items: [{ source: "sms", externalId: "fail-then-retry", content: "INVALID_SUBMISSION initially" }] }),
+  });
+  const firstRun = await h.call("/api/information/runs", { method: "POST", body: "{}" });
+  assert.equal(firstRun.status, 200);
+  assert.equal((firstRun.body as RunDetail).run.status, "failed");
+
+  // Without retryFailed, failed item is not claimed.
+  const skipRetry = await h.call("/api/information/runs", { method: "POST", body: "{}" });
+  assert.equal(skipRetry.status, 409);
+
+  // Rewrite only the stored text (status stays 'failed') so fake-model accepts it on retryFailed: true.
+  const db = new (await import("node:sqlite")).DatabaseSync(join(h.dataDir, "state", "main.sqlite"));
+  try {
+    db.prepare("UPDATE sms_items SET content = 'clean after retry' WHERE external_id = 'fail-then-retry'").run();
+  } finally {
+    db.close();
+  }
+
+  // Ingest one notify item and verify retryFailed requeues the failed item cleanly.
+  await h.call("/api/information/items", {
+    method: "POST",
+    body: JSON.stringify({ items: [{ source: "sms", externalId: "rt-notify", content: "NOTIFY parcel waiting" }] }),
+  });
+  const retried = await h.call("/api/information/runs", { method: "POST", body: JSON.stringify({ retryFailed: true }) });
+  assert.equal(retried.status, 200);
+  assert.equal((retried.body as RunDetail).run.status, "completed");
+
+  const list = (await h.call("/api/information/items?limit=10")).body as {
+    items: Array<{ externalId: string; status: string; decision?: string; reason?: string }>;
+  };
+  const notified = list.items.find((item) => item.externalId === "rt-notify");
+  assert.equal(notified?.status, "processed");
+  assert.equal(notified?.decision, "notify");
+  assert.ok(notified?.reason);
+
+  const failedReprocessed = list.items.find((item) => item.externalId === "fail-then-retry");
+  assert.equal(failedReprocessed?.status, "processed");
+  assert.equal(failedReprocessed?.decision, "silent");
+  assert.ok(failedReprocessed?.reason);
+
+  const detail = (await h.call(`/api/information/items/${encodeURIComponent((notified as unknown as { id: string }).id)}`)).body as {
+    item: { decision?: string; reason?: string };
+  };
+  assert.equal(detail.item.decision, "notify");
+  assert.equal(detail.item.reason, notified?.reason);
 });

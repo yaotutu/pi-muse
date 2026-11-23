@@ -25,7 +25,6 @@ test("domain agent registry lists domains, reads instructions, and validates inp
               updatedAt: "2026-11-23T00:00:00.000Z",
             }],
             unconsolidatedFeedbackCount: 0,
-            feedbackExamples: [],
           }),
         },
         query: async (input) => ({ queriedAction: input.action, status: input.status ?? null, limit: input.limit ?? null }),
@@ -67,7 +66,6 @@ test("domain agent registry lists domains, reads instructions, and validates inp
       updatedAt: "2026-11-23T00:00:00.000Z",
     }],
     unconsolidatedFeedbackCount: 0,
-    feedbackExamples: [],
   });
 
   const queried = await registry.query("sms", { action: "items", status: "processed", limit: 10.9 });

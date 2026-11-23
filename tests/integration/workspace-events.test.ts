@@ -363,3 +363,53 @@ test("committed session directory changes invalidate other signed-in clients", {
   const directory = await service.app.request("/api/sessions", { headers });
   assert.deepEqual((await directory.json()).sessions.map((item: { id: string }) => item.id), ["main"]);
 });
+
+test("domain mutations emit coalesced domain_updated events on /api/events", async (t) => {
+  const { service, headers } = await fixture(t);
+  const stream = await connect(t, service, headers);
+
+  const nextDomainEvent = async (domain: string, scope: string) => {
+    while (true) {
+      const frame = await Promise.race([
+        stream.nextFrame(),
+        sleep(3000).then(() => { throw new Error(`timed out waiting for domain_updated ${domain}:${scope}`); }),
+      ]);
+      if (frame.event === "domain_updated" && frame.data.domain === domain && frame.data.scope === scope) {
+        return frame.data as { instanceId: string; domain: string; scope: string };
+      }
+    }
+  };
+
+  const settingsRes = await service.app.request("/api/information/settings", {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled: true, batchWindowSeconds: 60 }),
+  });
+  assert.equal(settingsRes.status, 200);
+  const settingsEvent = await nextDomainEvent("sms", "settings");
+  assert.equal(settingsEvent.instanceId, stream.ready.instanceId);
+
+  const prefsRes = await service.app.request("/api/information/preferences", {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ instructions: "Always notify security alerts." }),
+  });
+  assert.equal(prefsRes.status, 200);
+  await nextDomainEvent("sms", "preferences");
+
+  const itemsRes = await service.app.request("/api/information/items", {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ items: [{ source: "sms", externalId: "sse-1", content: "alert" }] }),
+  });
+  assert.equal(itemsRes.status, 200);
+  await nextDomainEvent("sms", "items");
+
+  const habitRes = await service.app.request("/api/habits/sms", {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "Ignore promo texts" }),
+  });
+  assert.equal(habitRes.status, 200);
+  await nextDomainEvent("sms", "habits");
+});

@@ -268,6 +268,7 @@ test("docs: activity GET endpoints are authenticated read-only JSON operations w
     "approval_updated",
     "conversation_updated",
     "session_directory_updated",
+    "domain_updated",
     "ready",
   ].sort());
 });
@@ -729,6 +730,7 @@ test("docs: notification stream documents the client sync protocol and keeps eve
     "approval_updated",
     "conversation_updated",
     "session_directory_updated",
+    "domain_updated",
     "ready",
   ].sort());
   const chat = document.paths["/api/conversation/run"].post as Operation;
@@ -756,6 +758,7 @@ test("docs: /api/events SSE schema carries bounded runtime, presence and invalid
     "approval_updated",
     "conversation_updated",
     "session_directory_updated",
+    "domain_updated",
     "ready",
   ].sort());
   for (const [name, entry] of Object.entries(table)) {
@@ -1060,7 +1063,8 @@ test("docs: /openapi.json and /docs are served without auth", async (t) => {
   const liveDesc = String(liveOp.description ?? "");
   assert.match(liveDesc, /Authorization[\s\S]*Bearer/i, "live description 应说明 Authorization: Bearer");
   assert.match(liveDesc, /event:[\s\S]*?data:/i, "live description 应说明 event:/data: 帧格式");
-  assert.match(liveDesc, /session_status_updated[\s\S]*approval_pending[\s\S]*approval_updated[\s\S]*activity_updated[\s\S]*conversation_updated/i, "live description 应说明六类事件");
+  assert.match(liveDesc, /session_status_updated[\s\S]*approval_pending[\s\S]*approval_updated[\s\S]*activity_updated[\s\S]*conversation_updated/i, "live description 应说明通知事件");
+  assert.match(liveDesc, /domain_updated/i, "live description 应包含 domain_updated");
   assert.match(liveDesc, /keep-alive/i, "live description 应说明 : keep-alive 心跳");
   assert.match(liveDesc, /Last-Event-ID/, "live description 应说明无 Last-Event-ID / 不重放");
   assert.doesNotMatch(liveDesc, /workspace_updated|actions_updated/, "旧失效通知事件不得保留");
@@ -1221,6 +1225,7 @@ test("docs: information endpoints expose a bounded authenticated agent-scoped AP
   assert.match(paths["/api/information/runs"]!.get!.description ?? "", /通知投递回执/);
   assert.match(paths["/api/information/preferences"]!.get!.description ?? "", /habits/);
   assert.match(paths["/api/information/settings"]!.put!.description ?? "", /取消在途轮/);
+  assert.ok(paths["/api/habits"]?.get);
   assert.ok(paths["/api/habits/{domain}"]?.get && paths["/api/habits/{domain}"]?.post);
   assert.ok(paths["/api/habits/{domain}/{habitId}"]?.patch && paths["/api/habits/{domain}/{habitId}"]?.delete);
   assert.ok(paths["/api/habits/{domain}/consolidate"]?.post);

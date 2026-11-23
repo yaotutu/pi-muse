@@ -86,7 +86,9 @@ test("main chat expands frontmatter includes across SOUL, USER, and INSTRUCTIONS
 
   // Read APIs MUST preserve raw YAML frontmatter untouched.
   assert.deepEqual((await h.api("/api/profile")).body, { soul: rawSoul, user: rawUser });
-  assert.deepEqual((await h.api("/api/assistant/instructions")).body, { instructions: rawInstructions });
+  const assistantBody = (await h.api("/api/assistant/instructions")).body as { instructions: string; includes: Array<{ path: string; status: string }> };
+  assert.equal(assistantBody.instructions, rawInstructions);
+  assert.ok(assistantBody.includes.some((entry) => entry.status === "loaded"));
 
   const reqStart = h.model.requests.length;
   await h.runChat("hello\n会话规则:回复前先核对时间");
@@ -140,8 +142,12 @@ test("SMS and News expand workspace instructions includes while keeping HTTP GET
   assert.equal((await h.api("/api/information/preferences", "PUT", { instructions: smsRaw })).status, 200);
   assert.equal((await h.api("/api/news/preferences", "PUT", { instructions: newsRaw })).status, 200);
 
-  assert.equal(((await h.api("/api/information/preferences")).body as { instructions: string }).instructions, smsRaw);
-  assert.equal(((await h.api("/api/news/preferences")).body as { instructions: string }).instructions, newsRaw);
+  const smsPrefsBody = (await h.api("/api/information/preferences")).body as { instructions: string; includes: Array<{ status: string }> };
+  assert.equal(smsPrefsBody.instructions, smsRaw);
+  assert.ok(smsPrefsBody.includes.some((entry) => entry.status === "loaded"));
+  const newsPrefsBody = (await h.api("/api/news/preferences")).body as { instructions: string; includes: Array<{ status: string }> };
+  assert.equal(newsPrefsBody.instructions, newsRaw);
+  assert.ok(newsPrefsBody.includes.some((entry) => entry.status === "loaded"));
 
   // Poison habits with YAML frontmatter include; MUST NEVER expand.
   assert.equal((await h.api("/api/habits/sms", "POST", {
@@ -205,4 +211,62 @@ test("SMS and News expand workspace instructions includes while keeping HTTP GET
   assert.ok(newsSystem.includes("SHARED-VIP-CONTACT"));
   assert.ok(newsSystem.includes("learned-news-only"));
   assert.ok(!newsSystem.includes("FORBIDDEN-SECRET-MUST-NOT-EXPAND"), "News habits must never expand include directives");
+});
+
+test("instructions and domain preferences return accurate include diagnostics across all error statuses", async (t) => {
+  const h = await fixture(t);
+  const workspaceDir = join(h.dataDir, "workspace");
+  await writeFile(join(workspaceDir, "assistant", "loaded.md"), "LOADED-SUB", "utf8");
+  await writeFile(join(workspaceDir, "assistant", "empty.md"), "   \n", "utf8");
+  await writeFile(join(workspaceDir, "assistant", "cycle-a.md"), "---\ninclude: ./cycle-b.md\n---\nCYCLE-A", "utf8");
+  await writeFile(join(workspaceDir, "assistant", "cycle-b.md"), "---\ninclude: ./cycle-a.md\n---\nCYCLE-B", "utf8");
+
+  const assistantDoc = [
+    "---",
+    "include:",
+    "  - ./loaded.md",
+    "  - ./missing.md",
+    "  - ../../escape.md",
+    "  - ./empty.md",
+    "  - ./cycle-a.md",
+    "---",
+    "Root instructions.",
+  ].join("\n");
+
+  const savedAssistant = await h.api("/api/assistant/instructions", "PUT", { instructions: assistantDoc });
+  assert.equal(savedAssistant.status, 200);
+  const assistantBody = savedAssistant.body as {
+    instructions: string;
+    includes: Array<{ path: string; status: string }>;
+  };
+  assert.equal(assistantBody.instructions, assistantDoc);
+  assert.deepEqual(
+    assistantBody.includes.map((entry) => [entry.path, entry.status]),
+    [
+      ["./loaded.md", "loaded"],
+      ["./missing.md", "missing"],
+      ["../../escape.md", "invalid"],
+      ["./empty.md", "empty"],
+      ["./cycle-a.md", "cycle"],
+      ["./cycle-b.md", "loaded"],
+      ["./cycle-a.md", "loaded"],
+    ],
+  );
+
+  await writeFile(join(workspaceDir, "domains", "sms", "valid.md"), "SMS-VALID", "utf8");
+  const smsDoc = "---\ninclude:\n  - ./valid.md\n  - ./missing.md\n---\nSMS-ROOT";
+  const savedSms = await h.api("/api/information/preferences", "PUT", { instructions: smsDoc });
+  assert.equal(savedSms.status, 200);
+  const smsBody = savedSms.body as { includes: Array<{ path: string; status: string }> };
+  assert.deepEqual(
+    smsBody.includes.map((entry) => [entry.path, entry.status]),
+    [["./valid.md", "loaded"], ["./missing.md", "missing"]],
+  );
+
+  const savedNews = await h.api("/api/news/preferences", "PUT", {
+    instructions: "---\ninclude: ./nope.md\n---\nNEWS-ROOT",
+  });
+  assert.equal(savedNews.status, 200);
+  const newsBody = savedNews.body as { includes: Array<{ path: string; status: string }> };
+  assert.deepEqual(newsBody.includes.map((entry) => [entry.path, entry.status]), [["./nope.md", "missing"]]);
 });

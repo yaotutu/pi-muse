@@ -1474,14 +1474,14 @@ test("assistant instructions: GET/PUT global settings and prompt injection in bo
   // 1. GET 初始为空
   const res1 = await h.request(`/api/assistant/instructions`);
   assert.equal(res1.status, 200);
-  assert.deepEqual(await res1.json(), { instructions: "" });
+  assert.deepEqual(await res1.json(), { instructions: "", includes: [] });
 
   // 2. PUT 设置全局助手规则
   const res2 = await h.request(`/api/assistant/instructions`, {
     instructions: "RULE: Every email reply must sign as Chief Assistant.",
   }, "PUT");
   assert.equal(res2.status, 200);
-  assert.deepEqual(await res2.json(), { instructions: "RULE: Every email reply must sign as Chief Assistant." });
+  assert.deepEqual(await res2.json(), { instructions: "RULE: Every email reply must sign as Chief Assistant.", includes: [] });
 
   // 3. 在 email-agent 发起对话，检查 System Prompt 注入
   const run1 = input([user("hello email")], "run-inst-1");
@@ -1522,7 +1522,7 @@ test("assistant instructions: conversation can update shared instructions via in
   assert.equal(action.payload.content, "RULE-FROM-CHAT: Always be polite.");
   assert.equal(action.sessionId, topic0.id);
   const before = await (await h.request("/api/assistant/instructions")).json();
-  assert.deepEqual(before, { instructions: "" });
+  assert.deepEqual(before, { instructions: "", includes: [] });
   assert.equal((await h.request(`/api/approvals/${action.id}/decision`, { decision: "approve" })).status, 200);
   const ev1 = await pendingRun;
   assert.equal(ev1.at(-1)?.type, "RUN_FINISHED");

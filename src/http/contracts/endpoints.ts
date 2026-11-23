@@ -98,8 +98,8 @@ export const endpoints: EndpointSpec[] = [
     hint: "列出会话所属的定时任务和网页监控，包括暂停和已完成项。scheduleRevision 用于绑定删除确认时的任务清单。GET 不创建会话。" },
   { operationId: "deleteSession", method: "delete", path: "/api/sessions/:sessionId", tag: "会话", summary: "删除专题会话", auth: true, request: req.deleteSessionSchema, response: resp.deleteSessionResponse,
     hint: "显式选择删除任务/监控，或保留并转归 main。主会话不可删除。任务列表有变化时返回 409 SESSION_SCHEDULES_CHANGED，保留任务而原会话任务正在执行时返回 409 SESSION_JOB_RUNNING。删除会话历史、反馈并关闭在途聊天。保留任务时待投递监控通知随任务转移。", errorResponses: { 409: { description: "确认清单有变化、原会话的任务仍在执行，或会话不可删除", schema: resp.errorResponse } } },
-  { operationId: "getAssistantInstructions", method: "get", path: "/api/assistant/instructions", tag: "助手设置", summary: "读取助手指令", auth: true, response: resp.instructionsResponse, hint: "所有聊天会话共用 workspace/assistant/INSTRUCTIONS.md 原文（缺失为空串）。支持在文件最顶部使用 YAML frontmatter `include:` 引用同工作区内相对路径纯文本文件（模型注入前实时展开，缺失文件静默跳过，本接口仍返回原始文本）。独立于短信与新闻领域偏好。" },
-  { operationId: "saveAssistantInstructions", method: "put", path: "/api/assistant/instructions", tag: "助手设置", summary: "保存助手指令", auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse, hint: "整份替换并保留原文（含顶部 YAML frontmatter `include:`）；最后成功保存生效。所有聊天会话从下一轮重读并展开可用引用（缺失引用不影响保存或运行），不能扩大工具/路径/审批权限。" },
+  { operationId: "getAssistantInstructions", method: "get", path: "/api/assistant/instructions", tag: "助手设置", summary: "读取助手指令", auth: true, response: resp.instructionsResponse, hint: "所有聊天会话共用 workspace/assistant/INSTRUCTIONS.md 原文（缺失为空串）及顶部 YAML frontmatter `include:` 引用诊断 `includes`。支持引用同工作区内相对路径纯文本文件（模型注入前实时展开，问题引用不阻止保存或运行）。独立于短信与新闻领域偏好。" },
+  { operationId: "saveAssistantInstructions", method: "put", path: "/api/assistant/instructions", tag: "助手设置", summary: "保存助手指令", auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse, hint: "整份替换并保留原文（含顶部 YAML frontmatter `include:`），返回原文与最新 `includes` 诊断；最后成功保存生效。所有聊天会话从下一轮重读并展开可用引用，不能扩大工具/路径/审批权限。" },
   { operationId: "getAssistantSkills", method: "get", path: "/api/assistant/skills", tag: "助手设置", summary: "读取全部可选技能及来源", auth: true, response: resp.skillsResponse,
     hint: "列出当前可选技能，不限于已启用项。来源 user=DATA_DIR/assets/skills 实例自有、builtin=内置自有、shared=服务端用户 ~/.agents/skills 通用目录。按名称合并，优先级 user > builtin > shared；关闭优先项不会回退同名低优先来源。默认开关：内置技能按随服务端发布的 skills-defaults 清单（当前 9 项默认开启），通用与实例自建技能一律默认关闭；手动保存的选择始终优先并绑定来源。返回 id/name/description/source/defaultEnabled/enabled，不返回物理路径。GET 不创建目录或私有 config.json。开关和资产由所有聊天会话共用。" },
   { operationId: "getAssistantSkill", method: "get", path: "/api/assistant/skills/:name", tag: "助手设置", summary: "读取技能正文及来源", auth: true, response: resp.skillDetailResponse,
@@ -287,9 +287,18 @@ export const endpoints: EndpointSpec[] = [
   },
   // ---- 通用用户行为习惯归纳与管理（Habits）----
   {
+    operationId: "listHabitDomains",
+    method: "get", path: "/api/habits", tag: "习惯", summary: "列出所有已注册的行为习惯领域",
+    hint: "返回全部受通用习惯引擎管理的领域清单（如 sms、news）及各自习惯条数、未消化反馈计数与最近一次归纳状态，无需客户端硬编码领域列表。",
+    auth: true, response: habits.habitDomainsListResponse,
+    errorResponses: {
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
     operationId: "getHabitDomainOverview",
-    method: "get", path: "/api/habits/:domain", tag: "习惯", summary: "读取指定领域的行为习惯列表与归纳状态",
-    hint: "返回该领域（如 sms、news）已持久化生效的长短期行为习惯条目（habits，最多 50 条）、尚未消化的去重活跃反馈数（unconsolidatedCount）、自动归纳阈值（autoThreshold=5）、定期归纳周期（intervalMs=7200000）、当前已提交游标 cursorSeq 及最近一次归纳统计。未注册领域返回 404，非法领域标识返回 400。",
+    method: "get", path: "/api/habits/:domain", tag: "习惯", summary: "读取指定领域的行为习惯列表、待归纳样本与归纳状态",
+    hint: "返回该领域（如 sms、news）的名称与说明、已持久化生效的长短期行为习惯条目（habits，最多 50 条）、未消化反馈计数（unconsolidatedCount）与近期去重待归纳样本明细（pendingSignals，按最新倒序最多 20 条）、自动归纳阈值（autoThreshold=5）、定期归纳周期（intervalMs=7200000）、当前已提交游标 cursorSeq 及最近一次归纳统计。未注册领域返回 404，非法领域标识返回 400。",
     auth: true, response: habits.habitDomainOverviewResponse,
     errorResponses: {
       400: { description: "非法 domain 标识", schema: resp.errorResponse },
@@ -366,8 +375,8 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "getInformationPreferences",
-    method: "get", path: "/api/information/preferences", tag: "信息后台", summary: "读取信息指令、已归纳习惯与近期热缓冲反馈",
-    hint: "返回用户主动编写的领域指令 instructions 原文（domains/sms/INSTRUCTIONS.md；支持在文件最顶部使用 YAML frontmatter `include:` 引用同工作区内相对路径纯文本文件，注入模型前实时展开，缺失文件静默跳过，本接口仍返回原始文本）、通用习惯引擎沉淀的行为习惯清单 habits（可通过 /api/habits/sms 管理）、未消化反馈计数 unconsolidatedFeedbackCount 以及尚未归纳的近期消息反馈热缓冲 feedbackExamples（归纳后自动清空，不丢失任何早期反馈规则）。",
+    method: "get", path: "/api/information/preferences", tag: "信息后台", summary: "读取信息指令、include 诊断与已归纳习惯",
+    hint: "返回用户主动编写的领域指令 instructions 原文（domains/sms/INSTRUCTIONS.md）、顶部 YAML frontmatter `include:` 引用诊断 includes（loaded/missing/invalid/cycle/depth_exceeded/truncated/empty）、通用习惯引擎沉淀的行为习惯清单 habits 及未消化反馈计数 unconsolidatedFeedbackCount；待归纳反馈样本明细统一通过 GET /api/habits/sms 查看。",
     auth: true, response: information.informationPreferencesResponse,
     errorResponses: {
       503: { description: "服务正在关闭", schema: resp.errorResponse },
@@ -376,7 +385,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateInformationPreferences",
     method: "put", path: "/api/information/preferences", tag: "信息后台", summary: "保存信息领域指令",
-    hint: "保存用户指令 instructions 原文（最多 20000 字符；空串清空；支持保留顶部 YAML frontmatter `include:` 引用，缺失引用不影响保存或运行）到 domains/sms/INSTRUCTIONS.md，最后保存生效，不写主会话 assistant/INSTRUCTIONS.md；也可通过主对话 domain_agent 工具修改。",
+    hint: "保存用户指令 instructions 原文（最多 20000 字符；空串清空；保留顶部 YAML frontmatter `include:` 引用并返回最新 includes 诊断）到 domains/sms/INSTRUCTIONS.md，最后保存生效，不写主会话 assistant/INSTRUCTIONS.md；也可通过主对话 domain_agent 工具修改。",
     auth: true, request: information.informationPreferencesRequestSchema, response: information.informationPreferencesResponse,
     errorResponses: {
       400: { description: "非法请求或超长 instructions", schema: resp.errorResponse },
@@ -418,8 +427,8 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "listInformationItems",
-    method: "get", path: "/api/information/items", tag: "信息后台", summary: "分页读取原始信息条目",
-    hint: "按接纳时间倒序读取，支持按 queue（realtime/archive）与 status 过滤；limit 默认 20、范围 1–100。",
+    method: "get", path: "/api/information/items", tag: "信息后台", summary: "分页读取原始信息条目与判定结果",
+    hint: "按接纳时间倒序 SQL 分页读取，支持按 queue（realtime/archive）与 status 过滤；已产生判定结果时直接投影 decision（silent/notify）与 reason 理由；limit 默认 20、范围 1–100。",
     auth: true, query: information.informationItemsQuerySchema, response: information.informationItemsResponse,
     errorResponses: {
       400: { description: "非法查询或游标", schema: resp.errorResponse },
@@ -429,7 +438,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getInformationItem",
     method: "get", path: "/api/information/items/:itemId", tag: "信息后台", summary: "读取单条信息与关联 run",
-    hint: "返回原始条目及关联执行记录；不存在返回 404。",
+    hint: "返回原始条目（已判定时含 decision 与 reason）及关联执行记录；不存在返回 404。",
     auth: true, response: information.informationItemDetailResponse,
     errorResponses: {
       400: { description: "非法 itemId", schema: resp.errorResponse },
@@ -449,7 +458,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "runInformationNow",
     method: "post", path: "/api/information/runs", tag: "信息后台", summary: "立即触发一次日常实时单周期分析",
-    hint: "忽略批等待窗口，取最早的一批 queue=realtime pending 条目（最多 20 条，受 60000 字符保护）完成单周期模型判定与通知发布；无待处理条目返回 409 NO_PENDING，禁用返回 409 DISABLED，忙返回 409 BUSY。",
+    hint: "忽略批等待窗口，取最早的一批 queue=realtime pending 条目（最多 20 条，受 60000 字符保护）完成单周期模型判定与通知发布；可传 retryFailed=true 先把失败的实时条目重置为 pending 后重跑。无待处理条目返回 409 NO_PENDING，禁用返回 409 DISABLED，忙返回 409 BUSY。",
     auth: true, request: information.informationRunRequestSchema, response: information.informationRunDetailResponse,
     errorResponses: {
       400: { description: "非法请求", schema: resp.errorResponse },
@@ -594,15 +603,15 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "getNewsPreferences",
-    method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻指令与行为习惯",
-    hint: "instructions 是保存在 workspace/domains/news/INSTRUCTIONS.md 的明确新闻指令原文（支持在文件最顶部使用 YAML frontmatter `include:` 引用同工作区内相对路径纯文本文件，筛选时实时展开，缺失文件静默跳过，本接口仍返回原始文本）；habits 与 unconsolidatedFeedbackCount 由通用习惯引擎从逐篇反馈中定期沉淀并提供（可通过 /api/habits/news 查看、编辑与手动归纳），不覆盖明确 instructions、会话指令或全局 USER。",
+    method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻指令、include 诊断与行为习惯",
+    hint: "instructions 是保存在 workspace/domains/news/INSTRUCTIONS.md 的明确新闻指令原文，includes 报告顶部 YAML frontmatter `include:` 引用展开诊断；habits 与 unconsolidatedFeedbackCount 由通用习惯引擎从逐篇反馈中定期沉淀并提供（样本明细与手动管理统一走 /api/habits/news），不覆盖明确 instructions、会话指令或全局 USER。",
     auth: true, response: news.newsPreferencesResponseSchema,
     errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
   },
   {
     operationId: "updateNewsPreferences",
     method: "put", path: "/api/news/preferences", tag: "新闻", summary: "保存新闻领域指令",
-    hint: "instructions 最多 20000 字符，空串清空；最后成功保存生效，原样保留顶部 YAML frontmatter `include:` 引用（缺失引用不影响保存或筛选）。本接口和工作区文件页编辑同一份 workspace/domains/news/INSTRUCTIONS.md，也不触发模型；也可在主聊天通过 domain_agent 调整。",
+    hint: "instructions 最多 20000 字符，空串清空；最后成功保存生效，原样保留顶部 YAML frontmatter `include:` 引用并返回最新 includes 诊断。本接口和工作区文件页编辑同一份 workspace/domains/news/INSTRUCTIONS.md，也不触发模型；也可在主聊天通过 domain_agent 调整。",
     auth: true, request: news.newsPreferencesUpdateRequestSchema, response: news.newsPreferencesResponseSchema,
     errorResponses: {
       400: { description: "非法请求或超长 instructions", schema: resp.errorResponse },

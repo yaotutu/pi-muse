@@ -16,8 +16,10 @@ import {
   type HabitConsolidateModelOutcome,
   type HabitDomainDefinition,
   type HabitDomainOverview,
+  type HabitDomainSummary,
   type HabitItem,
   type HabitOperation,
+  type HabitPendingSignal,
   type HabitPromptContext,
   type HabitRepository,
   type HabitSignalPayload,
@@ -34,12 +36,24 @@ export type CreateHabitsServiceDeps = {
   autoThreshold?: number;
   intervalMs?: number;
   signalBatchSize?: number;
+  onChanged?: (domain: string) => void;
   observeWork?: (
     sessionId: string,
     key: string,
     label: string,
   ) => ((outcome: "succeeded" | "failed", silent?: boolean) => void) | undefined;
 };
+
+const toPendingSignal = (payload: HabitSignalPayload): HabitPendingSignal => ({
+  targetId: payload.targetId,
+  kind: payload.kind,
+  summary: payload.summary ?? "",
+  reaction: payload.reaction,
+  saved: payload.saved,
+  comments: [...payload.comments],
+  commentsTruncated: Boolean(payload.commentsTruncated),
+  updatedAt: payload.updatedAt,
+});
 
 const validDomainId = (raw: string): string => {
   const domain = typeof raw === "string" ? raw.trim() : "";
@@ -101,6 +115,14 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
     return { records, active };
   };
 
+  const notifyChanged = (domain: string) => {
+    try {
+      deps.onChanged?.(domain);
+    } catch {
+      // SSE/观察通知失败不能破坏习惯存储一致性。
+    }
+  };
+
   const getOverview = async (rawDomain: string): Promise<HabitDomainOverview> => {
     const def = requireDomain(rawDomain);
     const [habits, meta, { active }] = await Promise.all([
@@ -108,11 +130,18 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
       deps.repository.getDomainMeta(def.id),
       getActiveUnconsolidated(def.id),
     ]);
+    const pendingSignals = [...active]
+      .reverse()
+      .slice(0, HABIT_HOT_BUFFER_MAX)
+      .map((entry) => toPendingSignal(entry.payload));
     return {
       domain: def.id,
+      name: def.name,
+      summary: def.summary,
       running: activeRuns.has(def.id),
       habits,
       unconsolidatedCount: active.length,
+      pendingSignals,
       autoThreshold,
       intervalMs,
       cursorSeq: meta.cursorSeq,
@@ -121,6 +150,31 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
       lastRunProcessed: meta.lastRunProcessed,
       lastRunError: meta.lastRunError,
     };
+  };
+
+  const listDomainSummaries = async (): Promise<HabitDomainSummary[]> => {
+    const summaries: HabitDomainSummary[] = [];
+    for (const def of domainMap.values()) {
+      const [habits, meta, { active }] = await Promise.all([
+        deps.repository.listHabits(def.id),
+        deps.repository.getDomainMeta(def.id),
+        getActiveUnconsolidated(def.id),
+      ]);
+      summaries.push({
+        domain: def.id,
+        name: def.name,
+        summary: def.summary,
+        running: activeRuns.has(def.id),
+        habitsCount: habits.length,
+        unconsolidatedCount: active.length,
+        autoThreshold,
+        intervalMs,
+        lastRunAt: meta.lastRunAt,
+        lastRunStatus: meta.lastRunStatus,
+        lastRunError: meta.lastRunError,
+      });
+    }
+    return summaries;
   };
 
   const listHabits = async (rawDomain: string): Promise<HabitItem[]> => {
@@ -146,7 +200,9 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
     ensureOpen();
     const def = requireDomain(rawDomain);
     const text = normalizeHabitText(rawText);
-    return deps.repository.addHabit(def.id, text, source);
+    const created = await deps.repository.addHabit(def.id, text, source);
+    notifyChanged(def.id);
+    return created;
   };
 
   const updateHabit = async (rawDomain: string, rawHabitId: string, rawText: string): Promise<HabitItem> => {
@@ -154,14 +210,18 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
     const def = requireDomain(rawDomain);
     const habitId = validHabitId(rawHabitId);
     const text = normalizeHabitText(rawText);
-    return deps.repository.updateHabit(def.id, habitId, text);
+    const updated = await deps.repository.updateHabit(def.id, habitId, text);
+    notifyChanged(def.id);
+    return updated;
   };
 
   const deleteHabit = async (rawDomain: string, rawHabitId: string) => {
     ensureOpen();
     const def = requireDomain(rawDomain);
     const habitId = validHabitId(rawHabitId);
-    return deps.repository.deleteHabit(def.id, habitId);
+    const deleted = await deps.repository.deleteHabit(def.id, habitId);
+    notifyChanged(def.id);
+    return deleted;
   };
 
   const applyOperations = async (
@@ -176,12 +236,14 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
     const existingIds = new Set(existing.map((item) => item.id));
     const operations = parseHabitOperationsArray(rawOperations, { existingIds });
     if (!operations.length) return existing;
-    return deps.repository.applyOperations({
+    const updated = await deps.repository.applyOperations({
       domain: def.id,
       operations,
       source,
       expectedUpdatedAt,
     });
+    notifyChanged(def.id);
+    return updated;
   };
 
   const runConsolidationLoop = async (
@@ -246,6 +308,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
             at: new Date().toISOString(),
           });
           finishWork?.("failed");
+          notifyChanged(def.id);
           return getOverview(def.id);
         }
 
@@ -262,6 +325,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
             at: new Date().toISOString(),
           });
           finishWork?.("failed");
+          notifyChanged(def.id);
           return getOverview(def.id);
         }
 
@@ -292,6 +356,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
       }
 
       finishWork?.("succeeded", totalProcessed === 0);
+      notifyChanged(def.id);
       return getOverview(def.id);
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 300) : "Habit consolidation failed";
@@ -302,6 +367,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
         at: new Date().toISOString(),
       }).catch(() => undefined);
       finishWork?.("failed");
+      notifyChanged(def.id);
       throw error;
     }
   };
@@ -334,6 +400,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
     if (closed) return;
     const def = requireDomain(rawDomain);
     await deps.repository.appendSignal(def.id, targetId, payload);
+    notifyChanged(def.id);
     if (closed || activeRuns.has(def.id)) return;
     const { active } = await getActiveUnconsolidated(def.id);
     if (active.length >= autoThreshold && !closed && !activeRuns.has(def.id)) {
@@ -377,6 +444,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
 
   return {
     listDomains: () => [...domainMap.keys()],
+    listDomainSummaries,
     hasDomain: (domain: string) => domainMap.has(domain),
     getOverview,
     listHabits,

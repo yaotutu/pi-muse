@@ -1,3 +1,4 @@
+import type { WorkspaceIncludeDiagnostic } from "../../shared/workspace-includes.js";
 import type { HabitItem } from "../habits/types.js";
 
 /** 领域子 Agent 标识格式；稳定小写字母开头，兼作工具参数、通知归属与引用头标识。 */
@@ -8,9 +9,9 @@ export const DOMAIN_INSTRUCTIONS_MAX_LENGTH = 20_000;
 
 export type DomainInstructionsSnapshot = {
   instructions: string;
+  includes?: WorkspaceIncludeDiagnostic[];
   habits: HabitItem[];
   unconsolidatedFeedbackCount?: number;
-  feedbackExamples?: unknown[];
 };
 
 export type DomainQueryAction = "overview" | "items" | "item" | "runs" | "run";

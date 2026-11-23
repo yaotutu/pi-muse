@@ -64,9 +64,9 @@ include: [./bank.md, ./delivery-rules.md]
 
 ### Storage vs. Runtime Expansion {#include-storage-behavior}
 
-- **Reads and saves always preserve raw text**: HTTP endpoints (`/api/assistant/instructions`, `/api/profile`, `/api/information/preferences`, `/api/news/preferences`), the Workspace Files editor, and assistant read tools always return and save the raw Markdown including top-of-file `include:` frontmatter. Expanded text is never written back over your source file.
+- **Reads and saves always preserve raw text and return diagnostics**: HTTP endpoints (`/api/assistant/instructions`, `/api/profile`, `/api/information/preferences`, `/api/news/preferences`), the Workspace Files editor, and assistant read tools always return and save the raw Markdown including top-of-file `include:` frontmatter without writing expanded text back over your source file. In addition, `/api/assistant/instructions`, `/api/information/preferences`, and `/api/news/preferences` expose an `includes` diagnostics array reporting each resolved target's status (`loaded`, `missing`, `invalid`, `cycle`, `depth_exceeded`, `truncated`, `empty`) and workspace path.
 - **Expanded dynamically before model calls**: each chat turn, SMS run, news screening batch, and Dream consolidation expands includes dynamically. Editing a child file takes effect on the next model call without re-saving the parent file.
-- **Missing or invalid targets never block execution**: missing files, out-of-workspace paths, symlinks, and non-text targets are silently skipped while keeping all valid instructions active.
+- **Missing or invalid targets never block execution**: missing files, out-of-workspace paths, symlinks, and non-text targets are recorded in `includes` diagnostics and skipped during prompt assembly while keeping all valid instructions active.
 - **Dream compatibility**: Dream reads expanded documents when deduplicating proposals, and appends approved pending suggestions to the end of raw `USER.md`, `SOUL.md`, or `INSTRUCTIONS.md` files without flattening top-of-file frontmatter.
 
 ## SMS and News Domain Rules {#sms-and-news-domains}

@@ -106,8 +106,13 @@ test("habits HTTP CRUD, validation, and model consolidation failure preservation
   // Hot buffer immediately reflects unconsolidated feedback in preferences and overview
   const smsPrefsBefore = informationPreferencesResponse.parse((await h.api("/api/information/preferences")).body);
   assert.equal(smsPrefsBefore.unconsolidatedFeedbackCount, 1);
-  assert.equal(smsPrefsBefore.feedbackExamples.length, 1);
   assert.equal(smsPrefsBefore.habits.length, 1);
+  const domainsList = (await h.api("/api/habits")).body as { domains: Array<{ domain: string; name: string; unconsolidatedCount: number }> };
+  assert.ok(domainsList.domains.some((entry) => entry.domain === "sms" && entry.unconsolidatedCount === 1));
+  const smsHabitOverview = (await h.api("/api/habits/sms")).body as { name: string; summary: string; pendingSignals: Array<{ comments: string[]; reaction: string | null; saved: boolean }> };
+  assert.equal(smsHabitOverview.name, "短信助手");
+  assert.ok(smsHabitOverview.summary.length > 0);
+  assert.equal(smsHabitOverview.pendingSignals.length, 1);
 
   // Failing model consolidation MUST preserve hot buffer (cursorSeq=0, unconsolidatedCount=1)
   const failedConsol = habitDomainOverviewResponse.parse(

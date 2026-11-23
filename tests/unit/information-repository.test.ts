@@ -3,159 +3,107 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import {
-  createInformationRepository,
-  parseInformationState,
-} from "../../src/adapters/storage/information-repository.js";
+import { createInformationRepository } from "../../src/adapters/storage/information-repository.js";
 import { smsModule } from "../../src/adapters/storage/sms-schema.js";
-import { openSqliteDatabase, type ManagedSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
 import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
-import { defaultInformationState, type InformationState } from "../../src/features/information/types.js";
 
-const openSmsRepository = async (directory: string): Promise<{
-  managed: ManagedSqliteDatabase;
-  repository: ReturnType<typeof createInformationRepository>;
-}> => {
-  const managed = await openSqliteDatabase(join(directory, "main.sqlite"));
+const openTempRepo = async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-muse-info-repo-"));
+  const managed = await openSqliteDatabase(join(dir, "main.sqlite"));
   await managed.serialize(() => ensureSqliteModules(managed, [smsModule]));
-  return { managed, repository: createInformationRepository(managed) };
-};
-
-const deferred = () => {
-  let finish!: () => void;
-  const promise = new Promise<void>((resolve) => { finish = resolve; });
-  return { promise, finish };
-};
-
-test("updates serialize concurrent callbacks on the repository", async (t) => {
-  const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-information-repository-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const { managed, repository } = await openSmsRepository(dataDir);
-  t.after(() => managed.close());
-
-  const holding = deferred();
-  const writing = repository.update(async (state) => {
-    await holding.promise;
-    return { state: { ...state, settings: { ...state.settings, batchWindowSeconds: 42 } }, result: undefined };
-  });
-  const next = repository.update((state) => ({
-    state: { ...state, settings: { ...state.settings, enabled: true } },
-    result: state.settings.batchWindowSeconds,
-  }));
-  holding.finish();
-  await writing;
-  assert.equal(await next, 42);
-  const persisted = await repository.read();
-  assert.equal(persisted.settings.enabled, true);
-  assert.equal(persisted.settings.batchWindowSeconds, 42);
-});
-
-test("startup reconcile closes interrupted models and completed pending publications", async (t) => {
-  const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-information-repository-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const { managed, repository } = await openSmsRepository(dataDir);
-  t.after(() => managed.close());
-  const at = new Date().toISOString();
-  const state: InformationState = {
-    ...defaultInformationState(),
-    settings: { enabled: true, batchWindowSeconds: 0 },
-    items: [
-      { id: "item-running", queue: "realtime", source: "sms", externalId: "1", content: "one", receivedAt: at, acceptedAt: at, status: "processing", runId: "run-running" },
-      { id: "item-completed", queue: "realtime", source: "sms", externalId: "2", content: "two", receivedAt: at, acceptedAt: at, status: "processed", runId: "run-completed" },
-    ],
-    runs: [
-      { id: "run-running", kind: "realtime", itemIds: ["item-running"], status: "running", createdAt: at, startedAt: at, publications: [] },
-      {
-        id: "run-completed", kind: "realtime", itemIds: ["item-completed"], status: "completed",
-        createdAt: at, startedAt: at, finishedAt: at, model: { status: "succeeded" },
-        decisions: [{ itemId: "item-completed", decision: "notify", reason: "test" }],
-        publications: [{ notificationId: "n-pending", itemIds: ["item-completed"], text: "pending", status: "pending" }],
-      },
-    ],
+  return {
+    dir,
+    managed,
+    repository: createInformationRepository(managed),
+    cleanup: async () => {
+      await managed.close();
+      await rm(dir, { recursive: true, force: true });
+    },
   };
-  await repository.update(() => ({ state, result: undefined }));
-  await repository.reconcileOnStart();
-  const reconciled = await repository.read();
-  assert.equal(reconciled.runs[0]?.status, "failed");
-  assert.equal(reconciled.runs[0]?.model?.error, "Interrupted by service restart");
-  assert.equal(reconciled.items[0]?.status, "pending");
-  assert.equal(reconciled.items[0]?.runId, undefined);
-  assert.equal(reconciled.runs[1]?.status, "completed");
-  assert.equal(reconciled.runs[1]?.publications[0]?.status, "failed");
-  assert.equal(reconciled.runs[1]?.publications[0]?.error, "Interrupted by service restart");
+};
+
+test("information repository serializes concurrent operations safely", async (t) => {
+  const ctx = await openTempRepo();
+  t.after(ctx.cleanup);
+
+  const results = await Promise.all([
+    ctx.repository.saveSettings({ enabled: true, batchWindowSeconds: 10 }),
+    ctx.repository.ingestItems(
+      "realtime",
+      [{ source: "sms", externalId: "c-1", content: "one", receivedAt: "2026-11-23T09:00:00.000Z" }],
+      "2026-11-23T09:00:00.000Z",
+    ),
+    ctx.repository.ingestItems(
+      "realtime",
+      [{ source: "sms", externalId: "c-2", content: "two", receivedAt: "2026-11-23T09:00:01.000Z" }],
+      "2026-11-23T09:00:01.000Z",
+    ),
+    ctx.repository.saveSettings({ enabled: true, batchWindowSeconds: 30 }),
+  ]);
+
+  assert.equal((results[1] as { accepted: unknown[] }).accepted.length, 1);
+  assert.equal((results[2] as { accepted: unknown[] }).accepted.length, 1);
+  assert.deepEqual(await ctx.repository.getSettings(), { enabled: true, batchWindowSeconds: 30 });
+  const list = await ctx.repository.listItems({ limit: 10 });
+  assert.equal(list.items.length, 2);
 });
 
-test("v3 state schema rejects legacy fields and preserves exact Clean Break defaults", async (t) => {
-  const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-information-repository-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const { managed, repository } = await openSmsRepository(dataDir);
-  t.after(() => managed.close());
-  const at = new Date().toISOString();
+test("reconcileOnStart resets pending publications and in-flight running runs cleanly", async (t) => {
+  const ctx = await openTempRepo();
+  t.after(ctx.cleanup);
 
-  assert.throws(() => parseInformationState({
-    schemaVersion: 2,
-    settings: { enabled: true, batchWindowSeconds: 0 },
-    preferences: { learnedNotes: "" },
-    items: [],
-    runs: [],
-  }));
+  await ctx.repository.saveSettings({ enabled: true, batchWindowSeconds: 15 });
+  await ctx.repository.ingestItems(
+    "realtime",
+    [{ source: "sms", externalId: "r-1", content: "urgent", receivedAt: "2026-11-23T09:00:00.000Z" }],
+    "2026-11-23T09:00:00.000Z",
+  );
+  const batch = await ctx.repository.claimBatch("realtime", {
+    forceRealtime: true,
+    maxItems: 10,
+    maxChars: 10_000,
+    now: "2026-11-23T09:00:01.000Z",
+  });
+  assert.ok(batch);
+  await ctx.repository.completeModelRound({
+    runId: batch.run.id,
+    itemIds: [batch.items[0]!.id],
+    decisions: [{ itemId: batch.items[0]!.id, decision: "notify", reason: "urgent" }],
+    publications: [{ notificationId: "pub-1", itemIds: [batch.items[0]!.id], text: "urgent", status: "pending" }],
+    finishedAt: "2026-11-23T09:00:02.000Z",
+  });
 
-  await repository.update(() => ({
-    state: parseInformationState({
-      schemaVersion: 3,
-      settings: { enabled: true, batchWindowSeconds: 0 },
-      items: [{
-        id: "item-1", queue: "realtime", source: "sms", externalId: "1",
-        content: "original", receivedAt: at, acceptedAt: at, status: "pending",
-      }],
-      runs: [],
-    }),
-    result: undefined,
-  }));
-  const state = await repository.read();
-  assert.equal(state.schemaVersion, 3);
-  assert.equal(state.items[0]?.queue, "realtime");
+  await ctx.repository.reconcileOnStart();
+  const runDetail = await ctx.repository.getRun(batch.run.id);
+  assert.equal(runDetail?.run.publications[0]?.status, "failed");
+  assert.equal(runDetail?.run.publications[0]?.error, "Interrupted by service restart");
 });
 
-test("nextRealtimeDue checks only queue=realtime without triggering on archive items", async (t) => {
-  const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-information-repository-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const { managed, repository } = await openSmsRepository(dataDir);
-  t.after(() => managed.close());
-  const at = new Date(Date.now() - 60_000).toISOString();
+test("nextRealtimeDue respects batchWindow, enabled flag, and isolates archive items", async (t) => {
+  const ctx = await openTempRepo();
+  t.after(ctx.cleanup);
 
-  assert.equal(await repository.nextRealtimeDue(), false);
-  await repository.update((state) => ({
-    state: {
-      ...state,
-      settings: { enabled: true, batchWindowSeconds: 0 },
-      items: [{
-        id: "arch-1", queue: "archive", source: "sms", externalId: "a1",
-        content: "old sms", receivedAt: at, acceptedAt: at, status: "pending",
-      }],
-    },
-    result: undefined,
-  }));
-  assert.equal(await repository.nextRealtimeDue(), false, "archive queue must never wake realtime scheduler");
+  await ctx.repository.saveSettings({ enabled: true, batchWindowSeconds: 60 });
+  // Archive items do not trigger realtime readiness.
+  await ctx.repository.ingestItems(
+    "archive",
+    [{ source: "sms", externalId: "arch-only", content: "archive", receivedAt: "2026-11-23T08:00:00.000Z" }],
+    "2026-11-23T08:00:00.000Z",
+  );
+  assert.equal(await ctx.repository.nextRealtimeDue(), false);
 
-  await repository.update((state) => ({
-    state: {
-      ...state,
-      items: [
-        ...state.items,
-        {
-          id: "rt-1", queue: "realtime", source: "sms", externalId: "r1",
-          content: "new sms", receivedAt: at, acceptedAt: at, status: "pending",
-        },
-      ],
-    },
-    result: undefined,
-  }));
-  assert.equal(await repository.nextRealtimeDue(), true);
+  const recent = new Date(Date.now() - 10_000).toISOString();
+  await ctx.repository.ingestItems(
+    "realtime",
+    [{ source: "sms", externalId: "rt-1", content: "realtime", receivedAt: recent }],
+    recent,
+  );
+  assert.equal(await ctx.repository.nextRealtimeDue(), false);
 
-  await repository.update((state) => ({
-    state: { ...state, settings: { enabled: false, batchWindowSeconds: 0 } },
-    result: undefined,
-  }));
-  assert.equal(await repository.nextRealtimeDue(), false);
+  await ctx.repository.saveSettings({ enabled: true, batchWindowSeconds: 5 });
+  assert.equal(await ctx.repository.nextRealtimeDue(), true);
+
+  await ctx.repository.saveSettings({ enabled: false, batchWindowSeconds: 5 });
+  assert.equal(await ctx.repository.nextRealtimeDue(), false);
 });

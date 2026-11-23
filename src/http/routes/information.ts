@@ -178,10 +178,19 @@ export const createInformationRoutes = (dependencies: HttpDependencies) => {
   });
 
   app.post("/runs", async (c) => {
-    const parsed = informationRunRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    const rawBody = await c.req.text();
+    let payload: unknown = {};
+    if (rawBody.trim().length > 0) {
+      try {
+        payload = JSON.parse(rawBody);
+      } catch {
+        return c.json({ error: "Invalid information run request", code: "INVALID_REQUEST" }, 400);
+      }
+    }
+    const parsed = informationRunRequestSchema.safeParse(payload);
     if (!parsed.success) return c.json({ error: "Invalid information run request", code: "INVALID_REQUEST" }, 400);
     try {
-      return c.json(await information.runNow());
+      return c.json(await information.runNow(parsed.data));
     } catch (error) {
       if (error instanceof InformationError) {
         const mapped = failure(error);

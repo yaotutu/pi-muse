@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isWorkspaceText } from "../../shared/workspace-text.js";
 import { habitItemSchema } from "./habits.js";
+import { workspaceIncludeDiagnosticSchema } from "./workspace-includes.js";
 
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
@@ -18,32 +19,15 @@ export const informationSettingsSchema = z.strictObject({
 export const informationSettingsRequestSchema = informationSettingsSchema;
 export const informationSettingsResponse = informationSettingsSchema;
 
-export const informationFeedbackExampleResponse = z.strictObject({
-  runId: z.string(),
-  notificationId: z.string(),
-  text: z.string(),
-  reaction: z.enum(["like", "dislike"]).nullable(),
-  saved: z.boolean(),
-  comments: z.array(z.string()),
-  commentsTruncated: z.boolean(),
-  items: z.array(z.strictObject({
-    id: z.string(),
-    source: z.string(),
-    title: z.string().optional(),
-    content: z.string(),
-    contentTruncated: z.boolean(),
-  })),
-});
-
 export const informationPreferencesRequestSchema = z.strictObject({
   instructions: z.string().max(20_000).refine(isWorkspaceText, "Invalid text").describe("用户主动编写的信息后台指令（domains/sms/INSTRUCTIONS.md）"),
 });
 
 export const informationPreferencesResponse = z.strictObject({
   instructions: z.string().describe("用户主动编写的领域指令文本"),
+  includes: z.array(workspaceIncludeDiagnosticSchema).describe("INSTRUCTIONS.md 顶部 YAML frontmatter `include:` 引用展开诊断"),
   habits: z.array(habitItemSchema).describe("通用习惯引擎沉淀的行为习惯条文（自动定期从反馈归纳，也可手动增删改）"),
-  unconsolidatedFeedbackCount: z.number().int().nonnegative().describe("去重后尚未归纳成长期习惯的近期反馈条数"),
-  feedbackExamples: z.array(informationFeedbackExampleResponse).describe("尚未消化进入长期习惯的近期消息反馈热缓冲样本（归纳后自动清空）"),
+  unconsolidatedFeedbackCount: z.number().int().nonnegative().describe("去重后尚未归纳成长期习惯的近期反馈条数；样本明细统一通过 GET /api/habits/sms 查看"),
 });
 
 export const informationInputItemSchema = z.strictObject({
@@ -73,6 +57,8 @@ export const informationItemResponseSchema = z.strictObject({
   acceptedAt: z.string().datetime(),
   status: z.enum(["pending", "processing", "processed", "failed"]),
   runId: z.string().optional(),
+  decision: z.enum(["silent", "notify"]).optional().describe("已关联执行产生判定时直接投影最近一次模型判定（silent/notify）"),
+  reason: z.string().optional().describe("与 decision 对应的模型判断理由"),
 });
 
 export const informationIngestResponse = z.strictObject({
@@ -136,7 +122,9 @@ export const informationItemDetailResponse = z.strictObject({
   runs: z.array(informationRunResponseSchema),
 });
 
-export const informationRunRequestSchema = z.strictObject({});
+export const informationRunRequestSchema = z.strictObject({
+  retryFailed: z.boolean().default(false).describe("true 先把失败实时条目重置为 pending 再立即执行"),
+});
 
 export const informationArchiveRunRequestSchema = z.strictObject({
   background: z.boolean().default(false).describe("true 立即异步后台运行；false 同步运行直到归档队列清零或失败"),
