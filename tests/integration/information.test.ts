@@ -573,7 +573,7 @@ test("disable and main reset cancel queued notifications; topic deletion preserv
   assert.ok((await h.call("/api/information/items")).status===200);
 });
 
-test("archive bulk import rolls learnedNotes across batches and publishes one final briefing", async (t) => {
+test("archive bulk import distills habits across batches and publishes one final briefing", async (t) => {
   const h = await fixture(t);
   await h.setupPipeline({ enabled: true, batchWindowSeconds: 0 }, "关注重要通知与快递");
 
@@ -630,9 +630,11 @@ test("archive bulk import rolls learnedNotes across batches and publishes one fi
     briefingPublished: true,
   });
 
-  // 2 批 archive 分类均不直接发消息；队列清零后仅发送 1 条总览简报给 main。
-  const prefs = (await h.call("/api/information/preferences")).body as { learnedNotes: string };
-  assert.equal(prefs.learnedNotes, "高敏：快递取件码、银行账单；低敏：商城推广");
+  // 2 批 archive 分类均不直接发消息；队列清零后仅发送 1 条总览简报给 main，且归纳出 1 条长期习惯。
+  const prefs = (await h.call("/api/information/preferences")).body as { habits: Array<{ text: string; source: string }> };
+  assert.equal(prefs.habits.length, 1);
+  assert.equal(prefs.habits[0]?.text, "高敏：快递取件码、银行账单；低敏：商城推广");
+  assert.equal(prefs.habits[0]?.source, "consolidated");
   const history = await h.history("main");
   const notifications = history.messages.filter((m) => m.metadata?.source === "notification");
   assert.equal(notifications.length, 1);

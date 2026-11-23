@@ -130,8 +130,8 @@ DATA_DIR/
     <sessionId>/                  history/
   state/
     assistant/                    memory.md, identity.json, skill-overrides.json
-    main.sqlite                   Jobs, goals, approvals, SMS state, Dream state, message feedback
-    news.sqlite                   News data and learned preferences
+    main.sqlite                   Jobs, goals, approvals, SMS state, Dream state, message feedback, shared user habits
+    news.sqlite                   News data (articles, feeds, article feedback)
     monitors.json                 Webpage monitors
   assets/                         companions/, skills/, subagents/
   runtime/                        auth/, pi/, browser/, traces/, android-updates/
@@ -165,7 +165,7 @@ After editing switches, tap 保存技能 (Save skills); changes take effect next
 
 Shared skill-folder entry links are supported by resolving the actual skill root. Internal links, out-of-bound files, and oversized instructions are diagnosed rather than loaded. Shared scripts and `extension.ts` are never executed. Enabling a skill does not enable bash, install dependencies, or expand tool permissions. Ordinary `read` receives only the exact enabled skill instructions and supported text resources, not access to the entire home directory.
 
-These `SKILL.md` skills and shared switches apply only to chat sessions; background domain sub-agents such as SMS, News, and future domains never inject chat skills and rely solely on their domain prompts, independent explicit rule boards, and learned profiles.
+These `SKILL.md` skills and shared switches apply only to chat sessions; background domain sub-agents such as SMS, News, and future domains never inject chat skills and rely solely on their domain prompts, independent explicit rule boards, and shared consolidated habits.
 
 ## File Write Approvals {#file-write-approvals}
 

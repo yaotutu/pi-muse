@@ -10,22 +10,20 @@ import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 import { SQLITE_MODULE_LEDGER_TABLE, type SqliteModule } from "./sqlite-modules.js";
 
 /**
- * 短信/信息领域在 main.sqlite 中的 SQLite 模块定义（Clean Break v2）。
+ * 短信/信息领域在 main.sqlite 中的 SQLite 模块定义（Clean Break v3）。
  *
- * - 只管理 5 张核心 sms_* 表，移除已废弃的 sms_feedback* 表、settings_mode、
- *   initial_analysis_completed 与新闻专用的 metadata_* 列；
- * - 为 sms_items 增加 queue（realtime | archive）与复合索引 idx_sms_items_queue_status，
- *   支持 500ms 调度器通过 O(1) SQL 判断实时队列是否到期。
+ * - v3 移除 sms_state.preferences_learned_notes 列；长短期用户习惯统一迁移至通用 habits 模块
+ *   （habit_domains / habit_items / habit_signals），sms_state 专注运行时设置。
+ * - 管理 5 张核心 sms_* 表；idx_sms_items_queue_status 支持 500ms 调度器 O(1) 判断到期。
  */
-export const SMS_SCHEMA_VERSION = 2;
+export const SMS_SCHEMA_VERSION = 3;
 
 const SMS_TABLE_DDL = [
   `CREATE TABLE IF NOT EXISTS sms_state (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     schema_version INTEGER NOT NULL,
     settings_enabled INTEGER NOT NULL CHECK (settings_enabled IN (0, 1)),
-    settings_batch_window_seconds INTEGER NOT NULL,
-    preferences_learned_notes TEXT NOT NULL
+    settings_batch_window_seconds INTEGER NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS sms_items (
     id TEXT PRIMARY KEY,
@@ -108,12 +106,11 @@ const hasAnyRows = (database: DatabaseSync, table: string): boolean =>
 const seedSmsState = (database: DatabaseSync): void => {
   const initial = defaultInformationState();
   database.prepare(
-    "INSERT INTO sms_state (id, schema_version, settings_enabled, settings_batch_window_seconds, preferences_learned_notes) VALUES (1, ?, ?, ?, ?)",
+    "INSERT INTO sms_state (id, schema_version, settings_enabled, settings_batch_window_seconds) VALUES (1, ?, ?, ?)",
   ).run(
     initial.schemaVersion,
     initial.settings.enabled ? 1 : 0,
     initial.settings.batchWindowSeconds,
-    initial.preferences.learnedNotes,
   );
 };
 
@@ -151,7 +148,6 @@ type StateRow = {
   schema_version: number;
   settings_enabled: number;
   settings_batch_window_seconds: number;
-  preferences_learned_notes: string;
 };
 
 type ItemRow = {
@@ -221,7 +217,7 @@ export const readNextRealtimeDue = (managed: ManagedSqliteDatabase): boolean => 
 export const readSmsState = (managed: ManagedSqliteDatabase): InformationState => {
   const database = managed.database;
   const stateRow = database.prepare(
-    "SELECT schema_version, settings_enabled, settings_batch_window_seconds, preferences_learned_notes FROM sms_state WHERE id = 1",
+    "SELECT schema_version, settings_enabled, settings_batch_window_seconds FROM sms_state WHERE id = 1",
   ).get() as StateRow | undefined;
   if (!stateRow) throw new Error("Invalid main database: missing sms_state row");
 
@@ -272,13 +268,10 @@ export const readSmsState = (managed: ManagedSqliteDatabase): InformationState =
   }));
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     settings: {
       enabled: stateRow.settings_enabled === 1,
       batchWindowSeconds: stateRow.settings_batch_window_seconds,
-    },
-    preferences: {
-      learnedNotes: stateRow.preferences_learned_notes,
     },
     items,
     runs,
@@ -321,22 +314,19 @@ export const applySmsState = (
     schema_version: previous.schemaVersion,
     settings_enabled: previous.settings.enabled ? 1 : 0,
     settings_batch_window_seconds: previous.settings.batchWindowSeconds,
-    preferences_learned_notes: previous.preferences.learnedNotes,
   };
   const nextState = {
     schema_version: next.schemaVersion,
     settings_enabled: next.settings.enabled ? 1 : 0,
     settings_batch_window_seconds: next.settings.batchWindowSeconds,
-    preferences_learned_notes: next.preferences.learnedNotes,
   };
   if (canonicalJson(prevState) !== canonicalJson(nextState)) {
     database.prepare(
-      "UPDATE sms_state SET schema_version = ?, settings_enabled = ?, settings_batch_window_seconds = ?, preferences_learned_notes = ? WHERE id = 1",
+      "UPDATE sms_state SET schema_version = ?, settings_enabled = ?, settings_batch_window_seconds = ? WHERE id = 1",
     ).run(
       nextState.schema_version,
       nextState.settings_enabled,
       nextState.settings_batch_window_seconds,
-      nextState.preferences_learned_notes,
     );
   }
 

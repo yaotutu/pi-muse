@@ -69,13 +69,8 @@ export type NewsProcessingSettings = {
   batchWindowSeconds: number;
 };
 
-export type NewsPreferences = {
-  learnedNotes: string;
-};
-
 export type NewsProcessingState = {
   settings: NewsProcessingSettings;
-  preferences: NewsPreferences;
   articleFeedback: NewsArticleFeedback[];
   items: NewsArticleItem[];
   runs: NewsScreeningRun[];
@@ -83,7 +78,6 @@ export type NewsProcessingState = {
 
 export const defaultNewsProcessingState = (): NewsProcessingState => ({
   settings: { enabled: true, batchWindowSeconds: 0 },
-  preferences: { learnedNotes: "" },
   articleFeedback: [],
   items: [],
   runs: [],

@@ -28,6 +28,10 @@ import { createIdentityRepository } from "../adapters/storage/identity-repositor
 import { createSkillRepository } from "../adapters/storage/skill-repository.js";
 import { createMessageFeedbackSession } from "../features/messages/service.js";
 import { createMessageFeedbackRepository } from "../adapters/storage/message-feedback-repository.js";
+import { createHabitsRepository } from "../adapters/storage/habits-repository.js";
+import { createHabitsService } from "../features/habits/service.js";
+import { createHabitsScheduler } from "../features/habits/scheduler.js";
+import { createHabitConsolidationRunner } from "../adapters/pi/habit-runner.js";
 import { createInformationRepository } from "../adapters/storage/information-repository.js";
 import { createInformationService } from "../features/information/service.js";
 import { createInformationScheduler } from "../features/information/scheduler.js";
@@ -151,6 +155,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
   const skills = createSkillsService(createSkillRepository(layout, options.sharedSkillsDir));
   const messageFeedbackRepository = createMessageFeedbackRepository(mainDatabase);
+  const habitsRepository = createHabitsRepository(mainDatabase);
   const dreamRepository = createDreamRepository(mainDatabase);
   const informationRepository = createInformationRepository(mainDatabase);
   const sessionRepository = createSessionRepository(layout.sessionIndexFile);
@@ -232,6 +237,13 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
         piSessionId: () => history.piSessionId(),
         facts: history.messageFacts,
         repository: messageFeedbackRepository,
+        onFeedbackChanged: async ({ sessionId: fbSessionId, fact, feedback }) => {
+          if (fbSessionId !== "main" || fact.domainId !== "sms" || !fact.notificationId || !information) return;
+          const signal = await information.buildHabitSignal(fact.notificationId, feedback);
+          if (signal) {
+            await habits.recordSignal("sms", fact.notificationId, signal);
+          }
+        },
       });
       return createConversation(config, {
         sessionId,
@@ -298,17 +310,40 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     readResolved: () => readResolvedProfileFile(file, layout.workspaceDir),
     write: async (text: string) => { await writeProfileFile(file, text, undefined, layout.workspaceDir); },
   });
+  const smsInstructions = domainInstructions(layout.smsInstructionsFile);
+  const newsInstructions = domainInstructions(layout.newsInstructionsFile);
+  // 通用用户习惯定期归纳服务：接管 sms / news 的未消化反馈热缓冲与长期习惯沉淀。
+  const habits = createHabitsService({
+    repository: habitsRepository,
+    domains: [
+      {
+        id: "sms",
+        name: "短信助手",
+        summary: "手机短信/外部信息的日常筛选、提醒与静默过滤偏好。",
+        readInstructions: () => smsInstructions.readResolved(),
+      },
+      {
+        id: "news",
+        name: "新闻助手",
+        summary: "RSS 新闻源抓取后的文章兴趣推荐、收藏与跳过偏好。",
+        readInstructions: () => newsInstructions.readResolved(),
+      },
+    ],
+    consolidateModel: createHabitConsolidationRunner({ config, layout, modelRuntime }),
+    observeWork: workspaceEvents.presence.observe,
+  });
+  const habitsScheduler = createHabitsScheduler(habits);
   const informationDeps = {
     observeWork: workspaceEvents.presence.observe,
     retainMain: () => conversationHub.retainSession("main"),
-    feedback: messageFeedbackRepository,
+    habits,
     runModel: createInformationRunner({ config, layout, modelRuntime }),
   };
-  // 短信领域指令与学习画像分别存入工作区和业务仓储。
+  // 短信领域指令存入工作区，行为习惯与热缓冲统一由 habits 模块托管。
   information = createInformationService({
     ...informationDeps,
     domainId: "sms",
-    instructions: domainInstructions(layout.smsInstructionsFile),
+    instructions: smsInstructions,
     synthesizeBriefing: createInformationBriefingRunner({ config, layout, modelRuntime }),
     repository: informationRepository,
   });
@@ -320,7 +355,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
       databaseFile: layout.newsDatabaseFile,
     });
   } catch (error) {
-    await Promise.allSettled([mainDatabase.close(), information.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
+    await Promise.allSettled([mainDatabase.close(), habits.close(), information.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
     throw error;
   }
   const newsRepository = newsStorage.repository;
@@ -335,11 +370,13 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     const pending = [newsStorage.database.close(), mainDatabase.close()];
     return Promise.allSettled(pending);
   };
-  // 新闻领域读取自己的用户指令文件和自学习画像。
+  // 新闻领域读取自己的用户指令文件和通用习惯引擎上下文。
   const newsScreening = createNewsScreeningService({
     observeWork: workspaceEvents.presence.observe,
     repository: newsRepository,
-    instructions: domainInstructions(layout.newsInstructionsFile),
+    instructions: newsInstructions,
+    habits,
+    onFeedbackChanged: (payload) => habits.recordSignal("news", payload.targetId, payload),
     runModel: createNewsScreeningRunner({ config, layout, modelRuntime }),
   });
   const informationScheduler = createInformationScheduler(information);
@@ -407,11 +444,11 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
 
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
   try {
-    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate(), newsRepository.reconcileOnStart?.()]);
+    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), habitsRepository.validateAll(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate(), newsRepository.reconcileOnStart?.()]);
     await actions.cancelPending();
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
-    await Promise.allSettled([information?.close(), newsScreening.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
+    await Promise.allSettled([habits.close(), information?.close(), newsScreening.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
     await closeDatabases();
     throw error;
   }
@@ -421,7 +458,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     await news.initialize();
   } catch (error) {
     await news.close();
-    await Promise.allSettled([information?.close(), newsScreening.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
+    await Promise.allSettled([habits.close(), information?.close(), newsScreening.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
     await closeDatabases();
     throw error;
   }
@@ -497,7 +534,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
   const traces = createModelTraceReader(layout.tracesDir);
   const androidUpdates = createAndroidReleaseMirror(layout.androidUpdatesDir);
-  const dependencies = { androidUpdates, companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, news, domainAgents, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, browserDesktop, messageFeedbackRepository };
+  const dependencies = { androidUpdates, companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, habits, habitsScheduler, information, informationScheduler, news, domainAgents, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
@@ -506,7 +543,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     clearInterval(approvalTimer);
     // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
     workspaceEvents.close();
-    const stopped = [androidUpdates.close(), scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), newsScreening.close(), newsScreeningScheduler.close(), conversationHub.closeAll()];
+    const stopped = [androidUpdates.close(), scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), habitsScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), newsScreening.close(), newsScreeningScheduler.close(), conversationHub.closeAll()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
@@ -533,6 +570,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     scheduler.start();
     monitorScheduler.start();
     dreamScheduler.start();
+    habitsScheduler.start();
     informationScheduler.start();
     newsScreeningScheduler.start();
     news.start();

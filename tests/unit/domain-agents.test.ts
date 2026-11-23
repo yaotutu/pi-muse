@@ -14,7 +14,19 @@ test("domain agent registry lists domains, reads instructions, and validates inp
         summary: "筛选短信通知",
         isEnabled: async () => false,
         instructions: {
-          read: async () => ({ instructions: smsInstructions, learnedNotes: "已学习招行账单", feedbackExamples: [] }),
+          read: async () => ({
+            instructions: smsInstructions,
+            habits: [{
+              id: "hab_1",
+              domain: "sms",
+              text: "招行大额账单优先提醒",
+              source: "consolidated",
+              createdAt: "2026-11-23T00:00:00.000Z",
+              updatedAt: "2026-11-23T00:00:00.000Z",
+            }],
+            unconsolidatedFeedbackCount: 0,
+            feedbackExamples: [],
+          }),
         },
         query: async (input) => ({ queriedAction: input.action, status: input.status ?? null, limit: input.limit ?? null }),
       },
@@ -24,7 +36,7 @@ test("domain agent registry lists domains, reads instructions, and validates inp
         summary: "推荐 RSS 新闻",
         isEnabled: async () => newsEnabled,
         instructions: {
-          read: async () => ({ instructions: "AI 工程", learnedNotes: "" }),
+          read: async () => ({ instructions: "AI 工程", habits: [], unconsolidatedFeedbackCount: 0 }),
         },
       },
     ],
@@ -46,7 +58,15 @@ test("domain agent registry lists domains, reads instructions, and validates inp
     domainId: "sms",
     name: "短信助手",
     instructions: "快递取件码需要提醒",
-    learnedNotes: "已学习招行账单",
+    habits: [{
+      id: "hab_1",
+      domain: "sms",
+      text: "招行大额账单优先提醒",
+      source: "consolidated",
+      createdAt: "2026-11-23T00:00:00.000Z",
+      updatedAt: "2026-11-23T00:00:00.000Z",
+    }],
+    unconsolidatedFeedbackCount: 0,
     feedbackExamples: [],
   });
 
@@ -64,13 +84,13 @@ test("domain agent registry lists domains, reads instructions, and validates inp
 
   assert.throws(() => createDomainAgentRegistry({
     domains: [
-      { id: "BadId", name: "bad", summary: "bad", instructions: { read: async () => ({ instructions: "", learnedNotes: "" }) } },
+      { id: "BadId", name: "bad", summary: "bad", instructions: { read: async () => ({ instructions: "", habits: [] }) } },
     ],
   }), DomainAgentError);
   assert.throws(() => createDomainAgentRegistry({
     domains: [
-      { id: "dup", name: "a", summary: "a", instructions: { read: async () => ({ instructions: "", learnedNotes: "" }) } },
-      { id: "dup", name: "b", summary: "b", instructions: { read: async () => ({ instructions: "", learnedNotes: "" }) } },
+      { id: "dup", name: "a", summary: "a", instructions: { read: async () => ({ instructions: "", habits: [] }) } },
+      { id: "dup", name: "b", summary: "b", instructions: { read: async () => ({ instructions: "", habits: [] }) } },
     ],
   }), DomainAgentError);
   newsEnabled = false;
@@ -85,7 +105,7 @@ test("domain_agent tool handles read/write actions and enforces read-only mode i
         name: "短信助手",
         summary: "短信",
         instructions: {
-          read: async () => ({ instructions: smsInstructions, learnedNotes: "learned" }),
+          read: async () => ({ instructions: smsInstructions, habits: [], unconsolidatedFeedbackCount: 0 }),
         },
         query: async (input) => ({ action: input.action, count: 1 }),
       },
@@ -154,7 +174,7 @@ test("stopping a turn during instruction read prevents asking for approval", asy
         read: async () => {
           entered();
           await blocked;
-          return { instructions: "", learnedNotes: "" };
+          return { instructions: "", habits: [] };
         },
       },
     }],

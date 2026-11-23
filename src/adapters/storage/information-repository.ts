@@ -63,13 +63,10 @@ const runSchema = z.strictObject({
 });
 
 export const informationStateSchema = z.strictObject({
-  schemaVersion: z.literal(2),
+  schemaVersion: z.literal(3),
   settings: z.strictObject({
     enabled: z.boolean(),
     batchWindowSeconds: z.number().int().min(0).max(3600),
-  }),
-  preferences: z.strictObject({
-    learnedNotes: z.string().max(20_000),
   }),
   items: z.array(itemSchema),
   runs: z.array(runSchema),

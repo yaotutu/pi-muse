@@ -6,7 +6,7 @@ import { createInformationService } from "../../src/features/information/service
 import { defaultInformationState, type InformationRepository } from "../../src/features/information/types.js";
 import type { HttpDependencies } from "../../src/bootstrap/types.js";
 
-test("global preferences save main rules before retaining main for feedback", async () => {
+test("global preferences save instructions cleanly without retaining main", async () => {
   let state = defaultInformationState();
   const repository: InformationRepository = {
     read: async () => structuredClone(state),
@@ -15,56 +15,36 @@ test("global preferences save main rules before retaining main for feedback", as
       if (changed.state) state = changed.state;
       return changed.result;
     },
-
     nextRealtimeDue: async () => false,
     reconcileOnStart: async () => undefined,
     validateAll: async () => undefined,
   };
-  let hubDepth = 0;
-  const order: string[] = [];
+  let retained = false;
   const information = createInformationService({
     instructions: memoryInformationRules("old"),
     repository,
-
     retainMain: async () => {
-      assert.equal(hubDepth, 0, "retainMain must run outside withExistingSession");
-      order.push("retain");
-      return {
-        conversation: {
-          piSessionId: () => "session-1",
-          notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }),
-        },
-        release: () => order.push("release"),
-      };
+      retained = true;
+      return undefined;
     },
-    feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
-  const dependencies = {
-    conversationHub: {
-      withExistingSession: async <T>(_sessionId: string, change: () => Promise<T>) => {
-        hubDepth++;
-        order.push("lock");
-        try {
-          return await change();
-        } finally {
-          hubDepth--;
-        }
-      },
-    },
-    information,
-  } as unknown as HttpDependencies;
-  const app = createInformationRoutes(dependencies);
+  const app = createInformationRoutes({ information } as unknown as HttpDependencies);
   const response = await app.request("/preferences", {
     method: "PUT",
     body: JSON.stringify({ instructions: "latest" }),
   });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { instructions: "latest", learnedNotes: "", feedbackExamples: [] });
-  assert.deepEqual(order, ["retain", "release"]);
+  assert.deepEqual(await response.json(), {
+    instructions: "latest",
+    habits: [],
+    unconsolidatedFeedbackCount: 0,
+    feedbackExamples: [],
+  });
+  assert.equal(retained, false);
 });
 
-test("POST runs returns the cancelled record when pause aborts while retain is pending", async (t) => {
+test("POST runs returns the cancelled record when pause aborts while model is running", async (t) => {
   let state = defaultInformationState();
   const repository: InformationRepository = {
     read: async () => structuredClone(state),
@@ -73,32 +53,23 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
       if (changed.state) state = changed.state;
       return changed.result;
     },
-
     nextRealtimeDue: async () => false,
     reconcileOnStart: async () => undefined,
     validateAll: async () => undefined,
   };
-  let retainStarted = false;
-  let releaseRetain!: () => void;
-  let retainReleased = false;
-  const retainGate = new Promise<void>((resolve) => { releaseRetain = resolve; });
+  let modelStarted = false;
+  let releaseModel!: () => void;
+  const modelGate = new Promise<void>((resolve) => { releaseModel = resolve; });
   const information = createInformationService({
     instructions: memoryInformationRules(),
     repository,
-
-    retainMain: async () => {
-      retainStarted = true;
-      await retainGate;
-      return {
-        conversation: {
-          piSessionId: () => "session-1",
-          notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }),
-        },
-        release: () => { retainReleased = true; },
-      };
+    retainMain: async () => undefined,
+    runModel: async (_input, signal) => {
+      modelStarted = true;
+      signal.addEventListener("abort", () => releaseModel(), { once: true });
+      await modelGate;
+      return { ok: false, error: "CANCELLED" };
     },
-    feedback: { read: async () => ({ schemaVersion: 1, events: [] }) } as never,
-    runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
   await information.saveSettings({ enabled: true, batchWindowSeconds: 0 });
   await information.ingest([{ source: "rss", externalId: "1", content: "one" }]);
@@ -111,18 +82,19 @@ test("POST runs returns the cancelled record when pause aborts while retain is p
     method: "POST",
     body: "{}",
   });
-  t.after(() => { releaseRetain(); });
+  t.after(() => { releaseModel(); });
   const deadline = Date.now() + 2000;
-  while (!retainStarted && Date.now() < deadline && !t.signal.aborted) await new Promise((resolve) => setImmediate(resolve));
-  assert.ok(retainStarted,"global run route must actually retain main");
+  while (!modelStarted && Date.now() < deadline && !t.signal.aborted) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.ok(modelStarted, "run route must invoke model");
   const pause = information.pause();
-  releaseRetain();
+  releaseModel();
 
   const response = await responsePromise;
   assert.equal(response.status, 200);
   const body = await response.json() as { run: { status: string } };
   assert.equal(body.run.status, "cancelled");
   await pause.stopped;
-  assert.equal(retainReleased, true);
   pause.resume();
 });

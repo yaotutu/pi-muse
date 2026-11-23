@@ -128,8 +128,8 @@ DATA_DIR/
     <sessionId>/                  history/
   state/
     assistant/                    memory.md、identity.json、skill-overrides.json
-    main.sqlite                   定时任务、目标、审批、短信状态、Dream 状态、消息反馈
-    news.sqlite                   新闻数据和学习画像
+    main.sqlite                   定时任务、目标、审批、短信状态、Dream 状态、消息反馈、通用用户习惯
+    news.sqlite                   新闻数据（文章、订阅源、文章反馈）
     monitors.json                 网页监控
   assets/                         companions/、skills/、subagents/
   runtime/                        auth/、pi/、browser/、traces/、android-updates/
@@ -163,7 +163,7 @@ GitHub 发布成功后可向 `POST /updates/android/refresh` 发送空请求，�
 
 通用目录支持常见的技能文件夹入口链接，按真实技能根读取；技能内部链接、越界文件与超限正文会进入诊断而不会加载。共享技能中的脚本和 `extension.ts` 不会执行，启用技能也不会放开 bash、安装依赖或增加原有工具权限。普通 `read` 只获得已启用技能的精确说明与受支持文本资源，不获得整个家目录的访问权限。
 
-以上 `SKILL.md` 技能与全局开关只作用于主聊天和专题聊天会话；短信、新闻及后续领域 Agent 不会注入任何聊天技能，只依赖各自领域的提示词、独立规则板与自学习画像运行。
+以上 `SKILL.md` 技能与全局开关只作用于主聊天和专题聊天会话；短信、新闻及后续领域 Agent 不会注入任何聊天技能，只依赖各自领域的提示词、独立规则板与通用习惯引擎沉淀的行为规则运行。
 
 ## 文件写入审批 {#file-write-approvals}
 

@@ -151,7 +151,12 @@ test("ordinary information HTTP contracts do not expose internal recommendation 
   assert.deepEqual(await settings.json(), { enabled: false, batchWindowSeconds: 15 });
   const preferences = await service.app.request("/api/information/preferences", { headers });
   assert.equal(preferences.status, 200);
-  assert.deepEqual(await preferences.json(), { instructions: "", learnedNotes: "", feedbackExamples: [] });
+  assert.deepEqual(await preferences.json(), {
+    instructions: "",
+    habits: [],
+    unconsolidatedFeedbackCount: 0,
+    feedbackExamples: [],
+  });
 });
 
 test("SMS preferences stay decoupled from main instructions without creating hidden sessions", async (t) => {
@@ -179,7 +184,7 @@ test("news preferences persist in their own Markdown document", async (t) => {
     body: JSON.stringify({ instructions: "关注 AI 工程，屏蔽八卦" }),
   });
   assert.equal(saved.status, 200);
-  assert.deepEqual(await saved.json(), { instructions: "关注 AI 工程，屏蔽八卦", learnedNotes: "" });
+  assert.deepEqual(await saved.json(), { instructions: "关注 AI 工程，屏蔽八卦", habits: [], unconsolidatedFeedbackCount: 0 });
   assert.equal(await readAssistantInstructions(instructionsPath), "MAIN-ONLY-INSTRUCTION\n");
   assert.equal(await readFile(service.layout.newsInstructionsFile, "utf8"), "关注 AI 工程，屏蔽八卦");
 });
@@ -216,13 +221,12 @@ for(const scenario of ["valid","object-notifications","duplicate"] as const) {
     assert.deepEqual((await (await service.conversationHub.forSession("main")).snapshot()).messages,[]);
     assert.deepEqual((await service.sessions.list()).map((s)=>s.id),["main"]);
     const tool=(model.requests[0].tools as {function:{name:string;parameters:{properties:Record<string,unknown>;required:string[]}}}[]).find((tool)=>tool.function.name==="submit_information_result")!;
-    assert.deepEqual(Object.keys(tool.function.parameters.properties).sort(),["decisions","learnedNotes"]);
+    assert.deepEqual(Object.keys(tool.function.parameters.properties).sort(),["decisions"]);
     assert.equal("notifications" in tool.function.parameters.properties,false);
     const systemText=String(model.requests[0].messages.find((m)=>m.role==="system")?.content ?? "");
     assert.ok(systemText.includes("## User Instructions (workspace/domains/news/INSTRUCTIONS.md)"));
     assert.ok(!systemText.includes("Enabled skill guidance"));
     assert.ok(!systemText.includes("Main conversation instructions"));
-    if(scenario==="valid")assert.equal((await repo.read()).processing.preferences.learnedNotes,"");
-    else assert.equal(run.model?.error,"INVALID_MODEL_RESULT");
+    if(scenario!=="valid")assert.equal(run.model?.error,"INVALID_MODEL_RESULT");
   });
 }

@@ -5,6 +5,7 @@ import { actionsModule } from "./actions-schema.js";
 import { smsModule } from "./sms-schema.js";
 import { dreamModule } from "./dream-schema.js";
 import { messageFeedbackModule } from "./message-feedback-schema.js";
+import { habitsModule } from "./habits-schema.js";
 
 /**
  * main.sqlite 的模块注册表。
@@ -19,4 +20,5 @@ export const mainSqliteModules: readonly SqliteModule[] = [
   smsModule,
   dreamModule,
   messageFeedbackModule,
+  habitsModule,
 ];

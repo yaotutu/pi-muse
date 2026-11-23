@@ -40,9 +40,8 @@ const item = (id: string, overrides: Partial<InformationState["items"][number]> 
 };
 
 const fullState = (): InformationState => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   settings: { enabled: true, batchWindowSeconds: 30 },
-  preferences: { learnedNotes: "用户偏好中文" },
   items: [
     item("info_1", { queue: "realtime", status: "processed", runId: "inforun_1" }),
     item("info_2", { queue: "archive", status: "failed", runId: "inforun_1" }),
@@ -257,15 +256,15 @@ test("invalid structures are rejected instead of being filtered or reset", async
   await assert.rejects(repository.read(), /Invalid information state/);
 });
 
-test("the sms v2 module owns only 5 sms tables and index without dead sms_feedback or news tables", async (t) => {
+test("the sms v3 module owns only 5 sms tables and index without dead sms_feedback or news tables", async (t) => {
   const directory = await tempDirectory("pi-muse-sms-sqlite-ownership");
   t.after(() => rm(directory, { recursive: true, force: true }));
   const managed = await openSmsDatabase(directory);
   t.after(() => managed.close());
 
   assert.equal(smsModule.id, "sms");
-  assert.equal(SMS_SCHEMA_VERSION, 2);
-  assert.equal(smsModule.version, 2);
+  assert.equal(SMS_SCHEMA_VERSION, 3);
+  assert.equal(smsModule.version, 3);
   assert.deepEqual([...smsModule.tables], ["sms_state", "sms_items", "sms_runs", "sms_run_items", "sms_decisions"]);
 
   const tables = (managed.database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table'").all() as Array<{ name: string }>)

@@ -1,4 +1,5 @@
 import { COMPANION_STATES, COMPANION_PACK_ID_PATTERN } from "../features/companions/types.js";
+import { HABIT_DOMAIN_PATTERN, HABIT_ID_PATTERN } from "../features/habits/types.js";
 import { SESSION_ID_PATTERN } from "../features/conversation/session-id.js";
 import { z } from "zod";
 import { endpoints } from "./contracts/endpoints.js";
@@ -63,6 +64,10 @@ const describePathParam = (path: string, name: string): string => {
     if (path.includes("/information/runs/")) return "信息处理 run 唯一标识（inforun_...）";
     return "目标资源唯一标识";
   }
+  if (path.startsWith("/api/habits/")) {
+    if (name === "domain") return "已注册的行为习惯领域 ID（如 sms、news；小写字母开头）";
+    if (name === "habitId") return "服务端生成的习惯条目唯一标识（如 hab_...）";
+  }
   if (name === "itemId" && path.includes("/information/items/")) {
     return "信息原始条目唯一标识（info_...）";
   }
@@ -83,6 +88,10 @@ const pathParams = (path: string) => {
           ? { type: "string" as const, enum: [...COMPANION_STATES], description }
         : name === "sessionId"
         ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: SESSION_ID_PATTERN.source, description }
+        : path.startsWith("/api/habits/") && name === "domain"
+          ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: HABIT_DOMAIN_PATTERN.source, description }
+        : path.startsWith("/api/habits/") && name === "habitId"
+          ? { type: "string" as const, minLength: 1, maxLength: 128, pattern: HABIT_ID_PATTERN.source, description }
         : path.startsWith("/api/news/") && ["articleId", "sourceId", "commentId"].includes(name)
           ? { type: "string" as const, minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$", description }
         : path.includes("/information/items/") && name === "itemId"

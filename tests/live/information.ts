@@ -110,9 +110,10 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.deepEqual(silent.run.publications, []);
     assert.equal((await client.history("main")).revision, mainAfter.revision);
     assert.ok(proxy.traces.slice(feedbackBaseline).some((trace) => trace.users.some((text) => text.includes("LIVE-FEEDBACK-CURRENT"))));
-    const prefsAfterFeedback = (await client.json("/api/information/preferences")) as { instructions: string; learnedNotes: string };
+    const prefsAfterFeedback = (await client.json("/api/information/preferences")) as { instructions: string; habits: unknown[]; unconsolidatedFeedbackCount: number };
     assert.equal(prefsAfterFeedback.instructions, rules);
-    assert.equal(typeof prefsAfterFeedback.learnedNotes, "string");
+    assert.ok(Array.isArray(prefsAfterFeedback.habits));
+    assert.equal(prefsAfterFeedback.unconsolidatedFeedbackCount, 1);
     pass(current);
 
     current = "main-context-source-and-read-only-query";

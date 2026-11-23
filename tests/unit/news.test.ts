@@ -117,7 +117,6 @@ test("recommendation processing projects decisions without retaining or notifyin
             decision: index === 0 ? "notify" as const : "silent" as const,
             reason: index === 0 ? "substantive release" : "routine",
           })),
-          learnedNotes: "Values substantive releases.",
         },
       };
     },
@@ -154,7 +153,8 @@ test("recommendation processing projects decisions without retaining or notifyin
   assert.equal(recommended.articles[0]?.recommendation?.reason, "substantive release");
   assert.deepEqual(await news.preferences(), {
     instructions: "Prefer primary sources and substantive engineering detail.",
-    learnedNotes: "Values substantive releases.",
+    habits: [],
+    unconsolidatedFeedbackCount: 0,
   });
 
   const older = all.articles.find((article) => article.title === "Older")!;
@@ -184,7 +184,7 @@ test("recommendation processing projects decisions without retaining or notifyin
   assert.equal(retainedArticle.article.feedback.comments[0]?.text, "useful context");
 });
 
-test("touching an old article makes its feedback recent for the next model input", async (t) => {
+test("touching an article emits a feedback signal for the habit buffer", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-news-feedback-"));
   const layout = createDataLayout(dataDir);
   const newsStorage = await openNewsRepository({ databaseFile: layout.newsDatabaseFile });
@@ -192,10 +192,29 @@ test("touching an old article makes its feedback recent for the next model input
     await newsStorage.database.close();
     await rm(dataDir, { recursive: true, force: true });
   });
+  const signals: Array<{ targetId: string; reaction: string | null }> = [];
   let captured: NewsScreeningModelInput | undefined;
   const screening = createNewsScreeningService({
     instructions: memoryInformationRules(),
     repository: newsStorage.repository,
+    onFeedbackChanged: (payload) => {
+      signals.push({ targetId: payload.targetId, reaction: payload.reaction });
+    },
+    habits: {
+      getPromptContext: async () => ({
+        habits: [],
+        unconsolidatedSignals: signals.slice(-1).map((sig) => ({
+          targetId: sig.targetId,
+          kind: "news_article",
+          reaction: sig.reaction as "like" | "dislike" | null,
+          saved: false,
+          comments: [],
+          items: [{ id: sig.targetId, source: "newssource_test", content: "Content 0" }],
+          updatedAt: new Date().toISOString(),
+        })),
+        unconsolidatedCount: signals.length,
+      }),
+    },
     runModel: async (input) => {
       captured = input;
       return {
@@ -206,21 +225,18 @@ test("touching an old article makes its feedback recent for the next model input
             decision: "silent" as const,
             reason: "not selected",
           })),
-          learnedNotes: "",
         },
       };
     },
   });
-  const inserted = await screening.ingest(Array.from({ length: 22 }, (_, index) => ({
+  const inserted = await screening.ingest(Array.from({ length: 3 }, (_, index) => ({
     source: "newssource_test",
     externalId: `guid-${index}`,
     title: `Article ${index}`,
     content: `Content ${index}`,
     metadata: { sourceId: "newssource_test", sourceTitle: "Feed", url: null },
   })));
-  for (const article of inserted.slice(0, 21)) {
-    await screening.setArticleReaction(article.id, "like");
-  }
+  await screening.setArticleReaction(inserted[0]!.id, "like");
   await screening.setArticleReaction(inserted[0]!.id, "dislike");
   await screening.runDue();
   assert.equal(captured?.feedbackExamples[0]?.itemId, inserted[0]!.id);
@@ -397,18 +413,18 @@ test("one broken RSS source does not block another and its error stays controlle
   assert.ok(!JSON.stringify(sources).includes("upstream-marker-4wrqxe7u"));
 });
 
-test("recommendation tool schema omits notifications, permits empty learned notes and rejects object notifications", async () => {
+test("recommendation tool schema emits only decisions and rejects object notifications or legacy learnedNotes", async () => {
   const submissions: unknown[] = [];
   const tool = createSubmitNewsScreeningTool(["item"], (value) => { submissions.push(value); });
-  assert.deepEqual(Object.keys(tool.parameters.properties).sort(), ["decisions", "learnedNotes"]);
-  assert.deepEqual([...tool.parameters.required!].sort(), ["decisions", "learnedNotes"]);
+  assert.deepEqual(Object.keys(tool.parameters.properties).sort(), ["decisions"]);
+  assert.deepEqual([...tool.parameters.required!].sort(), ["decisions"]);
   assert.equal(tool.parameters.additionalProperties, false);
   const invoke = (input: unknown) => tool.execute("news", input as never, undefined, undefined, {} as never);
-  const valid = { decisions: [{ itemId: "item", decision: "notify", reason: "useful" }], learnedNotes: "" };
+  const valid = { decisions: [{ itemId: "item", decision: "notify", reason: "useful" }] };
   const accepted = await invoke(valid);
   assert.equal(accepted.isError, undefined);
   assert.deepEqual(submissions, [valid]);
-  for (const input of [{ ...valid, notifications: {} }, { ...valid, notifications: [] }, { ...valid, decisions: [] }, { ...valid, learnedNotes: undefined }]) {
+  for (const input of [{ ...valid, notifications: {} }, { ...valid, notifications: [] }, { ...valid, decisions: [] }, { ...valid, learnedNotes: "" }]) {
     assert.equal((await invoke(input)).isError, true);
   }
   assert.equal(submissions.length, 1, "invalid model input must never be normalized into a valid submission");

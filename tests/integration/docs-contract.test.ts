@@ -1219,8 +1219,11 @@ test("docs: information endpoints expose a bounded authenticated agent-scoped AP
   assert.match(paths["/api/information/runs"]!.post!.description ?? "", /409 BUSY|BUSY 返回 409/);
   assert.match(paths["/api/information/runs"]!.post!.description ?? "", /queue=realtime/);
   assert.match(paths["/api/information/runs"]!.get!.description ?? "", /通知投递回执/);
-  assert.match(paths["/api/information/preferences"]!.get!.description ?? "", /learnedNotes/);
+  assert.match(paths["/api/information/preferences"]!.get!.description ?? "", /habits/);
   assert.match(paths["/api/information/settings"]!.put!.description ?? "", /取消在途轮/);
+  assert.ok(paths["/api/habits/{domain}"]?.get && paths["/api/habits/{domain}"]?.post);
+  assert.ok(paths["/api/habits/{domain}/{habitId}"]?.patch && paths["/api/habits/{domain}/{habitId}"]?.delete);
+  assert.ok(paths["/api/habits/{domain}/consolidate"]?.post);
 });
 
 test("docs: browser desktop gateway endpoints document status, ticket and redirect contracts", () => {

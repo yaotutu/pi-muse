@@ -106,13 +106,13 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 ### `tests/live/information.ts`
 
 - 专项启动隔离后端并经 `createLiveModel` 透明代理真实调用外部模型，不读取或修改正式 DATA_DIR。入口必须显式给出 `--config` 与 `--allow-live`，可追加 `--keep-artifacts` 保留脱敏证据。
-- 覆盖混合批与全静默结构化提交、silent 不写聊天、通知发布与 notification/session/message 溯源、偏好 notes 与当前反馈例证进入下一轮、普通聊天 `domain_agent` 工具（含只读查询与规则更新）、幂等/冲突/跨会话隔离、自动调度、disable/reset/delete 取消排队通知以及重启持久化。
+- 覆盖混合批与全静默结构化提交、silent 不写聊天、通知发布与 notification/session/message 溯源、习惯列表与近期热缓冲反馈进入下一轮、普通聊天 `domain_agent` 工具（含只读查询与规则更新）、幂等/冲突/跨会话隔离、自动调度、disable/reset/delete 取消排队通知以及重启持久化。
 - 以后端 repository、PI 历史 revision/message、真实代理 tool call/result 与 HTTP 状态为证据；后台请求必须只声明 `submit_information_result`。同一 SDK 轮内允许无效提交后由模型自行纠正，但最终必须恰好一个有效提交；测试策略只约束合成数据，不用关键词代码替代模型决策，失败不自动重试模型。
 
 ### `tests/live/news.ts`
 
 - 启动隔离后端并经真实透明代理调用外部模型，不读取正式实例或凭据；显式抓取真实公网 RSS2，不使用合成 feed 冒充真实验收。
-- 覆盖源添加、重复 refresh 不重复接纳、cold start、结构化推荐与 reason、全部/推荐/收藏筛选、逐篇喜欢/不喜欢/评论/收藏、反馈进入下一轮模型输入与 learnedNotes、删除源保留文章和反馈、main 身份不变（主聊天 revision 不变）、重启后源/文章/反馈/偏好恢复。直接只读检查 `news.sqlite` 的关系表、数量与 integrity_check，确认新实例不生成 news.json；这些数据库检查不替代真实 RSS 与模型链路。
+- 覆盖源添加、重复 refresh 不重复接纳、cold start、结构化推荐与 reason、全部/推荐/收藏筛选、逐篇喜欢/不喜欢/评论/收藏、反馈进入热缓冲及触发通用习惯归纳、删除源保留文章和反馈、main 身份不变（主聊天 revision 不变）、重启后源/文章/反馈/习惯恢复。直接只读检查 `news.sqlite` 的关系表、数量与 integrity_check，确认新实例不生成 news.json；这些数据库检查不替代真实 RSS 与模型链路。
 - 以真实 RSS HTTP、后端 repository/API 状态、真实代理 tool call/result 与重启回读为证据；失败不自动重试模型。纯解析、存储和路由边界可用合成 XML/本地 HTTP 另做聚焦回归，但不能替代本项真实公网与模型验收。
 - `--allow-private-targets` 是 news live 脚本专属选项，默认 `false`，重复传入会拒绝。仅当本机 DNS 对公网域名返回 198.18 Fake-IP、需要在 loopback 隔离实例中抓取真实 RSS 时显式启用；共享 live options、生产配置和默认 SSRF 防护均不改变。输出必须如实说明该网络例外。
 

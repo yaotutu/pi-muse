@@ -227,7 +227,8 @@ const execute = async (options: NewsLiveOptions) => {
     const coldPreferences = newsPreferencesResponseSchema.parse(
       await expect("cold preferences", "/api/news/preferences", 200),
     );
-    assert.equal(coldPreferences.learnedNotes, "");
+    assert.deepEqual(coldPreferences.habits, []);
+    assert.equal(coldPreferences.unconsolidatedFeedbackCount, 0);
     const sessions = (await expect("sessions", "/api/sessions", 200)) as { sessions: Array<{ id: string }> };
     assert.deepEqual(sessions.sessions.map((session)=>session.id),["main"]);
     const instructions = (await expect("main instructions", "/api/assistant/instructions", 200)) as { instructions:string };
@@ -236,7 +237,6 @@ const execute = async (options: NewsLiveOptions) => {
     const newsTestNotes = [
       "本次是隔离新闻推荐验收，不是短信紧急通知筛选。",
       "从每个非空新闻批次中至少选择一篇最值得阅读的文章，优先深入技术、工程实践和一手资料；由你根据实际文章内容选择并说明理由。",
-      "参考逐篇喜欢、不喜欢、收藏与评论。出现有效反馈后，在 learnedNotes 中总结简短偏好；没有反馈时不编造偏好。",
     ].join("\n");
     const configuredPreferences = newsPreferencesResponseSchema.parse(await expect("set synthetic news preferences", "/api/news/preferences", 200, {
       method: "PUT", body: JSON.stringify({ instructions: newsTestNotes }),
@@ -349,10 +349,14 @@ const execute = async (options: NewsLiveOptions) => {
     const learned = newsPreferencesResponseSchema.parse(
       await expect("learned preferences", "/api/news/preferences", 200),
     );
-    assert.ok(learned.learnedNotes.trim().length > 0, "successful feedback round must update learnedNotes");
+    assert.equal(learned.unconsolidatedFeedbackCount, 1);
+    const consolidatedNews = await expect("consolidate news habits", "/api/habits/news/consolidate", 200, {
+      method: "POST", body: "{}",
+    }) as { habits: Array<{ text: string }> };
+    assert.ok(consolidatedNews.habits.length > 0, "consolidating news feedback must produce habits");
     record("feedback-in-next-round", {
       articleId: firstArticle.id,
-      learnedNotesLength: learned.learnedNotes.length,
+      habitsCount: consolidatedNews.habits.length,
       secondAdded: secondRefresh.added,
     });
 
@@ -396,7 +400,7 @@ const execute = async (options: NewsLiveOptions) => {
     assert.equal(restartedArticles.articles.length, articleCountBeforeRestart);
     assert.equal(restartedArticle.feedback.reaction, "like");
     assert.equal(restartedArticle.feedback.saved, true);
-    assert.equal(restartedPreferences.learnedNotes, learned.learnedNotes);
+    assert.equal(restartedPreferences.habits.length, consolidatedNews.habits.length);
     assert.equal(restartedPreferences.instructions, newsTestNotes);
     // 重启后仍只有同一 main 身份；新闻不创建独立聊天身份。
     assert.ok(((await expect("restarted sessions", "/api/sessions", 200)) as {
@@ -406,7 +410,7 @@ const execute = async (options: NewsLiveOptions) => {
     assert.equal(restartedSqlite.articles, articleCountBeforeRestart);
     record("restart-persistence", {
       articles: restartedArticles.articles.length,
-      learnedNotesLength: restartedPreferences.learnedNotes.length,
+      habitsCount: restartedPreferences.habits.length,
       sqlite: restartedSqlite,
     });
   } catch (error) {

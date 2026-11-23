@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
+import type { UserFeedbackSnapshot } from "../../shared/feedback.js";
 import { isWorkspaceText } from "../../shared/workspace-text.js";
-import { emptyMessageFeedback, projectFeedbackMap } from "../messages/service.js";
-import type { MessageFeedbackRepository } from "../messages/types.js";
+import type { HabitsService } from "../habits/service.js";
+import type { HabitPromptContext, HabitSignalPayload } from "../habits/types.js";
 import { InformationError } from "./errors.js";
 import {
   ARCHIVE_BRIEFING_MAX_LENGTH,
@@ -38,7 +39,7 @@ export const MAX_ARCHIVE_ITEMS_PER_BATCH = 25;
 export const MAX_INFORMATION_BATCH_CHARS = 60_000;
 
 const MAX_BRIEFING_CANDIDATES = 80;
-const MAX_FEEDBACK_EXAMPLES = 10;
+const MAX_FEEDBACK_EXAMPLES = 20;
 const MAX_FEEDBACK_ITEMS = 20;
 const MAX_FEEDBACK_COMMENTS = 5;
 const FEEDBACK_TEXT_LENGTH = 1000;
@@ -165,7 +166,7 @@ export type CreateInformationServiceDeps = {
     };
     release: () => void;
   } | undefined>;
-  feedback: MessageFeedbackRepository;
+  habits?: Pick<HabitsService, "getPromptContext" | "applyOperations">;
   runModel: (input: InformationModelInput, signal: AbortSignal) => Promise<InformationModelOutcome>;
   synthesizeBriefing?: (input: InformationBriefingInput, signal: AbortSignal) => Promise<InformationBriefingOutcome>;
   observeWork?: (
@@ -175,18 +176,49 @@ export type CreateInformationServiceDeps = {
   ) => ((outcome: "succeeded" | "failed", silent?: boolean) => void) | undefined;
 };
 
+const emptyHabitPromptContext = (): HabitPromptContext => ({
+  habits: [],
+  unconsolidatedSignals: [],
+  unconsolidatedCount: 0,
+});
+
+const signalsToFeedbackExamples = (signals: readonly HabitSignalPayload[]): InformationFeedbackExample[] =>
+  signals
+    .filter((sig) => sig.kind === "sms_notification")
+    .slice(0, MAX_FEEDBACK_EXAMPLES)
+    .map((sig) => ({
+      runId: sig.meta?.runId ?? "",
+      notificationId: sig.targetId,
+      text: sig.summary ?? "",
+      reaction: sig.reaction,
+      saved: sig.saved,
+      comments: sig.comments,
+      commentsTruncated: Boolean(sig.commentsTruncated),
+      items: (sig.items ?? []).map((item) => ({
+        id: item.id,
+        source: item.source,
+        ...(item.title !== undefined ? { title: item.title } : {}),
+        content: item.content,
+        contentTruncated: Boolean(item.contentTruncated),
+      })),
+    }));
+
 /**
- * 短信/信息后台领域服务（Clean Break 版）。
+ * 短信/信息后台领域服务（Clean Break + 通用习惯引擎版）。
  *
  * 严格分离两条路径，且共享用户指令（workspace/domains/sms/INSTRUCTIONS.md）、
- * 自学习敏感度画像（learnedNotes）与主对话反馈闭环：
- * 1. 日常实时单周期（queue = "realtime"）：接入 -> 到期/触发 -> 取批 + 画像/指令/反馈 ->
- *    一次受限模型判定 -> 落库 decisions/learnedNotes/pending publications -> 投递主对话。
- * 2. 历史批量归档（queue = "archive"）：独立入口导入，不触发实时调度；逐批演化 learnedNotes，
- *    当归档队列全部清零（pending === 0 && failed === 0）时最多生成 1 条 <=1200 字简报发主对话。
+ * 通用长期习惯列表（habits）与未消化反馈热缓冲（habit_signals）：
+ * 1. 日常实时单周期（queue = "realtime"）：接入 -> 到期/触发 -> 取批 + 习惯/指令/热缓冲样本 ->
+ *    一次受限模型判定 -> 落库 decisions/pending publications -> 投递主对话。
+ * 2. 历史批量归档（queue = "archive"）：独立入口导入，不触发实时调度；逐批向通用习惯库
+ *    增量提交 habitOperations，当归档队列清零时最多生成 1 条 <=1200 字简报发主对话。
  */
 export const createInformationService = (deps: CreateInformationServiceDeps) => {
   const domainId = deps.domainId ?? "sms";
+  const habitsPort: Pick<HabitsService, "getPromptContext" | "applyOperations"> = deps.habits ?? {
+    getPromptContext: async () => emptyHabitPromptContext(),
+    applyOperations: async () => [],
+  };
   let closed = false;
   let pauseDepth = 0;
   let activeRunPromise: Promise<unknown> | undefined;
@@ -198,71 +230,61 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     if (closed) throw new InformationError("SHUTDOWN", "Information service is closing");
   };
 
-  const feedbackExamples = async (
-    state: InformationState,
-    piSessionId: string,
-  ): Promise<InformationFeedbackExample[]> => {
-    const candidates = [...state.runs]
-      .sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id))
-      .flatMap((run) =>
-        run.publications
-          .filter((pub) => pub.status === "published" && pub.receipt?.piSessionId === piSessionId)
-          .map((pub) => ({ run, pub })),
-      );
-    if (!candidates.length) return [];
-    const feedbackByMessage = projectFeedbackMap(await deps.feedback.read("main", piSessionId));
-    const itemById = new Map(state.items.map((item) => [item.id, item]));
-    const examples: InformationFeedbackExample[] = [];
-
-    for (const { run, pub } of candidates) {
-      const feedback = feedbackByMessage.get(pub.receipt!.messageId) ?? emptyMessageFeedback();
-      if (!feedback.reaction && !feedback.saved && !feedback.comments.length) continue;
-      const comments = feedback.comments.slice(0, MAX_FEEDBACK_COMMENTS);
-      examples.push({
-        runId: run.id,
-        notificationId: pub.notificationId,
-        text: clipText(pub.text, FEEDBACK_TEXT_LENGTH).text,
-        reaction: feedback.reaction,
-        saved: feedback.saved,
-        comments: comments.map((comment) => clipText(comment.text, FEEDBACK_TEXT_LENGTH).text),
-        commentsTruncated:
-          feedback.comments.length > MAX_FEEDBACK_COMMENTS ||
-          feedback.comments.some((comment) => comment.text.length > FEEDBACK_TEXT_LENGTH),
-        items: pub.itemIds.slice(0, MAX_FEEDBACK_ITEMS).map((itemId) => {
-          const item = itemById.get(itemId);
-          return {
-            id: itemId,
-            source: item?.source ?? "unknown",
-            ...(item?.title ? { title: clipText(item.title, FEEDBACK_TEXT_LENGTH).text } : {}),
-            content: clipText(item?.content ?? "", FEEDBACK_CONTENT_LENGTH).text,
-            contentTruncated: (item?.content.length ?? 0) > FEEDBACK_CONTENT_LENGTH,
-          };
-        }),
-      });
-      if (examples.length >= MAX_FEEDBACK_EXAMPLES) break;
+  /** 将主对话中的短信通知交互反馈投影为通用 HabitSignalPayload（含撤销清空状态，便于从热缓冲剔除）。 */
+  const buildHabitSignal = async (
+    notificationId: string,
+    feedback: UserFeedbackSnapshot,
+  ): Promise<HabitSignalPayload | undefined> => {
+    const state = await deps.repository.read();
+    let matchedRun: InformationRun | undefined;
+    let matchedPub: InformationPublication | undefined;
+    for (const run of state.runs) {
+      const pub = run.publications.find((entry) => entry.notificationId === notificationId);
+      if (pub) {
+        matchedRun = run;
+        matchedPub = pub;
+        break;
+      }
     }
-    return examples;
+    if (!matchedRun || !matchedPub) return undefined;
+    const itemById = new Map(state.items.map((item) => [item.id, item]));
+    const recentComments = feedback.comments.slice(-MAX_FEEDBACK_COMMENTS);
+    return {
+      targetId: matchedPub.notificationId,
+      kind: "sms_notification",
+      summary: clipText(matchedPub.text, FEEDBACK_TEXT_LENGTH).text,
+      reaction: feedback.reaction,
+      saved: feedback.saved,
+      comments: recentComments.map((comment) => clipText(comment.text, FEEDBACK_TEXT_LENGTH).text),
+      commentsTruncated:
+        feedback.comments.length > MAX_FEEDBACK_COMMENTS ||
+        recentComments.some((comment) => comment.text.length > FEEDBACK_TEXT_LENGTH),
+      items: matchedPub.itemIds.slice(0, MAX_FEEDBACK_ITEMS).map((itemId) => {
+        const item = itemById.get(itemId);
+        const clipped = clipText(item?.content ?? "", FEEDBACK_CONTENT_LENGTH);
+        return {
+          id: itemId,
+          source: item?.source ?? "unknown",
+          ...(item?.title ? { title: clipText(item.title, FEEDBACK_TEXT_LENGTH).text } : {}),
+          content: clipped.text,
+          contentTruncated: clipped.truncated,
+        };
+      }),
+      meta: { runId: matchedRun.id },
+      updatedAt: new Date().toISOString(),
+    };
   };
 
-  const loadPromptContext = async (state: InformationState): Promise<{
-    instructions: string;
-    learnedNotes: string;
-    feedbackExamples: InformationFeedbackExample[];
-  }> => {
-    const [instructions, retained] = await Promise.all([
+  const loadPromptContext = async () => {
+    const [instructions, habitCtx] = await Promise.all([
       (deps.instructions.readResolved ?? deps.instructions.read)(),
-      deps.retainMain(),
+      habitsPort.getPromptContext(domainId),
     ]);
-    const learnedNotes = state.preferences.learnedNotes;
-    if (!retained) {
-      return { instructions, learnedNotes, feedbackExamples: [] };
-    }
-    try {
-      const examples = await feedbackExamples(state, retained.conversation.piSessionId());
-      return { instructions, learnedNotes, feedbackExamples: examples };
-    } finally {
-      retained.release();
-    }
+    return {
+      instructions,
+      habits: habitCtx.habits,
+      feedbackExamples: signalsToFeedbackExamples(habitCtx.unconsolidatedSignals),
+    };
   };
 
   const getSettings = async (): Promise<InformationSettings> => {
@@ -290,24 +312,16 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
   };
 
   const getPreferences = async (): Promise<InformationPreferencesView> => {
-    const [instructions, state] = await Promise.all([deps.instructions.read(), deps.repository.read()]);
-    const retained = await deps.retainMain();
-    if (!retained) {
-      return {
-        instructions,
-        learnedNotes: state.preferences.learnedNotes,
-        feedbackExamples: [],
-      };
-    }
-    try {
-      return {
-        instructions,
-        learnedNotes: state.preferences.learnedNotes,
-        feedbackExamples: await feedbackExamples(state, retained.conversation.piSessionId()),
-      };
-    } finally {
-      retained.release();
-    }
+    const [instructions, habitCtx] = await Promise.all([
+      deps.instructions.read(),
+      habitsPort.getPromptContext(domainId),
+    ]);
+    return {
+      instructions,
+      habits: habitCtx.habits,
+      unconsolidatedFeedbackCount: habitCtx.unconsolidatedCount,
+      feedbackExamples: signalsToFeedbackExamples(habitCtx.unconsolidatedSignals),
+    };
   };
 
   const savePreferences = async (input: { instructions: string }): Promise<InformationPreferencesView> => {
@@ -765,7 +779,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     });
   };
 
-  /** 执行单次批次：realtime 直接生成并投递通知；archive 仅更新决策与长期画像。 */
+  /** 执行单次批次：realtime 直接生成并投递通知；archive 仅更新决策与增量习惯操作。 */
   const executeSingleBatch = async (
     claimed: { run: InformationRun; items: InformationItem[]; state: InformationState },
   ): Promise<InformationRun> => {
@@ -773,7 +787,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     const finishWork = deps.observeWork?.(
       "main",
       isRealtime ? "information" : "information-archive",
-      isRealtime ? "正在判断收件信息" : "正在归纳历史短信画像",
+      isRealtime ? "正在判断收件信息" : "正在归纳历史短信习惯",
     );
     const controller = new AbortController();
     activeController = controller;
@@ -782,7 +796,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     try {
       let context: Awaited<ReturnType<typeof loadPromptContext>>;
       try {
-        context = await loadPromptContext(claimed.state);
+        context = await loadPromptContext();
       } catch (error) {
         if (controller.signal.aborted || isPaused() || closed) {
           const cancelled = await markRunCancelled(claimed.run.id, claimed.run.itemIds);
@@ -799,6 +813,9 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         return cancelled;
       }
 
+      const existingHabitIds = new Set(context.habits.map((habit) => habit.id));
+      const expectedUpdatedAt = new Map(context.habits.map((habit) => [habit.id, habit.updatedAt]));
+
       let outcome: InformationModelOutcome;
       try {
         outcome = await deps.runModel({
@@ -806,7 +823,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
           sessionId: "main",
           kind: claimed.run.kind,
           instructions: context.instructions,
-          learnedNotes: context.learnedNotes,
+          habits: context.habits,
           feedbackExamples: context.feedbackExamples,
           items: claimed.items.map((item) => ({
             id: item.id,
@@ -838,7 +855,8 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         parsed = parseInformationResult(outcome.result, claimed.run.itemIds, {
           allowNotifications: isRealtime,
           allowEmptyNotifications: !isRealtime,
-          requireLearnedNotes: !isRealtime,
+          allowHabitOperations: !isRealtime,
+          existingHabitIds,
         });
       } catch {
         const failed = await markRunFailed(claimed.run.id, claimed.run.itemIds, "INVALID_MODEL_RESULT");
@@ -872,9 +890,6 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         return {
           state: {
             ...state,
-            preferences: parsed.learnedNotes !== undefined
-              ? { ...state.preferences, learnedNotes: parsed.learnedNotes }
-              : state.preferences,
             items: state.items.map((item) =>
               claimedIdSet.has(item.id) ? { ...item, status: "processed" as const } : item),
             runs,
@@ -882,6 +897,10 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
           result: savedRun,
         };
       });
+
+      if (!isRealtime && parsed.habitOperations?.length) {
+        await habitsPort.applyOperations(domainId, parsed.habitOperations, "consolidated", expectedUpdatedAt);
+      }
 
       if (!pendingPublications.length) {
         finishWork?.("succeeded", parsed.decisions.every((d) => d.decision === "silent"));
@@ -947,14 +966,14 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     activeController = controller;
     if (isPaused() || closed) controller.abort();
     try {
-      const context = await loadPromptContext(state);
+      const context = await loadPromptContext();
       if (controller.signal.aborted) return false;
 
       const outcome = await deps.synthesizeBriefing({
         runId: lastRunId,
         sessionId: "main",
         instructions: context.instructions,
-        learnedNotes: context.learnedNotes,
+        habits: context.habits,
         feedbackExamples: context.feedbackExamples,
         totalScanned,
         silentCount,
@@ -1056,7 +1075,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     }
   };
 
-  /** 执行历史归档批量消化，逐批提炼 learnedNotes，队列清零后发至多 1 条总览简报。 */
+  /** 执行历史归档批量消化，逐批向通用习惯引擎提交增量变更，队列清零后发至多 1 条总览简报。 */
   const runArchive = async (options?: {
     background?: boolean;
     retryFailed?: boolean;
@@ -1230,6 +1249,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     saveSettings,
     getPreferences,
     savePreferences,
+    buildHabitSignal,
     ingest,
     ingestArchive,
     listItems,

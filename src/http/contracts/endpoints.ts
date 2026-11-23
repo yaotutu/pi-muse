@@ -9,6 +9,7 @@ import * as status from "./session-status.js";
 import * as files from "./workspace-files.js";
 import * as browser from "./browser.js";
 import * as message from "./messages.js";
+import * as habits from "./habits.js";
 import * as information from "./information.js";
 import * as companion from "./companions.js";
 import * as news from "./news.js";
@@ -284,6 +285,65 @@ export const endpoints: EndpointSpec[] = [
       503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
     },
   },
+  // ---- 通用用户行为习惯归纳与管理（Habits）----
+  {
+    operationId: "getHabitDomainOverview",
+    method: "get", path: "/api/habits/:domain", tag: "习惯", summary: "读取指定领域的行为习惯列表与归纳状态",
+    hint: "返回该领域（如 sms、news）已持久化生效的长短期行为习惯条目（habits，最多 50 条）、尚未消化的去重活跃反馈数（unconsolidatedCount）、自动归纳阈值（autoThreshold=5）、定期归纳周期（intervalMs=7200000）、当前已提交游标 cursorSeq 及最近一次归纳统计。未注册领域返回 404，非法领域标识返回 400。",
+    auth: true, response: habits.habitDomainOverviewResponse,
+    errorResponses: {
+      400: { description: "非法 domain 标识", schema: resp.errorResponse },
+      404: { description: "未注册该领域", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "createHabit",
+    method: "post", path: "/api/habits/:domain", tag: "习惯", summary: "手动新增一条领域行为习惯",
+    hint: "向指定领域手动新增一条行为习惯规范（source=manual，text 为 1–300 字符有效文本），立即在下一次领域筛选/分析时作为 Consolidated User Habits 生效，不修改工作区 INSTRUCTIONS.md。每领域上限 50 条，超限返回 409 LIMIT_EXCEEDED。",
+    auth: true, request: habits.createHabitRequestSchema, response: habits.habitItemResponse,
+    errorResponses: {
+      400: { description: "非法 domain 或空/超长/含控制字符的习惯文本", schema: resp.errorResponse },
+      404: { description: "未注册该领域", schema: resp.errorResponse },
+      409: { description: "已达到每领域 50 条上限（LIMIT_EXCEEDED）", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "updateHabit",
+    method: "patch", path: "/api/habits/:domain/:habitId", tag: "习惯", summary: "修改单条行为习惯文本",
+    hint: "修改指定 ID 习惯条目的正文并保留其手工编辑版本，立即在下次领域模型调用时生效。领域或条目不存在返回 404。",
+    auth: true, request: habits.updateHabitRequestSchema, response: habits.habitItemResponse,
+    errorResponses: {
+      400: { description: "非法 domain、habitId 或文本", schema: resp.errorResponse },
+      404: { description: "领域或习惯条目不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "deleteHabit",
+    method: "delete", path: "/api/habits/:domain/:habitId", tag: "习惯", summary: "删除单条行为习惯",
+    hint: "按 habitId 精确删除指定行为习惯，立即从后续模型提示词移除。领域或条目不存在返回 404。",
+    auth: true, response: habits.deleteHabitResponse,
+    errorResponses: {
+      400: { description: "非法 domain 或 habitId", schema: resp.errorResponse },
+      404: { description: "领域或习惯条目不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "consolidateHabits",
+    method: "post", path: "/api/habits/:domain/consolidate", tag: "习惯", summary: "立即触发指定领域的反馈习惯归纳",
+    hint: "请求须为有效 JSON 空对象 {}。按消费游标顺序批量消费该领域尚未消化的用户反馈热缓冲，调用受限子代理提炼或微调习惯条文（add/edit/delete）；每批仅在模型成功并完成检验后才原子推进 cursorSeq 与清理已消化信号，模型失败/取消绝不丢失原始反馈。同领域正在归纳返回 409 BUSY。",
+    auth: true, request: habits.consolidateHabitsRequestSchema, response: habits.habitDomainOverviewResponse,
+    errorResponses: {
+      400: { description: "非法 JSON 或非空对象，或非法 domain", schema: resp.errorResponse },
+      404: { description: "未注册该领域", schema: resp.errorResponse },
+      409: { description: "同领域已有归纳正在运行（BUSY）", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  // ---- 信息后台（SMS）----
   {
     operationId: "getInformationSettings",
     method: "get", path: "/api/information/settings", tag: "信息后台", summary: "读取信息后台设置",
@@ -296,7 +356,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateInformationSettings",
     method: "put", path: "/api/information/settings", tag: "信息后台", summary: "保存信息后台设置",
-    hint: "整份替换 enabled 与 batchWindowSeconds（0–3600；0 表示下一调度周期立即处理）。短信子 Agent 使用独立指令 instructions（domains/sms/INSTRUCTIONS.md）与自学习 learnedNotes，不写入主会话 assistant/INSTRUCTIONS.md。禁用时拒绝实时接入与 runNow 并取消在途轮，未处理队列保留；最后保存生效。",
+    hint: "整份替换 enabled 与 batchWindowSeconds（0–3600；0 表示下一调度周期立即处理）。短信子 Agent 使用独立指令 instructions（domains/sms/INSTRUCTIONS.md）与通用习惯模块 /api/habits/sms，不写入主会话 assistant/INSTRUCTIONS.md。禁用时拒绝实时接入与 runNow 并取消在途轮，未处理队列保留；最后保存生效。",
     auth: true, request: information.informationSettingsRequestSchema, response: information.informationSettingsResponse,
     errorResponses: {
       400: { description: "非法请求或窗口范围", schema: resp.errorResponse },
@@ -306,8 +366,8 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "getInformationPreferences",
-    method: "get", path: "/api/information/preferences", tag: "信息后台", summary: "读取信息指令与自学习画像",
-    hint: "返回用户主动编写的领域指令 instructions 原文（domains/sms/INSTRUCTIONS.md；支持在文件最顶部使用 YAML frontmatter `include:` 引用同工作区内相对路径纯文本文件，注入模型前实时展开，缺失文件静默跳过，本接口仍返回原始文本）与自学习灵敏度画像 learnedNotes；后台单周期判定与历史归档提炼都会携带实时消息反馈（feedbackExamples）演化 learnedNotes。",
+    method: "get", path: "/api/information/preferences", tag: "信息后台", summary: "读取信息指令、已归纳习惯与近期热缓冲反馈",
+    hint: "返回用户主动编写的领域指令 instructions 原文（domains/sms/INSTRUCTIONS.md；支持在文件最顶部使用 YAML frontmatter `include:` 引用同工作区内相对路径纯文本文件，注入模型前实时展开，缺失文件静默跳过，本接口仍返回原始文本）、通用习惯引擎沉淀的行为习惯清单 habits（可通过 /api/habits/sms 管理）、未消化反馈计数 unconsolidatedFeedbackCount 以及尚未归纳的近期消息反馈热缓冲 feedbackExamples（归纳后自动清空，不丢失任何早期反馈规则）。",
     auth: true, response: information.informationPreferencesResponse,
     errorResponses: {
       503: { description: "服务正在关闭", schema: resp.errorResponse },
@@ -347,8 +407,8 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "runArchiveInformation",
-    method: "post", path: "/api/information/archive/run", tag: "信息后台", summary: "触发历史归档队列批量提炼画像与总览简报",
-    hint: "逐批消化 queue=archive 待处理条目并持续演化自学习画像 learnedNotes（中间批次不推送通知）；当归档队列全部清零（pending=0 且 failed=0）时最多生成 1 条 <=1200 字简报发往主对话。可传 background=true 异步后台执行，或 retryFailed=true 重试失败条目；队列为空返回 409 NO_PENDING，忙返回 409 BUSY。",
+    method: "post", path: "/api/information/archive/run", tag: "信息后台", summary: "触发历史归档队列批量提炼习惯与总览简报",
+    hint: "逐批消化 queue=archive 待处理条目并向通用习惯库（/api/habits/sms）增量提交习惯更新（中间批次不推送通知）；当归档队列全部清零（pending=0 且 failed=0）时最多生成 1 条 <=1200 字简报发往主对话。可传 background=true 异步后台执行，或 retryFailed=true 重试失败条目；队列为空返回 409 NO_PENDING，忙返回 409 BUSY。",
     auth: true, request: information.informationArchiveRunRequestSchema, response: information.informationArchiveRunResponse,
     errorResponses: {
       400: { description: "非法请求", schema: resp.errorResponse },
@@ -389,7 +449,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "runInformationNow",
     method: "post", path: "/api/information/runs", tag: "信息后台", summary: "立即触发一次日常实时单周期分析",
-    hint: "忽略批等待窗口，取最早的一批 queue=realtime pending 条目（最多 20 条，受 60000 字符保护）完成单周期模型判定、通知发布与画像微调；无待处理条目返回 409 NO_PENDING，禁用返回 409 DISABLED，忙返回 409 BUSY。",
+    hint: "忽略批等待窗口，取最早的一批 queue=realtime pending 条目（最多 20 条，受 60000 字符保护）完成单周期模型判定与通知发布；无待处理条目返回 409 NO_PENDING，禁用返回 409 DISABLED，忙返回 409 BUSY。",
     auth: true, request: information.informationRunRequestSchema, response: information.informationRunDetailResponse,
     errorResponses: {
       400: { description: "非法请求", schema: resp.errorResponse },
@@ -534,8 +594,8 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "getNewsPreferences",
-    method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻指令与画像",
-    hint: "instructions 是保存在 workspace/domains/news/INSTRUCTIONS.md 的明确新闻指令原文（支持在文件最顶部使用 YAML frontmatter `include:` 引用同工作区内相对路径纯文本文件，筛选时实时展开，缺失文件静默跳过，本接口仍返回原始文本）；learnedNotes 是模型从逐篇反馈推断的只读兴趣摘要。两者分离，推断不覆盖明确 instructions、会话指令或全局 USER。",
+    method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻指令与行为习惯",
+    hint: "instructions 是保存在 workspace/domains/news/INSTRUCTIONS.md 的明确新闻指令原文（支持在文件最顶部使用 YAML frontmatter `include:` 引用同工作区内相对路径纯文本文件，筛选时实时展开，缺失文件静默跳过，本接口仍返回原始文本）；habits 与 unconsolidatedFeedbackCount 由通用习惯引擎从逐篇反馈中定期沉淀并提供（可通过 /api/habits/news 查看、编辑与手动归纳），不覆盖明确 instructions、会话指令或全局 USER。",
     auth: true, response: news.newsPreferencesResponseSchema,
     errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
   },

@@ -26,11 +26,11 @@ Collection defaults to every 30 minutes. One source's failure does not block oth
 
 ## Feedback and recommendations {#feedback}
 
-Like/dislike are mutually exclusive and removable. Saved state is independent; the server also supports bounded comments. Feedback does not immediately call a model. Later batches read bounded recent examples; saves are weaker signals. A single reaction does not become a permanent rule.
+Like/dislike are mutually exclusive and removable. Saved state is independent; the server also supports bounded comments. Article feedback writes into the shared habit hot buffer: until consolidated, recent signals flow into upcoming screening batches (saves act as a weak signal). Once 5 distinct articles accumulate feedback—or on the 2-hour scheduled pass—the habit consolidation engine distills durable rules without treating one isolated reaction as permanent or rewriting your explicit instructions.
 
-Explicit preferences (`instructions`) are stored in the workspace at `domains/news/INSTRUCTIONS.md` (and also support [top-of-file Frontmatter `include:`](instructions.md#frontmatter-include) splitting across workspace plain-text files) without modifying main `INSTRUCTIONS.md` or global profile files. You can replace the full raw text in Settings → News Preferences (last successful save wins), edit the same file in Workspace Files, or ask the assistant in chat to propose an update via `domain_agent` for approval. The model-inferred profile (`learnedNotes`) remains separate and read-only, without overwriting explicit instructions, chat instructions, or USER. In News Preferences, expand the learned interests section to see what the assistant has learned.
+Explicit preferences (`instructions`) are stored in the workspace at `domains/news/INSTRUCTIONS.md` (and also support [top-of-file Frontmatter `include:`](instructions.md#frontmatter-include) splitting across workspace plain-text files) without modifying main `INSTRUCTIONS.md` or global profile files. You can replace the full raw text in Settings → News Preferences (last successful save wins), edit the same file in Workspace Files, or ask the assistant in chat to propose an update via `domain_agent` for approval. Consolidated habits (`habits`) remain separate and can be viewed, manually added, edited, deleted, or consolidated on demand via `/api/habits/news`, without overwriting explicit instructions, chat instructions, or USER.
 
-Reasons and learned summaries default to concise Simplified Chinese while RSS titles/content retain their original language. Read back unknown writes instead of automatically resending. Client draft behavior depends on the adapted version.
+Reasons and consolidated habit rules default to concise Simplified Chinese while RSS titles/content retain their original language. Read back unknown writes instead of automatically resending. Client draft behavior depends on the adapted version.
 
 ## Refresh and failures {#refresh}
 
@@ -42,7 +42,7 @@ Read status, sources and articles after an unknown collection result. A failed l
 
 ## Storage {#storage}
 
-Sources, articles, reactions, saves, comments, analysis batches, recommendations and learned summaries are stored in the server's separate `news.sqlite`, rather than rewriting a complete news JSON document at runtime, while jobs, goals, approvals, SMS state and Dream state live in `main.sqlite`. Chat history remains managed by pi JSONL.
+Sources, articles, reactions, saves, comments, analysis batches, and recommendations are stored in the server's separate `news.sqlite`, rather than rewriting a complete news JSON document at runtime, while jobs, goals, approvals, SMS state, Dream state, and shared consolidated habits (`habits` and unconsolidated hot-buffer signals) live in `main.sqlite`. Chat history remains managed by pi JSONL.
 
 The news API and the agent's [database tool](database.md) operate on the same news data. The agent can query, modify, extend schemas or drop tables without per-SQL approval. Breaking built-in table structures can make news unavailable; the system does not silently rebuild an empty database. Database operations do not automatically recompute previous recommendations or rerun a model.
 
@@ -50,4 +50,4 @@ The news API and the agent's [database tool](database.md) operate on the same ne
 
 ## Boundaries {#boundaries}
 
-News maintains its own independent preference rules and learned interest profile without touching main chat instructions, and still has no separate workspace, chat session, Dream state, or chat notification binding. Recommendations do not generate chat system notifications or add a global polling/notification stream. Discussing an article does not change workspace, tool, or approval boundaries.
+News maintains its own independent preference rules and consolidated habits without touching main chat instructions, and still has no separate workspace, chat session, Dream state, or chat notification binding. Recommendations do not generate chat system notifications or add a global polling/notification stream. Discussing an article does not change workspace, tool, or approval boundaries.

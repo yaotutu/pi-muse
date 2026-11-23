@@ -142,6 +142,13 @@ export const createMessageFeedbackSession = (input: {
   piSessionId: () => string;
   facts: () => readonly MessageExecutionFact[];
   repository: MessageFeedbackRepository;
+  onFeedbackChanged?: (change: {
+    sessionId: string;
+    piSessionId: string;
+    messageId: string;
+    fact: MessageExecutionFact & { role: FeedbackTargetRole };
+    feedback: MessageFeedback;
+  }) => Promise<void> | void;
 }) => {
   let activeRunId: string | null = null;
   const currentPiSessionId = input.piSessionId;
@@ -173,10 +180,23 @@ export const createMessageFeedbackSession = (input: {
     },
   ) => {
     const fact = target(messageId, piSessionId);
-    return input.repository.update(input.sessionId, currentPiSessionId(), (document) => {
+    const scopePiSessionId = currentPiSessionId();
+    let mutated = false;
+    const feedback = await input.repository.update(input.sessionId, scopePiSessionId, (document) => {
       const changed = create(document, fact.role);
+      if (changed.document) mutated = true;
       return { ...(changed.document ? { document: changed.document } : {}), result: changed.feedback };
     });
+    if (mutated) {
+      await input.onFeedbackChanged?.({
+        sessionId: input.sessionId,
+        piSessionId: scopePiSessionId,
+        messageId,
+        fact,
+        feedback,
+      });
+    }
+    return feedback;
   };
   return {
     piSessionId: currentPiSessionId,

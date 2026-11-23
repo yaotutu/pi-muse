@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getTrace, listTraces, type TraceDetailDto, type TraceSummaryDto, type TracesQueryDto, type TracesResponseDto } from "../lib/api";
 
-const kinds = ["chat", "information:notifications", "information:recommendations",   "dream", "subagent", "unlabeled"] as const satisfies readonly NonNullable<TracesQueryDto["kind"]>[];
+const kinds = ["chat", "information:notifications", "information:recommendations", "dream", "habits", "subagent", "unlabeled"] as const satisfies readonly NonNullable<TracesQueryDto["kind"]>[];
 const buttonClass = "rounded-md border border-stone-300 bg-white px-3 py-1.5 text-sm hover:bg-stone-50 disabled:opacity-40";
 const inputClass = "rounded-md border border-stone-300 bg-white px-2 py-1.5 text-sm";
 const objectOf = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};

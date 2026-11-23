@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isWorkspaceText } from "../../shared/workspace-text.js";
 import { newsSourceFailureCategories } from "../../features/news/errors.js";
+import { habitItemSchema } from "./habits.js";
 
 const publicHttpUrlSchema = z.string().url().max(2048).regex(/^https?:\/\//i).refine((value) => {
   const url = new URL(value);
@@ -128,7 +129,8 @@ export const newsRefreshResponseSchema = z.strictObject({
 
 export const newsPreferencesResponseSchema = z.strictObject({
   instructions: z.string().max(20000).describe("用户明确保存的新闻筛选指令（domains/news/INSTRUCTIONS.md）"),
-  learnedNotes: z.string().max(20000).describe("模型从文章反馈推断的只读自学习画像；不覆盖明确 instructions"),
+  habits: z.array(habitItemSchema).describe("通用习惯引擎从文章反馈自动归纳（或用户手动维护）的行为习惯列表"),
+  unconsolidatedFeedbackCount: z.number().int().nonnegative().describe("去重后尚未归纳成长期习惯的文章反馈热缓冲条数"),
 });
 
 export const newsPreferencesUpdateRequestSchema = z.strictObject({

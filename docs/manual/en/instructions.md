@@ -7,8 +7,8 @@ Pi Muse assembles model context in a unified three-layer structure: repository-m
 For every model request, the server assembles three layers in order:
 
 1. **System prompts (read-only, shipped with source)**: English templates stored centrally in the server repository under `prompts/` for reliable tool calling and cross-task consistency. By default, they direct the model to produce user-facing text (such as summaries, reasons, and notifications) in Simplified Chinese unless your instructions request another language. The server reads them from the repository (or the built `dist/prompts/` output) with **no** runtime data-directory overrides.
-2. **User instructions and learned profiles**: Markdown files you maintain inside the workspace (highest user authority), plus read-only/rolling self-learned profiles (`learnedNotes`) maintained by the SMS and News pipelines.
-3. **Current turn input**: in chat, your message, conversation history, and on-demand recalled memories; in SMS or News background runs, bounded feedback examples plus raw items wrapped inside an explicit `UNTRUSTED INPUT DATA` boundary to defend against prompt injection.
+2. **User instructions and consolidated habits**: Markdown files you maintain inside the workspace (highest user authority), plus structured long-term behavioral habits maintained for SMS and News by the shared habit consolidation engine (and manually editable by you).
+3. **Current turn input**: in chat, your message, conversation history, and on-demand recalled memories; in SMS or News background runs, recent unconsolidated feedback examples from the hot buffer plus raw items wrapped inside an explicit `UNTRUSTED INPUT DATA` boundary to defend against prompt injection.
 
 ## Five Managed Workspace Documents {#managed-files}
 
@@ -57,7 +57,7 @@ include: [./bank.md, ./delivery-rules.md]
 
 - **Must be at the very top**: expansion runs only when the file starts immediately with YAML Frontmatter containing an `include` key. Mid-document `---` horizontal rules, frontmatter without an `include` key (for example `title:` only), or malformed YAML are preserved verbatim without expansion.
 - **Relative path base**: each path resolves relative to the **directory containing the current file**, including UTF-8 filenames (for example `./快递规则.md`). To share common lists such as `files/vip-contacts.md` across assistant and domain instructions, use relative `..` segments within `workspace/`.
-- **Supported scope and strict exclusions**: all five managed workspace documents and any included child files can use `include:`. Self-learned `learnedNotes` and raw SMS/news item payloads are **never** parsed for `include:`, preventing model output or untrusted input from reading other workspace files.
+- **Supported scope and strict exclusions**: all five managed workspace documents and any included child files can use `include:`. Consolidated or manual habit entries and raw SMS/news item payloads are **never** parsed for `include:`, preventing model output or untrusted input from reading other workspace files.
 - **Workspace security boundary**: targets must resolve inside `workspace/` and be regular UTF-8 plain-text files without NUL bytes. Absolute paths, backslashes, `..` escaping outside `workspace/`, symlinks, directories, and binary files are skipped.
 - **Depth, deduplication, and size cap**: nested includes are expanded up to `5` levels deep; self-cycles, mutual cycles, and diamond duplicates within a resolution pass are deduplicated automatically so each file is expanded at most once; the total expanded text is capped at `60,000` characters (appending `<!-- include truncated: resolved character limit reached -->` if exceeded).
 - **Source markers**: each non-empty included file is wrapped in `<!-- begin include: <workspace-relative-path> -->` and `<!-- end include: <workspace-relative-path> -->` so the model knows which sub-file each section came from.
@@ -76,15 +76,15 @@ include: [./bank.md, ./delivery-rules.md]
 SMS processing is disabled by default. Its system prompt uses a **Default-Silent** baseline: uncertain messages without an explicit directive default to `silent` (promotions, carrier marketing, routine completed login OTPs, ordinary mid-transit shipping updates), while actionable alerts default to `notify` (pickup codes/delivery exceptions, unusual financial alerts, account security warnings, itinerary changes). Decisions follow strict precedence from highest to lowest:
 
 1. **Your explicit instructions**: `workspace/domains/sms/INSTRUCTIONS.md` (highest authority).
-2. **Recent message feedback**: likes, dislikes, saves, and comments you leave on past SMS notification messages in `main` chat.
-3. **Self-learned sensitivity profile**: rolling `learnedNotes` stored in `main.sqlite`.
+2. **Recent unconsolidated feedback**: likes, dislikes, saves, and comments you left on recent SMS notifications in `main` chat (held in a hot buffer until consolidated into long-term habits).
+3. **Consolidated user habits**: durable rules distilled incrementally by the cursor-driven habit engine (or added/edited manually by you) in `main.sqlite`, preserving early preferences even beyond the buffer window.
 4. **Default-Silent baseline**: conservative fallback filter when higher tiers give no directive.
 
-The SMS pipeline keeps two isolated channels sharing these preferences: daily realtime single-cycle processing (`realtime`, posting `notify` results only to `main` chat and staying quiet when all items are silent), and bulk historical archive processing (`archive`, evolving `learnedNotes` across batches without per-batch notifications and emitting at most one `<= 1,200`-character Chinese briefing once the archive queue drains).
+The SMS pipeline keeps two isolated channels sharing these preferences: daily realtime single-cycle processing (`realtime`, posting `notify` results only to `main` chat and staying quiet when all items are silent), and bulk historical archive processing (`archive`, incrementally submitting habit updates across batches without per-batch notifications and emitting at most one `<= 1,200`-character Chinese briefing once the archive queue drains).
 
 ### News Independent Screening and Feedback {#news-screening}
 
-News collection uses `news.sqlite` independently and screens articles using `domains/news/INSTRUCTIONS.md`, rolling `learnedNotes`, and per-article likes, dislikes, saves, and comments. Recommendations and reasons appear only inside News and never post chat notifications; see [News reading](news.md).
+News collection uses `news.sqlite` independently and screens articles using `domains/news/INSTRUCTIONS.md`, consolidated habits, and unconsolidated per-article likes, dislikes, saves, and comments. Recommendations and reasons appear only inside News and never post chat notifications; see [News reading](news.md).
 
 ## Editing Methods and Security Boundaries {#editing-and-boundaries}
 

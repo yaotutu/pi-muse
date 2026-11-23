@@ -36,6 +36,20 @@
 
 ## 变更与须知记录
 
+### 2026-11-23 — 通用用户习惯定期归纳引擎上线，偏好响应移除 `learnedNotes` 改为 `habits` + 热缓冲
+
+- **影响端形态**：`rich-ui`、`all`
+- **类型**：`breaking`、`feature`
+- **契约入口**：`/docs`「习惯」「信息后台」「新闻」（以 `/openapi.json` 为准）
+- **要点与接入端注意**：
+  - **严格解析器必改预警（P0 — 字段移除与替换）**：
+    - `GET / PUT /api/information/preferences` 响应移除 `learnedNotes: string`，改为 `{ instructions, habits, unconsolidatedFeedbackCount, feedbackExamples }`；其中 `habits` 为结构化长期行为习惯数组（上限 50 条），`feedbackExamples` 现只保留**尚未被归纳消化**的近期反馈热缓冲样本（归纳提交成功后清空）。
+    - `GET / PUT /api/news/preferences` 响应移除 `learnedNotes: string`，改为 `{ instructions, habits, unconsolidatedFeedbackCount }`。
+  - **新增通用习惯管理与触发接口（`/api/habits/:domain`）**：
+    - `GET /api/habits/:domain` 读取领域（如 `sms`、`news`）完整习惯清单、未消化计数（`unconsolidatedCount`）、自动阈值（`autoThreshold=5`）、定时周期（2 小时）、游标 `cursorSeq` 与最近归纳状态。
+    - `POST /api/habits/:domain`（`{ text }`）、`PATCH /api/habits/:domain/:habitId`（`{ text }`）、`DELETE /api/habits/:domain/:habitId` 支持用户手动增删改任意习惯条文（1–300 字符）；每领域上限 50 条，超限返回 `409 LIMIT_EXCEEDED`。
+    - `POST /api/habits/:domain/consolidate`（必须传空对象 `{}`）手动立即触发该领域未消化反馈的增量归纳；仅在模型返回且结构化校验通过后原子推进游标并清理热缓冲，失败绝不丢失原反馈。
+
 ### 2026-11-23 — 消息反馈新增 `saved` 收藏原语与条件列表接口，底层迁移至 `main.sqlite`
 
 - **影响端形态**：`rich-ui`、`all`

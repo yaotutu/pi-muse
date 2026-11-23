@@ -15,6 +15,7 @@ export type ModelTraceKind =
   | "information:notifications"
   | "information:recommendations"
   | "dream"
+  | "habits"
   | "subagent"
   | "unlabeled";
 

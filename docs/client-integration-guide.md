@@ -214,7 +214,7 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
 
 服务端采用「**单一主助手 + 多个独立后台领域 Agent**」架构：
 
-- **指令文件与隔离原则**：每个领域 Agent 拥有独立系统提示词（仓库托管 `prompts/`）、独立用户显式指令 `instructions`（保存即覆盖，与工作区 `workspace/domains/<id>/INSTRUCTIONS.md` 同步）以及模型根据反馈沉淀的只读自学习画像 `learnedNotes`（不可覆盖 `instructions`）。后台领域 Agent **不读取**主聊天技能、`workspace/assistant/INSTRUCTIONS.md` 或全局 `memory`。在主聊天中，用户提到领域过滤/偏好时，主助手会调用 `domain_agent` 工具（`get_instructions` / `update_instructions`）协同查询或提议更新对应领域指令（更新仍走模型文件审批）。
+- **指令文件与隔离原则**：每个领域 Agent 拥有独立系统提示词（仓库托管 `prompts/`）、独立用户显式指令 `instructions`（保存即覆盖，与工作区 `workspace/domains/<id>/INSTRUCTIONS.md` 同步），以及由通用习惯引擎定期从反馈中提炼的长期习惯 `habits` 与未消化计数 `unconsolidatedFeedbackCount`（可通过 `/api/habits/:domain` 列表查看、手动增删改及手动触发归纳，不覆盖明确 `instructions`）。后台领域 Agent **不读取**主聊天技能、`workspace/assistant/INSTRUCTIONS.md` 或全局 `memory`。在主聊天中，用户提到领域过滤/偏好时，主助手会调用 `domain_agent` 工具（`get_instructions` / `update_instructions`）协同查询或提议更新对应领域指令（更新仍走模型文件审批）。
 - **主聊天通知隔离与结构化引用约定（推荐 `rich-ui`）**：
   - 后台重要通知会由服务端写入 `main` 会话历史，该消息带有可靠元数据：`metadata.source === "notification"`、`metadata.notificationId` 以及 `metadata.domainId`（如 `"sms"`、`"news"`）。
   - 服务端在每次送入主模型上下文前，**默认过滤掉所有带 `domainId` 的通知卡片**，避免零碎通知污染主对话。
@@ -226,9 +226,9 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
     ```
   - 发送后，主助手即可在当轮上下文看到这段引用，并能准确将后续规则改动通过 `domain_agent` 路由到对应领域。
 - **信息/短信后台接入（`/api/information/*`，适合 `webhook` / 投喂端 / `rich-ui`）**：
-  - 本组端点均为全局路径（不带 `:sessionId`）；开关与窗口（`enabled`、`batchWindowSeconds` 0–3600）由 `/api/information/settings` 管理；用户指令与自学习画像由 `/api/information/preferences`（`instructions`、`learnedNotes`、`feedbackExamples`）管理。
+  - 本组端点均为全局路径（不带 `:sessionId`）；开关与窗口（`enabled`、`batchWindowSeconds` 0–3600）由 `/api/information/settings` 管理；用户指令、已归纳习惯与未消化反馈热缓冲由 `/api/information/preferences`（`instructions`、`habits`、`unconsolidatedFeedbackCount`、`feedbackExamples`）返回，长期习惯的增删改与手动归纳统一走 `/api/habits/sms`。
   - **日常实时接入**：调用 `POST /api/information/items`（1–100 条，进入 `queue: "realtime"`），以 `(source, externalId)` 为幂等键（同内容幂等回读，不同内容 `409 CONFLICT` 不覆盖原文；后台禁用时 `409 DISABLED`）；可通过 `POST /api/information/runs`（空请求体 `{}`）立即触发一次单周期判定并推送通知到 `main`。
-  - **历史批量归档**：与实时调度完全隔离——导入调用 `POST /api/information/archive/items`（1–500 条，进入 `queue: "archive"`），完成后显式调用 `POST /api/information/archive/run`（`{ background?, retryFailed? }`）逐批演化 `learnedNotes` 并在清零后发至多 1 条 <= 1200 字简报；进度通过 `GET /api/information/status` 的 `archive.{running, pendingCount, processedCount, failedCount}` 轮询。
+  - **历史批量归档**：与实时调度完全隔离——导入调用 `POST /api/information/archive/items`（1–500 条，进入 `queue: "archive"`），完成后显式调用 `POST /api/information/archive/run`（`{ background?, retryFailed? }`）逐批向通用习惯库增量沉淀习惯并在清零后发至多 1 条 <= 1200 字简报；进度通过 `GET /api/information/status` 的 `archive.{running, pendingCount, processedCount, failedCount}` 轮询。
 - **新闻阅读与推荐（`/api/news/*`，适合 `rich-ui`）**：
   - 支持 RSS 源列表/添加/停止采集（删除源后已接纳的文章、收藏、反应与评论**继续保留**，仅停止后续采集；添加源 400 失败会附带受控 `failure.category`）。
   - 文章支持 `view=all|recommended` 与 `savedOnly=true|false` 游标分页；`POST /api/news/refresh` 需传严格空 JSON 对象 `{}`（不等待模型筛选结束，前台可短时观察 `GET /api/news/status` 直至 `refreshing` 和 `processing` 均为 `false` 后停表并刷新列表）。

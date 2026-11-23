@@ -1,4 +1,7 @@
 import { isWorkspaceText } from "../../shared/workspace-text.js";
+import { HabitError } from "../habits/errors.js";
+import { parseHabitOperationsArray } from "../habits/operations.js";
+import type { HabitOperation } from "../habits/types.js";
 import { InformationError } from "./errors.js";
 import type {
   InformationDecision,
@@ -9,7 +12,6 @@ import type {
 export const INFORMATION_REASON_MAX_LENGTH = 1000;
 export const INFORMATION_NOTIFICATION_TEXT_MAX_LENGTH = 4000;
 export const ARCHIVE_BRIEFING_MAX_LENGTH = 1200;
-export const INFORMATION_LEARNED_NOTES_MAX_LENGTH = 4000;
 export const INFORMATION_MAX_NOTIFICATIONS = 20;
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
@@ -18,7 +20,8 @@ const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
 export type ParseInformationResultOptions = {
   allowNotifications: boolean;
   allowEmptyNotifications?: boolean;
-  requireLearnedNotes?: boolean;
+  allowHabitOperations?: boolean;
+  existingHabitIds?: ReadonlySet<string>;
 };
 
 /** 校验并规范化短信/信息模型单轮提交结果，拒绝未知字段、漏判、重复及未覆盖 notify 条目。 */
@@ -30,9 +33,12 @@ export const parseInformationResult = (
   if (!isPlainRecord(raw)) {
     throw new InformationError("INVALID_INPUT", "Invalid information result");
   }
-  const allowedKeys = new Set<string>(["decisions", "learnedNotes"]);
+  const allowedKeys = new Set<string>(["decisions"]);
   if (options.allowNotifications || options.allowEmptyNotifications) {
     allowedKeys.add("notifications");
+  }
+  if (options.allowHabitOperations) {
+    allowedKeys.add("habitOperations");
   }
   for (const key of Object.keys(raw)) {
     if (!allowedKeys.has(key)) {
@@ -74,21 +80,18 @@ export const parseInformationResult = (
     throw new InformationError("INVALID_INPUT", "Information decisions must match every claimed item");
   }
 
-  let learnedNotes: string | undefined;
-  if (raw.learnedNotes !== undefined) {
-    if (typeof raw.learnedNotes !== "string" || !isWorkspaceText(raw.learnedNotes)) {
-      throw new InformationError("INVALID_INPUT", "learnedNotes must be valid text");
+  let habitOperations: HabitOperation[] | undefined;
+  if (options.allowHabitOperations && raw.habitOperations !== undefined) {
+    try {
+      habitOperations = parseHabitOperationsArray(raw.habitOperations, {
+        existingIds: options.existingHabitIds,
+      });
+    } catch (error) {
+      if (error instanceof HabitError) {
+        throw new InformationError("INVALID_INPUT", error.message);
+      }
+      throw error;
     }
-    const trimmed = raw.learnedNotes.trim();
-    if (trimmed.length > INFORMATION_LEARNED_NOTES_MAX_LENGTH) {
-      throw new InformationError(
-        "INVALID_INPUT",
-        `learnedNotes must be at most ${INFORMATION_LEARNED_NOTES_MAX_LENGTH} characters`,
-      );
-    }
-    learnedNotes = trimmed;
-  } else if (options.requireLearnedNotes) {
-    throw new InformationError("INVALID_INPUT", "Archive batch result requires learnedNotes");
   }
 
   const notifications: InformationNotificationDraft[] = [];
@@ -138,7 +141,7 @@ export const parseInformationResult = (
   return {
     decisions,
     notifications,
-    ...(learnedNotes !== undefined ? { learnedNotes } : {}),
+    ...(habitOperations !== undefined ? { habitOperations } : {}),
   };
 };
 

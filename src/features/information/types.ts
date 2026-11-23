@@ -1,10 +1,8 @@
+import type { HabitItem, HabitOperation } from "../habits/types.js";
+
 export type InformationSettings = {
   enabled: boolean;
   batchWindowSeconds: number;
-};
-
-export type InformationPreferences = {
-  learnedNotes: string;
 };
 
 export type InformationFeedbackExample = {
@@ -26,7 +24,8 @@ export type InformationFeedbackExample = {
 
 export type InformationPreferencesView = {
   instructions: string;
-  learnedNotes: string;
+  habits: HabitItem[];
+  unconsolidatedFeedbackCount: number;
   feedbackExamples: InformationFeedbackExample[];
 };
 
@@ -97,17 +96,15 @@ export type InformationRun = {
 };
 
 export type InformationState = {
-  schemaVersion: 2;
+  schemaVersion: 3;
   settings: InformationSettings;
-  preferences: InformationPreferences;
   items: InformationItem[];
   runs: InformationRun[];
 };
 
 export const defaultInformationState = (): InformationState => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   settings: { enabled: false, batchWindowSeconds: 15 },
-  preferences: { learnedNotes: "" },
   items: [],
   runs: [],
 });
@@ -120,7 +117,7 @@ export type InformationNotificationDraft = {
 export type InformationModelResult = {
   decisions: InformationDecision[];
   notifications: InformationNotificationDraft[];
-  learnedNotes?: string;
+  habitOperations?: HabitOperation[];
 };
 
 export type InformationModelInput = {
@@ -128,7 +125,7 @@ export type InformationModelInput = {
   sessionId: string;
   kind: InformationRunKind;
   instructions: string;
-  learnedNotes: string;
+  habits: HabitItem[];
   feedbackExamples: InformationFeedbackExample[];
   items: Array<{
     id: string;
@@ -160,7 +157,7 @@ export type InformationBriefingInput = {
   runId: string;
   sessionId: string;
   instructions: string;
-  learnedNotes: string;
+  habits: HabitItem[];
   feedbackExamples: InformationFeedbackExample[];
   totalScanned: number;
   silentCount: number;

@@ -125,7 +125,7 @@ test("main chat expands frontmatter includes across SOUL, USER, and INSTRUCTIONS
   assert.ok(afterApply.instructions.includes("回复前先核对时间"));
 });
 
-test("SMS and News expand workspace instructions includes while keeping HTTP GET raw and never expanding learnedNotes", async (t) => {
+test("SMS and News expand workspace instructions includes while keeping HTTP GET raw and never expanding habits", async (t) => {
   const h = await fixture(t);
   const { workspaceDir } = h.service.layout;
 
@@ -143,11 +143,13 @@ test("SMS and News expand workspace instructions includes while keeping HTTP GET
   assert.equal(((await h.api("/api/information/preferences")).body as { instructions: string }).instructions, smsRaw);
   assert.equal(((await h.api("/api/news/preferences")).body as { instructions: string }).instructions, newsRaw);
 
-  // Poison learnedNotes via archive run (or repository) with YAML frontmatter include; MUST NEVER expand.
-  assert.equal((await h.api("/api/information/archive/items", "POST", {
-    items: [{ source: "sms", externalId: "arch-poison-1", content: "ARCHIVE_PROFILE:---\ninclude:\n  - ../../files/forbidden-secret.md\n---\nlearned-sms-only" }],
+  // Poison habits with YAML frontmatter include; MUST NEVER expand.
+  assert.equal((await h.api("/api/habits/sms", "POST", {
+    text: "---\ninclude:\n  - ../../files/forbidden-secret.md\n---\nlearned-sms-only",
   })).status, 200);
-  assert.equal((await h.api("/api/information/archive/run", "POST", { background: false })).status, 200);
+  assert.equal((await h.api("/api/habits/news", "POST", {
+    text: "---\ninclude:\n  - ../../files/forbidden-secret.md\n---\nlearned-news-only",
+  })).status, 200);
 
   assert.equal((await h.api("/api/information/settings", "PUT", { enabled: true, batchWindowSeconds: 3600 })).status, 200);
   assert.equal((await h.api("/api/information/items", "POST", {
@@ -163,9 +165,9 @@ test("SMS and News expand workspace instructions includes while keeping HTTP GET
   assert.ok(smsSystem.includes("<!-- begin include: domains/sms/bank.md -->\nSMS-SUB-BANK-ALERTS\n<!-- end include: domains/sms/bank.md -->"));
   assert.ok(smsSystem.includes("SHARED-VIP-CONTACT"));
   assert.ok(smsSystem.includes("learned-sms-only"));
-  assert.ok(!smsSystem.includes("FORBIDDEN-SECRET-MUST-NOT-EXPAND"), "learnedNotes must never expand include directives");
+  assert.ok(!smsSystem.includes("FORBIDDEN-SECRET-MUST-NOT-EXPAND"), "habits must never expand include directives");
 
-  // Trigger News screening with poisoned learnedNotes as well.
+  // Trigger News screening with poisoned habits as well.
   const now = new Date().toISOString();
   const newsReqStart = h.model.requests.length;
   await h.service.newsRepository.update((state) => ({
@@ -173,7 +175,6 @@ test("SMS and News expand workspace instructions includes while keeping HTTP GET
       ...state,
       processing: {
         ...state.processing,
-        preferences: { learnedNotes: "---\ninclude:\n  - ../../files/forbidden-secret.md\n---\nlearned-news-only" },
         items: [{
           id: "news_inc_1",
           source: "newssource_1",
@@ -203,5 +204,5 @@ test("SMS and News expand workspace instructions includes while keeping HTTP GET
   assert.ok(newsSystem.includes("<!-- begin include: domains/news/topics.md -->\nNEWS-SUB-AI-SYSTEMS\n<!-- end include: domains/news/topics.md -->"));
   assert.ok(newsSystem.includes("SHARED-VIP-CONTACT"));
   assert.ok(newsSystem.includes("learned-news-only"));
-  assert.ok(!newsSystem.includes("FORBIDDEN-SECRET-MUST-NOT-EXPAND"), "News learnedNotes must never expand include directives");
+  assert.ok(!newsSystem.includes("FORBIDDEN-SECRET-MUST-NOT-EXPAND"), "News habits must never expand include directives");
 });

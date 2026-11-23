@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { isWorkspaceText } from "../../shared/workspace-text.js";
+import type { HabitsService } from "../habits/service.js";
+import type { HabitItem, HabitPromptContext, HabitSignalPayload } from "../habits/types.js";
 import { NewsError } from "./errors.js";
 import type {
   NewsArticleFeedback,
   NewsArticleItem,
   NewsArticleReaction,
-  NewsProcessingState,
   NewsRepository,
   NewsScreeningDecision,
   NewsScreeningRun,
@@ -15,7 +16,6 @@ import type {
 export const NEWS_BATCH_ITEMS = 12;
 export const NEWS_BATCH_CHARS = 60_000;
 export const NEWS_REASON_MAX_LENGTH = 1000;
-export const NEWS_LEARNED_NOTES_MAX_LENGTH = 2000;
 export const NEWS_PREFERENCES_INSTRUCTIONS_MAX_LENGTH = 20_000;
 
 const MAX_FEEDBACK_ITEMS = 20;
@@ -57,10 +57,9 @@ const sanitizeError = (error: unknown): string => {
 
 export type NewsScreeningResult = {
   decisions: NewsScreeningDecision[];
-  learnedNotes: string;
 };
 
-/** 校验并规范化新闻筛选模型的结构化工具输出。 */
+/** 校验并规范化新闻筛选模型的结构化工具输出（仅 decisions，偏好提炼由通用习惯引擎定期承担）。 */
 export const parseNewsScreeningResult = (
   raw: unknown,
   claimedIds: readonly string[],
@@ -68,7 +67,7 @@ export const parseNewsScreeningResult = (
   if (!isPlainRecord(raw)) {
     throw new NewsError("INVALID_INPUT", "Invalid news screening result");
   }
-  const allowedKeys = new Set(["decisions", "learnedNotes"]);
+  const allowedKeys = new Set(["decisions"]);
   for (const key of Object.keys(raw)) {
     if (!allowedKeys.has(key)) {
       throw new NewsError("INVALID_INPUT", `Unexpected field in news screening result: ${key}`);
@@ -103,11 +102,7 @@ export const parseNewsScreeningResult = (
   if (seenIds.size !== expectedIds.size) {
     throw new NewsError("INVALID_INPUT", "decisions must cover every claimed item exactly once");
   }
-  if (typeof raw.learnedNotes !== "string") {
-    throw new NewsError("INVALID_INPUT", "learnedNotes must be a string");
-  }
-  const learnedNotes = normalizeText(raw.learnedNotes, "learnedNotes", NEWS_LEARNED_NOTES_MAX_LENGTH);
-  return { decisions, learnedNotes };
+  return { decisions };
 };
 
 export type NewsArticleFeedbackExample = {
@@ -124,7 +119,7 @@ export type NewsArticleFeedbackExample = {
 export type NewsScreeningModelInput = {
   runId: string;
   instructions: string;
-  learnedNotes: string;
+  habits: HabitItem[];
   feedbackExamples: NewsArticleFeedbackExample[];
   items: Array<{
     id: string;
@@ -200,6 +195,8 @@ export type CreateNewsScreeningDeps = {
     readResolved?: () => Promise<string>;
     write: (content: string) => Promise<void>;
   };
+  habits?: Pick<HabitsService, "getPromptContext">;
+  onFeedbackChanged?: (payload: HabitSignalPayload) => Promise<void> | void;
   runModel: (input: NewsScreeningModelInput, signal: AbortSignal) => Promise<NewsScreeningModelOutcome>;
   observeWork?: (
     sessionId: string,
@@ -208,8 +205,60 @@ export type CreateNewsScreeningDeps = {
   ) => ((outcome: "succeeded" | "failed", silent?: boolean) => void) | undefined;
 };
 
-/** 独立的新闻筛选领域服务：承接 RSS 文章入库、受限推荐筛选、点赞收藏评论反馈与偏好画像维护。 */
+const emptyHabitContext = (): HabitPromptContext => ({
+  habits: [],
+  unconsolidatedSignals: [],
+  unconsolidatedCount: 0,
+});
+
+const toNewsHabitSignal = (item: NewsArticleItem, fb: NewsArticleFeedback): HabitSignalPayload => {
+  const excerpt = clipText(item.content, FEEDBACK_CONTENT_LENGTH);
+  const recentComments = fb.comments.slice(-MAX_FEEDBACK_COMMENTS);
+  return {
+    targetId: item.id,
+    kind: "news_article",
+    ...(item.title ? { summary: clipText(item.title, FEEDBACK_TEXT_LENGTH).text } : {}),
+    reaction: fb.reaction,
+    saved: fb.saved,
+    comments: recentComments.map((comment) => clipText(comment.text, FEEDBACK_TEXT_LENGTH).text),
+    commentsTruncated:
+      fb.comments.length > MAX_FEEDBACK_COMMENTS ||
+      recentComments.some((comment) => comment.text.length > FEEDBACK_TEXT_LENGTH),
+    items: [{
+      id: item.id,
+      source: item.source,
+      ...(item.title ? { title: clipText(item.title, FEEDBACK_TEXT_LENGTH).text } : {}),
+      content: excerpt.text,
+      contentTruncated: excerpt.truncated,
+    }],
+    ...(item.metadata?.sourceTitle ? { meta: { sourceTitle: item.metadata.sourceTitle } } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+const signalsToNewsExamples = (signals: readonly HabitSignalPayload[]): NewsArticleFeedbackExample[] =>
+  signals
+    .filter((sig) => sig.kind === "news_article")
+    .slice(0, MAX_FEEDBACK_ITEMS)
+    .map((sig) => {
+      const articleItem = sig.items?.[0];
+      return {
+        itemId: sig.targetId,
+        ...(articleItem?.title ?? sig.summary ? { title: articleItem?.title ?? sig.summary } : {}),
+        ...(sig.meta?.sourceTitle ? { sourceTitle: sig.meta.sourceTitle } : {}),
+        contentExcerpt: articleItem?.content ?? "",
+        reaction: sig.reaction,
+        saved: sig.saved,
+        comments: sig.comments.map((text) => ({ text, updatedAt: sig.updatedAt })),
+        ...(sig.commentsTruncated ? { commentsTruncated: true } : {}),
+      };
+    });
+
+/** 独立的新闻筛选领域服务：承接 RSS 文章入库、受限推荐筛选、点赞收藏评论反馈（经通用习惯引擎热缓冲+定期归纳）。 */
 export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
+  const habitsPort: Pick<HabitsService, "getPromptContext"> = deps.habits ?? {
+    getPromptContext: async () => emptyHabitContext(),
+  };
   let closed = false;
   let pauseDepth = 0;
   let activeController: AbortController | undefined;
@@ -266,36 +315,6 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
         comments: feedback?.comments ?? [],
       },
     };
-  };
-
-  const buildFeedbackExamples = (processing: NewsProcessingState): NewsArticleFeedbackExample[] => {
-    const itemById = new Map(processing.items.map((item) => [item.id, item]));
-    return processing.articleFeedback
-      .filter((fb) => fb.reaction !== null || fb.saved || fb.comments.length > 0)
-      .slice(-MAX_FEEDBACK_ITEMS)
-      .reverse()
-      .flatMap((fb) => {
-        const item = itemById.get(fb.itemId);
-        if (!item) return [];
-        const excerpt = clipText(item.content, FEEDBACK_CONTENT_LENGTH);
-        const recentComments = fb.comments.slice(-MAX_FEEDBACK_COMMENTS);
-        return [{
-          itemId: fb.itemId,
-          ...(item.title ? { title: item.title } : {}),
-          ...(item.metadata?.sourceTitle ? { sourceTitle: item.metadata.sourceTitle } : {}),
-          contentExcerpt: excerpt.text,
-          reaction: fb.reaction,
-          saved: fb.saved,
-          comments: recentComments.map((comment) => ({
-            text: clipText(comment.text, FEEDBACK_TEXT_LENGTH).text,
-            updatedAt: comment.updatedAt,
-          })),
-          ...(fb.comments.length > MAX_FEEDBACK_COMMENTS ||
-            recentComments.some((comment) => comment.text.length > FEEDBACK_TEXT_LENGTH)
-            ? { commentsTruncated: true }
-            : {}),
-        }];
-      });
   };
 
   const getCounts = async () => {
@@ -439,12 +458,21 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
   ): Promise<NewsArticleFeedback> => {
     ensureOpen();
     const articleId = validId(rawArticleId, "articleId");
-    return deps.repository.update((state) => {
-      if (!state.processing.items.some((item) => item.id === articleId)) {
+    const outcome = await deps.repository.update((state) => {
+      const item = state.processing.items.find((entry) => entry.id === articleId);
+      if (!item) {
         throw new NewsError("NOT_FOUND", `Unknown news article: ${articleId}`);
       }
       const existing = state.processing.articleFeedback.find((fb) => fb.itemId === articleId);
       const nextFeedback = change(structuredClone(existing ?? emptyFeedbackFor(articleId)));
+      const changed = existing
+        ? existing.reaction !== nextFeedback.reaction ||
+          existing.saved !== nextFeedback.saved ||
+          JSON.stringify(existing.comments) !== JSON.stringify(nextFeedback.comments)
+        : nextFeedback.reaction !== null || nextFeedback.saved || nextFeedback.comments.length > 0;
+      if (!changed) {
+        return { result: { item, nextFeedback, changed: false } };
+      }
       const remaining = state.processing.articleFeedback.filter((fb) => fb.itemId !== articleId);
       const keep =
         nextFeedback.reaction !== null ||
@@ -456,9 +484,13 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
           ...state,
           processing: { ...state.processing, articleFeedback },
         },
-        result: nextFeedback,
+        result: { item, nextFeedback, changed: true },
       };
     });
+    if (outcome.changed && deps.onFeedbackChanged) {
+      await deps.onFeedbackChanged(toNewsHabitSignal(outcome.item, outcome.nextFeedback));
+    }
+    return outcome.nextFeedback;
   };
 
   const setArticleReaction = (articleId: string, reaction: NewsArticleReaction) =>
@@ -491,10 +523,14 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
   };
 
   const getPreferences = async () => {
-    const [instructions, state] = await Promise.all([deps.instructions.read(), deps.repository.read()]);
+    const [instructions, habitCtx] = await Promise.all([
+      deps.instructions.read(),
+      habitsPort.getPromptContext("news"),
+    ]);
     return {
       instructions,
-      learnedNotes: state.processing.preferences.learnedNotes,
+      habits: habitCtx.habits,
+      unconsolidatedFeedbackCount: habitCtx.unconsolidatedCount,
     };
   };
 
@@ -511,10 +547,11 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
     }
     const instructions = input.instructions;
     await deps.instructions.write(instructions);
-    const state = await deps.repository.read();
+    const habitCtx = await habitsPort.getPromptContext("news");
     return {
       instructions,
-      learnedNotes: state.processing.preferences.learnedNotes,
+      habits: habitCtx.habits,
+      unconsolidatedFeedbackCount: habitCtx.unconsolidatedCount,
     };
   };
 
@@ -570,8 +607,6 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
   const executeBatch = async (): Promise<void> => {
     const claimed = await deps.repository.update<{
       runId: string;
-      learnedNotes: string;
-      feedbackExamples: NewsArticleFeedbackExample[];
       items: NewsArticleItem[];
     } | null>((state) => {
       if (!state.processing.settings.enabled) return { result: null };
@@ -608,8 +643,6 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
         },
         result: {
           runId,
-          learnedNotes: state.processing.preferences.learnedNotes,
-          feedbackExamples: buildFeedbackExamples(state.processing),
           items: selected,
         },
       };
@@ -622,12 +655,15 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
     activeController = controller;
     let modelOutcome: NewsScreeningModelOutcome;
     try {
-      const instructions = await (deps.instructions.readResolved ?? deps.instructions.read)();
+      const [instructions, habitCtx] = await Promise.all([
+        (deps.instructions.readResolved ?? deps.instructions.read)(),
+        habitsPort.getPromptContext("news"),
+      ]);
       modelOutcome = await deps.runModel({
         runId: claimed.runId,
         instructions,
-        learnedNotes: claimed.learnedNotes,
-        feedbackExamples: claimed.feedbackExamples,
+        habits: habitCtx.habits,
+        feedbackExamples: signalsToNewsExamples(habitCtx.unconsolidatedSignals),
         items: claimed.items.map((item) => ({
           id: item.id,
           source: item.source,
@@ -662,10 +698,6 @@ export const createNewsScreeningService = (deps: CreateNewsScreeningDeps) => {
             ...state,
             processing: {
               ...state.processing,
-              preferences: {
-                ...state.processing.preferences,
-                learnedNotes: parsed!.learnedNotes,
-              },
               items: state.processing.items.map((item) =>
                 claimedIdSet.has(item.id) ? { ...item, status: "processed" as const } : item),
               runs: state.processing.runs.map((run) =>
@@ -803,17 +835,19 @@ export const createNewsScreeningScheduler = (
       timer = setInterval(() => {
         if (closed || scanning) return;
         scanning = true;
-        scan = tick().catch(() => undefined).finally(() => {
-          scanning = false;
-        });
+        scan = tick()
+          .catch(() => undefined)
+          .finally(() => {
+            scanning = false;
+          });
       }, 500);
       timer.unref();
     },
-    close: () => {
+    close: async () => {
       if (closing) return closing;
       closed = true;
       if (timer) clearInterval(timer);
-      closing = scan;
+      closing = scan.catch(() => undefined);
       return closing;
     },
   };

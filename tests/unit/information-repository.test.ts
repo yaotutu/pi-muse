@@ -36,18 +36,18 @@ test("updates serialize concurrent callbacks on the repository", async (t) => {
   const holding = deferred();
   const writing = repository.update(async (state) => {
     await holding.promise;
-    return { state: { ...state, preferences: { learnedNotes: "serialized" } }, result: undefined };
+    return { state: { ...state, settings: { ...state.settings, batchWindowSeconds: 42 } }, result: undefined };
   });
   const next = repository.update((state) => ({
     state: { ...state, settings: { ...state.settings, enabled: true } },
-    result: state.preferences.learnedNotes,
+    result: state.settings.batchWindowSeconds,
   }));
   holding.finish();
   await writing;
-  assert.equal(await next, "serialized");
+  assert.equal(await next, 42);
   const persisted = await repository.read();
   assert.equal(persisted.settings.enabled, true);
-  assert.equal(persisted.preferences.learnedNotes, "serialized");
+  assert.equal(persisted.settings.batchWindowSeconds, 42);
 });
 
 test("startup reconcile closes interrupted models and completed pending publications", async (t) => {
@@ -85,7 +85,7 @@ test("startup reconcile closes interrupted models and completed pending publicat
   assert.equal(reconciled.runs[1]?.publications[0]?.error, "Interrupted by service restart");
 });
 
-test("v2 state schema rejects legacy fields and preserves exact Clean Break defaults", async (t) => {
+test("v3 state schema rejects legacy fields and preserves exact Clean Break defaults", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-information-repository-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const { managed, repository } = await openSmsRepository(dataDir);
@@ -93,8 +93,8 @@ test("v2 state schema rejects legacy fields and preserves exact Clean Break defa
   const at = new Date().toISOString();
 
   assert.throws(() => parseInformationState({
-    schemaVersion: 1,
-    settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
+    schemaVersion: 2,
+    settings: { enabled: true, batchWindowSeconds: 0 },
     preferences: { learnedNotes: "" },
     items: [],
     runs: [],
@@ -102,9 +102,8 @@ test("v2 state schema rejects legacy fields and preserves exact Clean Break defa
 
   await repository.update(() => ({
     state: parseInformationState({
-      schemaVersion: 2,
+      schemaVersion: 3,
       settings: { enabled: true, batchWindowSeconds: 0 },
-      preferences: { learnedNotes: "关注取件码" },
       items: [{
         id: "item-1", queue: "realtime", source: "sms", externalId: "1",
         content: "original", receivedAt: at, acceptedAt: at, status: "pending",
@@ -114,8 +113,7 @@ test("v2 state schema rejects legacy fields and preserves exact Clean Break defa
     result: undefined,
   }));
   const state = await repository.read();
-  assert.equal(state.schemaVersion, 2);
-  assert.equal(state.preferences.learnedNotes, "关注取件码");
+  assert.equal(state.schemaVersion, 3);
   assert.equal(state.items[0]?.queue, "realtime");
 });
 

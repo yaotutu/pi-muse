@@ -48,14 +48,14 @@ Long text in Settings starts with a preview. News preferences (`domains/news/INS
 
 If saving instructions or skills has an unknown outcome, read back the server settings before deciding whether to submit the retained draft.
 
-Skill selections are bound to their source identity. See [Skill directories and default switches](configuration.md#skill-directories) for more. Background domains such as News and SMS retain their own domain instructions (`INSTRUCTIONS.md`) and learned profiles.
+Skill selections are bound to their source identity. See [Skill directories and default switches](configuration.md#skill-directories) for more. Background domains such as News and SMS retain their own domain instructions (`INSTRUCTIONS.md`) and shared consolidated habits (`habits` plus an unconsolidated hot buffer).
 
 ## News and SMS {#background-services}
 
 News and SMS run as independent domain agents without chat skills, chat history access, or global memory access. Edit their `INSTRUCTIONS.md` files in Settings or Workspace Files, or ask the assistant in chat to propose an update via `domain_agent` for approval.
 
 - News collection and reading are described in [News](news.md). Discussing an article directly appends an explicitly untrusted reference to the existing draft of the active chat. It remains editable, is not sent automatically, and does not open a session picker. You can return to the original article.
-- SMS is a global pipeline, disabled initially, using a **Default-Silent baseline and four-tier precedence** (explicit `INSTRUCTIONS.md` > main-chat notification feedback > learned `learnedNotes` > Default-Silent baseline; see [Instructions and prompts](instructions.md#sms-and-news-domains)). After daily realtime analysis, only `notify` results are appended as system notifications to `main` history without starting an extra main-chat model response, while silent or failed batches stay quiet; historical bulk imports use a separate archive queue that evolves `learnedNotes` across batches and posts at most one `<= 1,200`-character Chinese briefing once drained. Domain notification cards remain excluded from main chat model context unless you explicitly quote them into the conversation.
+- SMS is a global pipeline, disabled initially, using a **Default-Silent baseline and four-tier precedence** (explicit `INSTRUCTIONS.md` > unconsolidated notification feedback in the hot buffer > consolidated long-term `habits` > Default-Silent baseline; see [Instructions and prompts](instructions.md#sms-and-news-domains)). After daily realtime analysis, only `notify` results are appended as system notifications to `main` history without starting an extra main-chat model response, while silent or failed batches stay quiet; historical bulk imports use a separate archive queue that incrementally submits habit updates across batches and posts at most one `<= 1,200`-character Chinese briefing once drained. Domain notification cards remain excluded from main chat model context unless you explicitly quote them into the conversation.
 
 SMS collection requires the Android native module, system permission, enablement and a running application process. Collection after process termination and OS push are not promised. Check item/run records before retrying an import or execution with an unknown result.
 

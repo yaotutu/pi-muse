@@ -3,7 +3,7 @@ import { z } from "zod";
 /** 一期记录的纯 JSON 校验，无 Node 依赖，供读取器与 HTTP 契约共享。 */
 export const modelTraceKindSchema = z.enum([
   "chat", "information:notifications", "information:recommendations",
-   "dream", "subagent", "unlabeled",
+   "dream", "habits", "subagent", "unlabeled",
 ]);
 export const modelTraceRecordSchema = z.object({
   meta: z.object({

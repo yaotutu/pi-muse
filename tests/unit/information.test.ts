@@ -5,6 +5,7 @@ import {
   createSubmitInformationBriefingTool,
   createSubmitInformationResultTool,
 } from "../../src/adapters/pi/information-runner.js";
+import type { HabitItem, HabitOperation } from "../../src/features/habits/types.js";
 import { createInformationService } from "../../src/features/information/service.js";
 import {
   defaultInformationState,
@@ -25,8 +26,6 @@ const deferred = <T = void>() => {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 };
-
-const emptyFeedback = () => ({ schemaVersion: 1 as const, events: [] });
 
 const memoryRepo = (initial: InformationState = defaultInformationState()) => {
   let state = structuredClone(initial);
@@ -51,7 +50,6 @@ const memoryRepo = (initial: InformationState = defaultInformationState()) => {
 
 const fixture = (options?: {
   notify?: (text: string, id: string) => Promise<InformationPublicationReceipt>;
-  feedbackRead?: () => Promise<{ schemaVersion: 1; events: never[] }>;
   initial?: InformationState;
 }) => {
   const { repository, readState } = memoryRepo(options?.initial);
@@ -69,7 +67,6 @@ const fixture = (options?: {
       },
       release: () => undefined,
     }),
-    feedback: { read: options?.feedbackRead ?? (async () => emptyFeedback()) } as never,
     runModel: async () => { throw new Error("unexpected model call"); },
   });
   return { repository, service, notifications, readState };
@@ -105,41 +102,45 @@ test("information result validator enforces exact coverage, bounds and archive b
     notifications: [{ itemIds: ["a"], text: "ok" }],
   }, ["a", "a"], { allowNotifications: true }));
 
-  // Archive batch forbids notifications field and requires learnedNotes
+  // Archive batch forbids notifications field and optionally accepts habitOperations
   const archive = parseInformationResult({
     decisions: [
       { itemId: "a", decision: "notify", reason: "pending parcel" },
       { itemId: "b", decision: "silent", reason: "promo" },
     ],
-    learnedNotes: "关注快递，忽略促销",
-  }, ["a", "b"], { allowNotifications: false, requireLearnedNotes: true });
+    habitOperations: [{ op: "add", text: "关注快递，忽略促销" }],
+  }, ["a", "b"], { allowNotifications: false, allowHabitOperations: true });
   assert.deepEqual(archive.notifications, []);
-  assert.equal(archive.learnedNotes, "关注快递，忽略促销");
+  assert.deepEqual(archive.habitOperations, [{ op: "add", text: "关注快递，忽略促销" }]);
 
   assert.throws(() => parseInformationResult({
     decisions: [{ itemId: "a", decision: "notify", reason: "x" }],
     notifications: [{ itemIds: ["a"], text: "chat" }],
-    learnedNotes: "",
-  }, ["a"], { allowNotifications: false, requireLearnedNotes: true }));
+  }, ["a"], { allowNotifications: false, allowHabitOperations: true }));
   assert.throws(() => parseInformationResult({
     decisions: [{ itemId: "a", decision: "notify", reason: "x" }],
     notifications: [],
     learnedNotes: "",
-  }, ["a"], { allowNotifications: false, requireLearnedNotes: true }));
+  }, ["a"], { allowNotifications: false, allowHabitOperations: true }));
   const revalidatedArchive = parseInformationResult(archive, ["a", "b"], {
     allowNotifications: false,
     allowEmptyNotifications: true,
-    requireLearnedNotes: true,
+    allowHabitOperations: true,
   });
   assert.deepEqual(revalidatedArchive, archive);
   assert.throws(() => parseInformationResult({
     decisions: [{ itemId: "a", decision: "notify", reason: "x" }],
     notifications: [{ itemIds: ["a"], text: "chat" }],
-    learnedNotes: "",
-  }, ["a"], { allowNotifications: false, allowEmptyNotifications: true, requireLearnedNotes: true }));
-  assert.throws(() => parseInformationResult({
+  }, ["a"], { allowNotifications: false, allowEmptyNotifications: true, allowHabitOperations: true }));
+
+  // Archive allows omitting habitOperations when no new rules were found
+  const emptyOps = parseInformationResult({
     decisions: [{ itemId: "a", decision: "silent", reason: "x" }],
-  }, ["a"], { allowNotifications: false, requireLearnedNotes: true }));
+  }, ["a"], { allowNotifications: false, allowHabitOperations: true });
+  assert.deepEqual(emptyOps, {
+    decisions: [{ itemId: "a", decision: "silent", reason: "x" }],
+    notifications: [],
+  });
 });
 
 test("manual and automatic realtime runs contend on one synchronously reserved global slot", async () => {
@@ -156,7 +157,6 @@ test("manual and automatic realtime runs contend on one synchronously reserved g
       },
       release: () => undefined,
     }),
-    feedback: { read: async () => emptyFeedback() } as never,
     runModel: async (value) => {
       capturedIds = value.items.map((item) => item.id);
       const result = await model.promise;
@@ -188,13 +188,16 @@ test("processing setup failures mark the run failed and release the global slot"
   const service = createInformationService({
     instructions: memoryInformationRules(),
     repository: base.repository,
-    retainMain: async () => { throw new Error("retain I/O failed"); },
-    feedback: { read: async () => emptyFeedback() } as never,
+    retainMain: async () => undefined,
+    habits: {
+      getPromptContext: async () => { throw new Error("habits I/O failed"); },
+      applyOperations: async () => [],
+    },
     runModel: async () => { modelCalled = true; return { ok: false, error: "MODEL_REQUEST_FAILED" }; },
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
   await service.ingest([{ source: "sms", externalId: "1", content: "one" }]);
-  await assert.rejects(service.runNow(), /retain I\/O failed/);
+  await assert.rejects(service.runNow(), /habits I\/O failed/);
   const state = base.readState();
   assert.equal(state.runs[0]?.status, "failed");
   assert.equal(state.items[0]?.status, "failed");
@@ -202,37 +205,35 @@ test("processing setup failures mark the run failed and release the global slot"
   assert.equal(await service.runDue(), false, "global slot must be released");
 });
 
-test("cancellation while retain is pending releases main and reverts items to pending", async () => {
+test("cancellation while prompt context is loading reverts items to pending", async () => {
   const base = fixture();
-  const retainGate = deferred<void>();
-  let retainStarted = false;
-  let retainReleased = false;
+  const contextGate = deferred<void>();
+  let contextStarted = false;
   const service = createInformationService({
     instructions: memoryInformationRules(),
     repository: base.repository,
-    retainMain: async () => {
-      retainStarted = true;
-      await retainGate.promise;
-      return {
-        conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }) },
-        release: () => { retainReleased = true; },
-      };
+    retainMain: async () => undefined,
+    habits: {
+      getPromptContext: async () => {
+        contextStarted = true;
+        await contextGate.promise;
+        return { habits: [], unconsolidatedSignals: [], unconsolidatedCount: 0 };
+      },
+      applyOperations: async () => [],
     },
-    feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
   await service.saveSettings({ enabled: true, batchWindowSeconds: 0 });
   await service.ingest([{ source: "sms", externalId: "1", content: "one" }]);
   const running = service.runNow();
-  while (!retainStarted) await new Promise((resolve) => setImmediate(resolve));
+  while (!contextStarted) await new Promise((resolve) => setImmediate(resolve));
   const pause = service.pause();
-  retainGate.resolve();
+  contextGate.resolve();
   const detail = await running;
   await pause.stopped;
   assert.equal(detail.run.status, "cancelled");
   assert.equal(base.readState().items[0]?.status, "pending");
   assert.equal(base.readState().items[0]?.runId, undefined);
-  assert.equal(retainReleased, true);
   pause.resume();
 });
 
@@ -247,7 +248,6 @@ test("cancellation after a successful model result preserves model success and m
       conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }) },
       release: () => undefined,
     }),
-    feedback: { read: async () => emptyFeedback() } as never,
     runModel: async (input) => {
       itemId = input.items[0]?.id;
       await modelGate.promise;
@@ -282,7 +282,6 @@ test("pause barrier is nested and aborts active model rounds cleanly", async () 
       conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }) },
       release: () => undefined,
     }),
-    feedback: { read: async () => emptyFeedback() } as never,
     runModel: async (_input, signal) => {
       started = true;
       signal.addEventListener("abort", () => gate.resolve(), { once: true });
@@ -332,7 +331,6 @@ test("pagination binds cursor to queue and status filters and omits nextCursor o
     instructions: memoryInformationRules(),
     repository,
     retainMain: async () => undefined,
-    feedback: { read: async () => emptyFeedback() } as never,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
 
@@ -351,7 +349,7 @@ test("pagination binds cursor to queue and status filters and omits nextCursor o
   );
 });
 
-test("feedback examples expose current projections and storage failures loudly", async () => {
+test("buildHabitSignal clips items/comments cleanly and preferences expose hot buffer and storage failures loudly", async () => {
   const at = new Date().toISOString();
   const initial: InformationState = {
     ...defaultInformationState(),
@@ -372,73 +370,64 @@ test("feedback examples expose current projections and storage failures loudly",
   const service = createInformationService({
     instructions: memoryInformationRules(),
     repository,
-    retainMain: async () => ({
-      conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }) },
-      release: () => undefined,
-    }),
-    feedback: {
-      read: async () => ({
-        schemaVersion: 1,
-        events: [
-          { id: "e1", type: "comment_added", messageId: "notification-1", role: "assistant", commentId: "c1", text: "old", at },
-          { id: "e2", type: "comment_edited", messageId: "notification-1", role: "assistant", commentId: "c1", fromText: "old", toText: "latest", at },
-          { id: "e3", type: "reaction_changed", messageId: "notification-1", role: "assistant", from: null, to: "like", at },
-          { id: "e4", type: "saved_changed", messageId: "notification-1", role: "assistant", from: false, to: true, at },
-        ],
-      }),
-    } as never,
+    retainMain: async () => undefined,
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
-  const preferences = await service.getPreferences();
+
+  const built = await service.buildHabitSignal("notification-1", {
+    reaction: "like",
+    saved: true,
+    comments: [{ id: "c1", text: "latest", createdAt: at, updatedAt: at }],
+  });
+  assert.ok(built);
+  assert.equal(built.reaction, "like");
+  assert.equal(built.saved, true);
+  assert.deepEqual(built.comments, ["latest"]);
+  assert.equal(built.items?.[0]?.content.length, 2000);
+  assert.equal(built.items?.[0]?.contentTruncated, true);
+
+  const bufferedService = createInformationService({
+    instructions: memoryInformationRules(),
+    repository,
+    retainMain: async () => undefined,
+    habits: {
+      getPromptContext: async () => ({
+        habits: [],
+        unconsolidatedSignals: [built],
+        unconsolidatedCount: 1,
+      }),
+      applyOperations: async () => [],
+    },
+    runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
+  });
+  const preferences = await bufferedService.getPreferences();
+  assert.equal(preferences.unconsolidatedFeedbackCount, 1);
   assert.equal(preferences.feedbackExamples.length, 1);
   assert.equal(preferences.feedbackExamples[0]?.reaction, "like");
   assert.equal(preferences.feedbackExamples[0]?.saved, true);
   assert.deepEqual(preferences.feedbackExamples[0]?.comments, ["latest"]);
-  assert.equal(preferences.feedbackExamples[0]?.items[0]?.content.length, 2000);
   assert.equal(preferences.feedbackExamples[0]?.items[0]?.contentTruncated, true);
-
-  const savedOnlyService = createInformationService({
-    instructions: memoryInformationRules(),
-    repository,
-    retainMain: async () => ({
-      conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }) },
-      release: () => undefined,
-    }),
-    feedback: {
-      read: async () => ({
-        schemaVersion: 1,
-        events: [
-          { id: "e5", type: "saved_changed", messageId: "notification-1", role: "assistant", from: false, to: true, at },
-        ],
-      }),
-    } as never,
-    runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
-  });
-  const savedOnlyPreferences = await savedOnlyService.getPreferences();
-  assert.equal(savedOnlyPreferences.feedbackExamples.length, 1);
-  assert.equal(savedOnlyPreferences.feedbackExamples[0]?.reaction, null);
-  assert.equal(savedOnlyPreferences.feedbackExamples[0]?.saved, true);
-  assert.deepEqual(savedOnlyPreferences.feedbackExamples[0]?.comments, []);
 
   const failingService = createInformationService({
     instructions: memoryInformationRules(),
     repository,
-    retainMain: async () => ({
-      conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }) },
-      release: () => undefined,
-    }),
-    feedback: { read: async () => { throw new Error("corrupt feedback"); } } as never,
+    retainMain: async () => undefined,
+    habits: {
+      getPromptContext: async () => { throw new Error("corrupt habits"); },
+      applyOperations: async () => [],
+    },
     runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
   });
-  await assert.rejects(failingService.getPreferences(), /corrupt feedback/);
+  await assert.rejects(failingService.getPreferences(), /corrupt habits/);
 });
 
-test("realtime runs persist and evolve learnedNotes while archive channel stays isolated until explicit runArchive", async () => {
-  const { repository, readState } = memoryRepo({
+test("archive channel incrementally updates habits across batches and isolates realtime until runArchive", async () => {
+  const { repository } = memoryRepo({
     ...defaultInformationState(),
     settings: { enabled: true, batchWindowSeconds: 0 },
   });
-  const captured: Array<{ kind: string; count: number; learnedNotes: string }> = [];
+  const storedHabits: HabitItem[] = [];
+  const captured: Array<{ kind: string; count: number; habitCount: number }> = [];
   const briefingInputs: InformationBriefingInput[] = [];
   const sentNotifications: Array<{ text: string; id: string }> = [];
 
@@ -455,9 +444,31 @@ test("realtime runs persist and evolve learnedNotes while archive channel stays 
       },
       release: () => undefined,
     }),
-    feedback: { read: async () => emptyFeedback() } as never,
+    habits: {
+      getPromptContext: async () => ({
+        habits: [...storedHabits],
+        unconsolidatedSignals: [],
+        unconsolidatedCount: 0,
+      }),
+      applyOperations: async (domain, ops: readonly HabitOperation[], source = "consolidated") => {
+        for (const op of ops) {
+          if (op.op === "add") {
+            const now = new Date().toISOString();
+            storedHabits.push({
+              id: `hab_${storedHabits.length + 1}`,
+              domain,
+              text: op.text,
+              source,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+        }
+        return [...storedHabits];
+      },
+    },
     runModel: async (input) => {
-      captured.push({ kind: input.kind, count: input.items.length, learnedNotes: input.learnedNotes });
+      captured.push({ kind: input.kind, count: input.items.length, habitCount: input.habits.length });
       const notifyIds = input.items.filter((item) => item.content.includes("ACTIONABLE")).map((item) => item.id);
       return {
         ok: true,
@@ -470,7 +481,9 @@ test("realtime runs persist and evolve learnedNotes while archive channel stays 
           notifications: input.kind === "realtime" && notifyIds.length
             ? [{ itemIds: notifyIds, text: `实时通知(${notifyIds.length})` }]
             : [],
-          learnedNotes: `画像-${captured.length}`,
+          ...(input.kind === "archive"
+            ? { habitOperations: [{ op: "add" as const, text: `归纳规则-${captured.length}` }] }
+            : {}),
         },
       };
     },
@@ -495,7 +508,7 @@ test("realtime runs persist and evolve learnedNotes while archive channel stays 
   assert.equal(await service.nextDue(), false, "archive items must never wake realtime scheduler");
   assert.equal(await service.runDue(), false);
 
-  // 2. 显式触发 runArchive：3 个 archive 批逐步演化 learnedNotes，最终发 1 条 <= 1200 字简报
+  // 2. 显式触发 runArchive：3 个 archive 批逐步增量累加习惯，最终发 1 条 <= 1200 字简报
   const summary = await service.runArchive();
   assert.deepEqual(summary, {
     status: "completed",
@@ -506,25 +519,25 @@ test("realtime runs persist and evolve learnedNotes while archive channel stays 
     briefingPublished: true,
   });
   assert.deepEqual(captured, [
-    { kind: "archive", count: 25, learnedNotes: "" },
-    { kind: "archive", count: 25, learnedNotes: "画像-1" },
-    { kind: "archive", count: 10, learnedNotes: "画像-2" },
+    { kind: "archive", count: 25, habitCount: 0 },
+    { kind: "archive", count: 25, habitCount: 1 },
+    { kind: "archive", count: 10, habitCount: 2 },
   ]);
-  assert.equal(readState().preferences.learnedNotes, "画像-3");
+  assert.equal(storedHabits.length, 3);
   assert.equal(briefingInputs.length, 1);
   assert.equal(briefingInputs[0]?.totalScanned, 60);
   assert.equal(briefingInputs[0]?.candidates.length, 3);
   assert.equal(sentNotifications.length, 1);
   assert.ok(sentNotifications[0]!.text.length <= ARCHIVE_BRIEFING_MAX_LENGTH);
 
-  // 3. 随后的日常实时短信继承归档沉淀的 learnedNotes，走单周期直接推送
+  // 3. 随后的日常实时短信继承归档沉淀的习惯，走单周期直接推送
   await service.ingest([{ source: "sms", externalId: "rt-1", content: "ACTIONABLE 新取件码 9527" }]);
   assert.equal(await service.nextDue(), true);
   assert.equal(await service.runDue(), true);
   assert.equal(captured[3]?.kind, "realtime");
-  assert.equal(captured[3]?.learnedNotes, "画像-3");
+  assert.equal(captured[3]?.habitCount, 3);
   assert.equal(sentNotifications.length, 2);
-  assert.equal((await service.getPreferences()).learnedNotes, "画像-4");
+  assert.equal((await service.getPreferences()).habits.length, 3);
 });
 
 test("archive failure stops briefing until retryFailed drains remaining items cleanly", async () => {
@@ -546,7 +559,6 @@ test("archive failure stops briefing until retryFailed drains remaining items cl
       },
       release: () => undefined,
     }),
-    feedback: { read: async () => emptyFeedback() } as never,
     runModel: async (input) => {
       round++;
       if (failBatch2 && round === 2) return { ok: false, error: "INVALID_MODEL_RESULT" };
@@ -560,7 +572,7 @@ test("archive failure stops briefing until retryFailed drains remaining items cl
             reason: "ok",
           })),
           notifications: [],
-          learnedNotes: `累计画像-${round}`,
+          habitOperations: [{ op: "add", text: `累计习惯-${round}` }],
         },
       };
     },
@@ -620,12 +632,12 @@ test("parseInformationBriefingResult and archive tool schemas enforce strict bou
   const archiveTool = createSubmitInformationResultTool(
     ["item-1"],
     (value) => { submissions.push(value); },
-    { allowNotifications: false, requireLearnedNotes: true },
+    { allowNotifications: false, allowHabitOperations: true },
   );
-  assert.deepEqual(Object.keys(archiveTool.parameters.properties).sort(), ["decisions", "learnedNotes"]);
+  assert.deepEqual(Object.keys(archiveTool.parameters.properties).sort(), ["decisions", "habitOperations"]);
   const okArchive = await archiveTool.execute("arch", {
     decisions: [{ itemId: "item-1", decision: "silent", reason: "营销" }],
-    learnedNotes: "画像",
+    habitOperations: [{ op: "add", text: "忽略促销短信" }],
   } as never, undefined, undefined, {} as never);
   assert.equal(okArchive.isError, undefined);
   const badArchive = await archiveTool.execute("arch-bad", {

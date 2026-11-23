@@ -52,9 +52,6 @@ const newsProcessingSchema = z.strictObject({
     enabled: z.boolean(),
     batchWindowSeconds: z.number().int().min(0).max(3600),
   }),
-  preferences: z.strictObject({
-    learnedNotes: z.string().max(20_000),
-  }),
   articleFeedback: z.array(
     z.strictObject({
       itemId: z.string().min(1).max(128),
@@ -259,7 +256,7 @@ const insertDefaultStateRow = (database: DatabaseSync): void => {
     state.processing.settings.enabled ? 1 : 0,
     state.processing.settings.batchWindowSeconds,
     "recommendations",
-    state.processing.preferences.learnedNotes,
+    "",
     0,
     state.lastRefreshedAt,
     state.lastError,
@@ -442,9 +439,6 @@ export const readNewsState = (managed: ManagedSqliteDatabase): NewsState => {
       enabled: stateRow.settings_enabled === 1,
       batchWindowSeconds: stateRow.settings_batch_window_seconds,
     },
-    preferences: {
-      learnedNotes: stateRow.preferences_learned_notes,
-    },
     items,
     runs,
     articleFeedback,
@@ -494,7 +488,7 @@ const projectStateRow = (state: NewsState) => ({
   settings_enabled: state.processing.settings.enabled ? 1 : 0,
   settings_batch_window_seconds: state.processing.settings.batchWindowSeconds,
   settings_mode: "recommendations",
-  preferences_learned_notes: state.processing.preferences.learnedNotes,
+  preferences_learned_notes: "",
   initial_analysis_completed: 0,
   last_refreshed_at: state.lastRefreshedAt,
   last_error: state.lastError,

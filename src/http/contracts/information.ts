@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isWorkspaceText } from "../../shared/workspace-text.js";
+import { habitItemSchema } from "./habits.js";
 
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
@@ -40,8 +41,9 @@ export const informationPreferencesRequestSchema = z.strictObject({
 
 export const informationPreferencesResponse = z.strictObject({
   instructions: z.string().describe("用户主动编写的领域指令文本"),
-  learnedNotes: z.string().describe("服务端随实时处理、历史归档与消息反馈持续沉淀的自学习敏感度画像"),
-  feedbackExamples: z.array(informationFeedbackExampleResponse).describe("main 当前 pi 历史仍可投影的最新消息反馈例证"),
+  habits: z.array(habitItemSchema).describe("通用习惯引擎沉淀的行为习惯条文（自动定期从反馈归纳，也可手动增删改）"),
+  unconsolidatedFeedbackCount: z.number().int().nonnegative().describe("去重后尚未归纳成长期习惯的近期反馈条数"),
+  feedbackExamples: z.array(informationFeedbackExampleResponse).describe("尚未消化进入长期习惯的近期消息反馈热缓冲样本（归纳后自动清空）"),
 });
 
 export const informationInputItemSchema = z.strictObject({

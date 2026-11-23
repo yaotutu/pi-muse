@@ -15,6 +15,7 @@ import { sessionRequestSchema } from "./contracts/rest.js";
 import { buildOpenApiDocument } from "./openapi.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { createMessageRoutes } from "./routes/messages.js";
+import { createHabitsRoutes } from "./routes/habits.js";
 import { createInformationRoutes } from "./routes/information.js";
 import { createNewsRoutes } from "./routes/news.js";
 import { createWorkspaceEventRoutes } from "./routes/events.js";
@@ -124,6 +125,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/", createWorkspaceEventRoutes(dependencies.workspaceEvents));
   app.route("/", createBrowserRoutes(dependencies.browser, dependencies.browserDesktop));
   app.route("/api/sessions", createMessageRoutes(dependencies));
+  app.route("/api/habits", createHabitsRoutes(dependencies));
   app.route("/api/information", createInformationRoutes(dependencies));
   app.route("/api/sessions", createSessionRoutes(dependencies));
   app.route("/api/assistant", createAssistantRoutes(dependencies));

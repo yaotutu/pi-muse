@@ -30,7 +30,6 @@ const article = (id: string, overrides: Partial<NewsArticleItem> = {}): NewsArti
 const legacyDocument = () => ({
   processing: {
     settings: { enabled: true, batchWindowSeconds: 0 },
-    preferences: { learnedNotes: "values releases" },
     items: [
       article("info_kept_1", { runId: "inforun_1" }),
       article("info_gone_1", {

@@ -29,6 +29,7 @@ test("centralized prompts directory loads all system prompts and README index", 
   assert.ok(files.includes("sms/archive.md"));
   assert.ok(files.includes("sms/briefing.md"));
   assert.ok(files.includes("news/screening.md"));
+  assert.ok(files.includes("habits/consolidate.md"));
   assert.ok(files.includes("dream/consolidate.md"));
   assert.ok(files.includes("dream/hard-rules.md"));
 
@@ -44,10 +45,15 @@ test("sms realtime prompt enforces Default-Silent baseline, 4-tier priority, and
   assert.match(smsRealtime, /Default-Silent/i);
   assert.match(smsRealtime, /choose `silent`/i);
   assert.match(smsRealtime, /Explicit User Instructions/i);
-  assert.match(smsRealtime, /Recent Message Feedback/i);
-  assert.match(smsRealtime, /Learned Sensitivity Profile/i);
+  assert.match(smsRealtime, /Recent Unconsolidated Feedback/i);
+  assert.match(smsRealtime, /Consolidated User Habits/i);
   assert.match(smsRealtime, /Simplified Chinese/i);
   assert.match(smsRealtime, /UNTRUSTED INPUT DATA/);
+
+  const habitsConsolidate = loadPrompt("habits/consolidate.md");
+  assert.match(habitsConsolidate, /submit_habit_updates/);
+  assert.match(habitsConsolidate, /UNTRUSTED/i);
+  assert.match(habitsConsolidate, /Simplified Chinese/i);
 });
 
 test("prompt loader substitutes placeholders safely and rejects path escape", () => {

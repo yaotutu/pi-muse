@@ -20,6 +20,8 @@ import type { WorkspaceCommitQueue } from "../adapters/workspace/file-commit-que
 import type { ActivityService } from "../features/activities/service.js";
 import type { DreamService } from "../features/dream/service.js";
 import type { DreamScheduler } from "../features/dream/scheduler.js";
+import type { HabitsService } from "../features/habits/service.js";
+import type { HabitsScheduler } from "../features/habits/scheduler.js";
 import type { InformationService } from "../features/information/service.js";
 import type { InformationScheduler } from "../features/information/scheduler.js";
 import type { BrowserService } from "../features/browser/browser-service.js";
@@ -57,6 +59,8 @@ export type ServiceContainer = {
   traces: import("../adapters/model-trace/reader.js").ModelTraceReader;
   dream: DreamService;
   dreamScheduler: DreamScheduler;
+  habits: HabitsService;
+  habitsScheduler: HabitsScheduler;
   information: InformationService;
   informationScheduler: InformationScheduler;
   news: NewsService;
@@ -73,5 +77,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "androidUpdates" | "companions" | "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "information" | "news" | "sessions" | "browser" | "browserDesktop" | "messageFeedbackRepository"
+  "androidUpdates" | "companions" | "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "habits" | "information" | "news" | "sessions" | "browser" | "browserDesktop" | "messageFeedbackRepository"
 >;

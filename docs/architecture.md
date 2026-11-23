@@ -52,9 +52,9 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 
 ## 提示词与技能
 
-所有静态系统提示词统一托管在仓库根目录 `prompts/`（全英文模板 + 中文索引 `prompts/README.md`；源码模式直读磁盘，构建时同步至 `dist/prompts/`；不做数据目录覆盖）。所有 Agent 统一遵循「系统提示词（`prompts/`） + 用户 `INSTRUCTIONS.md`（与自学习画像 `learnedNotes`） + 当次 `UNTRUSTED INPUT DATA`」三层拼装。
+所有静态系统提示词统一托管在仓库根目录 `prompts/`（全英文模板 + 中文索引 `prompts/README.md`；源码模式直读磁盘，构建时同步至 `dist/prompts/`；不做数据目录覆盖）。所有 Agent 统一遵循「系统提示词（`prompts/`） + 用户 `INSTRUCTIONS.md`（与通用已归纳长期习惯） + 当次 `UNTRUSTED INPUT DATA`（含未消化反馈热缓冲）」三层拼装。
 
-主对话每轮装配顺序是 `prompts/assistant/base.md`、本轮实际工具说明（`prompts/assistant/tools/*.md` 及主聊天通过 `domain_agent` 管理的已注册领域清单 `prompts/assistant/domain-agents.md`）、SOUL、USER、共享助手 `workspace/assistant/INSTRUCTIONS.md`、memory 检索说明。助手指令在各聊天会话每轮重读，不能扩大工具权限。领域 Agent 各自读取本领域 `INSTRUCTIONS.md`。全部 5 份工作区托管文档（`workspace/assistant/{SOUL,USER,INSTRUCTIONS}.md` 与 `workspace/domains/{sms,news}/INSTRUCTIONS.md`）均支持在文件最顶部使用 YAML Frontmatter `include:` 引用 `workspace/` 内相对路径的纯文本文件（读写 API 保持原文不拍平，注入模型前按当前文件所在目录实时展开，最多 5 层嵌套与 60,000 字符上限，环路/重复自动去重，缺失或越界静默跳过；`learnedNotes` 绝不解析 `include:`）。
+主对话每轮装配顺序是 `prompts/assistant/base.md`、本轮实际工具说明（`prompts/assistant/tools/*.md` 及主聊天通过 `domain_agent` 管理的已注册领域清单 `prompts/assistant/domain-agents.md`）、SOUL、USER、共享助手 `workspace/assistant/INSTRUCTIONS.md`、memory 检索说明。助手指令在各聊天会话每轮重读，不能扩大工具权限。领域 Agent 各自读取本领域 `INSTRUCTIONS.md`。全部 5 份工作区托管文档（`workspace/assistant/{SOUL,USER,INSTRUCTIONS}.md` 与 `workspace/domains/{sms,news}/INSTRUCTIONS.md`）均支持在文件最顶部使用 YAML Frontmatter `include:` 引用 `workspace/` 内相对路径的纯文本文件（读写 API 保持原文不拍平，注入模型前按当前文件所在目录实时展开，最多 5 层嵌套与 60,000 字符上限，环路/重复自动去重，缺失或越界静默跳过；AI 归纳习惯绝不解析 `include:`）。
 
 技能资产全局共用，开关全局保存并绑定 `source/name`；默认值只来自随服务端发布的内置清单 `assets/skills-defaults.json`（当前 9 项内置默认开启），通用与自建来源一律默认关闭，最终装配以手动选择优先。目录优先级为实例 `DATA_DIR/skills/` > 内置技能 > 服务端用户 `~/.agents/skills/`，来源在目录、维护视图和 HTTP 清单中一致；关闭不回退，同名新来源不继承旧选择。复用 pi loader 解析标准 SKILL.md，不写私有技能 config，也不发现个人 CLI 的其他配置、扩展或凭据。通用技能目录只读，入口链接规范化为真实技能根，内部链接与超限正文拒绝；共享脚本/extension.ts 不执行。自有可信扩展仍是服务端代码，路径 guard 不是操作系统沙箱。只有本轮启用技能的精确 SKILL.md 与支持的文本资源可作为 read 的额外只读例外；不扩大目录、代码或配置访问。子代理继承的是父轮来源身份与实际工具上限，不因同名来源变化获得新的技能。
 
@@ -63,7 +63,7 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 全仓所有非持久化的独立内存子会话统一收口到唯一的通用组装内核 `src/adapters/pi/subagent-runner.ts`（`runSubagent` 与薄结构化组合封装 `runStructuredSubagent`），**不再按单个业务产物另造独立 Agent 执行器**：
 
 - **默认零权限基座（Deny-by-default）**：每次执行创建独立 `SessionManager.inMemory`，不落盘、不创建会话目录、不发现个人 CLI 资源；不显式传入即零工具、零技能、零扩展。内核硬拦截 `bash` 与递归 `subagent`，调用方误传也会在执行前直接拒绝。
-- **按能力与提示词组装**：主聊天 `subagent` 工具（single / parallel / chain）、短信实时/归档/简报（`information-runner.ts`）、新闻筛选（`news-runner.ts`）和 Dream 整理（`dream-runner.ts`）共用同一套超时、`AbortSignal` 取消、错误脱敏、`modelTrace` 与资源释放；区别仅由调用方传入的系统提示词、允许工具集、结构化提交工具和是否压缩来表达。
+- **按能力与提示词组装**：主聊天 `subagent` 工具（single / parallel / chain）、短信实时/归档/简报（`information-runner.ts`）、新闻筛选（`news-runner.ts`）、行为习惯定期归纳（`habit-runner.ts`）和 Dream 整理（`dream-runner.ts`）共用同一套超时、`AbortSignal` 取消、错误脱敏、`modelTrace` 与资源释放；区别仅由调用方传入的系统提示词、允许工具集、结构化提交工具和是否压缩来表达。
 - **工具与资源并发分级**：
   1. **无状态 / 只读工具**（如 `read/grep/find/ls`、`search_web/web_fetch`、`get_weather`、`memory_search`、`currentTime`、`domain_agent` 只读查询及各领域 `submit_*` 提交工具）：可自由并发使用，无共享状态冲突。
   2. **共享持久化写工具**：无头后台子会话（短信、新闻、Dream）默认不授予交互式人工审批写工具（需要变更偏好/记忆时输出结构化结果或提案）；聊天派发的 `subagent` 按父轮权限上限与角色约束决定是否下放，其中文件写编辑继续绑定父会话/父运行的逐次人工审批及 `workspaceCommits` 物理路径串行锁，全局仓库写由各自串行队列兜底。
@@ -77,19 +77,20 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 
 反馈绑定公开会话、pi 会话和消息 id，在 `main.sqlite` 独立记录原始反应/收藏（`saved`）/评论事件并同步索引状态视图，不追加到 JSONL、不改变聊天 revision。喜欢/不喜欢互斥且可撤销，收藏可独立开关，评论 trim 后 1–4000 字符；支持按 `saved` 与 `reaction` 条件查询消息反馈列表（`GET /api/sessions/:sessionId/messages/feedback`）。当前生成消息和工具结果不可反馈。reset 与删除会话清理对应反馈；旧 pi 身份返回冲突，不把反馈迁移到新历史。底层统一记录全部行为事件，具体下游业务可按需消费（当前信息偏好从通知反馈提取 reaction/saved/comments 样本）。
 
-## 领域 Agent（短信与新闻）
+## 领域 Agent（短信、新闻与通用习惯引擎）
 
-短信、新闻及后续扩展领域采用 **「一个助手 + 多个独立领域 Agent」** 架构，通过各自的用户指令文件 `INSTRUCTIONS.md`、自学习画像和受控注册表协作，而不在聊天流里另起独立会话路由：
+短信、新闻及后续扩展领域采用 **「一个助手 + 多个独立领域 Agent」** 架构，通过各自的用户指令文件 `INSTRUCTIONS.md`、通用行为习惯引擎和受控注册表协作，而不在聊天流里另起独立会话路由：
 
 - **统一注册表与最小扩展点**：`src/features/domain-agents/` 定义 `DomainAgentRegistration`（`id`、`name`、`summary`、`isEnabled?`、`instructions: { read }` 及可选 `query`），在 `src/bootstrap/create-service.ts` 集中注册（当前为 `sms`、`news`）。新增领域 Agent 只需实现并注册该接口，无需修改主协作工具或上下文隔离逻辑。
 - **指令写入**：设置页与工作区文件页共享各领域的 `workspace/domains/<id>/INSTRUCTIONS.md` 原文（字段名统一为 `instructions`）。助手发起指令写入时使用工作区文件版本绑定审批。
 - **主对话统一协作工具**：`src/adapters/pi/tools/domain-agent.ts` 提供 `domain_agent`（`list | get_instructions | update_instructions | query`），取代旧只读 `information` 工具；主系统提示词动态注入已注册领域清单与路由纪律（涉及某领域筛选/提醒偏好时先 `get_instructions` 合并再 `update_instructions`，不只写进全局 `memory` 或主 `INSTRUCTIONS.md`）。`subagent` 等只读子代理（`readOnly: true`）拒绝调用 `update_instructions`。
-- **后台技能彻底剥离**：聊天 `SKILL.md` 与全局技能开关只服务聊天会话；所有领域 Agent 绝不注入主聊天技能、也不读取 `workspace/assistant/INSTRUCTIONS.md` 或全局 `memory.md`，只依赖仓库 `prompts/` 中各自的系统提示词、独立用户 `INSTRUCTIONS.md` 与自学习画像 `learnedNotes`。
+- **后台技能彻底剥离**：聊天 `SKILL.md` 与全局技能开关只服务聊天会话；所有领域 Agent 绝不注入主聊天技能、也不读取 `workspace/assistant/INSTRUCTIONS.md` 或全局 `memory.md`，只依赖仓库 `prompts/` 中各自的系统提示词、独立用户 `INSTRUCTIONS.md` 与通用习惯引擎维护的长期习惯条目及未消化反馈热缓冲。
+- **通用习惯定期归纳与热缓冲（`src/features/habits/`）**：跨领域管理长期行为习惯（`habit_items`，每领域上限 50 条、每条 `<= 300` 字、支持用户手动通过 `/api/habits/:domain` 增删改且不写用户 `INSTRUCTIONS.md`）与按递增 `seq` 游标追踪的原始反馈热缓冲（`habit_signals`）。达到每领域 5 个去重活跃反馈目标、固定 2 小时周期或手动触发 `POST /api/habits/:domain/consolidate` 时，受限 `habit-runner` 增量输出 `add/edit/delete` 并在成功校验后原子推进 `cursorSeq` 与清理已消化样本；模型失败、取消或并发手工修改均受游标与乐观版本保护，绝不丢弃未消化反馈。未及归纳的近期反馈通过热缓冲即时进入下一轮领域推理，彻底避免仅截断保留最近 10 条导致的规则遗忘。
 - **通知隔离与结构化引用**：重要后台通知携带显式 `domainId`（仅允许 `source === "notification"` 且存在 `notificationId`）写入 `main` 历史并发送失效通知，不额外启动一轮主聊天模型。`src/adapters/pi/domain-notification-context.ts` 默认将未被引用的领域通知卡片从主对话模型上下文剔除；用户通过移动端统一结构化格式 `【领域引用:<domainId>】...【引用结束】` 显式引用后，该卡片才进入当轮上下文。
 
-短信是一条全局信息管线（`src/features/information/`），设置默认关闭，系统提示词采用默认静默（Default-Silent）基线与四级优先级（`用户 INSTRUCTIONS.md` > `近期消息反馈` > `自学习 learnedNotes` > `默认静默基线`），严格分离两条通道并共享同一套用户指令（`workspace/domains/sms/INSTRUCTIONS.md`）、自学习敏感度画像（`preferences_learned_notes`）与主对话消息反馈闭环：1）日常实时单周期（`queue=realtime`）：接入后经 O(1) 索引查询到期或手动触发，单轮判定（`submit_information_result`）落库后直接推送主对话；2）历史批量归档（`queue=archive`）：通过 `/api/information/archive/*` 独立导入并显式运行，与实时调度彻底隔离，逐批演化 `learnedNotes`，清零后通过 `submit_information_briefing` 至多推送 1 条 <= 1200 字简报。原始条目、模型决策、自学习画像与投递事实存入 `main.sqlite` 的 5 张 `sms_*` 关系表；专题会话不接收通知，silent 或失败不制造通知；disable/reset/shutdown 取消未落盘投递，已落盘通知不回滚。
+短信是一条全局信息管线（`src/features/information/`），设置默认关闭，系统提示词采用默认静默（Default-Silent）基线与四级优先级（`用户 INSTRUCTIONS.md` > `近期未消化反馈热缓冲` > `已归纳长期习惯` > `默认静默基线`），严格分离两条通道并共享同一套用户指令（`workspace/domains/sms/INSTRUCTIONS.md`）与通用习惯引擎（`sms` 域）：1）日常实时单周期（`queue=realtime`）：接入后经 O(1) 索引查询到期或手动触发，单轮判定（`submit_information_result`）落库后直接推送主对话；2）历史批量归档（`queue=archive`）：通过 `/api/information/archive/*` 独立导入并显式运行，与实时调度彻底隔离，逐批向通用习惯库增量提交 `habitOperations`，清零后通过 `submit_information_briefing` 至多推送 1 条 <= 1200 字简报。原始条目、模型决策与投递事实存入 `main.sqlite` 的 5 张 `sms_*` 关系表；专题会话不接收通知，silent 或失败不制造通知；disable/reset/shutdown 取消未落盘投递，已落盘通知不回滚。
 
-新闻是完全独立的全局 RSS 采集与推荐筛选管线（`src/features/news/service.ts` 与 `src/features/news/screening.ts`），源、文章、反馈、自学习画像（`preferences_learned_notes`）与推荐结果全部保存在独立的 `news.sqlite` 关系表中，彻底解耦短信管线与 `workspace/assistant/INSTRUCTIONS.md`；调度同样通过 O(1) SQL `hasPendingArticle()` 触发受限单轮模型。新闻服务与数据库工具复用同一 SQLite 连接及操作队列。RSS 通过安全网络 adapter 抓取，严格 XML/大小/深度/条数校验，拒绝 DTD/实体和可执行 HTML。推荐不写聊天，删除源保留文章与反馈，模型学习摘要不覆盖用户显式指令。
+新闻是完全独立的全局 RSS 采集与推荐筛选管线（`src/features/news/service.ts` 与 `src/features/news/screening.ts`），源、文章、反馈与推荐结果保存在独立的 `news.sqlite` 关系表中，彻底解耦短信管线与 `workspace/assistant/INSTRUCTIONS.md`；反馈变更同时向通用习惯引擎（`news` 域）写入热缓冲信号，筛选模型仅返回 `decisions`，长期偏好由通用习惯引擎定期提炼并回注筛选上下文。调度同样通过 O(1) SQL `hasPendingArticle()` 触发受限单轮模型。新闻服务与数据库工具复用同一 SQLite 连接及操作队列。RSS 通过安全网络 adapter 抓取，严格 XML/大小/深度/条数校验，拒绝 DTD/实体和可执行 HTML。推荐不写聊天，删除源保留文章与反馈，已归纳习惯不覆盖用户显式指令。
 
 Dream 是实例全局服务：系统整理提示词与不可覆盖安全规则统一托管在仓库 `prompts/dream/`（无运行时数据目录覆盖），游标按来源会话在数据库保存，待决项全局管理。整理用受限内存 pi 轮；条件写入核对读取版本，不覆盖用户并发编辑；失败/部分成功不推进对应游标。来源已删除时不得借待决项重建会话。周期固定两小时，忙会话跳过，不自动重跑失败模型轮。
 
