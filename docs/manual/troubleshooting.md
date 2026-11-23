@@ -49,7 +49,7 @@
 
 重置和删除都是破坏性请求，网络错误不代表服务端未执行。客户端会保留待确认提示，不会自动重试。先刷新会话列表并核对新会话 ID 或会话是否消失，再继续操作。
 
-重置会清空聊天历史并作废未决审批；删除会话会级联删除该会话历史、工作区文件、规则、技能、任务和监控，均不可恢复。完整影响见[对话与会话](conversations-and-agents.md#reset-and-delete-sessions)。
+重置会清空聊天历史及消息反馈并作废未决审批；删除会话会彻底删除该会话的聊天历史与反馈，并按你的选择删除或迁移归属该会话的任务和监控（均不可恢复）；所有会话共用的工作区文件、指令与技能开关保留。完整影响见[对话与会话](conversations-and-agents.md#reset-and-delete-sessions)。
 
 ## 找不到任务、监控或目标 {#missing-tasks-monitors-or-goals}
 
@@ -61,7 +61,7 @@
 
 ## 真实浏览器无法打开 {#browser-cannot-open}
 
-手机客户端没有真实浏览器配置或入口。请在服务端配置浏览器，在系统浏览器中访问部署的完整 noVNC 地址；它不是 API 基础地址。容器和端口问题见[浏览器部署说明](browser-docker.md)。不要为了排错把默认无鉴权的 noVNC 端口开放到公网。
+手机端可通过「设置 → 应用与连接 → 浏览器」以一次性同源票据通过原生 WebView 查看并操作服务端 Chrome（详见[资料与设置](profile-and-settings.md#real-browser)）。若提示未启用或桌面不可达，请检查服务端是否开启 `tools.browser.enabled` 且系统 Chrome / Docker noVNC 正常运行；排错时不要将默认无鉴权的 noVNC 端口直接暴露到公网（部署细节见[浏览器部署说明](browser-docker.md)）。
 
 ## 应用更新检查或安装失败 {#app-update-failed}
 

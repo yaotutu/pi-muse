@@ -26,10 +26,10 @@ Individual screens: [Main chat](docs/assets/screenshots/chat.png) · [News](docs
 
 Pi Muse is a personal, single-user assistant, not a team platform or a chat-platform bot. The server runs the model and background work; the phone gives you a place to talk, read, review changes, and manage the results.
 
-- **One assistant, a direct main chat.** Open Messages and start talking—no conversation picker. Stream replies, attach images or text, review tool activity, and leave message feedback. The server also has topic-session foundations with separate histories and instructions; the mobile app currently exposes only `main`. All sessions share one flat workspace.
+- **One assistant, a direct main chat.** Open Messages and start talking—no conversation picker. Stream replies, attach images or text, review tool activity, and leave message feedback. The server also has topic-session foundations with isolated chat histories, while assistant instructions (including modular top-of-file YAML Frontmatter `include:` files) and skill switches are shared globally; the mobile app currently exposes only `main`. All sessions share one flat workspace.
 - **Reading that leads back to a conversation.** News collects global RSS feeds and recommends articles. Read, save, like, or dislike an article; Discuss appends an editable citation to the existing main draft without sending it. Article content is treated as untrusted external material.
 - **Plans that stay visible.** Create one-time or daily tasks and public-page monitors through chat, then manage them in Settings. Monitor intervals start at five minutes. Track longer-term goals with milestones rather than burying progress in chat history.
-- **Memory and a personal working style.** Maintain assistant and user profiles, main-chat instructions, skills, and long-term memory. Optional Dream maintenance organizes memories and proposes follow-up items for review.
+- **Memory and a personal working style.** Maintain assistant and user profiles, shared assistant instructions, domain instructions for SMS/News (including modular top-of-file YAML Frontmatter `include:` sub-files), skills, and long-term memory. Optional Dream maintenance organizes memories and proposes follow-up items for review.
 - **A companion, not another assistant.** A transparent character, compact status label, and subtle, finite animations convey what is happening. Tap the character or status to expand main-chat actions, execution, approvals, and history around that same character; closing reverses the transition without recreating the chat. The built-in penguin is the fallback; complete custom packs installed on the server can be selected on the phone. These are pose images with light motion, not companion videos. Three local themes are available: Classic Blue, Morning Light, and Midnight Black.
 
 ### Review file changes before they happen
@@ -106,7 +106,7 @@ Pi Muse is a single-process modular server built with TypeScript, Hono, and the 
 
 HTTP handles management and requests. Chat uses an **AG-UI SSE execution stream**; the separate **`/api/events` notification stream** carries shared status and invalidation events. Current HTTP/SSE contracts live in `src/http/contracts/` and generate the running instance's `/docs` and `/openapi.json`—use these to build other clients rather than guessing from screenshots.
 
-- [User manual](docs/manual/en/index.md) — installation and daily use
+- [User manual](docs/manual/en/index.md) — installation and daily use ([Instructions & prompts](docs/manual/en/instructions.md))
 - [Development](docs/development.md) · [Architecture](docs/architecture.md) · [API development](docs/api-development.md) · [Client integration](docs/client-integration-guide.md) · [Client notes](docs/client-notes.md)
 - [Mobile repository](https://github.com/yaotutu/pi-muse-mobile) — native client and source setup
 

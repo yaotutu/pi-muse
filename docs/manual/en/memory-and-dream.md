@@ -1,6 +1,6 @@
 # Long-term memory and Dream
 
-Memory, SOUL/USER and Dream are global instance resources. Chat text remains session-specific. Assistant instructions and skill switches are shared. This page describes current server semantics; native client and real-model paths still require coordinated acceptance. Check the installed release.
+Memory, SOUL/USER, assistant instructions, and Dream are global instance resources, while chat transcripts remain isolated per session. This page reflects current server and client source; check your installed Release for exact client controls.
 
 ## Prerequisites {#prerequisites}
 
@@ -23,21 +23,21 @@ Deletion is irreversible and affects all sessions without deleting chat. Never s
 
 ## Configure Dream {#configure-dream}
 
-Dream has one global enablement setting and one prompt in state/assistant/DREAM.md. There are no per-session settings, inheritance or supplemental prompts. The prompt limit is 20,000 characters; saving an empty string restores the built-in default. In Settings → Dream, expand the custom instructions section to edit the prompt.
+Dream has only one global enable/disable switch. Its consolidation system prompt and non-overridable safety rules are maintained centrally in the server repository under `prompts/dream/`, with no data-directory override or prompt editor in Settings. Disabling affects only subsequent scheduled/manual runs and does not undo previous writes. No custom instructions, profiles, or skills can expand the consolidation tool set.
 
-Every two hours the background service scans existing sessions, reads new messages using source cursors and skips busy sessions. Disabling only affects later scans and does not undo writes. Prompts, instructions and skills cannot expand the consolidation tool set.
+Every two hours the background service scans existing sessions, reads new messages using source cursors, and skips busy sessions. Dream reads expanded managed workspace documents (including sub-files referenced via [top-of-file Frontmatter `include:`](instructions.md#frontmatter-include)) to avoid duplicate suggestions, without overwriting split child files.
 
 The model round can only submit structured proposals. It has no file, network, shell, delegation or arbitrary configuration tools. External data is untrusted; credentials, assistant guesses presented as user facts and permission changes must not be stored.
 
 ## Run Dream manually {#run-dream-manually}
 
-Save or explicitly discard configuration drafts first. An immediate request processes sessions in sequence. Only one consolidation flow is admitted; model requests are not retried automatically. No new messages means no model call.
+Ensure the Dream toggle matches your preference first, then trigger consolidation. An immediate request processes sessions in sequence. Only one consolidation flow is admitted; model requests are not retried automatically. No new messages means no model call.
 
 - completed: all work for that source succeeded; only then is its cursor advanced.
 - partial: some writes/proposals succeeded but an error occurred. The cursor stays unchanged and completed writes are not rolled back.
 - failed: execution failed or startup reconciled an interrupted round. This status alone does not prove that nothing was written earlier.
 
-Extraction uses new messages and bounded overlapping context. User profile, persona, assistant instructions and memory are global. Applying a profile or instruction proposal always requires confirmation. The write compares the version read during confirmation to protect concurrent edits. Automatic memory edits and deletions compare the version read during consolidation and preserve concurrent changes.
+Extraction uses new messages and bounded overlapping context. User profile, persona, assistant instructions and memory are global. Applying a profile or instruction proposal always requires confirmation, deduplicates and appends onto the raw file (preserving any top-of-file `include:` frontmatter), and compares the version read during confirmation to protect concurrent edits. Automatic memory edits and deletions compare the version read during consolidation and preserve concurrent changes.
 
 Leaving the page or a client timeout does not establish remote cancellation. Read results and target contents before running again. Shutdown cancels active model work; restart marks running records failed without resuming them.
 

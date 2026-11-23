@@ -114,30 +114,30 @@ By default, the `.pi-muse/` directory containing `.pi-muse/config.json` is also 
 
 `runtime.dataDir: "."` also denotes the configuration file's directory, regardless of the starting process's cwd. If `".pi-muse"` is placed inside `.pi-muse/config.json`, it points to a nested `.pi-muse/` beneath it, not the identically named directory at the project root.
 
-Public session ids and internal pi ids are distinct. Main is permanent, topic sessions are explicit, history is isolated, assistant instructions are shared and the workspace is one global root.
+Public session IDs and internal pi IDs are distinct. `main` is permanent, topic sessions are explicit, chat histories are isolated, assistant instructions and skill switches are shared, and the workspace is one global root.
 
 ## Instance directory structure {#instance-directory-structure}
 
 ```text
 DATA_DIR/
   workspace/
-    assistant/             USER.md, SOUL.md, INSTRUCTIONS.md
-    domains/news/RULES.md  News recommendation rules
-    domains/sms/RULES.md   SMS alert rules
-    files/                 Ordinary files
+    assistant/                    USER.md, SOUL.md, INSTRUCTIONS.md
+    domains/news/INSTRUCTIONS.md  News recommendation instructions
+    domains/sms/INSTRUCTIONS.md   SMS alert instructions
+    files/                        Ordinary files
   sessions/
     index.json
-    <sessionId>/           history/, feedback/
+    <sessionId>/                  history/, feedback/
   state/
-    assistant/             memory.md, identity.json, skill-overrides.json, DREAM.md
-    main.sqlite            Jobs, goals, approvals, SMS state, Dream state
-    news.sqlite            News data and learned preferences
-    monitors.json          Webpage monitors
-  assets/                  companions/, skills/, subagents/
-  runtime/                 auth/, pi/, browser/, traces/, android-updates/
+    assistant/                    memory.md, identity.json, skill-overrides.json
+    main.sqlite                   Jobs, goals, approvals, SMS state, Dream state
+    news.sqlite                   News data and learned preferences
+    monitors.json                 Webpage monitors
+  assets/                         companions/, skills/, subagents/
+  runtime/                        auth/, pi/, browser/, traces/, android-updates/
 ```
 
-Workspace Files shows assistant documents, domain rules, and ordinary files. Pull down to refresh the directory. Open the menu at the top right to create a text file or jump to another directory. Settings and the workspace editor use the same Markdown files. Main and topic chats share assistant documents. News and SMS each read their own rules. A delegated subagent holds context for its current run. The layout starts fresh and does not import old instance data.
+Workspace Files shows assistant documents, domain instructions, and ordinary files; see [Instructions and prompts](instructions.md). Pull down to refresh the directory, or open the top-right menu to create a text file or jump to another directory. Settings and the workspace editor read and write the same raw Markdown files; the five managed instruction and profile documents also support top-of-file YAML Frontmatter `include:` references expanded dynamically before model calls. Main and topic chats share assistant documents. News and SMS each read their own domain instructions. A delegated subagent holds context for its current run. The layout starts fresh and does not import old instance data.
 
 ## Android update mirror
 

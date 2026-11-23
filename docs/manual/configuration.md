@@ -112,30 +112,30 @@ chmod 600 .pi-muse/config.json
 
 默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
 `runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
-公开会话 id 与内部 pi 会话 id 区分。main 永久存在，专题会话按需创建；聊天与规则隔离，工作区只有一个实例级根。
+公开会话 ID 与内部 pi 会话 ID 区分。`main` 永久存在，专题会话按需创建；聊天历史隔离，助手指令与技能开关全局共享，工作区只有一个实例级根。
 
 ## 实例目录结构 {#instance-directory-structure}
 
 ```text
 DATA_DIR/
   workspace/
-    assistant/             USER.md、SOUL.md、INSTRUCTIONS.md
-    domains/news/RULES.md  新闻推荐规则
-    domains/sms/RULES.md   短信提醒规则
-    files/                 普通文件
+    assistant/                    USER.md、SOUL.md、INSTRUCTIONS.md
+    domains/news/INSTRUCTIONS.md  新闻推荐规则
+    domains/sms/INSTRUCTIONS.md   短信提醒规则
+    files/                        普通文件
   sessions/
     index.json
-    <sessionId>/           history/、feedback/
+    <sessionId>/                  history/、feedback/
   state/
-    assistant/             memory.md、identity.json、skill-overrides.json、DREAM.md
-    main.sqlite            定时任务、目标、审批、短信状态、Dream 状态
-    news.sqlite            新闻数据和学习画像
-    monitors.json          网页监控
-  assets/                  companions/、skills/、subagents/
-  runtime/                 auth/、pi/、browser/、traces/、android-updates/
+    assistant/                    memory.md、identity.json、skill-overrides.json
+    main.sqlite                   定时任务、目标、审批、短信状态、Dream 状态
+    news.sqlite                   新闻数据和学习画像
+    monitors.json                 网页监控
+  assets/                         companions/、skills/、subagents/
+  runtime/                        auth/、pi/、browser/、traces/、android-updates/
 ```
 
-「工作区文件」显示助手资料、领域规则与普通文件。下拉刷新目录。点右上角的菜单可新建文本或跳转目录。设置和文件页读写同一份 Markdown。主聊天与专题会话共用助手资料，新闻和短信只读取各自的规则，子代理只持有当轮上下文。新布局从空状态初始化，旧目录中的数据不导入。
+「工作区文件」显示助手资料、领域指令与普通文件，详见[指令与提示词](instructions.md)。下拉刷新目录，点右上角的菜单可新建文本或跳转目录。设置和工作区文件页读写同一份原始 Markdown；五份托管指令与人设文档还支持顶部 YAML Frontmatter `include:` 拆分引用并在注入模型前实时展开。主聊天与专题会话共用助手资料与指令，新闻和短信只读取各自领域的规则，子代理只持有当轮上下文。新布局从空状态初始化，旧目录中的数据不导入。
 
 ## Android 更新镜像
 

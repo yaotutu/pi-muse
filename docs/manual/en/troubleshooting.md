@@ -49,7 +49,7 @@ Manual workspace edits are confirmed in the save preview on the「会话」 → 
 
 Reset and delete are destructive requests. A network error does not prove that the server did not execute them. The client keeps an unconfirmed notice and does not retry automatically. Refresh the session list and check the new session ID or whether the session disappeared before continuing.
 
-Reset clears chat history and cancels unresolved approvals. Deleting an agent also removes its workspace files, rules, skills, jobs, and monitors. Neither operation can be recovered. For the complete impact, see [Conversations and sessions](conversations-and-agents.md#reset-and-delete-sessions).
+Reset clears chat history and feedback and cancels unresolved approvals. Deleting a session permanently removes its history and feedback and either deletes or moves its jobs and monitors as you choose, while shared workspace files, instructions, and skill switches are retained. For the complete impact, see [Conversations and sessions](conversations-and-agents.md#reset-and-delete-sessions).
 
 ## Tasks, Monitors, or Goals Are Missing {#missing-tasks-monitors-or-goals}
 
@@ -61,7 +61,7 @@ First distinguish long-term memory, assistant and user profiles, and Dream pendi
 
 ## The Real Browser Cannot Open {#browser-cannot-open}
 
-The mobile client has no real-browser setting or entry. Configure the browser on the server and open the complete deployed noVNC URL in a system browser; it is not the API base URL. For containers and ports, see [Browser deployment](browser-docker.md). Do not expose the default unauthenticated noVNC port publicly while troubleshooting.
+On mobile, open Settings → App and connection → Browser to view and control the server's Chrome in a native WebView via a one-time same-origin ticket (see [Profile and settings](profile-and-settings.md#real-browser)). If it reports disabled or desktop unreachable, verify on the server that `tools.browser.enabled` is true and Chrome / Docker noVNC is healthy. Never expose the default unauthenticated noVNC port publicly while troubleshooting (see [Browser deployment](browser-docker.md)).
 
 ## App Update Check or Installation Failed {#app-update-failed}
 

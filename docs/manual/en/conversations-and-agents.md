@@ -42,20 +42,20 @@ Feedback binds the public session, internal pi session and message id. Raw opera
 
 ## Assistant instructions and skills {#session-rules-and-skills}
 
-Assistant instructions, skill switches, profile, long-term memory, permissions, and workspace are shared by all conversations. Open Settings → Assistant instructions and tap the text to read it. Tap Edit when you want to make changes. An empty field opens the editor directly. Tap Save at the bottom of the editor. The last successful save takes effect on the next turn in every conversation. The instruction limit is 20,000 characters. An empty value clears the instructions.
+Assistant instructions, skill switches, profile, long-term memory, permissions, and workspace are shared by all conversations. Open Settings → Assistant instructions and tap the text to read it. Tap Edit when you want to make changes. An empty field opens the editor directly. Tap Save at the bottom of the editor. The last successful save takes effect on the next turn in every conversation. The single-file save limit is 20,000 characters, and an empty value clears the instructions. For large rules, split sub-files with top-of-file YAML Frontmatter `include:`; see [Instructions and prompts](instructions.md).
 
-Long text in Settings starts with a preview. Save news recommendation rules and SMS alert rules from the editor. Profile and Dream have multiple settings. Keep text edits as a draft, then save on the settings page.
+Long text in Settings starts with a preview. News preferences (`domains/news/INSTRUCTIONS.md`) and SMS preferences (`domains/sms/INSTRUCTIONS.md`) save raw text in their editors and likewise support top-of-file `include:`. Profile fields save together, while Dream exposes only the global toggle and pending-proposal confirmation.
 
 If saving instructions or skills has an unknown outcome, read back the server settings before deciding whether to submit the retained draft.
 
-Skill selections are bound to their source identity. See [Skill directories and default switches](configuration.md#skill-directories) for more. Background domains such as News and SMS retain their own rules.
+Skill selections are bound to their source identity. See [Skill directories and default switches](configuration.md#skill-directories) for more. Background domains such as News and SMS retain their own domain instructions (`INSTRUCTIONS.md`) and learned profiles.
 
 ## News and SMS {#background-services}
 
-News and SMS run as independent domain agents without chat skills, chat history access, or global memory access. Edit their rules in Settings or Workspace Files. You can also ask the assistant to propose a change for approval.
+News and SMS run as independent domain agents without chat skills, chat history access, or global memory access. Edit their `INSTRUCTIONS.md` files in Settings or Workspace Files, or ask the assistant in chat to propose an update via `domain_agent` for approval.
 
 - News collection and reading are described in [News](news.md). Discussing an article directly appends an explicitly untrusted reference to the existing draft of the active chat. It remains editable, is not sent automatically, and does not open a session picker. You can return to the original article.
-- SMS is one global pipeline, disabled initially. After analysis, important SMS results are appended as system notifications to main history without an additional main-chat model response. Domain notification cards remain excluded from main chat model context unless you explicitly quote them into the conversation. Silent or failed batches do not manufacture notifications.
+- SMS is a global pipeline, disabled initially, using a **Default-Silent baseline and four-tier precedence** (explicit `INSTRUCTIONS.md` > main-chat notification feedback > learned `learnedNotes` > Default-Silent baseline; see [Instructions and prompts](instructions.md#sms-and-news-domains)). After daily realtime analysis, only `notify` results are appended as system notifications to `main` history without starting an extra main-chat model response, while silent or failed batches stay quiet; historical bulk imports use a separate archive queue that evolves `learnedNotes` across batches and posts at most one `<= 1,200`-character Chinese briefing once drained. Domain notification cards remain excluded from main chat model context unless you explicitly quote them into the conversation.
 
 SMS collection requires the Android native module, system permission, enablement and a running application process. Collection after process termination and OS push are not promised. Check item/run records before retrying an import or execution with an unknown result.
 

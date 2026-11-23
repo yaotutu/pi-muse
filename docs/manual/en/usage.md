@@ -4,7 +4,7 @@ This page keeps only capability entry points. Detailed procedures live in their 
 
 ## Conversations and Sessions {#conversations-and-agents}
 
-The mobile app has three primary tabs: Messages, News, and Settings. Messages opens the permanent main chat directly, without a session picker. The server retains topic-session foundations with separate histories, instructions, and skill overrides, but the app currently exposes only main. All sessions share one flat workspace. Main supports streaming replies, Stop, and reset; see [Conversations](conversations-and-agents.md). Current source capabilities do not mean the installed APK has been updated; check its Release.
+The mobile app has three primary tabs: Messages, News, and Settings. Messages opens the permanent main chat directly, without a session picker. The server retains topic-session foundations with isolated chat histories and active runs while assistant instructions and skill switches are shared globally, and the app currently exposes only `main`. All sessions share one flat workspace. Main supports streaming replies, Stop, and reset; see [Conversations](conversations-and-agents.md) and [Instructions and prompts](instructions.md). Current source capabilities do not mean the installed APK has been updated; check its Release.
 
 ## Attachments, Files, and Approvals {#files-and-approvals}
 

@@ -28,7 +28,7 @@ Collection defaults to every 30 minutes. One source's failure does not block oth
 
 Like/dislike are mutually exclusive and removable. Saved state is independent; the server also supports bounded comments. Feedback does not immediately call a model. Later batches read bounded recent examples; saves are weaker signals. A single reaction does not become a permanent rule.
 
-Explicit preferences (`notes`) are stored in the workspace at `domains/news/RULES.md` without modifying main `INSTRUCTIONS.md` or global profile files. You can replace the full text in Settings → News Preferences (last successful save wins) edit the same file under Workspace Files → Domain Rules → News, or ask the assistant to propose an update for approval. The model-inferred profile (`learnedNotes`) remains separate and read-only, without overwriting explicit rules, chat instructions, or USER. In News Preferences, expand the learned interests section to see what the assistant has learned.
+Explicit preferences (`instructions`) are stored in the workspace at `domains/news/INSTRUCTIONS.md` (and also support [top-of-file Frontmatter `include:`](instructions.md#frontmatter-include) splitting across workspace plain-text files) without modifying main `INSTRUCTIONS.md` or global profile files. You can replace the full raw text in Settings → News Preferences (last successful save wins), edit the same file in Workspace Files, or ask the assistant in chat to propose an update via `domain_agent` for approval. The model-inferred profile (`learnedNotes`) remains separate and read-only, without overwriting explicit instructions, chat instructions, or USER. In News Preferences, expand the learned interests section to see what the assistant has learned.
 
 Reasons and learned summaries default to concise Simplified Chinese while RSS titles/content retain their original language. Read back unknown writes instead of automatically resending. Client draft behavior depends on the adapted version.
 
@@ -42,7 +42,7 @@ Read status, sources and articles after an unknown collection result. A failed l
 
 ## Storage {#storage}
 
-Sources, articles, reactions, saves, comments, analysis batches, recommendations and learned summaries are stored in the server's separate `news.sqlite`, rather than rewriting a complete news JSON document at runtime. It is separate from the default `main.sqlite`; this does not mean memory, tasks or other modules have already migrated. Chat history remains managed by pi and is unchanged by this news-storage update.
+Sources, articles, reactions, saves, comments, analysis batches, recommendations and learned summaries are stored in the server's separate `news.sqlite`, rather than rewriting a complete news JSON document at runtime, while jobs, goals, approvals, SMS state and Dream state live in `main.sqlite`. Chat history remains managed by pi JSONL.
 
 The news API and the agent's [database tool](database.md) operate on the same news data. The agent can query, modify, extend schemas or drop tables without per-SQL approval. Breaking built-in table structures can make news unavailable; the system does not silently rebuild an empty database. Database operations do not automatically recompute previous recommendations or rerun a model.
 

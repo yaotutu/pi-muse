@@ -85,6 +85,7 @@ export default defineConfig({
             items: [
               { text: '核心能力', link: '/usage' },
               { text: '对话与会话', link: '/conversations-and-agents' },
+              { text: '指令与提示词', link: '/instructions' },
               { text: '新闻阅读', link: '/news' },
               { text: '数据库', link: '/database' },
               { text: '附件、文件与审批', link: '/files-and-approvals' },
@@ -136,6 +137,7 @@ export default defineConfig({
             items: [
               { text: 'Core features', link: '/en/usage' },
               { text: 'Conversations and sessions', link: '/en/conversations-and-agents' },
+              { text: 'Instructions and prompts', link: '/en/instructions' },
               { text: 'News reading', link: '/en/news' },
               { text: 'Database', link: '/en/database' },
               { text: 'Attachments, files, and approvals', link: '/en/files-and-approvals' },

@@ -29,7 +29,7 @@ The name and tone are global and take effect from the next turn without rewritin
 ### Save SOUL and USER {#save-soul-and-user}
 
 1. Under 「SOUL · 助手人设」, describe the personality and working style you want. Under 「USER · 用户资料」, describe the background and preferences the assistant should know.
-2. Each text field can contain at most 20,000 characters and may be empty. Tapping 「保存人设与资料」 submits both fields in one profile save. Clearing one section and saving clears that section.
+2. Each text field can contain at most 20,000 characters and may be empty; both also support top-of-file YAML Frontmatter `include:` references to split plain-text files inside `workspace/` (saved and read raw, expanded dynamically before model calls; see [Instructions and prompts](instructions.md#frontmatter-include)). Tapping 「保存人设与资料」 submits both fields in one profile save. Clearing one section and saving clears that section.
 3. Success shows 「人设已保存」. SOUL/USER take effect globally from the next conversation turn.
 4. Tap 「取消助手设置修改」 or 「取消人设与资料修改」 to discard the corresponding draft and return to the last successfully loaded or saved values.
 

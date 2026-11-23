@@ -12,8 +12,8 @@ This page distinguishes three easily confused concepts: attachments sent with a 
 
 | Concept | Entry point | Ownership and use | Key boundary |
 | --- | --- | --- | --- |
-| Message attachment | 「+」 to the left of the chat input | Enters this agent's chat history with the user message and is supplied to the model as untrusted data | Not a workspace file and has no readable or writable relative path; it does not automatically become a persistent file |
-| Workspace file | Session settings → 「文件」 | Private server files of the current session; no shared-area or other-agent selector | Manual text saves require a complete before/after preview; model access is constrained by workspace boundaries |
+| Message attachment | 「+」 to the left of the chat input | Enters this session's chat history with the user message and is supplied to the model as untrusted data | Not a workspace file and has no readable or writable relative path; it does not automatically become a persistent file |
+| Workspace file | Settings → Workspace Files | Shared server files in the single flat `DATA_DIR/workspace/` used by all sessions | Manual text saves require a complete before/after preview; model access is constrained by workspace boundaries |
 | Model file approval | Session panel 「审批」 | Temporary authorization for a model-initiated `write` create/overwrite or `edit` exact edit | Each operation is approved separately; approval covers one bound version and does not guarantee execution success |
 
 Ordinary file tools access only DATA_DIR/workspace/. Absolute paths, parent traversal and symlinks are refused; bash is never available.
@@ -39,13 +39,13 @@ Limits:
 
 ## Manage Workspace Files {#manage-workspace-files}
 
-1. Open 「设置」 (Settings) → 「会话管理」 (Session management) → the corresponding Agent’s settings. Confirm its name, then open 「文件」 (Files). This is a full-screen secondary page without a bottom bar.
-2. Tap a directory to enter it. 「上级」 or system Back moves up one level; 「根目录」 returns to this agent's root. Returning from a file preserves its directory and list scroll position.
-3. Tap a text file to open its source editor directly. The title shows the file name; the subtitle shows the session and parent directory. Markdown and other UTF-8 text display their complete original content, without Markdown rendering, HTML execution, or remote image loading. PNG, JPEG, GIF, and WebP can be previewed safely; other binary files can be downloaded. The top-right information icon reveals the full path, size, modification time, type, and download/delete actions.
+1. Open 「设置」 (Settings) → 「工作区文件」 (Workspace Files) to access the single instance workspace `DATA_DIR/workspace/`. This is a full-screen secondary page without a bottom bar.
+2. Tap a directory to enter it. 「上级」 or system Back moves up one level; 「根目录」 returns to the global workspace root. Returning from a file preserves its directory and list scroll position.
+3. Tap a text file to open its source editor directly. The title shows the file name; the subtitle shows the parent directory. Markdown and other UTF-8 text display their complete original content, without Markdown rendering, HTML execution, or remote image loading. PNG, JPEG, GIF, and WebP can be previewed safely; other binary files can be downloaded. The top-right information icon reveals the full path, size, modification time, type, and download/delete actions.
 4. Tap 「新建文本」 to create a file; edit existing text directly in the file without entering a separate mode. 「预览保存」 (preview save) and 「放弃修改」 (discard changes) appear only after a change; returning from an unchanged file does not prompt to keep a draft. Markdown saves remain original text, not a rich-text conversion.
-5. Primary bottom navigation is hidden during editing. Back from a save preview returns to the draft. Leaving editing offers continuing, keeping the draft and returning to the session home, or explicitly discarding it. Drafts last only for this connection; resolve unfinished file work before switching agents.
+5. Primary bottom navigation is hidden during editing. Back from a save preview returns to the draft. Leaving editing offers continuing, keeping the draft, or explicitly discarding it. Drafts last only for this connection.
 
-Existing non-ASCII file names can be read, but cannot be saved or deleted through this entry. Manual creation and editing support UTF-8 text only, with complete content limited to 100,000 bytes. A new path is relative to the current session root; each path segment may contain only ASCII letters, numbers, `.`, `-`, and `_`, separated by `/`. If a directory exceeds 1,000 entries or reading a file exceeds 8 MiB, the server rejects the request instead of truncating the list or content.
+Existing non-ASCII file names can be read, but cannot be saved or deleted through this entry. Manual creation and editing support UTF-8 text only, with complete content limited to 100,000 bytes. A new path is relative to the global workspace root; each path segment may contain only ASCII letters, numbers, `.`, `-`, and `_`, separated by `/`. Missing parent directories are created when saving; there is no separate directory-management action. If a directory exceeds 1,000 entries or reading a file exceeds 8 MiB, the server rejects the request instead of truncating the list or content.
 
 ### Download to Device {#download-to-device}
 
@@ -63,22 +63,22 @@ If the selected directory already contains a file with the same name, the app on
 3. Tap 「确认保存」. On success, the file detail returns the content actually written by the server. Creating an existing file fails without overwriting it; editing a missing file also fails and does not create it.
 4. To delete a file, first save or discard pending changes, then open the file page's top-right information icon, tap 「删除文件…」, then tap 「确认删除文件」 in the confirmation card. Only regular files can be deleted; directories cannot.
 
-Manual saves do not create model approval records. Their safety confirmation is the complete before/after preview in the Session settings → 「文件」 page. If a save or delete result is unknown, the page shows 「上次文件操作结果未明」 and provides 「回读核对」. Read the file back completely, compare it, and only then explicitly unlock. Submitting again after unlocking starts a new request.
+Manual saves do not create model approval records. Their safety confirmation is the complete before/after preview in Workspace Files. If a save or delete result is unknown, the page shows 「上次文件操作结果未明」 and provides 「回读核对」. Read the file back completely, compare it, and only then explicitly unlock. Submitting again after unlocking starts a new request.
 
 Ordinary manual saves take effect as the last successful save; there is no automatic merging or version-conflict protection. Refresh and verify the complete current content before editing. Do not apply the model approval's file-version binding to manual saves.
 
 ::: danger Irreversible deletion
-Deleting a regular workspace file immediately removes it and cannot be recovered from the app. Check the current session and path before confirming; the mobile file entry does not operate on shared files.
+Deleting a regular workspace file immediately removes it and cannot be recovered from the app. Check the path before confirming; workspace files are shared by all sessions.
 :::
 
 ## Approve Model File Writes {#approve-model-file-writes}
 
-For ordinary workspace files, `write` creates or completely overwrites a text file, and `edit` replaces one uniquely matched section of existing text; both require approval. The skill library's `skills.save` also requires per-file approval; see [skill maintenance in Configuration](configuration.md#file-write-approvals) for creating, editing, enabling, and reading skills. Model file reads do not require approval, and ordinary model replies do not have a generic human-approval gate. The following steps describe approvals for ordinary workspace files.
+For ordinary workspace files, `write` creates or completely overwrites a text file, and `edit` replaces one uniquely matched section of existing text; both require approval. The skill library's `skills.save` also requires per-file approval; see [skill maintenance in Configuration](configuration.md#skill-directories) for creating, editing, enabling, and reading skills. Model file reads do not require approval, and ordinary model replies do not have a generic human-approval gate. The following steps describe approvals for ordinary workspace files.
 
 1. When the model requests `write` or `edit`, session state shows a waiting approval. Tap the session information area and open the 「审批」 page.
 2. Tap the pending item to view details. A decision is possible only after the complete preview is loaded; buttons remain unavailable while details are synchronizing.
 3. Check:
-   - Scope: current-agent private file or shared file.
+   - Scope: single workspace file or skill resource.
    - Path and kind: create, overwrite, or exact edit.
    - The ends of both 「修改前全文」 and 「计划写入全文」. Do not rely on the title or summary.
 4. Tap 「拒绝本次操作」 or 「批准本次操作」.
@@ -88,7 +88,7 @@ For ordinary workspace files, `write` creates or completely overwrites a text fi
 The default waiting period is 5 minutes, fixed when the approval is registered; client polling cannot extend it. Approval binds the complete content, path, and file version registered at that time. Rejection, expiry, run cancellation, or a file change while waiting prevents that modification from being committed. Approval does not authorize another file, later modification, or a new version of the same path.
 
 
-If the execution receipt is `unknown`, or you are unsure after stopping or disconnecting whether a file was written, read the target file completely (workspace files are in Session settings → 「文件」) and compare it with the approval preview. Do not immediately approve a new write or resend the request. Approval history keeps terminal records and execution receipts, but a historical preview does not mean its authorization remains valid.
+If the execution receipt is `unknown`, or you are unsure after stopping or disconnecting whether a file was written, read the target file completely in Workspace Files and compare it with the approval preview. Do not immediately approve a new write or resend the request. Approval history keeps terminal records and execution receipts, but a historical preview does not mean its authorization remains valid.
 
 ## Limits and Troubleshooting {#limits-and-troubleshooting}
 
@@ -96,11 +96,11 @@ If the execution receipt is `unknown`, or you are unsure after stopping or disco
 | --- | --- | --- |
 | Attachments cannot be selected | Whether you are in the Android client; whether a run or unconfirmed submission is active | Wait for the run to finish and synchronize; select local files with the Android system picker |
 | Attachment sending fails | Count, size, UTF-8 validity, and actual image type | Fix the limits above and select again; a rejected attachment does not enter the draft |
-| File not found | The current session and file path | Check the current session and path, then refresh the directory; a read failure is not shown as an empty directory |
+| File not found | The file path in workspace | Check the path, then refresh the directory; a read failure is not shown as an empty directory |
 | Download unavailable | Whether you are in the Android client and whether the system picker was cancelled or access denied | The current Web preview cannot save to a device directory. On Android, choose a directory again and allow access when prompted |
 | Same-name conflict | Whether the selected device directory already has a file with that name | The app never overwrites it. Choose another directory, or verify and move or rename the old file in the system file manager |
 | Manual save fails | More than 100,000 bytes, invalid path, existing create target, or missing edit target | Fix content or path; use another path to create, and refresh the current file before editing |
 | Approval buttons unavailable | Whether approvals are synchronizing, expired, or missing loaded details | Tap 「重新同步审批」 and reopen details; the model must request again after expiry |
 | File unchanged after approval | Whether the execution receipt succeeded and whether the file changed meanwhile | Read the complete file first; do not repeatedly approve the old approval |
 
-Agent rules and skills are separate entries on the session home, not duplicate files in the workspace. Rules use the server's dedicated instructions file; the skills page changes only this agent's enabled switches, not global skill source files. Missing parent directories may be created when saving a new file; there is no separate directory-management action.
+The five instruction and profile files (`assistant/{SOUL,USER,INSTRUCTIONS}.md` and `domains/{sms,news}/INSTRUCTIONS.md`) live inside the workspace (editable in Settings or Workspace Files, and supporting top-of-file Frontmatter `include:` references to split plain-text files inside `workspace/`; see [Instructions and prompts](instructions.md)). Skill switches are managed globally in Settings → Assistant skills without duplicating skill sources into the workspace.
