@@ -12,6 +12,7 @@ export type InformationFeedbackExample = {
   notificationId: string;
   text: string;
   reaction: "like" | "dislike" | null;
+  saved: boolean;
   comments: string[];
   commentsTruncated: boolean;
   items: Array<{

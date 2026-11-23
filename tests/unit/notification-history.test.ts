@@ -6,6 +6,9 @@ import { join } from "node:path";
 import { createDataLayout, sessionHistoryDir } from "../../src/adapters/storage/data-layout.js";
 import { createSessionHistory } from "../../src/adapters/pi/session-history.js";
 import { createMessageFeedbackRepository } from "../../src/adapters/storage/message-feedback-repository.js";
+import { messageFeedbackModule } from "../../src/adapters/storage/message-feedback-schema.js";
+import { openSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
+import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
 import { createMessageFeedbackSession } from "../../src/features/messages/service.js";
 import { createConversation } from "../../src/features/conversation/conversation-service.js";
 import { TURN_ENTRY_TYPE } from "../../src/features/conversation/types.js";
@@ -13,10 +16,14 @@ import { createNotificationMessage } from "../../src/adapters/pi/notification-me
 
 test("notification alone persists a new pi session and survives reopen without model execution", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "personal-bot-notification-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
   const layout = createDataLayout(root);
+  const managed = await openSqliteDatabase(layout.mainDatabaseFile);
+  await managed.serialize(() => ensureSqliteModules(managed, [messageFeedbackModule]));
+  t.after(async () => {
+    try { await managed.close(); } finally { await rm(root, { recursive: true, force: true }); }
+  });
   const { history } = await createSessionHistory(layout, "main");
-  const repository = createMessageFeedbackRepository(layout);
+  const repository = createMessageFeedbackRepository(managed);
   const make = (port: typeof history) => createConversation({ configured: false, runTimeoutMs: 1000 }, {
     history: port,
     messages: createMessageFeedbackSession({

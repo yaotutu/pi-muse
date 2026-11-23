@@ -169,13 +169,28 @@ export const endpoints: EndpointSpec[] = [
     hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。合法但不存在、已删除或正在删除的 ID 返回 200 {piSessionId:null, messages:[], revision:'empty'}，不创建会话或工作区，不使其出现在列表；非法 ID 返回 400。空历史不代表会话存在，存在性以 GET /api/sessions 为准。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）；user/assistant 消息必带 metadata（PI entry 时间、chat/job/notification 可靠来源、run/job/notification 关联与 feedbackAvailable）和当前 feedback。role=user 还可有 attachments；每项为 id/name/kind/mimeType/size/sha256，kind=image 还可带 image:{mimeType,dataBase64} 并按本条 SDK user 的 image blocks 顺序关联，文本正文不自动展开。文件/模型原始错误在进入模型上下文与历史前脱敏，文件缺失使用受控提示，不返回服务端绝对路径。",
     auth: true, query: req.conversationQuerySchema, response: resp.conversationResponse,
   },
-  // ---- 消息反馈（独立业务层；不触发模型，不修改 PI 历史）----
+  // ---- 消息反馈（独立业务层，持久化于 main.sqlite；不触发模型，不修改 PI 历史）----
+  {
+    operationId: "listMessageFeedback",
+    method: "get", path: "/api/sessions/:sessionId/messages/feedback", tag: "消息反馈",
+    summary: "按条件查询会话内有反馈的消息列表",
+    hint:
+      "按 sessionId+piSessionId 列出仍存在历史中的有反馈消息，可用 saved=true|false 与 reaction=like|dislike 过滤；省略条件返回所有产生过反馈（reaction/saved/comments 非空）的消息。" +
+      "按最后反馈时间倒序排列；reset 后旧 piSessionId 返回 409。",
+    auth: true, query: message.messageFeedbackListQuerySchema, response: message.messageFeedbackListResponse,
+    errorResponses: {
+      400: { description: "非法 sessionId、piSessionId 或过滤参数", schema: resp.errorResponse },
+      404: { description: "会话不存在", schema: resp.errorResponse },
+      409: { description: "piSessionId 不是该会话当前会话，或会话正在删除", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
   {
     operationId: "getMessageFeedback",
     method: "get", path: "/api/sessions/:sessionId/messages/:messageId/feedback", tag: "消息反馈",
     summary: "读取消息当前反馈",
     hint:
-      "按 sessionId+piSessionId+messageId 读取用户/助手消息的当前喜欢/不喜欢与全部评论。piSessionId 必填；" +
+      "按 sessionId+piSessionId+messageId 读取用户/助手消息的当前喜欢/不喜欢、收藏（saved）与全部评论。piSessionId 必填；" +
       "reset 后旧 piSessionId 返回 409。会话不存在返回 404，非法参数返回 400。工具结果和未落盘/当前生成中的消息不可反馈，按目标不存在返回 404。本接口不触发模型、不追加聊天消息，也不改变对话 revision。",
     auth: true, query: message.messageTargetSchema, response: message.messageFeedbackResponse,
     errorResponses: {
@@ -190,7 +205,7 @@ export const endpoints: EndpointSpec[] = [
     method: "get", path: "/api/sessions/:sessionId/messages/:messageId/feedback/events", tag: "消息反馈",
     summary: "读取消息原始反馈事件",
     hint:
-      "返回该消息的完整操作历史：reaction 变更/撤销、评论新增、编辑（旧新文本）与删除（删除前文本），均带服务端时间与 ID。事件只追加到 Pi Muse 反馈存储，不进入 PI branch 或模型上下文；会话 reset/delete 级联删除。",
+      "返回该消息的完整操作历史：reaction 变更/撤销、saved 收藏变更、评论新增、编辑（旧新文本）与删除（删除前文本），均带服务端时间与 ID。事件只追加到 main.sqlite 消息反馈表，不进入 PI branch 或模型上下文；会话 reset/delete 级联删除。",
     auth: true, query: message.messageTargetSchema, response: message.messageFeedbackEventsResponse,
     errorResponses: {
       400: { description: "非法 sessionId、messageId 或 piSessionId", schema: resp.errorResponse },
@@ -204,11 +219,25 @@ export const endpoints: EndpointSpec[] = [
     method: "put", path: "/api/sessions/:sessionId/messages/:messageId/feedback/reaction", tag: "消息反馈",
     summary: "设置或撤销喜欢/不喜欢",
     hint:
-      "reaction 为 like/dislike/null；like 与 dislike 互斥，null 撤销当前反应。重复设置当前值不追加事件。成功返回完整当前反馈。反馈不触发模型、不追加聊天消息，也不改变 expectedRevision；同一会话内以前已落盘消息可在流式运行期间反馈。",
+      "reaction 为 like/dislike/null；like 与 dislike 互斥，null 撤销当前反应；不影响 saved 收藏与评论。重复设置当前值不追加事件。成功返回完整当前反馈。反馈不触发模型、不追加聊天消息，也不改变 expectedRevision；同一会话内以前已落盘消息可在流式运行期间反馈。",
     auth: true, request: message.reactionRequestSchema, response: message.messageFeedbackResponse,
     errorResponses: {
       400: { description: "非法请求、reaction 或目标 ID", schema: resp.errorResponse },
       404: { description: "会话、消息或评论不存在；工具/未落盘/当前生成中目标不可反馈", schema: resp.errorResponse },
+      409: { description: "piSessionId 不是该会话当前会话，或会话正在删除", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "setMessageSaved",
+    method: "put", path: "/api/sessions/:sessionId/messages/:messageId/feedback/saved", tag: "消息反馈",
+    summary: "设置或取消消息收藏",
+    hint:
+      "saved 为布尔值，与 like/dislike 独立并存；重复设置当前值不追加事件。成功返回完整当前反馈。不触发模型、不追加聊天消息，也不改变 expectedRevision；同一会话内以前已落盘消息可在流式运行期间操作。",
+    auth: true, request: message.savedRequestSchema, response: message.messageFeedbackResponse,
+    errorResponses: {
+      400: { description: "非法请求、saved 或目标 ID", schema: resp.errorResponse },
+      404: { description: "会话或可反馈消息不存在；工具/未落盘/当前生成中目标不可操作", schema: resp.errorResponse },
       409: { description: "piSessionId 不是该会话当前会话，或会话正在删除", schema: resp.errorResponse },
       503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
     },

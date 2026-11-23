@@ -36,6 +36,19 @@
 
 ## 变更与须知记录
 
+### 2026-11-23 — 消息反馈新增 `saved` 收藏原语与条件列表接口，底层迁移至 `main.sqlite`
+
+- **影响端形态**：`rich-ui`、`all`
+- **类型**：`feature`
+- **契约入口**：`/docs`「消息反馈」（以 `/openapi.json` 为准）
+- **要点与接入端注意**：
+  - **全消息类型统一人类行为原语（`like` / `dislike` / `saved` / `comments`）**：全部会话消息反馈响应与历史消息回读对象新增 `saved: boolean` 字段（默认 `false`），与现有 `reaction`（`"like" | "dislike" | null`）和 `comments` 共享底层语义（与 `news` 领域对齐）。
+  - **新增收藏与列表检索接口**：
+    - `PUT /api/sessions/:sessionId/messages/:messageId/feedback/saved`（body：`{ piSessionId, saved }`）独立切换单条消息收藏状态，不改变点赞/点踩或评论，追加 `saved_changed` 原始审计事件。
+    - `GET /api/sessions/:sessionId/messages/feedback?piSessionId=...&saved=...&reaction=...` 按当前 `piSessionId` 与可选 `saved` / `reaction` 条件返回有活跃行为记录的消息列表（`messageId`、`role`、`feedback: { reaction, saved, comments }`、`updatedAt`）。
+  - **领域消费对齐（信息后台 `feedbackExamples`）**：`GET /api/information/preferences` 返回的示例新增 `saved: boolean`；仅收藏未点赞/评论的通知消息也会作为反馈样本进入 `feedbackExamples`。
+  - **存储层迁移至 `main.sqlite`**：`sessions/<sessionId>/feedback/` 目录不再使用，反馈事件流与索引状态统一保存在 `main.sqlite` 的 `message_feedback_events` 与 `message_feedback_states` 表，对外 HTTP 契约保持兼容扩展。
+
 ### 2026-11-23 — 工作区指令与人设文件支持顶部 YAML Frontmatter `include:` 拆分引用
 
 - **影响端形态**：`rich-ui`、`all`

@@ -383,6 +383,7 @@ test("feedback examples expose current projections and storage failures loudly",
           { id: "e1", type: "comment_added", messageId: "notification-1", role: "assistant", commentId: "c1", text: "old", at },
           { id: "e2", type: "comment_edited", messageId: "notification-1", role: "assistant", commentId: "c1", fromText: "old", toText: "latest", at },
           { id: "e3", type: "reaction_changed", messageId: "notification-1", role: "assistant", from: null, to: "like", at },
+          { id: "e4", type: "saved_changed", messageId: "notification-1", role: "assistant", from: false, to: true, at },
         ],
       }),
     } as never,
@@ -391,9 +392,33 @@ test("feedback examples expose current projections and storage failures loudly",
   const preferences = await service.getPreferences();
   assert.equal(preferences.feedbackExamples.length, 1);
   assert.equal(preferences.feedbackExamples[0]?.reaction, "like");
+  assert.equal(preferences.feedbackExamples[0]?.saved, true);
   assert.deepEqual(preferences.feedbackExamples[0]?.comments, ["latest"]);
   assert.equal(preferences.feedbackExamples[0]?.items[0]?.content.length, 2000);
   assert.equal(preferences.feedbackExamples[0]?.items[0]?.contentTruncated, true);
+
+  const savedOnlyService = createInformationService({
+    instructions: memoryInformationRules(),
+    repository,
+    retainMain: async () => ({
+      conversation: { piSessionId: () => "session-1", notify: async (_text, id) => ({ notificationId: id, piSessionId: "session-1", messageId: id }) },
+      release: () => undefined,
+    }),
+    feedback: {
+      read: async () => ({
+        schemaVersion: 1,
+        events: [
+          { id: "e5", type: "saved_changed", messageId: "notification-1", role: "assistant", from: false, to: true, at },
+        ],
+      }),
+    } as never,
+    runModel: async () => ({ ok: false, error: "MODEL_REQUEST_FAILED" }),
+  });
+  const savedOnlyPreferences = await savedOnlyService.getPreferences();
+  assert.equal(savedOnlyPreferences.feedbackExamples.length, 1);
+  assert.equal(savedOnlyPreferences.feedbackExamples[0]?.reaction, null);
+  assert.equal(savedOnlyPreferences.feedbackExamples[0]?.saved, true);
+  assert.deepEqual(savedOnlyPreferences.feedbackExamples[0]?.comments, []);
 
   const failingService = createInformationService({
     instructions: memoryInformationRules(),

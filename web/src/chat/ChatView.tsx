@@ -5,6 +5,8 @@ import {
   loadHistory,
   resetSession,
   runConversation,
+  setMessageReaction,
+  setMessageSaved,
   stopConversation,
   ApiError,
 } from "../lib/api.js";
@@ -92,8 +94,24 @@ const formatAttachmentSize = (size: number) => size < 1024 ? `${size} B`
   : size < 1024 * 1024 ? `${(size / 1024).toFixed(1)} KiB`
   : `${(size / (1024 * 1024)).toFixed(1)} MiB`;
 
-const MessageBubble = ({ message }: { message: MessageView }) => {
+const MessageBubble = ({
+  message,
+  canFeedback,
+  busy,
+  onReaction,
+  onSaved,
+}: {
+  message: MessageView;
+  canFeedback: boolean;
+  busy: boolean;
+  onReaction: (reaction: "like" | "dislike" | null) => void;
+  onSaved: (saved: boolean) => void;
+}) => {
   const mine = message.role === "user";
+  const feedback = message.feedback;
+  const liked = feedback?.reaction === "like";
+  const disliked = feedback?.reaction === "dislike";
+  const saved = feedback?.saved === true;
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
@@ -131,6 +149,52 @@ const MessageBubble = ({ message }: { message: MessageView }) => {
             <span className="animate-bounce [animation-delay:240ms]">·</span>
           </span>
         )}
+        {canFeedback && message.feedbackAvailable && feedback && !message.streaming && (
+          <div className={`mt-2 flex flex-wrap items-center gap-1.5 text-[11px] ${mine ? "justify-end text-stone-300" : "text-stone-500"}`}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onReaction(liked ? null : "like")}
+              className={`rounded-full border px-2 py-0.5 transition-colors disabled:opacity-40 ${
+                liked
+                  ? "border-blue-500 bg-blue-500/20 text-blue-600"
+                  : mine
+                    ? "border-stone-600 hover:border-stone-400"
+                    : "border-stone-200 hover:border-stone-400"
+              }`}
+            >
+              👍 {liked ? "已赞" : "赞"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onReaction(disliked ? null : "dislike")}
+              className={`rounded-full border px-2 py-0.5 transition-colors disabled:opacity-40 ${
+                disliked
+                  ? "border-rose-500 bg-rose-500/20 text-rose-600"
+                  : mine
+                    ? "border-stone-600 hover:border-stone-400"
+                    : "border-stone-200 hover:border-stone-400"
+              }`}
+            >
+              👎 {disliked ? "已踩" : "踩"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onSaved(!saved)}
+              className={`rounded-full border px-2 py-0.5 transition-colors disabled:opacity-40 ${
+                saved
+                  ? "border-amber-500 bg-amber-500/20 text-amber-600"
+                  : mine
+                    ? "border-stone-600 hover:border-stone-400"
+                    : "border-stone-200 hover:border-stone-400"
+              }`}
+            >
+              {saved ? "★ 已收藏" : "☆ 收藏"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -157,6 +221,7 @@ export const ChatView = ({
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState("");
   const [activePiSessionId, setActivePiSessionId] = useState(initialPiSessionId || "");
+  const [feedbackBusyIds, setFeedbackBusyIds] = useState<Set<string>>(() => new Set());
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
@@ -183,9 +248,9 @@ export const ChatView = ({
       if (!ownsHistoryRequest()) return;
       session.revision = history.revision;
       session.historyReady = true;
+      setActivePiSessionId(history.piSessionId ?? "");
       if (history.piSessionId) {
         seenPiSessionIds.current.add(history.piSessionId);
-        setActivePiSessionId(history.piSessionId);
       }
       setViews(projectHistory(history.messages));
       setError("");
@@ -218,6 +283,8 @@ export const ChatView = ({
     setRunning(null);
     setStopping(false);
     setLoading(true);
+    setActivePiSessionId(initialPiSessionId || "");
+    setFeedbackBusyIds(new Set());
     void readAuthority(session);
     return () => {
       if (sessionRef.current === session) sessionRef.current = null;
@@ -321,9 +388,13 @@ export const ChatView = ({
         // Stop 只取消本轮流，刷新使用会话级 signal；切换/卸载则两者都取消。
         // 直到刷新结束才释放 run，防止旧 finally 覆盖新一轮视图或 历史版本。
         try {
-          const { messages, revision } = await loadHistory(run.sessionId, session.controller.signal);
+          const { messages, revision, piSessionId } = await loadHistory(run.sessionId, session.controller.signal);
           if (ownsRun()) {
             session.revision = revision;
+            if (piSessionId) {
+              seenPiSessionIds.current.add(piSessionId);
+              setActivePiSessionId(piSessionId);
+            }
             setViews(projectHistory(messages));
           }
         } catch (e) {
@@ -387,6 +458,35 @@ export const ChatView = ({
     }
   };
 
+  const updateMessageFeedback = async (
+    message: MessageView,
+    mutate: (piSessionId: string) => Promise<NonNullable<MessageView["feedback"]>>,
+  ) => {
+    const session = sessionRef.current;
+    if (!activePiSessionId || running || feedbackBusyIds.has(message.id)) return;
+    const piSessionId = activePiSessionId;
+    setFeedbackBusyIds((prev) => new Set(prev).add(message.id));
+    setError("");
+    try {
+      const nextFeedback = await mutate(piSessionId);
+      if (!session || !ownsSession(session) || session.sessionId !== currentSessionId) return;
+      setViews((prev) =>
+        prev.map((item) => (item.id === message.id ? { ...item, feedback: nextFeedback } : item)),
+      );
+    } catch (e) {
+      if (session && ownsSession(session) && session.sessionId === currentSessionId) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      setFeedbackBusyIds((prev) => {
+        if (!prev.has(message.id)) return prev;
+        const next = new Set(prev);
+        next.delete(message.id);
+        return next;
+      });
+    }
+  };
+
   return (
     <div className="flex h-full flex-col">
       {/* 会话与会话顶栏 */}
@@ -414,7 +514,7 @@ export const ChatView = ({
           <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
             <h2 className="text-base font-semibold text-stone-800">重置当前会话</h2>
             <p className="mt-2 text-xs leading-relaxed text-stone-500">
-              重置将清空当前会话的聊天历史及其消息反馈（喜欢、不喜欢、评论与操作记录），并更新内部聊天身份。<br />
+              重置将清空当前会话的聊天历史及其消息反馈（喜欢、不喜欢、收藏、评论与操作记录），并更新内部聊天身份。<br />
               <strong>公开会话 ID、定时任务和网页监控保留。</strong>
             </p>
 
@@ -451,7 +551,32 @@ export const ChatView = ({
           </div>
         )}
         {views.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <MessageBubble
+            key={message.id}
+            message={message}
+            canFeedback={Boolean(activePiSessionId) && !running}
+            busy={feedbackBusyIds.has(message.id)}
+            onReaction={(reaction) =>
+              void updateMessageFeedback(message, (piSessionId) =>
+                setMessageReaction({
+                  sessionId: currentSessionId,
+                  piSessionId,
+                  messageId: message.id,
+                  reaction,
+                }),
+              )
+            }
+            onSaved={(saved) =>
+              void updateMessageFeedback(message, (piSessionId) =>
+                setMessageSaved({
+                  sessionId: currentSessionId,
+                  piSessionId,
+                  messageId: message.id,
+                  saved,
+                }),
+              )
+            }
+          />
         ))}
         {error && (
           <div className="mx-auto max-w-[85%] rounded-lg bg-red-50 px-3 py-2 text-center text-sm text-red-600">

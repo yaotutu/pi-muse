@@ -68,7 +68,7 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 
 正文和消息身份来自 pi branch；展示读取完整权威历史，不用压缩摘要替换 UI 历史。图片附件从同一条 pi user message 的 image blocks 恢复，文本附件作为不可信数据进入该条请求，不创建工作区附件库。
 
-反馈绑定公开会话、pi 会话和消息 id，独立记录原始反应/评论事件，不追加到 JSONL、不改变聊天 revision。喜欢/不喜欢互斥且可撤销，评论 trim 后 1–4000 字符。当前生成消息和工具结果不可反馈。reset 清理旧反馈；旧 pi 身份返回冲突，不把反馈迁移到新历史。反馈记录本身不启动模型或偏好训练。
+反馈绑定公开会话、pi 会话和消息 id，在 `main.sqlite` 独立记录原始反应/收藏（`saved`）/评论事件并同步索引状态视图，不追加到 JSONL、不改变聊天 revision。喜欢/不喜欢互斥且可撤销，收藏可独立开关，评论 trim 后 1–4000 字符；支持按 `saved` 与 `reaction` 条件查询消息反馈列表（`GET /api/sessions/:sessionId/messages/feedback`）。当前生成消息和工具结果不可反馈。reset 与删除会话清理对应反馈；旧 pi 身份返回冲突，不把反馈迁移到新历史。底层统一记录全部行为事件，具体下游业务可按需消费（当前信息偏好从通知反馈提取 reaction/saved/comments 样本）。
 
 ## 领域 Agent（短信与新闻）
 
@@ -102,7 +102,7 @@ Activity 与真实步骤保存在对应会话 JSONL custom entries，不建立�
 
 ## 数据布局与校验
 
-路径唯一来源是 `src/adapters/storage/data-layout.ts`。唯一工作区 `workspace/` 保存全局 `assistant/{SOUL,USER,INSTRUCTIONS}.md`、`domains/{sms,news}/INSTRUCTIONS.md` 与 `files/`；全局状态目录 `state/assistant/` 保存 `memory.md`、`identity.json` 与 `skill-overrides.json`；`sessions/index.json` 与 `sessions/<sessionId>/{history,feedback}/` 保存各会话元数据、JSONL 与消息反馈；默认业务库 `state/main.sqlite` 保存定时任务、目标、审批记录、短信与 Dream 机器状态，新闻使用独立 `state/news.sqlite`，网页监控暂留 `state/monitors.json`。存储边界与判据见 [SQLite 存储约定](sqlite-storage.md)。
+路径唯一来源是 `src/adapters/storage/data-layout.ts`。唯一工作区 `workspace/` 保存全局 `assistant/{SOUL,USER,INSTRUCTIONS}.md`、`domains/{sms,news}/INSTRUCTIONS.md` 与 `files/`；全局状态目录 `state/assistant/` 保存 `memory.md`、`identity.json` 与 `skill-overrides.json`；`sessions/index.json` 与 `sessions/<sessionId>/history/` 保存各会话元数据与 JSONL；默认业务库 `state/main.sqlite` 保存定时任务、目标、审批记录、短信、Dream 与消息反馈行为数据，新闻使用独立 `state/news.sqlite`，网页监控暂留 `state/monitors.json`。存储边界与判据见 [SQLite 存储约定](sqlite-storage.md)。
 
 SQLite 表和字段采用 snake_case，领域表以模块名前缀区分，迁移版本单独登记。新闻文章、反馈、评论、批次和决定关系化保存，不以整份 JSON 文档替代关系表。保持原始业务 ID、顺序、时间及删除语义；来源是历史快照的关联不应错误级联删除文章。数据库内更新使用短事务，不在 SQL 事务内等待模型、网络或人工决定。
 

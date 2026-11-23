@@ -76,7 +76,7 @@ include: [./bank.md, ./delivery-rules.md]
 SMS processing is disabled by default. Its system prompt uses a **Default-Silent** baseline: uncertain messages without an explicit directive default to `silent` (promotions, carrier marketing, routine completed login OTPs, ordinary mid-transit shipping updates), while actionable alerts default to `notify` (pickup codes/delivery exceptions, unusual financial alerts, account security warnings, itinerary changes). Decisions follow strict precedence from highest to lowest:
 
 1. **Your explicit instructions**: `workspace/domains/sms/INSTRUCTIONS.md` (highest authority).
-2. **Recent message feedback**: likes, dislikes, and comments you leave on past SMS notification messages in `main` chat.
+2. **Recent message feedback**: likes, dislikes, saves, and comments you leave on past SMS notification messages in `main` chat.
 3. **Self-learned sensitivity profile**: rolling `learnedNotes` stored in `main.sqlite`.
 4. **Default-Silent baseline**: conservative fallback filter when higher tiers give no directive.
 

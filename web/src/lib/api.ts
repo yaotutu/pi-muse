@@ -26,9 +26,11 @@ export type { TraceDetailDto, TraceSummaryDto, TracesQueryDto, TracesResponseDto
 import type { RunRequestDto } from "../../../src/http/contracts/rest.js";
 import {
   messageFeedbackEventsResponse,
+  messageFeedbackListResponse,
   messageFeedbackResponse,
   type MessageFeedbackDto,
   type MessageFeedbackEventsDto,
+  type MessageFeedbackListDto,
 } from "../../../src/http/contracts/messages.js";
 import { sseEventSchema, type SseEvent } from "../../../src/http/contracts/sse-events.js";
 import type { SessionStatusDto } from "../../../src/http/contracts/session-status.js";
@@ -255,6 +257,32 @@ export const setMessageReaction = async (
   });
   if (!response.ok) await feedbackFailure(response, "保存反馈");
   return messageFeedbackResponse.parse(await response.json());
+};
+
+export const setMessageSaved = async (
+  input: { sessionId: string; piSessionId: string; messageId: string; saved: boolean },
+): Promise<MessageFeedbackDto> => {
+  const response = await request(`${messageFeedbackBase(input.sessionId, input.messageId)}/saved`, {
+    method: "PUT",
+    body: JSON.stringify({ piSessionId: input.piSessionId, saved: input.saved }),
+  });
+  if (!response.ok) await feedbackFailure(response, "保存收藏");
+  return messageFeedbackResponse.parse(await response.json());
+};
+
+export const listMessageFeedback = async (
+  input: { sessionId: string; piSessionId: string; saved?: boolean; reaction?: "like" | "dislike" },
+  signal?: AbortSignal,
+): Promise<MessageFeedbackListDto> => {
+  const params = new URLSearchParams({ piSessionId: input.piSessionId });
+  if (input.saved !== undefined) params.set("saved", String(input.saved));
+  if (input.reaction !== undefined) params.set("reaction", input.reaction);
+  const response = await request(
+    `/api/sessions/${encodeURIComponent(input.sessionId)}/messages/feedback?${params.toString()}`,
+    { signal },
+  );
+  if (!response.ok) await feedbackFailure(response, "读取反馈列表");
+  return messageFeedbackListResponse.parse(await response.json());
 };
 
 export const addMessageComment = async (

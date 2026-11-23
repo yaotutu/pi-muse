@@ -36,9 +36,9 @@ When sending or writing has an unknown outcome, synchronize authoritative histor
 
 ## Message feedback {#message-feedback}
 
-Saved user/assistant messages support like, dislike, reaction removal and comment management. Generating messages and tool results do not. Reactions are mutually exclusive; comments contain 1–4000 characters after trimming.
+Saved historical messages (user messages, assistant replies, and notifications) support like, dislike (mutually exclusive and toggleable), independent bookmarking (`saved`), comment management (1–4000 characters after trimming), and filtered feedback listing. Generating messages and tool results do not accept feedback.
 
-Feedback binds the public session, internal pi session and message id. Raw operations are stored separately; feedback does not change chat revision, start a model or train preferences. Old internal identities cannot receive feedback after reset. Read back unknown writes instead of retrying automatically.
+Feedback binds the public session, internal pi session, and message id. Raw action events and indexed state views are persisted in `main.sqlite` separately from model conversation context; feedback does not change chat revision, and recording itself does not start a model run or preference training. Resetting or deleting a session clears its feedback, and old internal identities cannot receive feedback after reset. Read back unknown writes instead of retrying automatically.
 
 ## Assistant instructions and skills {#session-rules-and-skills}
 

@@ -57,14 +57,6 @@ export const sessionDir = (layout: DataLayout, sessionId: string): string => {
 };
 export const sessionHistoryDir = (layout: DataLayout, sessionId: string): string =>
   join(sessionDir(layout, sessionId), "history");
-
-export const sessionFeedbackDir = (layout: DataLayout, sessionId: string): string =>
-  join(sessionDir(layout, sessionId), "feedback");
-
-export const messageFeedbackFile = (layout: DataLayout, sessionId: string, piSessionId: string): string => {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(piSessionId)) throw new Error("Invalid piSessionId");
-  return join(sessionFeedbackDir(layout, sessionId), `${piSessionId}.json`);
-};
 /** 初始化也拒绝链接，不能让 mkdir 跟随替换后的边界根。 */
 export const ensureLayout = async (layout: DataLayout): Promise<void> => {
   await mkdir(layout.root, { recursive: true, mode: 0o700 });

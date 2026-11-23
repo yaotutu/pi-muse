@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addMemory, createGoal, decideApproval, editMemory, forgetMemory, getSessionSnapshot, getGoal, getMemory, getToken, listGoals, listMemories, listPendingApprovals, login, removeGoal, runConversation, setGoalStatus, subscribeAuth, toggleGoalMilestone, updateGoal } from "../../web/src/lib/api.js";
+import { addMemory, createGoal, decideApproval, editMemory, forgetMemory, getSessionSnapshot, getGoal, getMemory, getToken, listGoals, listMemories, listMessageFeedback, listPendingApprovals, login, removeGoal, runConversation, setGoalStatus, setMessageReaction, setMessageSaved, subscribeAuth, toggleGoalMilestone, updateGoal } from "../../web/src/lib/api.js";
 
 /** 只替换浏览器边界，复用真实 API 客户端；认证失效必须发布到 React 订阅而非只删缓存。 */
 test("login rejects wrong keys normally and API 401 immediately invalidates the shared authentication state", async (t) => {
@@ -207,4 +207,70 @@ test("goals client uses dedicated /api/goals routes with filtering, patch, toggl
   // 7. 错误处理
   status = 404;
   await assert.rejects(getGoal("missing"), /无法加载目标详情/);
+});
+
+test("message feedback client sends reaction, saved and filtered list requests", async (t) => {
+  const oldStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => "test-token" } });
+  t.after(() => {
+    if (oldStorage) Object.defineProperty(globalThis, "localStorage", oldStorage); else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  const requests: Array<{ path: string; init?: RequestInit }> = [];
+  const feedbackState = {
+    reaction: "like" as const,
+    saved: true,
+    comments: [],
+  };
+  let body: unknown = feedbackState;
+  t.mock.method(globalThis, "fetch", async (path: string | URL | Request, init?: RequestInit) => {
+    requests.push({ path: String(path), init });
+    return new Response(JSON.stringify(body), { status: 200 });
+  });
+
+  const reacted = await setMessageReaction({
+    sessionId: "main",
+    piSessionId: "pi-1",
+    messageId: "msg-1",
+    reaction: "like",
+  });
+  assert.equal(reacted.reaction, "like");
+  assert.equal(reacted.saved, true);
+  assert.equal(requests[0].path, "/api/sessions/main/messages/msg-1/feedback/reaction");
+  assert.equal(requests[0].init?.method, "PUT");
+  assert.deepEqual(JSON.parse(String(requests[0].init?.body)), { piSessionId: "pi-1", reaction: "like" });
+
+  const saved = await setMessageSaved({
+    sessionId: "main",
+    piSessionId: "pi-1",
+    messageId: "msg-1",
+    saved: true,
+  });
+  assert.equal(saved.saved, true);
+  assert.equal(requests[1].path, "/api/sessions/main/messages/msg-1/feedback/saved");
+  assert.equal(requests[1].init?.method, "PUT");
+  assert.deepEqual(JSON.parse(String(requests[1].init?.body)), { piSessionId: "pi-1", saved: true });
+
+  body = {
+    items: [
+      {
+        messageId: "msg-1",
+        role: "assistant",
+        feedback: feedbackState,
+        updatedAt: "2026-11-23T00:00:00.000Z",
+      },
+    ],
+  };
+  const listed = await listMessageFeedback({
+    sessionId: "main",
+    piSessionId: "pi-1",
+    saved: true,
+    reaction: "like",
+  });
+  assert.equal(listed.items.length, 1);
+  assert.equal(listed.items[0]?.feedback.saved, true);
+  assert.equal(listed.items[0]?.feedback.reaction, "like");
+  assert.equal(
+    requests[2].path,
+    "/api/sessions/main/messages/feedback?piSessionId=pi-1&saved=true&reaction=like",
+  );
 });

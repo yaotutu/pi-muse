@@ -101,7 +101,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 ### `tests/live/message-feedback.ts`
 
 - 专项连接已运行的真实后端与外部模型；`--base-url`、`--token-file`、`--context-file` 与 `--allow-live` 必须显式给出，token 只进请求头且不输出。
-- `--phase record` 创建独立会话并写入不含凭据的重启 context；主 Agent 重启后端后用同参数执行 `--phase verify` 验证持久化、后续真实模型、reset/delete 生命周期。失败不自动重试写入。
+- `--phase record` 创建独立会话并写入不含凭据的重启 context；主 Agent 重启后端后用同参数执行 `--phase verify` 验证 `reaction`/`saved`/评论与列表筛选持久化、后续真实模型、reset/delete 生命周期。失败不自动重试写入。
 
 ### `tests/live/information.ts`
 

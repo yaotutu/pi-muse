@@ -127,10 +127,10 @@ DATA_DIR/
     files/                        Ordinary files
   sessions/
     index.json
-    <sessionId>/                  history/, feedback/
+    <sessionId>/                  history/
   state/
     assistant/                    memory.md, identity.json, skill-overrides.json
-    main.sqlite                   Jobs, goals, approvals, SMS state, Dream state
+    main.sqlite                   Jobs, goals, approvals, SMS state, Dream state, message feedback
     news.sqlite                   News data and learned preferences
     monitors.json                 Webpage monitors
   assets/                         companions/, skills/, subagents/

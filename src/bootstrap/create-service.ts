@@ -150,7 +150,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   const actions = createActionService(createActionRepository(mainDatabase), { onChange: (action) => workspaceEvents.approvalChanged(action) });
   const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
   const skills = createSkillsService(createSkillRepository(layout, options.sharedSkillsDir));
-  const messageFeedbackRepository = createMessageFeedbackRepository(layout);
+  const messageFeedbackRepository = createMessageFeedbackRepository(mainDatabase);
   const dreamRepository = createDreamRepository(mainDatabase);
   const informationRepository = createInformationRepository(mainDatabase);
   const sessionRepository = createSessionRepository(layout.sessionIndexFile);

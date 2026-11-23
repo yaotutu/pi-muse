@@ -3,6 +3,7 @@
  * 运行结束后由服务端权威历史（GET /api/conversation）替换，避免双份事实。
  */
 import type { ApiMessage, SseEvent } from "../lib/api.js";
+import type { MessageFeedbackDto } from "../../../src/http/contracts/messages.js";
 
 export type ToolCallView = {
   id: string;
@@ -22,6 +23,8 @@ export type MessageView = {
   toolCalls: ToolCallView[];
   /** 运行中的 assistant 消息（流式聚合）。 */
   streaming?: boolean;
+  feedbackAvailable?: boolean;
+  feedback?: MessageFeedbackDto;
 };
 
 /** 把服务端历史（含 toolCalls/tool 消息）投影为视图。 */
@@ -35,6 +38,10 @@ export const projectHistory = (messages: ApiMessage[]): MessageView[] => {
         text: typeof message.content === "string" ? message.content : "",
         ...(message.attachments?.length ? { attachments: message.attachments } : {}),
         toolCalls: [],
+        ...(message.metadata?.feedbackAvailable !== undefined
+          ? { feedbackAvailable: message.metadata.feedbackAvailable }
+          : {}),
+        ...(message.feedback ? { feedback: message.feedback } : {}),
       });
     } else if (message.role === "assistant") {
       const view: MessageView = {
@@ -46,6 +53,10 @@ export const projectHistory = (messages: ApiMessage[]): MessageView[] => {
           name: call.function.name,
           args: call.function.arguments,
         })),
+        ...(message.metadata?.feedbackAvailable !== undefined
+          ? { feedbackAvailable: message.metadata.feedbackAvailable }
+          : {}),
+        ...(message.feedback ? { feedback: message.feedback } : {}),
       };
       views.push(view);
     } else if (message.role === "tool" && message.toolCallId) {

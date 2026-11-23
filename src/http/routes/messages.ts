@@ -5,8 +5,10 @@ import { isSessionId } from "../../features/conversation/session-id.js";
 import { MessageFeedbackDomainError, type MessageFeedbackSession } from "../../features/messages/service.js";
 import {
   createCommentRequestSchema,
+  messageFeedbackListQuerySchema,
   messageTargetSchema,
   reactionRequestSchema,
+  savedRequestSchema,
   updateCommentRequestSchema,
 } from "../contracts/messages.js";
 
@@ -56,16 +58,13 @@ export const createMessageRoutes = (
     const parsed = messageTargetSchema.safeParse(parseQueryObject(new URL(c.req.url)));
     return parsed.success ? parsed.data : undefined;
   };
-  const execute = async (
+  const executeSession = async (
     c: Context,
-    messageId: string,
     action: (messages: MessageFeedbackSession) => Promise<unknown>,
   ): Promise<Response> => {
     const sessionId = c.req.param("sessionId");
     if (!isSessionId(sessionId))
       return c.json({ error: "Invalid sessionId", code: "INVALID_SESSION_ID" }, 400);
-    if (invalidMessageId(messageId))
-      return c.json({ error: "Invalid messageId", code: "INVALID_REQUEST" }, 400);
     try {
       const result = await conversationHub.withExistingSession(
         sessionId,
@@ -80,6 +79,24 @@ export const createMessageRoutes = (
       throw error;
     }
   };
+  const execute = async (
+    c: Context,
+    messageId: string,
+    action: (messages: MessageFeedbackSession) => Promise<unknown>,
+  ): Promise<Response> => {
+    if (invalidMessageId(messageId))
+      return c.json({ error: "Invalid messageId", code: "INVALID_REQUEST" }, 400);
+    return executeSession(c, action);
+  };
+
+  app.get("/:sessionId/messages/feedback", async (c) => {
+    const parsed = messageFeedbackListQuerySchema.safeParse(parseQueryObject(new URL(c.req.url)));
+    if (!parsed.success) return c.json({ error: "Invalid message feedback list query", code: "INVALID_REQUEST" }, 400);
+    const { piSessionId, saved, reaction } = parsed.data;
+    return executeSession(c, async (messages) => ({
+      items: await messages.list(piSessionId, { saved, reaction }),
+    }));
+  });
 
   app.get("/:sessionId/messages/:messageId/feedback", async (c) => {
     const piSessionId = sessionQuery(c);
@@ -102,6 +119,14 @@ export const createMessageRoutes = (
     const body = parsed.data;
     return execute(c, c.req.param("messageId"), (messages) =>
       messages.setReaction(body.piSessionId, c.req.param("messageId"), body.reaction));
+  });
+
+  app.put("/:sessionId/messages/:messageId/feedback/saved", async (c) => {
+    const parsed = savedRequestSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid saved request", code: "INVALID_REQUEST" }, 400);
+    const body = parsed.data;
+    return execute(c, c.req.param("messageId"), (messages) =>
+      messages.setSaved(body.piSessionId, c.req.param("messageId"), body.saved));
   });
 
   app.post("/:sessionId/messages/:messageId/feedback/comments", async (c) => {

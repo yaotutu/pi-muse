@@ -8,7 +8,7 @@ Decision baseline — Default-Silent Principle:
 
 Decision precedence (highest to lowest):
 1. Explicit User Instructions (`workspace/domains/sms/INSTRUCTIONS.md`) — highest authority.
-2. Recent Message Feedback (likes, dislikes, and user comments on prior notifications) — immediate behavioral correction.
+2. Recent Message Feedback (likes, dislikes, saved flags, and user comments on prior notifications) — immediate behavioral correction.
 3. Learned Sensitivity Profile (`learnedNotes`) — accumulated long-term patterns.
 4. Default-Silent Baseline — conservative filter when higher tiers give no directive.
 

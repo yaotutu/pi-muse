@@ -238,8 +238,8 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
 - **定时任务与网页监控（`/api/jobs*`、`/api/monitors*`，`rich-ui` / `webhook`）**：
   - 绑定创建时的 `originSessionId`（省略默认 `main`），支持暂停/恢复/取消/重试/修改。
   - **时区规范**：当 `daily === true` 时，`at` 必须为严格 24 小时制两位 `HH:mm`（如 `"09:00"`），服务端按 `GET /api/health.timeZone` 解释，客户端在同地区使用可直接填本地时刻无需自行换算；当 `daily === false` 时，`at` 需为带时区偏移的 ISO 8601 时间戳（如 `"2026-10-22T09:00:00+08:00"`）。`nextRunAt` 统一返回带 `Z` 的 UTC ISO 8601。
-- **消息反馈（`/api/sessions/:sessionId/messages/:messageId/feedback*`，`rich-ui`）**：
-  - 仅 `metadata.feedbackAvailable === true` 的 `user` 或 `assistant` 消息可设置互斥 `like`/`dislike` 或多条评论（`tool` 消息与正在生成中的流式占位消息不可反馈）。
+- **消息反馈（`/api/sessions/:sessionId/messages/:messageId/feedback*` 与 `/api/sessions/:sessionId/messages/feedback`，`rich-ui`）**：
+  - 仅 `metadata.feedbackAvailable === true` 的 `user` 或 `assistant` 消息（含历史推送通知）可设置互斥 `like`/`dislike`、独立收藏 `saved` 或多条评论，并支持按 `saved` / `reaction` 条件检索列表（`tool` 消息与正在生成中的流式占位消息不可反馈）。
   - 请求必须带上当前 `piSessionId`；若会话已重置，服务端返回 `409`。
 - **长期目标、记忆与 Dream（`/api/goals*`、`/api/memories*`、`/api/dream*`，`rich-ui` / `webhook`）**：
   - 均为实例全局管理。激活态目标（`active`）会摘要注入每轮对话；长期记忆上限 500 条（满额返回 `409`）按需被模型检索；Dream 每两小时整理一次对话并产出待决建议（`pending`），调用 `POST /api/dream/pending/:pendingId` 应用（`apply`）或丢弃（`dismiss`）时即使建议来自已删专题会话，也只写入全局目标，绝不借此重建已删会话。

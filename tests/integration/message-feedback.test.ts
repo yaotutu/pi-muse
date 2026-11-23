@@ -209,6 +209,20 @@ test("message feedback persists full events, coordinates sessions, and never cha
   });
   assert.equal(oldSessionCall.status, 409);
   await assert.rejects(stat(join(h.dataDir, "sessions", sessionId, "feedback")), { code: "ENOENT" });
+  const { DatabaseSync } = await import("node:sqlite");
+  const sqlite = new DatabaseSync(join(h.dataDir, "state", "main.sqlite"));
+  try {
+    const remainingEvents = sqlite
+      .prepare("SELECT COUNT(*) AS count FROM message_feedback_events WHERE session_id = ?")
+      .get(sessionId) as { count: number };
+    const remainingStates = sqlite
+      .prepare("SELECT COUNT(*) AS count FROM message_feedback_states WHERE session_id = ?")
+      .get(sessionId) as { count: number };
+    assert.equal(remainingEvents.count, 0);
+    assert.equal(remainingStates.count, 0);
+  } finally {
+    sqlite.close();
+  }
   const newSnapshot = await h.get(sessionId);
   assert.equal(newSnapshot.piSessionId, newPiSessionId);
   assert.deepEqual(newSnapshot.messages, []);
@@ -244,6 +258,57 @@ test("message feedback validates auth, ownership, notification facts, and raw ev
   const eventsPath = `${base}/events?piSessionId=${encodeURIComponent(piSessionId)}`;
   const events = (await (await h.feedback(eventsPath)).body as { events: unknown[] }).events;
   assert.deepEqual(events, []);
+
+  // 通知也支持独立收藏（saved）与按条件列表检索；不改变现有反应或评论。
+  const savedNotify = await h.feedback(`${base}/saved`, {
+    method: "PUT",
+    body: JSON.stringify({ piSessionId, saved: true }),
+  });
+  assert.equal(savedNotify.status, 200);
+  assert.equal((savedNotify.body as { saved: boolean }).saved, true);
+  assert.equal((savedNotify.body as { reaction: string | null }).reaction, null);
+
+  const listSaved = await h.feedback(`/api/sessions/main/messages/feedback?piSessionId=${encodeURIComponent(piSessionId)}&saved=true`);
+  assert.equal(listSaved.status, 200);
+  const savedItems = (listSaved.body as {
+    items: Array<{ messageId: string; feedback: { reaction: string | null; saved: boolean; comments: unknown[] } }>;
+  }).items;
+  assert.equal(savedItems.length, 1);
+  assert.equal(savedItems[0]?.messageId, "feedback-notification");
+  assert.equal(savedItems[0]?.feedback.saved, true);
+
+  const savedEvents = ((await h.feedback(eventsPath)).body as {
+    events: Array<{ type: string; from?: boolean; to?: boolean }>;
+  }).events;
+  assert.equal(savedEvents.length, 1);
+  assert.equal(savedEvents[0]?.type, "saved_changed");
+  assert.equal(savedEvents[0]?.from, false);
+  assert.equal(savedEvents[0]?.to, true);
+
+  await h.feedback(`${base}/reaction`, {
+    method: "PUT",
+    body: JSON.stringify({ piSessionId, reaction: "like" }),
+  });
+  const combined = await h.feedback(
+    `/api/sessions/main/messages/feedback?piSessionId=${encodeURIComponent(piSessionId)}&saved=true&reaction=like`,
+  );
+  assert.equal(combined.status, 200);
+  const combinedItems = (combined.body as {
+    items: Array<{ messageId: string; feedback: { reaction: string | null; saved: boolean } }>;
+  }).items;
+  assert.equal(combinedItems.length, 1);
+  assert.equal(combinedItems[0]?.feedback.reaction, "like");
+  assert.equal(combinedItems[0]?.feedback.saved, true);
+
+  const unsavedList = await h.feedback(
+    `/api/sessions/main/messages/feedback?piSessionId=${encodeURIComponent(piSessionId)}&saved=false`,
+  );
+  assert.equal(unsavedList.status, 200);
+  assert.deepEqual((unsavedList.body as { items: unknown[] }).items, []);
+
+  const invalidListQuery = await h.feedback(`/api/sessions/main/messages/feedback?piSessionId=${encodeURIComponent(piSessionId)}&saved=maybe`);
+  assert.equal(invalidListQuery.status, 400);
+  assert.equal((await h.feedback(`/api/sessions/main/messages/feedback?piSessionId=other-session`)).status, 409);
 
   // 通知没有 runId；空闲和流式运行期间都不能被空 runId 比较误禁用。
 });

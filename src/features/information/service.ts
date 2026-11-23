@@ -216,13 +216,14 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
 
     for (const { run, pub } of candidates) {
       const feedback = projectFeedback(document, pub.receipt!.messageId);
-      if (!feedback.reaction && !feedback.comments.length) continue;
+      if (!feedback.reaction && !feedback.saved && !feedback.comments.length) continue;
       const comments = feedback.comments.slice(0, MAX_FEEDBACK_COMMENTS);
       examples.push({
         runId: run.id,
         notificationId: pub.notificationId,
         text: clipText(pub.text, FEEDBACK_TEXT_LENGTH).text,
         reaction: feedback.reaction,
+        saved: feedback.saved,
         comments: comments.map((comment) => clipText(comment.text, FEEDBACK_TEXT_LENGTH).text),
         commentsTruncated:
           feedback.comments.length > MAX_FEEDBACK_COMMENTS ||

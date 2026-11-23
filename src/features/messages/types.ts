@@ -1,5 +1,11 @@
+import type {
+  UserFeedbackComment,
+  UserFeedbackSnapshot,
+  UserReaction,
+} from "../../shared/feedback.js";
+
 export type MessageSource = "chat" | "job" | "notification";
-export type MessageReaction = "like" | "dislike";
+export type MessageReaction = UserReaction;
 export type FeedbackTargetRole = "user" | "assistant";
 
 /** PI adapter 提供的执行事实；业务层不知道 SessionEntry 或 SDK 类型。 */
@@ -16,17 +22,8 @@ export type MessageExecutionFact = {
   feedbackAvailable: boolean;
 };
 
-export type MessageFeedback = {
-  reaction: MessageReaction | null;
-  comments: MessageComment[];
-};
-
-export type MessageComment = {
-  id: string;
-  text: string;
-  createdAt: string;
-  updatedAt: string;
-};
+export type MessageFeedback = UserFeedbackSnapshot;
+export type MessageComment = UserFeedbackComment;
 
 export type MessageFeedbackEvent =
   | {
@@ -36,6 +33,15 @@ export type MessageFeedbackEvent =
       role: FeedbackTargetRole;
       from: MessageReaction | null;
       to: MessageReaction | null;
+      at: string;
+    }
+  | {
+      id: string;
+      type: "saved_changed";
+      messageId: string;
+      role: FeedbackTargetRole;
+      from: boolean;
+      to: boolean;
       at: string;
     }
   | {
@@ -72,6 +78,27 @@ export type MessageFeedbackDocument = {
   events: MessageFeedbackEvent[];
 };
 
+export type MessageFeedbackFilter = {
+  reaction?: MessageReaction;
+  saved?: boolean;
+};
+
+export type MessageFeedbackStateRecord = {
+  messageId: string;
+  role: FeedbackTargetRole;
+  reaction: MessageReaction | null;
+  saved: boolean;
+  commentCount: number;
+  updatedAt: string;
+};
+
+export type MessageFeedbackListItem = {
+  messageId: string;
+  role: FeedbackTargetRole;
+  feedback: MessageFeedback;
+  updatedAt: string;
+};
+
 export type MessageFeedbackRepository = {
   read: (sessionId: string, piSessionId: string) => Promise<MessageFeedbackDocument>;
   update: <T>(
@@ -79,6 +106,11 @@ export type MessageFeedbackRepository = {
     piSessionId: string,
     change: (document: MessageFeedbackDocument) => { document?: MessageFeedbackDocument; result: T },
   ) => Promise<T>;
+  listStates?: (
+    sessionId: string,
+    piSessionId: string,
+    filter?: MessageFeedbackFilter,
+  ) => Promise<MessageFeedbackStateRecord[]>;
   removeSession: (sessionId: string) => Promise<void>;
   validateAll: () => Promise<void>;
 };

@@ -37,6 +37,7 @@
 | `main.sqlite` | `actions` | 审批记录与执行回执 |
 | `main.sqlite` | `sms_state`、`sms_items`、`sms_runs`、`sms_run_items`、`sms_decisions` | 短信管线（Clean Break v2：`sms_items` 区分 `queue=realtime/archive` 并建有 `(queue, status, position)` 索引） |
 | `main.sqlite` | `dream_state`、`dream_cursors`、`dream_pending` | Dream 机器状态 |
+| `main.sqlite` | `message_feedback_events`、`message_feedback_states` | 消息级用户行为（点赞/点踩、`saved` 收藏、评论 append-only 事件流与索引状态） |
 | `main.sqlite` | `app_schema_migrations` | 模块版本账本 |
 
 规则：

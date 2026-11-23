@@ -125,10 +125,10 @@ DATA_DIR/
     files/                        普通文件
   sessions/
     index.json
-    <sessionId>/                  history/、feedback/
+    <sessionId>/                  history/
   state/
     assistant/                    memory.md、identity.json、skill-overrides.json
-    main.sqlite                   定时任务、目标、审批、短信状态、Dream 状态
+    main.sqlite                   定时任务、目标、审批、短信状态、Dream 状态、消息反馈
     news.sqlite                   新闻数据和学习画像
     monitors.json                 网页监控
   assets/                         companions/、skills/、subagents/

@@ -218,9 +218,13 @@ test("information HTTP ingestion, SDK decisions, notifications and feedback proj
   await h.call(`/api/sessions/${sessionId}/messages/${encodeURIComponent(receipt.messageId)}/feedback/reaction`, {
     method: "PUT", body: JSON.stringify({ piSessionId: receipt.piSessionId, reaction: "like" }),
   });
+  await h.call(`/api/sessions/${sessionId}/messages/${encodeURIComponent(receipt.messageId)}/feedback/saved`, {
+    method: "PUT", body: JSON.stringify({ piSessionId: receipt.piSessionId, saved: true }),
+  });
   const preferences = await h.call(`/api/information/preferences`);
-  const examples = (preferences.body as { feedbackExamples: Array<{ comments: string[]; reaction: string; items: Array<{ source: string }> }> }).feedbackExamples;
+  const examples = (preferences.body as { feedbackExamples: Array<{ comments: string[]; reaction: string; saved: boolean; items: Array<{ source: string }> }> }).feedbackExamples;
   assert.equal(examples[0]?.reaction, "like");
+  assert.equal(examples[0]?.saved, true);
   assert.deepEqual(examples[0]?.comments, ["latest preference"]);
   assert.equal(examples[0]?.items[0]?.source, "rss");
 

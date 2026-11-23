@@ -6,6 +6,8 @@ import {
   type MessageFeedback,
   type MessageFeedbackDocument,
   type MessageFeedbackEvent,
+  type MessageFeedbackFilter,
+  type MessageFeedbackListItem,
   type MessageFeedbackRepository,
   type ProjectedMessageMetadata,
   type ProjectedMessage,
@@ -35,9 +37,13 @@ export const projectFeedback = (
     (event): event is Extract<MessageFeedbackEvent, { type: "reaction_changed" }> =>
       event.type === "reaction_changed" && event.messageId === messageId,
   );
+  const saved = document.events.findLast(
+    (event): event is Extract<MessageFeedbackEvent, { type: "saved_changed" }> =>
+      event.type === "saved_changed" && event.messageId === messageId,
+  );
   const comments = new Map<string, MessageComment>();
   for (const event of document.events) {
-    if (event.messageId !== messageId || event.type === "reaction_changed") continue;
+    if (event.messageId !== messageId || event.type === "reaction_changed" || event.type === "saved_changed") continue;
     if (event.type === "comment_added") {
       comments.set(event.commentId, {
         id: event.commentId, text: event.text, createdAt: event.at, updatedAt: event.at,
@@ -52,7 +58,17 @@ export const projectFeedback = (
       comments.delete(event.commentId);
     }
   }
-  return { reaction: reaction?.to ?? null, comments: [...comments.values()] };
+  return { reaction: reaction?.to ?? null, saved: saved?.to ?? false, comments: [...comments.values()] };
+};
+
+export const hasActiveFeedback = (feedback: MessageFeedback): boolean =>
+  feedback.reaction !== null || feedback.saved || feedback.comments.length > 0;
+
+const matchesFilter = (feedback: MessageFeedback, filter?: MessageFeedbackFilter): boolean => {
+  if (filter?.saved !== undefined && feedback.saved !== filter.saved) return false;
+  if (filter?.reaction !== undefined && feedback.reaction !== filter.reaction) return false;
+  if (filter?.saved === undefined && filter?.reaction === undefined) return hasActiveFeedback(feedback);
+  return true;
 };
 
 const withEvent = (
@@ -65,7 +81,7 @@ const withEvent = (
 
 /**
  * 每个 conversation 绑定一个反馈会话。执行事实从 PI adapter 实时读取；
- * 反馈事件独立持久化，不进入模型上下文，也不改变 PI 会话 revision。
+ * 反馈事件独立持久化在 main.sqlite，不进入模型上下文，也不改变 PI 会话 revision。
  */
 export const createMessageFeedbackSession = (input: {
   sessionId: string;
@@ -120,6 +136,48 @@ export const createMessageFeedbackSession = (input: {
       return (await input.repository.read(input.sessionId, currentPiSessionId()))
         .events.filter((event) => event.messageId === messageId);
     },
+    async list(piSessionId: string, filter?: MessageFeedbackFilter): Promise<MessageFeedbackListItem[]> {
+      guardSession(piSessionId);
+      const scopePiSessionId = currentPiSessionId();
+      const factMap = new Map(facts().map((fact) => [fact.id, fact]));
+      const document = await input.repository.read(input.sessionId, scopePiSessionId);
+      if (input.repository.listStates) {
+        const states = await input.repository.listStates(input.sessionId, scopePiSessionId, filter);
+        const items: MessageFeedbackListItem[] = [];
+        for (const state of states) {
+          const fact = factMap.get(state.messageId);
+          if (!fact || !available(fact)) continue;
+          const feedback = projectFeedback(document, state.messageId);
+          if (!matchesFilter(feedback, filter)) continue;
+          items.push({
+            messageId: state.messageId,
+            role: fact.role,
+            feedback,
+            updatedAt: state.updatedAt,
+          });
+        }
+        return items;
+      }
+      const latestAtByMessage = new Map<string, string>();
+      for (const event of document.events) {
+        latestAtByMessage.set(event.messageId, event.at);
+      }
+      const items: MessageFeedbackListItem[] = [];
+      for (const fact of facts()) {
+        if (!available(fact)) continue;
+        const feedback = projectFeedback(document, fact.id);
+        if (!matchesFilter(feedback, filter)) continue;
+        const updatedAt = latestAtByMessage.get(fact.id) ?? fact.createdAt;
+        items.push({
+          messageId: fact.id,
+          role: fact.role,
+          feedback,
+          updatedAt,
+        });
+      }
+      items.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.messageId.localeCompare(right.messageId));
+      return items;
+    },
     setReaction(piSessionId: string, messageId: string, reaction: "like" | "dislike" | null) {
       return append(messageId, piSessionId, (document, role) => {
         const feedback = projectFeedback(document, messageId);
@@ -127,6 +185,17 @@ export const createMessageFeedbackSession = (input: {
         const next = withEvent(document, {
           id: randomUUID(), type: "reaction_changed", messageId, role,
           from: feedback.reaction, to: reaction, at: new Date().toISOString(),
+        });
+        return { document: next, feedback: projectFeedback(next, messageId) };
+      });
+    },
+    setSaved(piSessionId: string, messageId: string, saved: boolean) {
+      return append(messageId, piSessionId, (document, role) => {
+        const feedback = projectFeedback(document, messageId);
+        if (feedback.saved === saved) return { feedback };
+        const next = withEvent(document, {
+          id: randomUUID(), type: "saved_changed", messageId, role,
+          from: feedback.saved, to: saved, at: new Date().toISOString(),
         });
         return { document: next, feedback: projectFeedback(next, messageId) };
       });

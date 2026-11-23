@@ -1,3 +1,8 @@
+import type {
+  UserFeedbackComment,
+  UserFeedbackSnapshot,
+  UserReaction,
+} from "../../shared/feedback.js";
 import type { NewsSourceFailure } from "./errors.js";
 
 export type NewsSource = {
@@ -31,20 +36,12 @@ export type NewsArticleItem = {
   metadata?: NewsItemMetadata;
 };
 
-export type NewsArticleReaction = "like" | "dislike" | null;
+export type NewsArticleReaction = UserReaction | null;
 
-export type NewsArticleFeedbackComment = {
-  id: string;
-  text: string;
-  createdAt: string;
-  updatedAt: string;
-};
+export type NewsArticleFeedbackComment = UserFeedbackComment;
 
-export type NewsArticleFeedback = {
+export type NewsArticleFeedback = UserFeedbackSnapshot & {
   itemId: string;
-  reaction: NewsArticleReaction;
-  saved: boolean;
-  comments: NewsArticleFeedbackComment[];
 };
 
 export type NewsScreeningDecision = {

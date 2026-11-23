@@ -22,11 +22,13 @@ type Context = {
 
 type Feedback = {
   reaction: "like" | "dislike" | null;
+  saved: boolean;
   comments: Array<{ id: string; text: string; createdAt: string; updatedAt: string }>;
 };
 
 type Event =
   | { type: "reaction_changed"; messageId: string; from: "like" | "dislike" | null; to: "like" | "dislike" | null }
+  | { type: "saved_changed"; messageId: string; from: boolean; to: boolean }
   | { type: "comment_added"; messageId: string; text: string }
   | { type: "comment_edited"; messageId: string; fromText: string; toText: string }
   | { type: "comment_deleted"; messageId: string; text: string };
@@ -165,13 +167,18 @@ const runModel = async (sessionId: string, prompt: string, ids: { runId: string;
 const assertAssistantAudit = (events: Event[], messageId: string) => {
   if (events.some((event) => event.messageId !== messageId)) fail("Raw events leaked another message target");
   if (events.map((event) => event.type).join(",") !==
-    "reaction_changed,reaction_changed,reaction_changed,comment_added,comment_added,comment_edited,comment_deleted")
+    "reaction_changed,reaction_changed,reaction_changed,saved_changed,saved_changed,saved_changed,comment_added,comment_added,comment_edited,comment_deleted")
     fail("Raw assistant event sequence is incorrect");
   const reactions = events.filter((event): event is Extract<Event, { type: "reaction_changed" }> => event.type === "reaction_changed");
   if (
     JSON.stringify(reactions.map((event) => [event.from, event.to])) !==
     JSON.stringify([[null, "like"], ["like", "dislike"], ["dislike", null]])
   ) fail("Raw reaction transitions are incorrect");
+  const savedEvents = events.filter((event): event is Extract<Event, { type: "saved_changed" }> => event.type === "saved_changed");
+  if (
+    JSON.stringify(savedEvents.map((event) => [event.from, event.to])) !==
+    JSON.stringify([[false, true], [true, false], [false, true]])
+  ) fail("Raw saved transitions are incorrect");
   const added = events.filter((event): event is Extract<Event, { type: "comment_added" }> => event.type === "comment_added");
   if (added.map((event) => event.text).join("\n") !== "live comment one\nlive comment two")
     fail("Raw added comment text is incorrect");
@@ -190,6 +197,31 @@ const setReaction = async (label: string, sessionId: string, piSessionId: string
   await expectStatus(`${label} reaction ${reaction ?? "none"}`, result.status, 200, result.body);
   const feedback = result.body as Feedback;
   if (feedback.reaction !== reaction) fail(`${label} reaction response mismatch`);
+};
+
+const setSaved = async (label: string, sessionId: string, piSessionId: string, messageId: string, saved: boolean) => {
+  const result = await api(feedbackPath(sessionId, messageId, "/saved"), {
+    method: "PUT",
+    body: JSON.stringify({ piSessionId, saved }),
+  });
+  await expectStatus(`${label} saved ${String(saved)}`, result.status, 200, result.body);
+  const feedback = result.body as Feedback;
+  if (feedback.saved !== saved) fail(`${label} saved response mismatch`);
+};
+
+const listFeedback = async (
+  sessionId: string,
+  piSessionId: string,
+  filter?: { saved?: boolean; reaction?: "like" | "dislike" },
+) => {
+  const params = new URLSearchParams({ piSessionId });
+  if (filter?.saved !== undefined) params.set("saved", String(filter.saved));
+  if (filter?.reaction !== undefined) params.set("reaction", filter.reaction);
+  const result = await api(`/api/sessions/${encodeURIComponent(sessionId)}/messages/feedback?${params.toString()}`);
+  await expectStatus("list message feedback", result.status, 200, result.body);
+  return (result.body as {
+    items: Array<{ messageId: string; feedback: Feedback; updatedAt: string }>;
+  }).items;
 };
 
 const addComment = async (sessionId: string, piSessionId: string, messageId: string, text: string) => {
@@ -232,6 +264,17 @@ try {
     await setReaction("assistant", sessionId, first.piSessionId!, assistantMessage.id, "like");
     await setReaction("assistant", sessionId, first.piSessionId!, assistantMessage.id, "dislike");
     await setReaction("assistant", sessionId, first.piSessionId!, assistantMessage.id, null);
+
+    await setSaved("user", sessionId, first.piSessionId!, userMessage.id, true);
+    await setSaved("user", sessionId, first.piSessionId!, userMessage.id, false);
+    await setSaved("assistant", sessionId, first.piSessionId!, assistantMessage.id, true);
+    await setSaved("assistant", sessionId, first.piSessionId!, assistantMessage.id, false);
+    await setSaved("assistant", sessionId, first.piSessionId!, assistantMessage.id, true);
+
+    const listedSaved = await listFeedback(sessionId, first.piSessionId!, { saved: true });
+    if (listedSaved.length !== 1 || listedSaved[0]?.messageId !== assistantMessage.id || !listedSaved[0]?.feedback.saved) {
+      fail("Filtered saved=true feedback list mismatch");
+    }
 
     const firstComment = await addComment(sessionId, first.piSessionId!, assistantMessage.id, " live comment one ");
     const secondComment = await addComment(sessionId, first.piSessionId!, assistantMessage.id, " live comment two ");
@@ -305,7 +348,11 @@ try {
       fail("Restart changed session identity, PI revision, or persisted message count");
     const assistant = restarted.messages.find((message) => message.id === context.assistantMessageId);
     const comment = assistant?.feedback?.comments.find((item) => item.id === context.commentId);
-    if (!comment || comment.text !== "live comment edited") fail("Restart lost persisted feedback");
+    if (!assistant?.feedback?.saved || !comment || comment.text !== "live comment edited") fail("Restart lost persisted feedback");
+    const listedSaved = await listFeedback(context.sessionId, context.piSessionId, { saved: true });
+    if (listedSaved.length !== 1 || listedSaved[0]?.messageId !== context.assistantMessageId || !listedSaved[0]?.feedback.saved) {
+      fail("Restart lost indexed saved feedback list");
+    }
 
     const eventsResult = await api(`${feedbackPath(context.sessionId, context.assistantMessageId, "/events")}?piSessionId=${encodeURIComponent(context.piSessionId)}`);
     await expectStatus("read events after restart", eventsResult.status, 200, eventsResult.body);

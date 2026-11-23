@@ -22,6 +22,7 @@ export const informationFeedbackExampleResponse = z.strictObject({
   notificationId: z.string(),
   text: z.string(),
   reaction: z.enum(["like", "dislike"]).nullable(),
+  saved: z.boolean(),
   comments: z.array(z.string()),
   commentsTruncated: z.boolean(),
   items: z.array(z.strictObject({

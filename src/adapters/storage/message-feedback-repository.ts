@@ -1,129 +1,64 @@
-import { mkdir, readFile, readdir, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { z } from "zod";
-import { isSessionId } from "../../features/conversation/session-id.js";
 import type {
   MessageFeedbackDocument,
+  MessageFeedbackFilter,
   MessageFeedbackRepository,
 } from "../../features/messages/types.js";
-import { createSerializedWriter } from "../../shared/serialized-writer.js";
-import { messageFeedbackFile, sessionFeedbackDir, type DataLayout } from "./data-layout.js";
-import { writeJsonDocument } from "./json-document.js";
+import {
+  applyMessageFeedbackDocument,
+  ensureMessageFeedbackModule,
+  listMessageFeedbackStates,
+  readMessageFeedbackDocument,
+  removeSessionMessageFeedback,
+  validateAllMessageFeedback,
+} from "./message-feedback-schema.js";
+import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 
-const isoTime = z.string().datetime();
-const reactionEvent = z.strictObject({
-  id: z.string().uuid(),
-  type: z.literal("reaction_changed"),
-  messageId: z.string().min(1),
-  role: z.enum(["user", "assistant"]),
-  from: z.enum(["like", "dislike"]).nullable(),
-  to: z.enum(["like", "dislike"]).nullable(),
-  at: isoTime,
-});
-const commentAdded = z.strictObject({
-  id: z.string().uuid(),
-  type: z.literal("comment_added"),
-  messageId: z.string().min(1),
-  role: z.enum(["user", "assistant"]),
-  commentId: z.string().uuid(),
-  text: z.string().min(1).max(4000),
-  at: isoTime,
-});
-const commentEdited = z.strictObject({
-  id: z.string().uuid(),
-  type: z.literal("comment_edited"),
-  messageId: z.string().min(1),
-  role: z.enum(["user", "assistant"]),
-  commentId: z.string().uuid(),
-  fromText: z.string().min(1).max(4000),
-  toText: z.string().min(1).max(4000),
-  at: isoTime,
-});
-const commentDeleted = z.strictObject({
-  id: z.string().uuid(),
-  type: z.literal("comment_deleted"),
-  messageId: z.string().min(1),
-  role: z.enum(["user", "assistant"]),
-  commentId: z.string().uuid(),
-  text: z.string().min(1).max(4000),
-  at: isoTime,
-});
-const documentSchema = z.strictObject({
-  schemaVersion: z.literal(1),
-  events: z.array(z.discriminatedUnion("type", [reactionEvent, commentAdded, commentEdited, commentDeleted])),
-});
-
-const emptyFeedbackDocument = (): MessageFeedbackDocument => ({ schemaVersion: 1, events: [] });
-
-const parseDocument = (value: unknown, logicalFile: string): MessageFeedbackDocument => {
-  const parsed = documentSchema.safeParse(value);
-  if (!parsed.success) throw new Error(`Invalid message feedback document: ${logicalFile}`);
-  return parsed.data;
-};
-
-const readDocument = async (file: string, logicalFile: string): Promise<MessageFeedbackDocument> => {
-  let source: string;
-  try {
-    source = await readFile(file, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyFeedbackDocument();
-    throw error;
-  }
-  try {
-    return parseDocument(JSON.parse(source), logicalFile);
-  } catch {
-    throw new Error(`Invalid message feedback document: ${logicalFile}`);
-  }
-};
-
-/** 每个反馈文件独立原子写入；一个全局串行队列足够单进程单用户使用。 */
-export const createMessageFeedbackRepository = (layout: DataLayout): MessageFeedbackRepository => {
-  const serialized = createSerializedWriter();
-  const fileFor = (sessionId: string, piSessionId: string) => {
-    if (!isSessionId(sessionId)) throw new Error("Invalid sessionId");
-    return messageFeedbackFile(layout, sessionId, piSessionId);
+/**
+ * 基于 main.sqlite 的消息行为仓储：保留完整 append-only 原始事件流与索引状态视图；
+ * 全流程串行并在短事务内提交，不修改 pi 会话 JSONL。
+ */
+export const createMessageFeedbackRepository = (
+  managed: ManagedSqliteDatabase,
+): MessageFeedbackRepository => {
+  let ready = false;
+  const ensureReady = (): void => {
+    if (ready) return;
+    ensureMessageFeedbackModule(managed);
+    ready = true;
   };
-  const logicalFile = (sessionId: string, piSessionId: string) => `sessions/${sessionId}/feedback/${piSessionId}.json`;
   return {
-    read: (sessionId, piSessionId) => serialized(() =>
-      readDocument(fileFor(sessionId, piSessionId), logicalFile(sessionId, piSessionId))),
-    update: (sessionId, piSessionId, change) => serialized(async () => {
-      const file = fileFor(sessionId, piSessionId);
-      const document = await readDocument(file, logicalFile(sessionId, piSessionId));
-      const changed = change(document);
-      if (changed.document) {
-        await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-        await writeJsonDocument(file, parseDocument(changed.document, logicalFile(sessionId, piSessionId)));
-      }
-      return changed.result;
-    }),
-    removeSession: (sessionId) => serialized(async () => {
-      if (!isSessionId(sessionId)) throw new Error("Invalid sessionId");
-      await rm(sessionFeedbackDir(layout, sessionId), { recursive: true, force: true });
-    }),
-    validateAll: async () => {
-      let agents;
-      try {
-        agents = await readdir(layout.sessionsDir, { withFileTypes: true });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-        throw error;
-      }
-      for (const agent of agents) {
-        if (agent.name === "index.json" && agent.isFile()) continue;
-        if (!agent.isDirectory() || !isSessionId(agent.name)) throw new Error("Invalid session layout");
-        const feedback = sessionFeedbackDir(layout, agent.name);
-        let files;
-        try { files = await readdir(feedback, { withFileTypes: true }); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
-        for (const file of files) {
-          if (!file.isFile() || !file.name.endsWith(".json")) throw new Error("Invalid message feedback layout");
-          await readDocument(
-            join(feedback, file.name),
-            `sessions/${agent.name}/feedback/${file.name}`,
-          );
+    read: (sessionId, piSessionId) =>
+      managed.serialize(() => {
+        ensureReady();
+        return readMessageFeedbackDocument(managed, sessionId, piSessionId);
+      }),
+    update: (sessionId, piSessionId, change) =>
+      managed.serialize(() => {
+        ensureReady();
+        const current = readMessageFeedbackDocument(managed, sessionId, piSessionId);
+        const changed = change(current);
+        if (changed.document) {
+          const next: MessageFeedbackDocument = changed.document;
+          managed.transaction(() => {
+            applyMessageFeedbackDocument(managed, sessionId, piSessionId, current, next);
+          });
         }
-      }
-    },
+        return changed.result;
+      }),
+    listStates: (sessionId, piSessionId, filter?: MessageFeedbackFilter) =>
+      managed.serialize(() => {
+        ensureReady();
+        return listMessageFeedbackStates(managed, sessionId, piSessionId, filter);
+      }),
+    removeSession: (sessionId) =>
+      managed.serialize(() => {
+        ensureReady();
+        managed.transaction(() => removeSessionMessageFeedback(managed, sessionId));
+      }),
+    validateAll: () =>
+      managed.serialize(() => {
+        validateAllMessageFeedback(managed);
+        ready = true;
+      }),
   };
 };

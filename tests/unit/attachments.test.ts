@@ -49,7 +49,7 @@ const messageMetadata = {
   domainId: null,
   feedbackAvailable: true,
 } as const;
-const emptyFeedback = { reaction: null, comments: [] } as const;
+const emptyFeedback = { reaction: null, saved: false, comments: [] } as const;
 
 test("attachment normalization validates canonical bytes, UTF-8 and image magic", () => {
   const image = png();

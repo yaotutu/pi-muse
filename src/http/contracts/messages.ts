@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** 消息反馈契约：反馈只属于 sessionId+piSessionId+messageId，不进入 PI 历史。 */
+/** 消息反馈契约：统一记录 like/dislike/saved/comments，持久化于 main.sqlite，不进入 PI 历史。 */
 export const piSessionIdSchema = z.string().min(1).max(128).regex(
   /^[A-Za-z0-9_-]+$/,
   "piSessionId must contain only ASCII letters, digits, hyphens, and underscores",
@@ -11,6 +11,16 @@ export const messageTargetSchema = z.strictObject({
 export const reactionRequestSchema = z.strictObject({
   piSessionId: piSessionIdSchema.describe("当前会话会话 ID；reset 后旧值返回 409"),
   reaction: z.enum(["like", "dislike"]).nullable().describe("互斥反应；null 表示撤销"),
+});
+export const savedRequestSchema = z.strictObject({
+  piSessionId: piSessionIdSchema.describe("当前会话会话 ID；reset 后旧值返回 409"),
+  saved: z.boolean().describe("收藏开关：true 收藏，false 取消收藏"),
+});
+export const messageFeedbackListQuerySchema = z.strictObject({
+  piSessionId: piSessionIdSchema.describe("当前会话会话 ID；reset 后旧值返回 409"),
+  saved: z.enum(["true", "false"]).optional().transform((value) => (value === undefined ? undefined : value === "true"))
+    .describe("可选，按收藏状态过滤"),
+  reaction: z.enum(["like", "dislike"]).optional().describe("可选，按喜欢/不喜欢过滤"),
 });
 export const createCommentRequestSchema = z.strictObject({
   piSessionId: piSessionIdSchema.describe("当前会话会话 ID；reset 后旧值返回 409"),
@@ -26,6 +36,7 @@ export const messageCommentResponse = z.strictObject({
 });
 export const messageFeedbackResponse = z.strictObject({
   reaction: z.enum(["like", "dislike"]).nullable().describe("当前反应；null 表示未选择或已撤销"),
+  saved: z.boolean().describe("当前是否已收藏"),
   comments: z.array(messageCommentResponse).describe("按创建顺序返回的多条评论"),
 });
 export const messageFeedbackEventsResponse = z.strictObject({
@@ -37,6 +48,15 @@ export const messageFeedbackEventsResponse = z.strictObject({
       role: z.enum(["user", "assistant"]),
       from: z.enum(["like", "dislike"]).nullable(),
       to: z.enum(["like", "dislike"]).nullable(),
+      at: z.string().datetime(),
+    }),
+    z.strictObject({
+      id: z.string().uuid(),
+      type: z.literal("saved_changed"),
+      messageId: z.string(),
+      role: z.enum(["user", "assistant"]),
+      from: z.boolean(),
+      to: z.boolean(),
       at: z.string().datetime(),
     }),
     z.strictObject({
@@ -67,7 +87,18 @@ export const messageFeedbackEventsResponse = z.strictObject({
       text: z.string().min(1).max(4000),
       at: z.string().datetime(),
     }),
-  ])).describe("按真实操作顺序保留的原始事件；包含编辑前后文本和删除前文本"),
+  ])).describe("按真实操作顺序保留的原始事件；包含 reaction/saved 变更及编辑前后、删除前评论文本"),
+});
+
+export const messageFeedbackListItemResponse = z.strictObject({
+  messageId: z.string(),
+  role: z.enum(["user", "assistant"]),
+  feedback: messageFeedbackResponse,
+  updatedAt: z.string().datetime(),
+});
+
+export const messageFeedbackListResponse = z.strictObject({
+  items: z.array(messageFeedbackListItemResponse).describe("按最后反馈时间倒序返回符合条件的消息反馈投影"),
 });
 
 export const messageMetadataResponse = z.strictObject({
@@ -85,4 +116,5 @@ export const messageMetadataResponse = z.strictObject({
 export type MessageCommentDto = z.infer<typeof messageCommentResponse>;
 export type MessageFeedbackDto = z.infer<typeof messageFeedbackResponse>;
 export type MessageFeedbackEventsDto = z.infer<typeof messageFeedbackEventsResponse>;
+export type MessageFeedbackListDto = z.infer<typeof messageFeedbackListResponse>;
 export type MessageMetadataDto = z.infer<typeof messageMetadataResponse>;
