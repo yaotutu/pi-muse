@@ -6,8 +6,8 @@
 
 本仓库是**一核多端（Server-First）**架构的服务端核心，同时服务手机 App、Web、ESP32/单片机、智能音箱、Webhook 等多形态接入端：
 
-- **服务端 Agent**：代码写集严格限于本仓库（含自有 `web/` 联调台），可只读查看工作区兄弟客户端仓库保持全局视角，但未经用户重新授权绝不修改任何客户端仓库，也不把接口绑定在单一 UI 形态上。正常开发并同步 `src/http/contracts/`（生成 `/docs`、`/openapi.json`）；改动存在需要外部接入端注意的事项时，顺手记入[接入须知记录](docs/client-notes.md)（全端长期范式变化同步[客户端接入指南](docs/client-integration-guide.md)）；处于本地多仓库工作区时按需查看工作区根目录中立文件 `client-requests.md` 中的 `open` 诉求并回写状态与结论（独立 clone 不假设父目录存在）。
-- **接入端 Agent（只读本仓库）**：请先读[客户端接入指南](docs/client-integration-guide.md)（按端形态明确边界）与[接入须知记录](docs/client-notes.md)，再以运行实例 `GET /api/health`、`/docs` 与 `/openapi.json` 为准自主实现。切勿直接修改本仓库代码；需要新增接口或调整契约请向工作区根目录 `client-requests.md` 追加 `REQ-*`（独立环境输出同格式文本交由用户转发）。
+- **服务端 Agent**：虽可只读查看工作区全部代码保持全局视角，但**只负责本仓库 `pi-muse-server/`（含自有 `web/` 联调台），其他项目及非服务端文件一概不管**（不修改、不代为清理、不越界干预，也不主动催促用户处理其他端）；未经用户重新授权绝不修改任何客户端仓库，也不把接口绑定在单一 UI 形态上。正常开发并同步 `src/http/contracts/`（生成 `/docs`、`/openapi.json`）；改动存在需要外部接入端留心的契约/行为事项时，顺手记入[接入须知记录](docs/client-notes.md)（全端长期范式变化同步[客户端接入指南](docs/client-integration-guide.md)）；处于本地多仓库工作区时，按需处理工作区根目录 `client-requests.md` 中的 `open` 诉求（`REQ-*`）并回写状态与结论，若对其他项目有建议或发现其他项目存在旧/无用文件，只需在该收件箱给对应项目留一条 `NOTE-*` 留言即可，其余不用管（独立 clone 不假设父目录存在）。
+- **接入端 Agent（只读本仓库）**：请先读[客户端接入指南](docs/client-integration-guide.md)（按端形态明确边界）与[接入须知记录](docs/client-notes.md)，再以运行实例 `GET /api/health`、`/docs` 与 `/openapi.json` 为准自主实现。切勿直接修改本仓库代码；需要新增接口或调整契约请向工作区根目录 `client-requests.md` 追加 `REQ-*`（独立环境输出同格式文本交由用户转发），同时可查看该收件箱中针对本项目的 `NOTE-*` 留言并自主决定处理或忽略。
 
 ## 开发命令
 
