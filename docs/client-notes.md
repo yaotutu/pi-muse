@@ -39,9 +39,10 @@
 ### 2026-11-23 — 消息反馈新增 `saved` 收藏原语与条件列表接口，底层迁移至 `main.sqlite`
 
 - **影响端形态**：`rich-ui`、`all`
-- **类型**：`feature`
+- **类型**：`feature`（对严格字段白名单解析器为 `breaking`）
 - **契约入口**：`/docs`「消息反馈」（以 `/openapi.json` 为准）
 - **要点与接入端注意**：
+  - **严格解析器必改预警（P0）**：`MessageFeedback` 返回体（含历史 `messages[].feedback`）新增必填字段 `saved: boolean`，原始事件流新增 `saved_changed` 事件类型，信息偏好 `feedbackExamples[]` 亦新增 `saved: boolean`。使用严格字段白名单（如 `hasOnlyKeys`）或详尽 `type` 枚举校验的客户端（例如 React Native 端 `parseMessageFeedback` / `parseFeedbackEvent`），**必须先适配新增字段与事件类型**，否则拉取历史和事件流会报错拦截。
   - **全消息类型统一人类行为原语（`like` / `dislike` / `saved` / `comments`）**：全部会话消息反馈响应与历史消息回读对象新增 `saved: boolean` 字段（默认 `false`），与现有 `reaction`（`"like" | "dislike" | null`）和 `comments` 共享底层语义（与 `news` 领域对齐）。
   - **新增收藏与列表检索接口**：
     - `PUT /api/sessions/:sessionId/messages/:messageId/feedback/saved`（body：`{ piSessionId, saved }`）独立切换单条消息收藏状态，不改变点赞/点踩或评论，追加 `saved_changed` 原始审计事件。
