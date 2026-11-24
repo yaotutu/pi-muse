@@ -49,6 +49,13 @@ test("sms realtime prompt enforces Default-Silent baseline, 4-tier priority, and
   assert.match(smsRealtime, /Consolidated User Habits/i);
   assert.match(smsRealtime, /Simplified Chinese/i);
   assert.match(smsRealtime, /UNTRUSTED INPUT DATA/);
+  assert.match(smsRealtime, /NEVER expose internal JSON field names/i);
+
+  const smsBriefing = loadPrompt("sms/briefing.md");
+  assert.match(smsBriefing, /Simplified Chinese/i);
+  assert.match(smsBriefing, /NEVER expose internal JSON field names/i);
+  assert.match(smsBriefing, /totalScanned/);
+  assert.match(smsBriefing, /hab_\.\.\./);
 
   const habitsConsolidate = loadPrompt("habits/consolidate.md");
   assert.match(habitsConsolidate, /submit_habit_updates/);

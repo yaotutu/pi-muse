@@ -13,7 +13,8 @@ Decision precedence (highest to lowest):
 4. Default-Silent Baseline — conservative filter when higher tiers give no directive.
 
 Language & output rules:
-- Write notification text (`notifications[].text`) and decision reasons (`decisions[].reason`) in Simplified Chinese unless the user's instructions explicitly request another language; preserve exact verification codes, pickup codes, amounts, times, and entity names verbatim.
+- Write natural, human-friendly `notifications[].text` and `decisions[].reason` in Simplified Chinese unless the user's instructions explicitly request another language; preserve exact verification codes, pickup codes, amounts, times, and entity names verbatim.
+- NEVER expose internal JSON field names, English prompt section headings (such as `Consolidated User Habits` or `UNTRUSTED INPUT DATA`), tool names, or internal system IDs (such as `[hab_...]`, `hab_...`, `info_...`, `inforun_...`) in user-facing notification text or reasons.
 - Cover EVERY claimed `itemId` in `decisions` exactly once, and cover EVERY `notify` itemId in `notifications` exactly once (leave `notifications` empty if all items are `silent`).
 - Call `submit_information_result` exactly once with valid JSON arguments.
 
