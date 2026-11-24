@@ -12,6 +12,7 @@ import { defineTool, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createConfig } from "../../src/config/load-config.js";
 import { createDataLayout, ensureLayout } from "../../src/adapters/storage/data-layout.js";
 import {
+  isContentRejectedError,
   runStructuredSubagent,
   runSubagent,
   type SubagentRuntimeDeps,
@@ -128,6 +129,87 @@ const createScriptedSseServer = async (
     requests,
   };
 };
+
+test("isContentRejectedError distinguishes upstream content moderation from transient failures", () => {
+  const positives = [
+    '{"error":{"message":"[422]: {\\"type\\":\\"error\\",\\"error\\":{\\"type\\":\\"unprocessable_entity_error\\",\\"message\\":\\"input new_sensitive (1026)\\",\\"http_code\\":\\"422\\"}}","type":"invalid_request_error"}}',
+    "400 content_filter: The response was filtered due to the prompt triggering Azure OpenAI's content management policy",
+    "DataInspectionFailed: Input text data may contain inappropriate content",
+    "1301 content_exists_risk",
+    "Provider stopped with: sensitive",
+    "output new_sensitive (1027)",
+    "request blocked by moderation_blocked policy",
+    "The model refused to complete the request",
+  ];
+  for (const raw of positives) {
+    assert.equal(isContentRejectedError(raw), true, `should classify as content rejection: ${raw}`);
+  }
+  const negatives = [
+    "401 invalid_api_key",
+    "429 rate_limit_exceeded, too many requests",
+    "503 Service Unavailable",
+    "maximum context length exceeded",
+    "context_length_exceeded",
+    "request timeout after 30000ms",
+    "fetch failed: econnrefused",
+    "insufficient_quota",
+    undefined,
+    "",
+  ];
+  for (const raw of negatives) {
+    assert.equal(isContentRejectedError(raw), false, `should NOT classify as content rejection: ${String(raw)}`);
+  }
+});
+
+test("runStructuredSubagent classifies upstream HTTP 422 content moderation as MODEL_CONTENT_REJECTED", async (t) => {
+  const server = createServer(async (req, res) => {
+    if (req.url !== "/v1/chat/completions") {
+      res.writeHead(404).end();
+      return;
+    }
+    for await (const _chunk of req) { /* drain */ }
+    res
+      .writeHead(422, { "content-type": "application/json" })
+      .end(
+        JSON.stringify({
+          error: {
+            message:
+              '[422]: {"type":"error","error":{"type":"unprocessable_entity_error","message":"input new_sensitive (1026)","http_code":"422"}}',
+            type: "invalid_request_error",
+            code: "",
+          },
+        }),
+      );
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve())));
+  });
+
+  const deps = await createRunnerDeps(t, `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`);
+  const buildSubmitTool = (onSubmitted: (value: { answer: string }) => void) =>
+    defineTool({
+      name: "submit_structured",
+      label: "Submit structured",
+      description: "Submit structured result once",
+      parameters: Type.Object({ answer: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+      execute: async (_id, params) => {
+        onSubmitted(params);
+        return { content: [{ type: "text", text: "accepted" }], details: undefined };
+      },
+    });
+
+  const outcome = await runStructuredSubagent<{ answer: string }>(deps, {
+    systemPrompt: "sys",
+    prompt: "poison input",
+    buildSubmitTool,
+    validateSubmitted: () => undefined,
+    trace: { sessionId: "main", kind: "subagent" },
+  });
+  assert.deepEqual(outcome, { ok: false, error: "MODEL_CONTENT_REJECTED" });
+});
 
 test("runSubagent is deny-by-default and creates no session files", async (t) => {
   const model = await createFakeModel();

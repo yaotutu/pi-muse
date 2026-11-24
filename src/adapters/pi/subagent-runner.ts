@@ -58,12 +58,30 @@ export type SubagentRunOutcome =
     }
   | {
       ok: false;
-      error: "MODEL_NOT_CONFIGURED" | "CANCELLED" | "TIMEOUT" | "MODEL_REQUEST_FAILED";
+      error: "MODEL_NOT_CONFIGURED" | "CANCELLED" | "TIMEOUT" | "MODEL_REQUEST_FAILED" | "MODEL_CONTENT_REJECTED";
       text: string;
       stopReason?: string;
       toolAttempts: number;
       hadToolError: boolean;
     };
+
+/**
+ * 上游供应商内容安全/审核拒绝（如 MiniMax 422 input new_sensitive、Azure content_filter、
+ * Qwen DataInspectionFailed、智谱 content_exists_risk、Anthropic sensitive）属于对具体输入
+ * 内容的确定性拒绝，与全局故障（401/429/5xx/超时/网络）严格区分，供上层隔离单条毒丸条目。
+ * 原始错误文本只在本函数内部判定，绝不外泄或持久化。
+ */
+const NON_CONTENT_ERROR_PATTERN =
+  /\b(invalid_api_key|authentication|unauthorized|forbidden|rate_limit|too many requests|quota|billing|insufficient_quota|context_length_exceeded|maximum context length|token limit|timeout|timed out|econnrefused|enotfound|etimedout|socket hang up|502|503|504)\b/i;
+
+const CONTENT_REJECTED_ERROR_PATTERN =
+  /(new_sensitive|\binput\b[^\n]{0,40}\bsensitive\b|\boutput\b[^\n]{0,40}\bsensitive\b|\bsensitive\s*\(\d+\)|provider stopped with:\s*sensitive|content_filter|content_management_policy|content_policy_violation|content filtering policy|safety_system|safety_block|datainspectionfailed|inappropriate content|content_exists_risk|risk_content|input_audit_failed|prohibited_content|blocklist|moderation_blocked|refused to complete the request)/i;
+
+export const isContentRejectedError = (rawError: string | undefined): boolean => {
+  if (!rawError) return false;
+  if (NON_CONTENT_ERROR_PATTERN.test(rawError)) return false;
+  return CONTENT_REJECTED_ERROR_PATTERN.test(rawError);
+};
 
 const assertAllowedTools = (spec: SubagentSpec): void => {
   for (const tool of spec.tools ?? []) {
@@ -145,6 +163,7 @@ export const runSubagent = async (
   let stopReason: string | undefined;
   let toolAttempts = 0;
   let hadToolError = false;
+  let rawErrorMessage: string | undefined;
   const unsubscribes: Array<() => void> = [];
 
   try {
@@ -190,6 +209,10 @@ export const runSubagent = async (
     // 核心监听最先挂载：确保 tool_execution_end 脱敏早于外部观察器。
     unsubscribes.push(
       session.subscribe((event) => {
+        // 上游错误文本在 projectExecutionEvent 脱敏前捕获，仅用于内容审核分类，绝不外泄。
+        if (event.type === "message_end" && event.message.role === "assistant" && event.message.errorMessage) {
+          rawErrorMessage = event.message.errorMessage;
+        }
         if (event.type === "tool_execution_start") toolAttempts++;
         if (event.type === "tool_execution_end" && event.isError) hadToolError = true;
         const projected = projectExecutionEvent(event);
@@ -219,7 +242,12 @@ export const runSubagent = async (
     if (!stopReason || stopReason === "error" || stopReason === "aborted") {
       return {
         ok: false,
-        error: stopReason === "aborted" ? "CANCELLED" : "MODEL_REQUEST_FAILED",
+        error:
+          stopReason === "aborted"
+            ? "CANCELLED"
+            : isContentRejectedError(rawErrorMessage)
+              ? "MODEL_CONTENT_REJECTED"
+              : "MODEL_REQUEST_FAILED",
         text,
         stopReason,
         toolAttempts,
@@ -227,16 +255,19 @@ export const runSubagent = async (
       };
     }
     return { ok: true, text, stopReason, toolAttempts, hadToolError };
-  } catch {
+  } catch (error) {
     await session?.abort().catch(() => undefined);
     await session?.waitForIdle().catch(() => undefined);
+    const caughtErrorMessage = error instanceof Error ? error.message : String(error ?? "");
     return {
       ok: false,
       error: spec.signal?.aborted
         ? "CANCELLED"
         : timedOut
           ? "TIMEOUT"
-          : "MODEL_REQUEST_FAILED",
+          : isContentRejectedError(rawErrorMessage ?? caughtErrorMessage)
+            ? "MODEL_CONTENT_REJECTED"
+            : "MODEL_REQUEST_FAILED",
       text,
       stopReason,
       toolAttempts,
@@ -264,7 +295,7 @@ export type StructuredSubagentSpec<TSubmitted> = {
 
 export type StructuredSubagentOutcome<TSubmitted> =
   | { ok: true; value: TSubmitted }
-  | { ok: false; error: "MODEL_REQUEST_FAILED" | "INVALID_MODEL_RESULT" | "CANCELLED" };
+  | { ok: false; error: "MODEL_REQUEST_FAILED" | "MODEL_CONTENT_REJECTED" | "INVALID_MODEL_RESULT" | "CANCELLED" };
 
 /** 结构化子代理薄组合封装：复用同一 runSubagent 内核并校验恰好一次合法提交。 */
 export const runStructuredSubagent = async <TSubmitted>(
@@ -296,6 +327,7 @@ export const runStructuredSubagent = async <TSubmitted>(
 
   if (!run.ok) {
     if (run.error === "CANCELLED") return { ok: false, error: "CANCELLED" };
+    if (run.error === "MODEL_CONTENT_REJECTED") return { ok: false, error: "MODEL_CONTENT_REJECTED" };
     if (run.error === "TIMEOUT" || run.error === "MODEL_NOT_CONFIGURED") {
       return { ok: false, error: "MODEL_REQUEST_FAILED" };
     }

@@ -36,6 +36,15 @@
 
 ## 变更与须知记录
 
+### 2026-11-24 — 短信归档/实时批次内容审核自动二分隔离与非阻塞简报
+
+- **影响端形态**：`rich-ui`、`webhook`
+- **类型**：`behavior`
+- **契约入口**：`/docs`「信息后台」（以 `/openapi.json` 为准）
+- **要点与接入端注意**：
+  - **多条目批次被上游模型内容安全审核拒绝（如 MiniMax 422 input new_sensitive）时自动二分隔离**：实时与归档批次均会把真正触发审核的单条短信隔离为 `failed`（run 的 `model.error = "MODEL_CONTENT_REJECTED"`），同批其余短信正常处理、正常沉淀习惯，不再被整条批次拖垮；瞬时/全局故障（网络、5xx、无效结果）仍整批失败并阻断简报。
+  - **归档简报不再被孤立的审核拒绝永久阻断**：当归档队列 `pending=0` 且剩余失败全部来自内容审核确定性拒绝时，`POST /api/information/archive/run` 仍会生成并投递 <= 1200 字中文简报，自然告知被跳过的条数，响应可能 `status: "partial"` 且 `briefingPublished: true`；存在任何非审核类失败时仍阻断，可用 `retryFailed: true` 重跑。
+
 ### 2026-11-23 — 领域偏好/习惯契约对称化、短信 SQLite v4 决策投影、`include:` 诊断与 `domain_updated` 事件
 
 - **影响端形态**：`rich-ui`、`all`

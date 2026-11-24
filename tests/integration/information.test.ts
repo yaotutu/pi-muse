@@ -650,6 +650,56 @@ test("archive bulk import distills habits across batches and publishes one final
   assert.ok(h.model.requests.slice(baselineRequests).some((req) => requestToolNames(req).includes("submit_information_briefing")));
 });
 
+test("archive content moderation rejection bisects automatically and still delivers briefing noting skipped count", async (t) => {
+  const h = await fixture(t);
+  await h.setupPipeline({ enabled: true, batchWindowSeconds: 0 }, "关注重要通知与快递");
+
+  const archiveItems = [
+    { source: "sms", externalId: "iso-0", content: "NOTIFY 快递已到驿站，取件码 6688" },
+    { source: "sms", externalId: "iso-poison", content: "CONTENT_REJECTED_422 命中上游内容审核" },
+    { source: "sms", externalId: "iso-profile", content: "NOTIFY ARCHIVE_PROFILE:高敏：快递取件码；低敏：商城推广" },
+    ...Array.from({ length: 5 }, (_v, idx) => ({
+      source: "sms",
+      externalId: `iso-noise-${idx}`,
+      content: `常规广告短信 ${idx}`,
+    })),
+  ];
+  const ingested = await h.call("/api/information/archive/items", {
+    method: "POST",
+    body: JSON.stringify({ items: archiveItems }),
+  });
+  assert.equal(ingested.status, 200);
+
+  const runArchive = await h.call("/api/information/archive/run", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  assert.equal(runArchive.status, 200);
+  assert.deepEqual(runArchive.body, {
+    status: "partial",
+    runsCount: (runArchive.body as { runsCount: number }).runsCount,
+    processedCount: 7,
+    failedCount: 1,
+    remainingPendingCount: 0,
+    briefingPublished: true,
+  });
+
+  const failedPage = await h.call("/api/information/items?queue=archive&status=failed&limit=10");
+  const failedItems = (failedPage.body as { items: Array<{ externalId: string; status: string }> }).items;
+  assert.equal(failedItems.length, 1);
+  assert.equal(failedItems[0]?.externalId, "iso-poison");
+
+  const prefs = (await h.call("/api/information/preferences")).body as { habits: Array<{ text: string }> };
+  assert.equal(prefs.habits.length, 1);
+  assert.equal(prefs.habits[0]?.text, "高敏：快递取件码；低敏：商城推广");
+
+  const history = await h.history("main");
+  const notifications = history.messages.filter((m) => m.metadata?.source === "notification");
+  assert.equal(notifications.length, 1);
+  assert.match(notifications[0]!.content ?? "", /ARCHIVE-BRIEFING/);
+  assert.match(notifications[0]!.content ?? "", /skipped=1/);
+});
+
 test("information items project decision and reason and POST /runs retryFailed retries failed realtime items", async (t) => {
   const h = await fixture(t);
   await h.setupPipeline({ enabled: true, batchWindowSeconds: 3600 });

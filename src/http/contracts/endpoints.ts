@@ -417,7 +417,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "runArchiveInformation",
     method: "post", path: "/api/information/archive/run", tag: "信息后台", summary: "触发历史归档队列批量提炼习惯与总览简报",
-    hint: "逐批消化 queue=archive 待处理条目并向通用习惯库（/api/habits/sms）增量提交习惯更新（中间批次不推送通知）；当归档队列全部清零（pending=0 且 failed=0）时最多生成 1 条 <=1200 字简报发往主对话。可传 background=true 异步后台执行，或 retryFailed=true 重试失败条目；队列为空返回 409 NO_PENDING，忙返回 409 BUSY。",
+    hint: "逐批消化 queue=archive 待处理条目并向通用习惯库（/api/habits/sms）增量提交习惯更新（中间批次不推送通知）；当归档队列 pending=0 且不再存在非内容审核的失败时，最多生成 1 条 <=1200 字简报发往主对话。多条目批次若被上游内容安全审核（MODEL_CONTENT_REJECTED）拒绝会自动二分隔离：仅真正触发审核的条目失败，同批其余条目正常处理；此时响应 status 可能为 partial 且 briefingPublished=true，仅被审核跳过的条目数会在简报中自然告知。瞬时/全局故障（网络、5xx、无效结果）仍整批失败并阻断简报，可传 retryFailed=true 重试失败条目；队列为空返回 409 NO_PENDING，忙返回 409 BUSY。",
     auth: true, request: information.informationArchiveRunRequestSchema, response: information.informationArchiveRunResponse,
     errorResponses: {
       400: { description: "非法请求", schema: resp.errorResponse },
@@ -458,7 +458,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "runInformationNow",
     method: "post", path: "/api/information/runs", tag: "信息后台", summary: "立即触发一次日常实时单周期分析",
-    hint: "忽略批等待窗口，取最早的一批 queue=realtime pending 条目（最多 20 条，受 60000 字符保护）完成单周期模型判定与通知发布；可传 retryFailed=true 先把失败的实时条目重置为 pending 后重跑。无待处理条目返回 409 NO_PENDING，禁用返回 409 DISABLED，忙返回 409 BUSY。",
+    hint: "忽略批等待窗口，取最早的一批 queue=realtime pending 条目（最多 20 条，受 60000 字符保护）完成单周期模型判定与通知发布；可传 retryFailed=true 先把失败的实时条目重置为 pending 后重跑。多条目批次若被上游内容安全审核（MODEL_CONTENT_REJECTED）拒绝会自动二分隔离，仅真正触发审核的条目失败、其余条目正常通知。无待处理条目返回 409 NO_PENDING，禁用返回 409 DISABLED，忙返回 409 BUSY。",
     auth: true, request: information.informationRunRequestSchema, response: information.informationRunDetailResponse,
     errorResponses: {
       400: { description: "非法请求", schema: resp.errorResponse },

@@ -80,7 +80,7 @@ SMS processing is disabled by default. Its system prompt uses a **Default-Silent
 3. **Consolidated user habits**: durable rules distilled incrementally by the cursor-driven habit engine (or added/edited manually by you) in `main.sqlite`, preserving early preferences even beyond the buffer window.
 4. **Default-Silent baseline**: conservative fallback filter when higher tiers give no directive.
 
-The SMS pipeline keeps two isolated channels sharing these preferences: daily realtime single-cycle processing (`realtime`, posting `notify` results only to `main` chat and staying quiet when all items are silent), and bulk historical archive processing (`archive`, incrementally submitting habit updates across batches without per-batch notifications and emitting at most one `<= 1,200`-character Chinese briefing once the archive queue drains).
+The SMS pipeline keeps two isolated channels sharing these preferences: daily realtime single-cycle processing (`realtime`, posting `notify` results only to `main` chat and staying quiet when all items are silent), and bulk historical archive processing (`archive`, incrementally submitting habit updates across batches without per-batch notifications and emitting at most one `<= 1,200`-character Chinese briefing once the archive queue drains). If an individual message is rejected by the upstream model's content safety review, it is automatically isolated on its own instead of failing the whole batch, and the archive briefing is still delivered while naturally noting how many messages were skipped.
 
 ### News Independent Screening and Feedback {#news-screening}
 

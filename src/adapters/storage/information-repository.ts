@@ -2,6 +2,7 @@ import type { InformationRepository } from "../../features/information/types.js"
 import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 import {
   claimSmsBatchSync,
+  claimSmsItemsSync,
   completeSmsModelRoundSync,
   ensureSmsModule,
   failPendingSmsPublicationsSync,
@@ -15,6 +16,7 @@ import {
   listSmsItemsSync,
   listSmsRunsSync,
   markSmsRunFailedSync,
+  markSmsRunSplitSync,
   pruneSmsHistorySync,
   readNextRealtimeDue,
   readSmsSettingsSync,
@@ -80,6 +82,10 @@ export const createInformationRepository = (managed: ManagedSqliteDatabase): Inf
       ensureOnce();
       return managed.transaction(() => claimSmsBatchSync(managed.database, queue, options));
     }),
+    claimItems: (queue, itemIds, now) => managed.serialize(() => {
+      ensureOnce();
+      return managed.transaction(() => claimSmsItemsSync(managed.database, queue, itemIds, now));
+    }),
     revertClaimedRun: (runId, itemIds, finishedAt) => managed.serialize(() => {
       ensureOnce();
       return managed.transaction(() => revertClaimedSmsRunSync(managed.database, runId, itemIds, finishedAt));
@@ -87,6 +93,10 @@ export const createInformationRepository = (managed: ManagedSqliteDatabase): Inf
     markRunFailed: (runId, itemIds, errorMessage, finishedAt) => managed.serialize(() => {
       ensureOnce();
       return managed.transaction(() => markSmsRunFailedSync(managed.database, runId, itemIds, errorMessage, finishedAt));
+    }),
+    markRunSplit: (runId, itemIds, errorMessage, finishedAt) => managed.serialize(() => {
+      ensureOnce();
+      return managed.transaction(() => markSmsRunSplitSync(managed.database, runId, itemIds, errorMessage, finishedAt));
     }),
     completeModelRound: (input) => managed.serialize(() => {
       ensureOnce();

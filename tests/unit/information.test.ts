@@ -640,6 +640,7 @@ test("archive channel incrementally updates habits across batches and isolates r
   assert.equal(storedHabits.length, 3);
   assert.equal(briefingInputs.length, 1);
   assert.equal(briefingInputs[0]?.totalScanned, 60);
+  assert.equal(briefingInputs[0]?.skippedCount, 0);
   assert.equal(briefingInputs[0]?.candidates.length, 3);
   assert.equal(sentNotifications.length, 1);
   assert.ok(sentNotifications[0]!.text.length <= ARCHIVE_BRIEFING_MAX_LENGTH);
@@ -724,6 +725,246 @@ test("archive failure stops briefing until retryFailed drains remaining items cl
   assert.deepEqual(done.archive, { running: false, pendingCount: 0, processedCount: 30, failedCount: 0 });
   assert.equal(sent.length, 1);
   assert.match(sent[0]!, /已完成 30 条归档梳理/);
+});
+
+test("archive content rejection bisects to isolate the poison item and still publishes briefing with skipped count", async () => {
+  const { repository } = memoryRepo();
+  const sent: Array<{ text: string; id: string }> = [];
+  const briefingInputs: InformationBriefingInput[] = [];
+
+  const service = createInformationService({
+    instructions: memoryInformationRules(),
+    repository,
+    retainMain: async () => ({
+      conversation: {
+        piSessionId: () => "session-bisect",
+        notify: async (text, id) => {
+          sent.push({ text, id });
+          return { notificationId: id, piSessionId: "session-bisect", messageId: `msg-${id}` };
+        },
+      },
+      release: () => undefined,
+    }),
+    runModel: async (input) => {
+      if (input.items.some((item) => item.content.includes("POISON"))) {
+        return { ok: false, error: "MODEL_CONTENT_REJECTED" };
+      }
+      const notifyIds = input.items.filter((item) => item.content.includes("PICKUP")).map((item) => item.id);
+      return {
+        ok: true,
+        result: {
+          decisions: input.items.map((item) => ({
+            itemId: item.id,
+            decision: notifyIds.includes(item.id) ? "notify" as const : "silent" as const,
+            reason: "ok",
+          })),
+          notifications: [],
+          habitOperations: [{ op: "add" as const, text: "归纳习惯-快递" }],
+        },
+      };
+    },
+    synthesizeBriefing: async (input) => {
+      briefingInputs.push(input);
+      return {
+        ok: true,
+        text: `已整理 ${input.totalScanned} 条，${input.candidates.length} 条待办${input.skippedCount > 0 ? `，另有 ${input.skippedCount} 条因内容审核跳过` : ""}。`,
+        itemIds: input.candidates.map((c) => c.itemId),
+      };
+    },
+  });
+
+  const contents = Array.from({ length: 10 }, (_v, idx) =>
+    idx === 4 ? "POISON sensitive content" : idx === 1 || idx === 7 ? `PICKUP 取件码 ${idx}` : `广告 ${idx}`);
+  await service.ingestArchive(contents.map((content, idx) => ({ source: "sms", externalId: `bisect-${idx}`, content })));
+
+  const summary = await service.runArchive();
+  assert.equal(summary.status, "partial");
+  assert.equal(summary.processedCount, 9);
+  assert.equal(summary.failedCount, 1);
+  assert.equal(summary.remainingPendingCount, 0);
+  assert.equal(summary.briefingPublished, true);
+
+  const failedItems = (await service.listItems({ queue: "archive", status: "failed", limit: 10 })).items;
+  assert.equal(failedItems.length, 1);
+  assert.match(failedItems[0]!.content, /POISON/);
+
+  const runs = (await service.listRuns({ kind: "archive", limit: 50 })).runs;
+  // 被拆分的中间 run 也是 MODEL_CONTENT_REJECTED，但只有 itemIds.length === 1 的 run 才真正隔离了条目。
+  const rejectedRuns = runs.filter((run) => run.model?.error === "MODEL_CONTENT_REJECTED");
+  assert.ok(rejectedRuns.length >= 2, "split parents plus the isolated leaf should all carry MODEL_CONTENT_REJECTED");
+  const isolatedLeaf = rejectedRuns.find((run) => run.itemIds.length === 1);
+  assert.equal(isolatedLeaf?.status, "failed");
+  assert.equal(isolatedLeaf?.itemIds[0], failedItems[0]!.id);
+
+  assert.equal(briefingInputs.length, 1);
+  assert.equal(briefingInputs[0]?.totalScanned, 9);
+  assert.equal(briefingInputs[0]?.silentCount, 7);
+  assert.equal(briefingInputs[0]?.skippedCount, 1);
+  assert.equal(briefingInputs[0]?.candidates.length, 2);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0]!.text, /另有 1 条因内容审核跳过/);
+
+  // 第二波归档：上一波被审核跳过的条目既不阻断也不重复计入 skippedCount。
+  await service.ingestArchive(
+    Array.from({ length: 5 }, (_v, idx) => ({ source: "sms", externalId: `wave2-${idx}`, content: `广告 第二波 ${idx}` })),
+  );
+  const wave2 = await service.runArchive();
+  assert.deepEqual(wave2, {
+    status: "completed",
+    runsCount: 1,
+    processedCount: 5,
+    failedCount: 0,
+    remainingPendingCount: 0,
+    briefingPublished: true,
+  });
+  assert.equal(briefingInputs.length, 2);
+  assert.equal(briefingInputs[1]?.totalScanned, 5);
+  assert.equal(briefingInputs[1]?.skippedCount, 0);
+});
+
+test("global MODEL_REQUEST_FAILED outage neither bisects nor publishes a premature briefing", async () => {
+  const { repository } = memoryRepo();
+  const sent: string[] = [];
+  let calls = 0;
+  const service = createInformationService({
+    instructions: memoryInformationRules(),
+    repository,
+    retainMain: async () => ({
+      conversation: {
+        piSessionId: () => "session-outage",
+        notify: async (text, id) => {
+          sent.push(text);
+          return { notificationId: id, piSessionId: "session-outage", messageId: `msg-${id}` };
+        },
+      },
+      release: () => undefined,
+    }),
+    runModel: async () => {
+      calls++;
+      return { ok: false, error: "MODEL_REQUEST_FAILED" };
+    },
+    synthesizeBriefing: async () => ({ ok: true, text: "不应生成", itemIds: [] }),
+  });
+
+  await service.ingestArchive(
+    Array.from({ length: 6 }, (_v, idx) => ({ source: "sms", externalId: `outage-${idx}`, content: `广告 ${idx}` })),
+  );
+  const summary = await service.runArchive();
+  assert.equal(summary.status, "partial");
+  assert.equal(summary.processedCount, 0);
+  assert.equal(summary.failedCount, 6);
+  assert.equal(summary.briefingPublished, false);
+  assert.equal(calls, 1, "transient outage must fail the whole batch with a single model call");
+  assert.equal(sent.length, 0);
+});
+
+test("persistent content rejection trips the circuit breaker and leaves remaining items pending", async () => {
+  const { repository } = memoryRepo();
+  let calls = 0;
+  const service = createInformationService({
+    instructions: memoryInformationRules(),
+    repository,
+    retainMain: async () => undefined,
+    runModel: async () => {
+      calls++;
+      return { ok: false, error: "MODEL_CONTENT_REJECTED" };
+    },
+    synthesizeBriefing: async () => ({ ok: true, text: "不应生成", itemIds: [] }),
+  });
+
+  await service.ingestArchive(
+    Array.from({ length: 10 }, (_v, idx) => ({ source: "sms", externalId: `cb-${idx}`, content: `内容 ${idx}` })),
+  );
+  const summary = await service.runArchive();
+  assert.equal(summary.status, "partial");
+  assert.equal(summary.briefingPublished, false);
+  assert.ok(calls < 12, `circuit breaker must stop far earlier than full leaf expansion, got ${calls} calls`);
+  const status = await service.getStatus();
+  assert.equal(status.archive.pendingCount > 0, true, "remaining items stay pending after circuit break");
+  assert.equal(status.archive.failedCount + status.archive.pendingCount, 10);
+});
+
+test("pausing mid-bisect reverts every claimed item back to pending", async () => {
+  const { repository } = memoryRepo();
+  const gate = deferred<void>();
+  let started = false;
+  const service = createInformationService({
+    instructions: memoryInformationRules(),
+    repository,
+    retainMain: async () => undefined,
+    runModel: async (_input, signal) => {
+      started = true;
+      signal.addEventListener("abort", () => gate.resolve(), { once: true });
+      await gate.promise;
+      return { ok: false, error: "MODEL_CONTENT_REJECTED" };
+    },
+  });
+
+  await service.ingestArchive(
+    Array.from({ length: 4 }, (_v, idx) => ({ source: "sms", externalId: `pause-${idx}`, content: `内容 ${idx}` })),
+  );
+  const running = service.runArchive();
+  while (!started) await new Promise((resolve) => setImmediate(resolve));
+  const pause = service.pause();
+  gate.resolve();
+  const summary = await running;
+  await pause.stopped;
+  pause.resume();
+  assert.equal(summary.briefingPublished, false);
+  const items = (await service.listItems({ queue: "archive", limit: 10 })).items;
+  assert.equal(items.filter((item) => item.status === "processing").length, 0);
+  assert.equal(items.filter((item) => item.status === "pending").length, 4);
+});
+
+test("realtime batch bisect isolates the poison item and still notifies healthy items", async () => {
+  const { repository } = memoryRepo({ settings: { enabled: true, batchWindowSeconds: 0 } });
+  const sent: Array<{ text: string; id: string }> = [];
+  const service = createInformationService({
+    instructions: memoryInformationRules(),
+    repository,
+    retainMain: async () => ({
+      conversation: {
+        piSessionId: () => "session-rt-bisect",
+        notify: async (text, id) => {
+          sent.push({ text, id });
+          return { notificationId: id, piSessionId: "session-rt-bisect", messageId: `msg-${id}` };
+        },
+      },
+      release: () => undefined,
+    }),
+    runModel: async (input) => {
+      if (input.items.some((item) => item.content.includes("POISON"))) {
+        return { ok: false, error: "MODEL_CONTENT_REJECTED" };
+      }
+      const notifyIds = input.items.filter((item) => item.content.includes("NOTIFY")).map((item) => item.id);
+      return {
+        ok: true,
+        result: {
+          decisions: input.items.map((item) => ({
+            itemId: item.id,
+            decision: notifyIds.includes(item.id) ? "notify" as const : "silent" as const,
+            reason: "ok",
+          })),
+          notifications: notifyIds.length ? [{ itemIds: notifyIds, text: "实时提醒" }] : [],
+        },
+      };
+    },
+  });
+
+  await service.ingest([
+    { source: "sms", externalId: "rt-a", content: "NOTIFY 重要提醒" },
+    { source: "sms", externalId: "rt-poison", content: "POISON sensitive" },
+    { source: "sms", externalId: "rt-c", content: "普通广告" },
+  ]);
+  const finished = await service.runNow();
+  assert.equal(finished.run.status, "completed");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.text, "实时提醒");
+
+  const items = (await service.listItems({ limit: 10 })).items;
+  const poison = items.find((item) => item.externalId === "rt-poison");
+  assert.equal(poison?.status, "failed");
+  assert.equal(items.filter((item) => item.status === "processed").length, 2);
 });
 
 test("parseInformationBriefingResult and archive tool schemas enforce strict bounds", async () => {

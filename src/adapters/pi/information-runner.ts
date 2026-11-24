@@ -194,6 +194,7 @@ export const createInformationBriefingRunner = (deps: SubagentRuntimeDeps) =>
         totalScanned: input.totalScanned,
         silentCount: input.silentCount,
         batchCount: input.batchCount,
+        skippedCount: input.skippedCount,
         candidates: input.candidates,
       }),
     ].join("\n\n");

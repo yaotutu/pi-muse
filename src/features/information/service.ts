@@ -44,6 +44,8 @@ const MAX_BRIEFING_CANDIDATES = 80;
 const MAX_FEEDBACK_EXAMPLES = 20;
 const MAX_FEEDBACK_ITEMS = 20;
 const MAX_FEEDBACK_COMMENTS = 5;
+/** 内容审核熔断：整批从未成功且已连续隔离这么多单条毒丸时停止二分，防止指令本身触发审核时的调用风暴。 */
+const MAX_CONSECUTIVE_CONTENT_REJECTIONS = 5;
 const FEEDBACK_TEXT_LENGTH = 1000;
 const FEEDBACK_CONTENT_LENGTH = 2000;
 const PREFERENCES_INSTRUCTIONS_MAX_LENGTH = 20_000;
@@ -519,7 +521,8 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
   /** 执行单次批次：realtime 直接生成并投递通知；archive 仅更新决策与增量习惯操作。 */
   const executeSingleBatch = async (
     claimed: { run: InformationRun; items: InformationItem[] },
-  ): Promise<InformationRun> => {
+    options?: { allowSplitOnContentRejection?: boolean },
+  ): Promise<{ run: InformationRun; split: boolean }> => {
     const isRealtime = claimed.run.kind === "realtime";
     const finishWork = deps.observeWork?.(
       "main",
@@ -544,7 +547,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
           notifyChanged("items");
           notifyChanged("runs");
           finishWork?.("failed");
-          return cancelled;
+          return { run: cancelled, split: false };
         }
         await deps.repository.markRunFailed(
           claimed.run.id,
@@ -566,7 +569,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         notifyChanged("items");
         notifyChanged("runs");
         finishWork?.("failed");
-        return cancelled;
+        return { run: cancelled, split: false };
       }
 
       const existingHabitIds = new Set(context.habits.map((habit) => habit.id));
@@ -605,7 +608,25 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
           notifyChanged("items");
           notifyChanged("runs");
           finishWork?.("failed");
-          return cancelled;
+          return { run: cancelled, split: false };
+        }
+        // 多条目批次被上游内容安全审核确定性拒绝时，不整批失败：把条目回退为 pending，
+        // 由二分隔离循环逐半收敛，只把真正触发审核的单条隔离为 failed。
+        if (
+          outcome.error === "MODEL_CONTENT_REJECTED" &&
+          options?.allowSplitOnContentRejection &&
+          claimed.items.length > 1
+        ) {
+          const split = await deps.repository.markRunSplit(
+            claimed.run.id,
+            claimed.run.itemIds,
+            outcome.error,
+            new Date().toISOString(),
+          );
+          notifyChanged("items");
+          notifyChanged("runs");
+          finishWork?.("failed");
+          return { run: split, split: true };
         }
         const failed = await deps.repository.markRunFailed(
           claimed.run.id,
@@ -616,7 +637,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         notifyChanged("items");
         notifyChanged("runs");
         finishWork?.("failed");
-        return failed;
+        return { run: failed, split: false };
       }
 
       let parsed: InformationModelResult;
@@ -637,7 +658,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         notifyChanged("items");
         notifyChanged("runs");
         finishWork?.("failed");
-        return failed;
+        return { run: failed, split: false };
       }
 
       const now = new Date().toISOString();
@@ -668,7 +689,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
           await deps.repository.pruneHistory().catch(() => undefined);
         }
         finishWork?.("succeeded", parsed.decisions.every((d) => d.decision === "silent"));
-        return updatedRun;
+        return { run: updatedRun, split: false };
       }
 
       const delivered = await deliverPendingPublications(claimed.run.id, controller.signal);
@@ -677,19 +698,109 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
       }
       notifyChanged("runs");
       finishWork?.("succeeded", false);
-      return delivered;
+      return { run: delivered, split: false };
     } finally {
       if (activeController === controller) activeController = undefined;
     }
   };
 
-  /** 当历史归档队列全部处理完成（pending === 0 && failed === 0）时，最多发出 1 条 <= 1200 字总结简报。 */
-  const maybePublishArchiveBriefing = async (lastRunId: string): Promise<boolean> => {
+  type BatchExecutionResult = {
+    runs: InformationRun[];
+    processedCount: number;
+    failedCount: number;
+    contentRejectedCount: number;
+    cancelled: boolean;
+    circuitBroken: boolean;
+  };
+
+  /**
+   * 批次执行 + 毒丸二分隔离：多条目批次被上游内容安全审核（MODEL_CONTENT_REJECTED）拒绝时，
+   * 自动对半拆分逐层认领，只有真正触发审核的单条最终失败，同批其余条目正常处理并沉淀习惯；
+   * 瞬时/全局故障（MODEL_REQUEST_FAILED）不触发二分，整批失败等待 retryFailed。
+   */
+  const executeBatchWithIsolation = async (
+    initialClaimed: { run: InformationRun; items: InformationItem[] },
+  ): Promise<BatchExecutionResult> => {
+    const result: BatchExecutionResult = {
+      runs: [],
+      processedCount: 0,
+      failedCount: 0,
+      contentRejectedCount: 0,
+      cancelled: false,
+      circuitBroken: false,
+    };
+    const queue = initialClaimed.run.kind;
+    const first = await executeSingleBatch(initialClaimed, {
+      allowSplitOnContentRejection: initialClaimed.items.length > 1,
+    });
+    result.runs.push(first.run);
+    if (!first.split) {
+      if (first.run.status === "completed") result.processedCount += initialClaimed.items.length;
+      else if (first.run.status === "failed") {
+        result.failedCount += initialClaimed.items.length;
+        if (first.run.model?.error === "MODEL_CONTENT_REJECTED") {
+          result.contentRejectedCount += initialClaimed.items.length;
+        }
+      } else if (first.run.status === "cancelled") {
+        result.cancelled = true;
+      }
+      return result;
+    }
+
+    // 二分循环：右半先入栈、左半先出栈，保持时间顺序；被拆分的中间 run 不计入成功/失败条目数。
+    const stack: string[][] = [];
+    const pushHalves = (itemIds: readonly string[]) => {
+      const mid = Math.floor(itemIds.length / 2);
+      if (itemIds.length - mid > 0) stack.push(itemIds.slice(mid));
+      if (mid > 0) stack.push(itemIds.slice(0, mid));
+    };
+    pushHalves(initialClaimed.items.map((item) => item.id));
+
+    let succeededInBatch = 0;
+    let isolatedInBatch = 0;
+    while (stack.length > 0 && !closed && !isPaused()) {
+      const sliceIds = stack.pop()!;
+      const subClaimed = await deps.repository.claimItems(queue, sliceIds, new Date().toISOString());
+      if (!subClaimed) continue;
+      const sub = await executeSingleBatch(subClaimed, {
+        allowSplitOnContentRejection: subClaimed.items.length > 1,
+      });
+      result.runs.push(sub.run);
+      if (sub.run.status === "cancelled") {
+        result.cancelled = true;
+        break;
+      }
+      if (sub.split) {
+        pushHalves(subClaimed.items.map((item) => item.id));
+        continue;
+      }
+      if (sub.run.status === "completed") {
+        result.processedCount += subClaimed.items.length;
+        succeededInBatch += subClaimed.items.length;
+        continue;
+      }
+      result.failedCount += subClaimed.items.length;
+      if (sub.run.model?.error === "MODEL_CONTENT_REJECTED") {
+        result.contentRejectedCount += subClaimed.items.length;
+        isolatedInBatch += subClaimed.items.length;
+        // 熔断：整批从未成功且已连续隔离多条毒丸，说明审核针对的是共享上下文（如指令本身），
+        // 停止二分，剩余条目保持 pending，避免调用风暴。
+        if (isolatedInBatch >= MAX_CONSECUTIVE_CONTENT_REJECTIONS && succeededInBatch === 0) {
+          result.circuitBroken = true;
+          break;
+        }
+      }
+    }
+    return result;
+  };
+
+  /** 当历史归档队列全部处理完成且只剩内容审核确定性拒绝（或无失败）时，发至多 1 条 <= 1200 字总结简报。 */
+  const maybePublishArchiveBriefing = async (): Promise<boolean> => {
     if (!deps.synthesizeBriefing) return false;
     const wave = await deps.repository.getArchiveBriefingWave();
     if (!wave) return false;
 
-    const { itemsById, waveRuns } = wave;
+    const { itemsById, waveRuns, skippedCount } = wave;
     let totalScanned = 0;
     let silentCount = 0;
     const candidates: InformationArchiveCandidate[] = [];
@@ -714,6 +825,8 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
       }
     }
 
+    // 简报必须挂到本波次最后一个 completed run 上（绝不能是失败的审核拒绝 run）。
+    const targetRunId = waveRuns[waveRuns.length - 1]!.id;
     const controller = new AbortController();
     activeController = controller;
     if (isPaused() || closed) controller.abort();
@@ -722,7 +835,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
       if (controller.signal.aborted) return false;
 
       const outcome = await deps.synthesizeBriefing({
-        runId: lastRunId,
+        runId: targetRunId,
         sessionId: "main",
         instructions: context.instructions,
         habits: context.habits,
@@ -730,12 +843,13 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         totalScanned,
         silentCount,
         batchCount: waveRuns.length,
+        skippedCount,
         candidates,
       }, controller.signal);
 
       if (!outcome.ok) {
-        await deps.repository.setRunPublications(lastRunId, [{
-          notificationId: `info-notification-${lastRunId}-0`,
+        await deps.repository.setRunPublications(targetRunId, [{
+          notificationId: `info-notification-${targetRunId}-0`,
           text: "(archive briefing failed)",
           itemIds: [],
           status: "failed",
@@ -750,18 +864,18 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         { text: outcome.text, itemIds: outcome.itemIds },
         candidateIds,
       );
-      await deps.repository.setRunPublications(lastRunId, [{
-        notificationId: `info-notification-${lastRunId}-0`,
+      await deps.repository.setRunPublications(targetRunId, [{
+        notificationId: `info-notification-${targetRunId}-0`,
         text: parsed.text.slice(0, ARCHIVE_BRIEFING_MAX_LENGTH),
         itemIds: parsed.itemIds,
         status: "pending",
       }]);
-      const delivered = await deliverPendingPublications(lastRunId, controller.signal);
+      const delivered = await deliverPendingPublications(targetRunId, controller.signal);
       notifyChanged("runs");
       return delivered.publications.some((pub) => pub.status === "published");
     } catch (error) {
-      await deps.repository.setRunPublications(lastRunId, [{
-        notificationId: `info-notification-${lastRunId}-0`,
+      await deps.repository.setRunPublications(targetRunId, [{
+        notificationId: `info-notification-${targetRunId}-0`,
         text: "(archive briefing failed)",
         itemIds: [],
         status: "failed",
@@ -794,10 +908,12 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
       if (!claimed) {
         throw new InformationError("NO_PENDING", "No pending realtime information items");
       }
-      const run = await executeSingleBatch(claimed);
-      const detail = await deps.repository.getRun(run.id);
+      const batchResult = await executeBatchWithIsolation(claimed);
+      const finalRun =
+        [...batchResult.runs].reverse().find((run) => run.status === "completed") ?? batchResult.runs.at(-1)!;
+      const detail = await deps.repository.getRun(finalRun.id);
       return {
-        run: detail?.run ?? run,
+        run: detail?.run ?? finalRun,
         items: detail?.items ?? claimed.items,
       };
     })();
@@ -834,23 +950,23 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
     let processedCount = 0;
     let failedCount = 0;
     let briefingPublished = false;
-    let lastRunId: string | undefined;
 
     const drainLoop = async () => {
+      let abortedByCircuitBreaker = false;
       while (!closed && !isPaused()) {
         const claimed = await claimBatch("archive", { forceRealtime: true });
         if (!claimed) break;
-        runsCount++;
-        lastRunId = claimed.run.id;
-        const result = await executeSingleBatch(claimed);
-        if (result.status === "completed") {
-          processedCount += claimed.items.length;
-        } else if (result.status === "failed") {
-          failedCount += claimed.items.length;
+        const batchResult = await executeBatchWithIsolation(claimed);
+        runsCount += batchResult.runs.length;
+        processedCount += batchResult.processedCount;
+        failedCount += batchResult.failedCount;
+        if (batchResult.cancelled || batchResult.circuitBroken) {
+          abortedByCircuitBreaker = batchResult.circuitBroken;
+          break;
         }
       }
-      if (!closed && !isPaused() && lastRunId) {
-        briefingPublished = await maybePublishArchiveBriefing(lastRunId);
+      if (!closed && !isPaused() && !abortedByCircuitBreaker) {
+        briefingPublished = await maybePublishArchiveBriefing();
       }
       await deps.repository.pruneHistory().catch(() => undefined);
     };
@@ -932,7 +1048,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
       const claimed = await claimBatch("realtime", { forceRealtime: false });
       if (!claimed) return;
       ran = true;
-      await executeSingleBatch(claimed);
+      await executeBatchWithIsolation(claimed);
     })();
     activeRunPromise = work;
     try {

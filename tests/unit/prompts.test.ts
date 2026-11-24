@@ -55,6 +55,8 @@ test("sms realtime prompt enforces Default-Silent baseline, 4-tier priority, and
   assert.match(smsBriefing, /Simplified Chinese/i);
   assert.match(smsBriefing, /NEVER expose internal JSON field names/i);
   assert.match(smsBriefing, /totalScanned/);
+  assert.match(smsBriefing, /skippedCount/);
+  assert.match(smsBriefing, /MODEL_CONTENT_REJECTED/);
   assert.match(smsBriefing, /hab_\.\.\./);
 
   const habitsConsolidate = loadPrompt("habits/consolidate.md");

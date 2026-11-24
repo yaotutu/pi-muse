@@ -222,6 +222,32 @@ export const parsePublicationsJson = (raw: string): InformationPublication[] => 
   return parsed as InformationPublication[];
 };
 
+/** ISO 时间戳比较取较晚者；归档波次边界与 finished_at 单调性完全依赖字符串序。 */
+const maxIso = (a: string, b: string | null | undefined): string => {
+  if (!b) return a;
+  const ta = Date.parse(a);
+  const tb = Date.parse(b);
+  if (Number.isNaN(ta)) return b;
+  if (Number.isNaN(tb)) return a;
+  return tb > ta ? b : a;
+};
+
+/** 保证新归档 run 的 started_at 严格晚于上一波简报 run 的 finished_at（0ms 测试环境下也成立）。 */
+const nextIsoAfter = (iso: string, floor: string | null | undefined): string => {
+  if (!floor) return iso;
+  const tIso = Date.parse(iso);
+  const tFloor = Date.parse(floor);
+  if (Number.isNaN(tIso) || Number.isNaN(tFloor) || tIso > tFloor) return iso;
+  return new Date(tFloor + 1).toISOString();
+};
+
+const latestArchiveBriefingFinishedAtSync = (database: DatabaseSync): string | null => {
+  const row = database.prepare(
+    "SELECT MAX(finished_at) AS ts FROM sms_runs WHERE kind = 'archive' AND status = 'completed' AND publications_json != '[]'",
+  ).get() as { ts: string | null } | undefined;
+  return row?.ts ?? null;
+};
+
 const rowToItem = (row: ItemJoinedRow): InformationItem => ({
   id: row.id,
   queue: row.queue,
@@ -606,6 +632,41 @@ export const requeueFailedSmsSync = (database: DatabaseSync, queue: InformationQ
   return Number(result.changes ?? 0);
 };
 
+/** 创建 running run 并原子认领选中条目；归档 run 的 started_at 需晚于上一波简报 run 的 finished_at。 */
+const createClaimedRunSync = (
+  database: DatabaseSync,
+  queue: InformationQueue,
+  selected: InformationItem[],
+  now: string,
+): { run: InformationRun; items: InformationItem[] } => {
+  const effectiveNow = queue === "archive" ? nextIsoAfter(now, latestArchiveBriefingFinishedAtSync(database)) : now;
+  const runId = `inforun_${randomUUID()}`;
+  const runPosition =
+    ((database.prepare("SELECT COALESCE(MAX(position), -1) AS max_pos FROM sms_runs").get() as { max_pos: number }).max_pos) + 1;
+  database.prepare(
+    "INSERT INTO sms_runs (id, position, kind, status, created_at, started_at, finished_at, model_status, model_error, has_decisions, publications_json) VALUES (?, ?, ?, 'running', ?, ?, NULL, NULL, NULL, 0, '[]')",
+  ).run(runId, runPosition, queue, effectiveNow, effectiveNow);
+
+  const updateItemStmt = database.prepare("UPDATE sms_items SET status = 'processing', run_id = ? WHERE id = ?");
+  const insertRunItemStmt = database.prepare("INSERT INTO sms_run_items (run_id, position, item_id) VALUES (?, ?, ?)");
+  selected.forEach((item, index) => {
+    item.runId = runId;
+    updateItemStmt.run(runId, item.id);
+    insertRunItemStmt.run(runId, index, item.id);
+  });
+
+  const run: InformationRun = {
+    id: runId,
+    kind: queue,
+    status: "running",
+    createdAt: effectiveNow,
+    startedAt: effectiveNow,
+    itemIds: selected.map((item) => item.id),
+    publications: [],
+  };
+  return { run, items: selected };
+};
+
 export const claimSmsBatchSync = (
   database: DatabaseSync,
   queue: InformationQueue,
@@ -634,31 +695,28 @@ export const claimSmsBatchSync = (
     chars += row.content.length;
   }
 
-  const runId = `inforun_${randomUUID()}`;
-  const runPosition =
-    ((database.prepare("SELECT COALESCE(MAX(position), -1) AS max_pos FROM sms_runs").get() as { max_pos: number }).max_pos) + 1;
-  database.prepare(
-    "INSERT INTO sms_runs (id, position, kind, status, created_at, started_at, finished_at, model_status, model_error, has_decisions, publications_json) VALUES (?, ?, ?, 'running', ?, ?, NULL, NULL, NULL, 0, '[]')",
-  ).run(runId, runPosition, queue, options.now, options.now);
+  return createClaimedRunSync(database, queue, selected, options.now);
+};
 
-  const updateItemStmt = database.prepare("UPDATE sms_items SET status = 'processing', run_id = ? WHERE id = ?");
-  const insertRunItemStmt = database.prepare("INSERT INTO sms_run_items (run_id, position, item_id) VALUES (?, ?, ?)");
-  selected.forEach((item, index) => {
-    item.runId = runId;
-    updateItemStmt.run(runId, item.id);
-    insertRunItemStmt.run(runId, index, item.id);
-  });
-
-  const run: InformationRun = {
-    id: runId,
-    kind: queue,
-    status: "running",
-    createdAt: options.now,
-    startedAt: options.now,
-    itemIds: selected.map((item) => item.id),
-    publications: [],
-  };
-  return { run, items: selected };
+/** 二分隔离专用：按精确条目 ID 认领仍 pending 的子切片（保持原 position 顺序）。 */
+export const claimSmsItemsSync = (
+  database: DatabaseSync,
+  queue: InformationQueue,
+  itemIds: readonly string[],
+  now: string,
+): { run: InformationRun; items: InformationItem[] } | null => {
+  if (!itemIds.length) return null;
+  const placeholders = itemIds.map(() => "?").join(", ");
+  const rows = database.prepare(
+    `${ITEM_SELECT_SQL} WHERE i.queue = ? AND i.status = 'pending' AND i.id IN (${placeholders}) ORDER BY i.position`,
+  ).all(queue, ...itemIds) as ItemJoinedRow[];
+  if (!rows.length) return null;
+  return createClaimedRunSync(
+    database,
+    queue,
+    rows.map((row) => ({ ...rowToItem(row), status: "processing" })),
+    now,
+  );
 };
 
 export const revertClaimedSmsRunSync = (
@@ -682,11 +740,43 @@ export const markSmsRunFailedSync = (
   errorMessage: string,
   finishedAt: string,
 ): InformationRun => {
+  const existing = database.prepare("SELECT started_at FROM sms_runs WHERE id = ?").get(runId) as
+    | { started_at: string }
+    | undefined;
+  const effectiveFinished = maxIso(finishedAt, existing?.started_at);
   database.prepare(
     "UPDATE sms_runs SET status = 'failed', finished_at = ?, model_status = 'failed', model_error = ? WHERE id = ?",
-  ).run(finishedAt, errorMessage, runId);
+  ).run(effectiveFinished, errorMessage, runId);
   const stmt = database.prepare("UPDATE sms_items SET status = 'failed' WHERE id = ?");
   for (const itemId of itemIds) stmt.run(itemId);
+  const run = readRunByIdSync(database, runId);
+  if (!run) throw new InformationError("NOT_FOUND", `Unknown information run: ${runId}`);
+  return run;
+};
+
+/**
+ * 二分隔离：多条目批次被上游内容审核拒绝时，把该 run 标记为失败（model_error 保留
+ * MODEL_CONTENT_REJECTED 以便后续只按确定性拒绝放行简报），但把条目回退为 pending，
+ * 供二分循环继续按子切片认领，只有最终单条切片仍会真正失败。
+ */
+export const markSmsRunSplitSync = (
+  database: DatabaseSync,
+  runId: string,
+  itemIds: readonly string[],
+  errorMessage: string,
+  finishedAt: string,
+): InformationRun => {
+  const existing = database.prepare("SELECT started_at FROM sms_runs WHERE id = ?").get(runId) as
+    | { started_at: string }
+    | undefined;
+  const effectiveFinished = maxIso(finishedAt, existing?.started_at);
+  database.prepare(
+    "UPDATE sms_runs SET status = 'failed', finished_at = ?, model_status = 'failed', model_error = ? WHERE id = ?",
+  ).run(effectiveFinished, errorMessage, runId);
+  const revertStmt = database.prepare(
+    "UPDATE sms_items SET status = 'pending', run_id = NULL WHERE id = ? AND status = 'processing'",
+  );
+  for (const itemId of itemIds) revertStmt.run(itemId);
   const run = readRunByIdSync(database, runId);
   if (!run) throw new InformationError("NOT_FOUND", `Unknown information run: ${runId}`);
   return run;
@@ -763,13 +853,23 @@ export const finalizeSmsDeliverySync = (
   finishedAt: string,
   interruptReason: string,
 ): InformationRun => {
-  const row = database.prepare("SELECT publications_json FROM sms_runs WHERE id = ?").get(runId) as { publications_json: string } | undefined;
+  const row = database.prepare(
+    "SELECT kind, publications_json FROM sms_runs WHERE id = ?",
+  ).get(runId) as { kind: InformationRunKind; publications_json: string } | undefined;
   if (!row) throw new InformationError("NOT_FOUND", `Unknown information run: ${runId}`);
   const publications = parsePublicationsJson(row.publications_json).map((pub) =>
     pub.status === "pending" ? { ...pub, status: "failed" as const, error: interruptReason } : pub);
+  let effectiveFinished = finishedAt;
+  if (row.kind === "archive" && publications.length > 0) {
+    // 归档简报 run 的 finished_at 必须晚于同波次所有 run，保证波次回溯边界正确。
+    const maxRow = database.prepare(
+      "SELECT MAX(finished_at) AS ts FROM sms_runs WHERE kind = 'archive' AND finished_at IS NOT NULL",
+    ).get() as { ts: string | null } | undefined;
+    effectiveFinished = maxIso(finishedAt, maxRow?.ts);
+  }
   database.prepare(
     "UPDATE sms_runs SET status = 'completed', finished_at = ?, publications_json = ? WHERE id = ?",
-  ).run(finishedAt, canonicalJson(publications), runId);
+  ).run(effectiveFinished, canonicalJson(publications), runId);
   const run = readRunByIdSync(database, runId);
   if (!run) throw new InformationError("NOT_FOUND", `Unknown information run: ${runId}`);
   return run;
@@ -805,22 +905,43 @@ export const getSmsNotificationContextSync = (
 
 export const getSmsArchiveBriefingWaveSync = (
   database: DatabaseSync,
-): { itemsById: Map<string, InformationItem>; waveRuns: InformationRun[] } | null => {
+): { itemsById: Map<string, InformationItem>; waveRuns: InformationRun[]; skippedCount: number } | null => {
   if (!database.prepare("SELECT 1 FROM sms_items WHERE queue = 'archive' LIMIT 1").get()) return null;
-  if (database.prepare("SELECT 1 FROM sms_items WHERE queue = 'archive' AND status IN ('pending', 'processing', 'failed') LIMIT 1").get()) {
+  if (database.prepare("SELECT 1 FROM sms_items WHERE queue = 'archive' AND status IN ('pending', 'processing') LIMIT 1").get()) {
     return null;
   }
+  // 仍存在的归档失败条目：只有全部来自上游内容安全审核的确定性拒绝（单条毒丸）才允许发简报；
+  // 任何瞬时/全局故障（网络、5xx、无效结果）都必须继续阻断，等待 retryFailed 重跑。
+  const failedRows = database.prepare(
+    `SELECT i.id, r.model_error AS model_error, r.started_at AS started_at
+     FROM sms_items i
+     LEFT JOIN sms_runs r ON r.id = i.run_id
+     WHERE i.queue = 'archive' AND i.status = 'failed'`,
+  ).all() as Array<{ id: string; model_error: string | null; started_at: string | null }>;
+  if (failedRows.some((row) => row.model_error !== "MODEL_CONTENT_REJECTED")) return null;
+
   const runRows = database.prepare(
-    "SELECT id, position, kind, status, created_at, started_at, finished_at, model_status, model_error, has_decisions, publications_json FROM sms_runs WHERE kind = 'archive' AND status = 'completed' ORDER BY started_at ASC, id ASC",
+    "SELECT id, position, kind, status, created_at, started_at, finished_at, model_status, model_error, has_decisions, publications_json FROM sms_runs WHERE kind = 'archive' AND status = 'completed' ORDER BY position ASC",
   ).all() as RunRow[];
   const runs = hydrateRunsSync(database, runRows);
   const waveRuns: InformationRun[] = [];
+  let lastBriefingRun: InformationRun | undefined;
   for (let i = runs.length - 1; i >= 0; i--) {
     const run = runs[i]!;
-    if (run.publications.length > 0) break;
+    if (run.publications.length > 0) {
+      lastBriefingRun = run;
+      break;
+    }
     waveRuns.unshift(run);
   }
   if (!waveRuns.length) return null;
+
+  // 波次内被审核拒绝的条目数：仅统计上一波简报 run 完成之后产生的失败（按 started_at 分界）。
+  const skippedCount = failedRows.filter((row) => {
+    if (!lastBriefingRun) return true;
+    if (row.started_at === null || lastBriefingRun.finishedAt === undefined) return false;
+    return row.started_at > lastBriefingRun.finishedAt;
+  }).length;
 
   const neededItemIds = new Set<string>();
   for (const run of waveRuns) {
@@ -835,7 +956,7 @@ export const getSmsArchiveBriefingWaveSync = (
     const rows = database.prepare(`${ITEM_SELECT_SQL} WHERE i.id IN (${placeholders}) AND i.queue = 'archive'`).all(...ids) as ItemJoinedRow[];
     for (const row of rows) itemsById.set(row.id, rowToItem(row));
   }
-  return { itemsById, waveRuns };
+  return { itemsById, waveRuns, skippedCount };
 };
 
 export const pruneSmsHistorySync = (

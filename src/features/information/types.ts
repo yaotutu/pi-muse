@@ -127,7 +127,7 @@ export type InformationModelInput = {
   }>;
 };
 
-export type InformationModelError = "MODEL_REQUEST_FAILED" | "INVALID_MODEL_RESULT" | "CANCELLED";
+export type InformationModelError = "MODEL_REQUEST_FAILED" | "MODEL_CONTENT_REJECTED" | "INVALID_MODEL_RESULT" | "CANCELLED";
 
 export type InformationModelOutcome =
   | { ok: true; result: InformationModelResult }
@@ -151,6 +151,8 @@ export type InformationBriefingInput = {
   totalScanned: number;
   silentCount: number;
   batchCount: number;
+  /** 本归档波次中被上游内容安全审核拒绝而跳过的条目数（供简报自然告知用户）。 */
+  skippedCount: number;
   candidates: InformationArchiveCandidate[];
 };
 
@@ -226,8 +228,21 @@ export type InformationRepository = {
     queue: InformationQueue,
     options: { forceRealtime: boolean; maxItems: number; maxChars: number; now: string },
   ) => Promise<{ run: InformationRun; items: InformationItem[] } | null>;
+  /** 二分隔离专用：按精确条目 ID 认领仍处于 pending 的子切片，生成新的 running run。 */
+  claimItems: (
+    queue: InformationQueue,
+    itemIds: readonly string[],
+    now: string,
+  ) => Promise<{ run: InformationRun; items: InformationItem[] } | null>;
   revertClaimedRun: (runId: string, itemIds: readonly string[], finishedAt: string) => Promise<InformationRun>;
   markRunFailed: (
+    runId: string,
+    itemIds: readonly string[],
+    errorMessage: string,
+    finishedAt: string,
+  ) => Promise<InformationRun>;
+  /** 多条目批次被上游内容审核拒绝时：标记该 run 失败但把条目回退为 pending，供二分隔离继续认领。 */
+  markRunSplit: (
     runId: string,
     itemIds: readonly string[],
     errorMessage: string,
@@ -260,6 +275,8 @@ export type InformationRepository = {
   getArchiveBriefingWave: () => Promise<{
     itemsById: Map<string, InformationItem>;
     waveRuns: InformationRun[];
+    /** 本归档波次中被上游内容安全审核拒绝的条目数；存在非审核类失败时整个波次返回 null。 */
+    skippedCount: number;
   } | null>;
   pruneHistory: (limits?: {
     maxProcessedRealtimeItems?: number;

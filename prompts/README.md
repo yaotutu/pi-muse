@@ -23,7 +23,7 @@
 | [habits/consolidate.md](habits/consolidate.md) | 通用习惯归纳 Worker | 基于消费游标从各领域未消化反馈热缓冲中定期提炼 `add/edit/delete` 行为习惯，不覆盖显式指令、不记录一次性验证码/链接 |
 | [sms/realtime.md](sms/realtime.md) | 短信实时单周期 Worker | **默认静默（Default-Silent）基线 + 四级优先级**（用户指令 > 近期未消化反馈 > 已归纳长期习惯 > 默认静默），默认输出简体中文通知与理由 |
 | [sms/archive.md](sms/archive.md) | 短信历史归档 Worker | 批量历史分类并可选向习惯库增量提交 `habitOperations`，严禁单批直接发通知 |
-| [sms/briefing.md](sms/briefing.md) | 短信历史归档简报 Worker | 归档队列清零后生成至多 1 条 `<= 1200` 字自然语言中文总览简报（严禁透出内部字段名或系统 ID） |
+| [sms/briefing.md](sms/briefing.md) | 短信历史归档简报 Worker | 归档队列清空后生成至多 1 条 `<= 1200` 字自然语言中文总览简报（严禁透出内部字段名或系统 ID）；有内容审核跳过的条目时自然告知跳过数量 |
 | [news/screening.md](news/screening.md) | 新闻 RSS 筛选 Worker | 按新闻规则、已归纳习惯与近期未消化文章反馈筛选值得推荐的文章 |
 | [dream/consolidate.md](dream/consolidate.md) | Dream 记忆整理 Worker | 对话沉淀分流规范（区分全局 `USER` / `SOUL` / `INSTRUCTIONS` / `MEMORY` 与待确认队列） |
 | [dream/hard-rules.md](dream/hard-rules.md) | Dream 记忆整理 Worker | 记忆整理不可覆盖的硬性安全与权限边界约束 |

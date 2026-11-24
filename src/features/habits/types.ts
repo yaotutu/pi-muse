@@ -130,6 +130,7 @@ export type HabitConsolidateModelInput = {
 
 export type HabitConsolidateModelError =
   | "MODEL_REQUEST_FAILED"
+  | "MODEL_CONTENT_REJECTED"
   | "INVALID_MODEL_RESULT"
   | "CANCELLED";
 
