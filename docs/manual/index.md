@@ -15,7 +15,7 @@
 - [资料与设置](profile-and-settings.md)：修改助手与用户资料、主题，管理连接、浏览器入口与应用更新。
 - [核心能力](usage.md)：查看任务、目标、记忆、浏览器与数据边界概览。
 - [配置说明](configuration.md)：查询服务端配置字段和数据目录。
-- [浏览器 Docker 与 noVNC](browser-docker.md)：按需使用带图形界面的浏览器部署。
+- [真实浏览器](browser.md)：使用带 GUI 的真实 Chrome、手机端 `/browser` 操控与精简 Docker 部署。
 - [开发入口](development.md)：本地文档站、业务开发和接口文档。
 - [常见问题](troubleshooting.md)：排查连接、AccessKey、模型、附件和审批。
 

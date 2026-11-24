@@ -105,9 +105,17 @@ const createDriverHarness = (initialTabs: BrowserTab[] = [tab("one", true)]) => 
   const actCalls: { tabId: string; step: BrowserActStep }[] = [];
   let closeCalls = 0;
 
+  let currentViewport: import("../../src/features/browser/types.js").BrowserViewport = {
+    preset: "desktop",
+    width: 1280,
+    height: 800,
+    mobile: false,
+  };
+  let running = true;
   const driver: BrowserDriver = {
-    start: async () => undefined,
-    close: async () => { closeCalls++; },
+    start: async () => { running = true; },
+    close: async () => { running = false; closeCalls++; },
+    isRunning: () => running,
     listTabs: async () => tabs.map((item) => ({ ...item })),
     newTab: async () => tabs[0]!,
     closeTab: async () => tabs,
@@ -115,6 +123,11 @@ const createDriverHarness = (initialTabs: BrowserTab[] = [tab("one", true)]) => 
     navigate: async (tabId) => tabs.find((item) => item.id === tabId)!,
     history: async (tabId) => tabs.find((item) => item.id === tabId)!,
     reload: async (tabId) => tabs.find((item) => item.id === tabId)!,
+    getViewport: () => ({ ...currentViewport }),
+    setViewport: async (viewport) => {
+      currentViewport = { ...viewport };
+      return { ...currentViewport };
+    },
     input: async (tabId, event) => { inputCalls.push({ tabId, event }); },
     act: async (tabId, step) => { actCalls.push({ tabId, step }); },
     snapshot: async (tabId) => {
@@ -128,6 +141,17 @@ const createDriverHarness = (initialTabs: BrowserTab[] = [tab("one", true)]) => 
         truncated: false,
       } satisfies Omit<BrowserSnapshot, "untrusted">;
     },
+    screenshot: async (tabId) => {
+      const item = tabs.find((candidate) => candidate.id === tabId)!;
+      return {
+        tab: item,
+        mimeType: "image/jpeg",
+        width: currentViewport.width,
+        height: currentViewport.height,
+        dataBase64: "AQ==",
+      };
+    },
+    wait: async () => ({ ok: true, waited: "delay" }),
     startScreencast: async (tabId) => { startCalls.push(tabId); },
     stopScreencast: async (tabId) => { stopCalls.push(tabId); },
     listUploads: async () => [],
@@ -746,7 +770,7 @@ test("driver clears a closed context and can start again explicitly", async (t) 
 
   const initial = await fake.driver.listTabs();
   assert.equal(fake.launches.length, 1);
-  assert.equal(fake.launches[0]!.options.viewport, null);
+  assert.deepEqual(fake.launches[0]!.options.viewport, { width: 1280, height: 800 });
   assert.equal(fake.launches[0]!.options.handleSIGINT, false);
   assert.equal(fake.launches[0]!.options.handleSIGTERM, false);
   assert.equal(fake.launches[0]!.options.handleSIGHUP, false);
@@ -807,7 +831,7 @@ test("newTab brings the real page to front before native tab probing", async (t)
   assert.equal(tabs.find((item) => item.id === second.id)?.active, true);
 });
 
-test("listTabs reports a controlled error when native tab metadata is missing", async (t) => {
+test("listTabs gracefully falls back when native tab metadata is missing", async (t) => {
   const fake = await createFakePlaywright();
   t.after(async () => {
     await fake.driver.close();
@@ -816,12 +840,9 @@ test("listTabs reports a controlled error when native tab metadata is missing", 
   await fake.driver.start();
   fake.contexts[0]!.nativeMetadataAvailable = false;
 
-  await assert.rejects(
-    fake.driver.listTabs(),
-    (error: unknown) => error instanceof BrowserError &&
-      error.code === "BROWSER_FAILED" &&
-      error.message === "Native tab metadata unavailable",
-  );
+  const tabs = await fake.driver.listTabs();
+  assert.equal(tabs.length, 1);
+  assert.equal(tabs[0]?.active, true);
 });
 
 test("driver preserves input, viewport, ack and native cast probe lifecycle", async (t) => {
@@ -853,7 +874,7 @@ test("driver preserves input, viewport, ack and native cast probe lifecycle", as
   const start = cdp.calls.find((call) => call.method === "Page.startScreencast");
   assert.deepEqual(start?.params, {
     format: "jpeg",
-    quality: 70,
+    quality: 75,
     maxWidth: 1365,
     maxHeight: 700,
   });

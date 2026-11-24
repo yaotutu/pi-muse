@@ -1,16 +1,14 @@
 #!/bin/sh
 set -eu
 
-# 一个容器就是一个远程浏览器工作站：Xvfb 提供真实 GUI 所需的 X server，
-# x11vnc 把这个 X server 暴露给容器内的 websockify/noVNC，Node 服务负责 API/Agent。
+# 一个容器就是一个远程真实浏览器工作站：Xvfb 提供完整 GUI Chrome 所需的 X server，
+# Node 服务统一提供 API、响应式 /browser 操控页与 CDP 帧流 /ws/browser。
 config_source="${BROWSER_CONFIG_SOURCE:-/app/browser-config.json}"
 display_number="${BROWSER_DISPLAY_NUMBER:-0}"
 screen_size="${BROWSER_SCREEN_SIZE:-1440x900x24}"
 window_size="${BROWSER_WINDOW_SIZE:-${screen_size%x*}}"
-vnc_port="${BROWSER_VNC_PORT:-5900}"
 children=""
 node_pid=""
-fluxbox_init=""
 
 fail() {
   echo "$1" >&2
@@ -19,9 +17,6 @@ fail() {
 
 case "$display_number" in
   ''|*[!0-9]*) fail "BROWSER_DISPLAY_NUMBER must be a non-negative integer" ;;
-esac
-case "$vnc_port" in
-  ''|*[!0-9]*) fail "BROWSER_VNC_PORT must be an integer" ;;
 esac
 echo "$screen_size" | grep -Eq '^[0-9]+x[0-9]+x[0-9]+$' \
   || fail "BROWSER_SCREEN_SIZE must look like 1440x900x24"
@@ -68,9 +63,6 @@ cleanup() {
     # shellcheck disable=SC2086
     wait $children 2>/dev/null || true
   fi
-  if [ -n "$fluxbox_init" ]; then
-    rm -f "$fluxbox_init"
-  fi
   exit "$status"
 }
 trap cleanup EXIT INT TERM
@@ -99,57 +91,13 @@ while [ "$i" -lt 100 ]; do
 done
 [ "$ready" -eq 1 ] || fail "Xvfb did not become ready"
 
-fluxbox_init="$(mktemp /tmp/pi-muse-fluxbox-init.XXXXXX)" \
-  || fail "Unable to create a temporary Fluxbox config"
-cat >"$fluxbox_init" <<'EOF'
-session.styleFile: /usr/share/fluxbox/styles/Squared_for_Debian
-session.screen0.toolbar.visible: false
-session.screen0.toolbar.autoHide: true
-EOF
-chmod 0444 "$fluxbox_init"
-fluxbox --display "$display" -rc "$fluxbox_init" >/tmp/fluxbox.log 2>&1 &
-children="$children $!"
-x11vnc \
-  -display "$display" \
-  -listen localhost \
-  -rfbport "$vnc_port" \
-  -forever -shared -noxdamage -nopw \
-  >/tmp/x11vnc.log 2>&1 &
-children="$children $!"
-# noVNC/websockify 只绑定容器内回环地址，端口唯一来源是 tools.browser.desktopPort；
-# 对外桌面访问统一由 Node 服务以同源 /browser/desktop/ 网关代理，不再单独发布端口。
-# 复用服务端唯一的配置加载与默认值（省略 desktopPort 时与服务同为 6080）；
-# 只输出端口号，不打印配置原文或凭据。
-novnc_port="$(node --input-type=module -e '
-  const { loadConfig } = await import("/app/dist/config/load-config.js");
-  process.stdout.write(String(loadConfig("/app/.pi-muse/config.json").browser.desktopPort));
-')" || fail "Unable to read tools.browser.desktopPort from config"
-websockify \
-  --web /usr/share/novnc \
-  "127.0.0.1:${novnc_port}" \
-  "127.0.0.1:${vnc_port}" \
-  >/tmp/websockify.log 2>&1 &
-children="$children $!"
-
-novnc_ready=0
-i=0
-while [ "$i" -lt 100 ]; do
-  if curl -fsS "http://127.0.0.1:${novnc_port}/vnc.html" >/dev/null 2>&1; then
-    novnc_ready=1
-    break
-  fi
-  sleep 0.1
-  i=$((i + 1))
-done
-[ "$novnc_ready" -eq 1 ] || fail "noVNC did not become ready; see /tmp/websockify.log"
-
 export DISPLAY="$display"
 export BROWSER_WINDOW_SIZE="$window_size"
 # 容器重建会硬终止旧 Chrome；这些 singleton 文件只表示旧进程锁，不代表浏览数据。
-rm -f /app/.pi-muse/browser/profile/SingletonCookie \
-  /app/.pi-muse/browser/profile/SingletonLock \
-  /app/.pi-muse/browser/profile/SingletonSocket
-echo "pi-muse browser container ready: API port 12330, internal noVNC port ${novnc_port}, display ${display}"
+rm -f /app/.pi-muse/runtime/browser/profile/SingletonCookie \
+  /app/.pi-muse/runtime/browser/profile/SingletonLock \
+  /app/.pi-muse/runtime/browser/profile/SingletonSocket
+echo "pi-muse browser container ready: API port 12330, viewer /browser, display ${display}"
 node dist/index.js &
 node_pid=$!
 api_ready=0
@@ -167,7 +115,7 @@ while [ "$i" -lt 300 ]; do
 done
 [ "$api_ready" -eq 1 ] || fail "API health did not become ready"
 
-# noVNC 打开时就应看到真实 Chrome 窗口；读取一次标签列表会触发懒启动，
+# 触发一次标签列表唤醒真实 Chrome，确保打开 /browser 时立即可见；
 # token 只留在这个短生命周期 Node 进程内，不写入参数、日志或镜像。
 if ! node <<'NODE'
 const { readFile } = require("node:fs/promises");

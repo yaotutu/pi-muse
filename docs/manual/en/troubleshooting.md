@@ -61,7 +61,7 @@ First distinguish long-term memory, assistant and user profiles, and Dream pendi
 
 ## The Real Browser Cannot Open {#browser-cannot-open}
 
-On mobile, open Settings → App and connection → Browser to view and control the server's Chrome in a native WebView via a one-time same-origin ticket (see [Profile and settings](profile-and-settings.md#real-browser)). If it reports disabled or desktop unreachable, verify on the server that `tools.browser.enabled` is true and Chrome / Docker noVNC is healthy. Never expose the default unauthenticated noVNC port publicly while troubleshooting (see [Browser deployment](browser-docker.md)).
+Open `/browser` directly or launch `/browser/launch?ticket=...` via `POST /api/browser/viewer-ticket`—no separate VNC port is used. If it reports disabled or fails to start, verify `tools.browser.enabled` is true and system Chrome, Docker Xvfb + Chrome, or `tools.browser.cdpUrl` is healthy; if behind an HTTPS reverse proxy, ensure `/ws/browser` forwards WebSocket Upgrade headers (see [Real Browser Guide](browser.md)).
 
 ## App Update Check or Installation Failed {#app-update-failed}
 

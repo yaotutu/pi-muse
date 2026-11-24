@@ -1,4 +1,4 @@
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { BrowserService } from "../features/browser/browser-service.js";
@@ -11,7 +11,6 @@ const writeUnauthorized = (socket: Duplex) => {
 /**
  * Hono 的 fetch 抽象不承载 HTTP upgrade；这里在 Node server 上处理 /ws/browser。
  * 长期 Bearer token 不进入 URL，只消费一次性的短时 ticket。
- * 返回升级 handler，由统一 dispatcher 挂到 server，保证与桌面 websockify 互不劫持。
  */
 export const createBrowserUpgradeHandler = (
   browser: BrowserService | undefined,
@@ -50,5 +49,26 @@ export const createBrowserUpgradeHandler = (
       sockets.clients.forEach((client) => client.terminate());
       sockets.close();
     },
+  };
+};
+
+/** 挂载单通道 upgrade 处理：不匹配的路径返回 404 并关闭 socket。 */
+export const attachUpgradeHandler = (
+  server: Server,
+  handle: (request: IncomingMessage, socket: Duplex, head: Buffer) => boolean,
+) => {
+  const listener = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    try {
+      if (handle(request, socket, head)) return;
+    } catch {
+      socket.destroy();
+      return;
+    }
+    socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+  };
+  server.on("upgrade", listener);
+  return () => {
+    server.off("upgrade", listener);
   };
 };

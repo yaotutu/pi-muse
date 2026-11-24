@@ -92,9 +92,9 @@ The current app has no logout or server-sign-out button. Closing the connection 
 
 ## Real Browser {#real-browser}
 
-Tap Browser under 「应用与连接」 (App and connection) in Settings to view and control the server's same Chrome instance through a native WebView. The client does not configure a separate desktop address or password. It obtains a one-time same-origin ticket through the current connection and does not inject the API Token into the viewer URL. Closing the viewer does not close server Chrome; disabled or unreachable desktop state is shown explicitly.
+Access the server's shared real Chrome from mobile (`rich-ui`) or Web: request a one-time `launchPath` from `POST /api/browser/viewer-ticket` and open `/browser/launch?ticket=...` into the responsive `/browser` page (or visit `/browser` directly). No separate host or API Token in URLs is required, and `/browser` supports mobile/desktop viewport toggles, touch scrolling, and native IME text input. Closing the viewer keeps server Chrome alive; after completing manual login/CAPTCHA steps requested by `request_handoff`, tap "我已完成" to resume.
 
-See [Browser Docker and noVNC](browser-docker.md) for deployment. Never expose the raw noVNC port publicly without authentication.
+See the [Real Browser Guide](browser.md) for deployment and viewer details.
 
 ## Android App Updates {#android-updates}
 

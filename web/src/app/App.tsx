@@ -1,6 +1,7 @@
 import { NewsView } from "../news/NewsView";
 import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { ChatView } from "../chat/ChatView";
+import { BrowserView } from "../browser/BrowserView";
 import { JobsView } from "../jobs/JobsView";
 import { GoalsView } from "../goals/GoalsView";
 import { TracesView } from "../traces/TracesView";
@@ -13,12 +14,14 @@ import {
   listSessionSchedules,
   type SessionSchedules,
   decideApproval,
+  resolveBrowserHandoff,
   subscribeAuth,
   isLoggedIn,
   listSessions,
   login,
   subscribeWorkspaceEvents,
   type ActivityUpdatedEventDto,
+  type BrowserHandoffDto,
   type SessionStatusDto,
   type ApprovalViewDto,
   type SessionDto,
@@ -148,6 +151,8 @@ type WorkspaceState = {
   // ready 是恢复漏通知的同步边界；瞬时失效只保存身份与顺序，不保存通知内容。
   conversationSyncVersion: number;
   conversationUpdates: Array<{ sequence: number; data: ConversationUpdatedEventDto }>;
+  browserSyncVersion: number;
+  browserHandoff: BrowserHandoffDto | null;
 };
 
 type WorkspaceAction =
@@ -167,6 +172,8 @@ const initialWorkspaceState: WorkspaceState = {
   notices: [],
   conversationSyncVersion: 0,
   conversationUpdates: [],
+  browserSyncVersion: 0,
+  browserHandoff: null,
 };
 
 const runKey = (sessionId: string, runId: string) => JSON.stringify([sessionId, runId]);
@@ -224,6 +231,8 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
         notices: [],
         conversationSyncVersion: state.conversationSyncVersion + 1,
         conversationUpdates: [],
+        browserSyncVersion: state.browserSyncVersion + 1,
+        browserHandoff: null,
       };
     }
     case "session_status_updated": {
@@ -291,6 +300,17 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
     case "session_directory_updated":
     case "domain_updated":
       return state;
+    case "browser_updated": {
+      if (state.instanceId !== action.data.instanceId) return state;
+      return {
+        ...state,
+        browserSyncVersion: state.browserSyncVersion + 1,
+        browserHandoff:
+          action.data.scope === "handoff"
+            ? (action.data.handoff ?? null)
+            : state.browserHandoff,
+      };
+    }
     case "conversation_updated": {
       const update = action.data;
       if (state.instanceId !== update.instanceId) return state;
@@ -338,7 +358,7 @@ export const App = () => {
   const [newTitle, setNewTitle] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [error, setError] = useState("");
-  type View = "news" | "chat" | "jobs" | "goals" | "traces" | "settings";
+  type View = "news" | "chat" | "browser" | "jobs" | "goals" | "traces" | "settings";
   const [view, setView] = useState<View>("chat");
   // 小屏（<768px）侧栏变为抽屉；默认开抽屉选会话，选完自动收起。
   const [drawer, setDrawer] = useState(false);
@@ -440,6 +460,7 @@ export const App = () => {
 
   const navItems: { key: View; label: string }[] = [
     { key: "chat", label: "消息" },
+    { key: "browser", label: "浏览器" },
     { key: "news", label: "新闻" },
     { key: "jobs", label: "任务" },
     { key: "goals", label: "目标" },
@@ -557,6 +578,27 @@ export const App = () => {
             </div>
           </div>
         )}
+        {workspace.browserHandoff && view !== "browser" && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+            <span className="min-w-0 flex-1 truncate">
+              浏览器等待人工操作：{workspace.browserHandoff.reason}
+            </span>
+            <button
+              type="button"
+              onClick={() => setView("browser")}
+              className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-900 hover:bg-amber-100"
+            >
+              前往浏览器
+            </button>
+            <button
+              type="button"
+              onClick={() => void resolveBrowserHandoff().catch((e: Error) => setError(e.message))}
+              className="rounded-lg bg-amber-600 px-2.5 py-1 font-medium text-white hover:bg-amber-700"
+            >
+              我已完成
+            </button>
+          </div>
+        )}
         {currentStatus && (
           <div className="flex items-center gap-2 border-b border-stone-200 bg-white px-4 py-1.5 text-xs text-stone-500">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500" aria-hidden />
@@ -616,6 +658,12 @@ export const App = () => {
             />
           </div>
         ))}
+        {view === "browser" && (
+          <BrowserView
+            browserSyncVersion={workspace.browserSyncVersion}
+            handoffHint={workspace.browserHandoff}
+          />
+        )}
         {view === "news" && <NewsView />}
         {view === "jobs" && <JobsView />}
         {view === "goals" && <GoalsView />}

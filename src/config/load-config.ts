@@ -61,12 +61,11 @@ const writableSchema = z.object({
 const browserSchema = z.object({
   enabled: z.boolean().default(true),
   executablePath: z.string().optional(),
+  // 可选连接外部已启动的真实 Chrome CDP 端点（如 http://127.0.0.1:9222 或 ws://...），
+  // 未设置时由服务端按系统 Chrome / Docker Xvfb Chrome 直接以 headless: false 拉起。
+  cdpUrl: z.string().optional(),
   allowPrivateTargets: z.boolean().default(false),
   timeoutMs: positiveInt(120_000, 30_000),
-  // 桌面流 upstream：容器内部署保持默认回环 6080；宿主机进程部署时指向容器映射的本机端口
-  // （如 host 127.0.0.1 + port 16080）。对外访问仍统一走同源 /browser/desktop/ 网关，不公开该端口。
-  desktopHost: z.string().min(1).default("127.0.0.1"),
-  desktopPort: positiveInt(65535, 6080),
 }).strict();
 const presentationSchema = z.object({
   default: toolPresentationMode.optional(),
@@ -174,9 +173,28 @@ export const createConfig = (
 
   // 写文件默认开启（每次执行都需人工审批）；审批等待默认 5 分钟超时。
   const writable = file.tools.writable;
+  const cdpUrl = text(file.tools.browser.cdpUrl) || undefined;
+  if (cdpUrl) {
+    let parsedCdp: URL;
+    try {
+      parsedCdp = new URL(cdpUrl);
+    } catch {
+      throw new Error("tools.browser.cdpUrl must be an HTTP(S)/WS(S) URL without credentials");
+    }
+    if (
+      !["http:", "https:", "ws:", "wss:"].includes(parsedCdp.protocol) ||
+      parsedCdp.username ||
+      parsedCdp.password
+    ) {
+      throw new Error("tools.browser.cdpUrl must be an HTTP(S)/WS(S) URL without credentials");
+    }
+  }
   const browser = {
-    ...file.tools.browser,
+    enabled: file.tools.browser.enabled,
     executablePath: text(file.tools.browser.executablePath) || undefined,
+    cdpUrl,
+    allowPrivateTargets: file.tools.browser.allowPrivateTargets,
+    timeoutMs: file.tools.browser.timeoutMs,
   };
   const presentation = {
     default: file.tools.presentation?.default ?? "hidden",

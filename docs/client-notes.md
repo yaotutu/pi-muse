@@ -36,6 +36,20 @@
 
 ## 变更与须知记录
 
+### 2026-11-24 — 真实浏览器 Clean Break 重构（移除 noVNC 网关，统一 `/browser` 操控与新增视口/接管协议）
+
+- **影响端形态**：`rich-ui`
+- **类型**：`breaking`、`feature`
+- **契约入口**：`/docs`「浏览器」「事件与通知」、顶层 `x-websocket-contracts.browser`（以 `/openapi.json` 为准）
+- **要点与接入端注意**：
+  - **已移除旧 noVNC 桌面网关**：下线 `POST /api/browser/desktop-ticket`、`GET /browser/desktop/launch`、`/browser/desktop/*`、配置字段 `tools.browser.desktopPort`/`desktopHost` 以及 `GET /api/browser/status` 中的 `desktopAvailable`/`desktopPath`；OpenAPI 的 `x-websocket-contracts.browserDesktop` 同步移除。
+  - **推荐统一 `/browser` 免密启动入口**：用 Bearer Token 调用 `POST /api/browser/viewer-ticket` 获取 60 秒一次性 `launchPath`（`/browser/launch?ticket=...`），在 WebView/浏览器同源打开后服务端签发仅限 `/api/browser/*`（不含 `viewer-ticket`）的 `HttpOnly; SameSite=Strict` 会话 Cookie 并 `303` 重定向到 `/browser`（HTTP/HTTPS 均适用）。
+  - **状态、动态视口与人工接管（Handoff）新接口**：
+    - `GET /api/browser/status` 改为返回 `enabled`、`running`、`viewerPath`、`tabsCount`、`activeTabId`、`viewport`、`pendingUploadsCount`、`downloadsCount`、`handoff`（查询不会触发 Chrome 懒启动）。
+    - 新增 `PUT /api/browser/viewport`（及 `/ws/browser` `viewport` 双向消息）在 `desktop` / `mobile` / `custom` 视口与触控模拟间动态切换。
+    - 助手遇到登录/扫码/验证码调用 `browser` `request_handoff` 时，`GET /api/events` 新增 `browser_updated`（`scope: "handoff" | "tabs" | "viewport" | "files" | "lifecycle"`）且 `/ws/browser` 实时推送 `handoff` / `files`；用户完成后调用 `DELETE /api/browser/handoff` 通知继续。
+  - **聊天 `browser` 工具合并（仅 `summary` 卡片展示影响）**：原 `navigate` / `snapshot` / `act` / `tab` 合并为单一工具 `browser`（摘要统一为 `已执行浏览器操作`）。
+
 ### 2026-11-24 — 短信归档/实时批次内容审核自动二分隔离与非阻塞简报
 
 - **影响端形态**：`rich-ui`、`webhook`

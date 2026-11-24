@@ -36,7 +36,7 @@ const trailingToolSections: ReadonlyArray<{ tools: readonly string[]; promptPath
   { tools: ["goal"], promptPath: "assistant/tools/goal.md" },
   { tools: ["get_weather"], promptPath: "assistant/tools/weather.md" },
   { tools: ["search_web", "web_fetch"], promptPath: "assistant/tools/web.md" },
-  { tools: ["navigate", "snapshot", "act", "tab"], promptPath: "assistant/tools/browser.md" },
+  { tools: ["browser"], promptPath: "assistant/tools/browser.md" },
 ];
 
 /** 每轮重新读取 prompts/*.md、profile 与显式身份；业务说明只跟随本轮实际可用工具。 */

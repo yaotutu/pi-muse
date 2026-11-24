@@ -203,7 +203,7 @@ test("system prompt business guidance follows the final tool allowlist", async (
     "get_weather",
     "search_web",
     "web_fetch",
-    "navigate",
+    "browser",
   ]) assert.doesNotMatch(closed, new RegExp(unavailable.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
 
   const open = await buildSystemPrompt({
@@ -212,7 +212,7 @@ test("system prompt business guidance follows the final tool allowlist", async (
     allowedToolNames: [
       "database", "write", "edit", "instructions", "skills", "memory", "memory_search",
       "schedule", "monitor", "goal", "get_weather", "search_web", "web_fetch",
-      "navigate", "snapshot", "act", "tab",
+      "browser",
     ],
   });
   for (const available of [
@@ -227,7 +227,7 @@ test("system prompt business guidance follows the final tool allowlist", async (
     "global personal goals",
     "Use get_weather",
     "search_web and web_fetch",
-    "real-browser tools",
+    "unified `browser` tool",
   ]) assert.match(open, new RegExp(available.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
 });
 

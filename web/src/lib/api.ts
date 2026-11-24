@@ -27,8 +27,16 @@ import { sseEventSchema, type SseEvent } from "../../../src/http/contracts/sse-e
 import type { SessionStatusDto } from "../../../src/http/contracts/session-status.js";
 import { pendingApprovalsResponse, type ApprovalViewDto } from "../../../src/http/contracts/approvals.js";
 import {
+  type BrowserHandoffDto,
+  type BrowserStatusDto,
+  type BrowserViewportDto,
+  type BrowserViewportUpdateDto,
+  type BrowserViewerTicketDto,
+} from "../../../src/http/contracts/browser.js";
+import {
   workspaceEvents,
   type ActivityUpdatedEventDto,
+  type BrowserUpdatedEventDto,
   type SessionStatusUpdatedEventDto,
   type ApprovalPendingEventDto,
   type ApprovalUpdatedEventDto,
@@ -41,6 +49,12 @@ export type {
   SessionStatusDto,
   ApprovalViewDto,
   ActivityUpdatedEventDto,
+  BrowserUpdatedEventDto,
+  BrowserHandoffDto,
+  BrowserStatusDto,
+  BrowserViewportDto,
+  BrowserViewportUpdateDto,
+  BrowserViewerTicketDto,
   ConversationUpdatedEventDto,
 };
 export type {
@@ -647,7 +661,8 @@ export type WorkspaceEvent =
   | { type: "activity_updated"; data: ActivityUpdatedEventDto }
   | { type: "session_directory_updated"; data: { instanceId: string } }
   | { type: "conversation_updated"; data: ConversationUpdatedEventDto }
-  | { type: "domain_updated"; data: DomainUpdatedEventDto };
+  | { type: "domain_updated"; data: DomainUpdatedEventDto }
+  | { type: "browser_updated"; data: BrowserUpdatedEventDto };
 
 /**
  * 订阅工作区 SSE 实时流（GET /api/events）。
@@ -751,6 +766,12 @@ export const subscribeWorkspaceEvents = async (
             event = { type: "domain_updated", data: parsed.data };
             break;
           }
+          case "browser_updated": {
+            const parsed = workspaceEvents.browser_updated.safeParse(payload);
+            if (!parsed.success) throw invalid();
+            event = { type: "browser_updated", data: parsed.data };
+            break;
+          }
           default:
             continue;
         }
@@ -785,4 +806,51 @@ export const listNews = async (view: "all" | "recommended", cursor?: string, sig
 export const refreshNews = async (): Promise<void> => {
   const response = await request("/api/news/refresh", { method: "POST", body: "{}" });
   if (!response.ok) throw new ApiError(response.status, "抓取失败；请检查新闻状态，不自动重发");
+};
+
+export const getBrowserStatus = async (signal?: AbortSignal): Promise<BrowserStatusDto> => {
+  const response = await request("/api/browser/status", { signal });
+  if (!response.ok) throw new ApiError(response.status, "无法读取浏览器状态");
+  return response.json();
+};
+
+export const createBrowserViewerTicket = async (signal?: AbortSignal): Promise<BrowserViewerTicketDto> => {
+  const response = await request("/api/browser/viewer-ticket", {
+    method: "POST",
+    signal,
+    body: "{}",
+  });
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+    throw new ApiError(response.status, failure?.error ?? "无法获取浏览器访问票据");
+  }
+  return response.json();
+};
+
+export const setBrowserViewport = async (
+  input: BrowserViewportUpdateDto,
+  signal?: AbortSignal,
+): Promise<{ viewport: BrowserViewportDto }> => {
+  const response = await request("/api/browser/viewport", {
+    method: "PUT",
+    signal,
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+    throw new ApiError(response.status, failure?.error ?? "无法切换浏览器视口");
+  }
+  return response.json();
+};
+
+export const resolveBrowserHandoff = async (signal?: AbortSignal): Promise<{ ok: true }> => {
+  const response = await request("/api/browser/handoff", {
+    method: "DELETE",
+    signal,
+  });
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+    throw new ApiError(response.status, failure?.error ?? "无法结束人工接管");
+  }
+  return response.json();
 };

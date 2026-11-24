@@ -32,7 +32,6 @@ import {
 } from "../../src/features/browser/types.js";
 import { browserUploadRequest } from "../../src/http/contracts/browser.js";
 import { createBrowserRoutes } from "../../src/http/routes/browser.js";
-import { createBrowserDesktop } from "../../src/http/browser-desktop.js";
 
 const tab = {
   id: "tab-one",
@@ -54,6 +53,7 @@ const emptyDownloadStore = (): BrowserDownloadStore => ({
 const browserDriver = (overrides: Partial<BrowserDriver> = {}): BrowserDriver => ({
   start: async () => undefined,
   close: async () => undefined,
+  isRunning: () => true,
   listTabs: async () => [tab],
   newTab: async () => tab,
   closeTab: async () => [tab],
@@ -61,9 +61,13 @@ const browserDriver = (overrides: Partial<BrowserDriver> = {}): BrowserDriver =>
   navigate: async () => tab,
   history: async () => tab,
   reload: async () => tab,
+  getViewport: () => ({ preset: "desktop", width: 1280, height: 800, mobile: false }),
+  setViewport: async (viewport) => viewport,
   input: async () => undefined,
   act: async () => undefined,
   snapshot: async () => ({ tab, title: tab.title, url: tab.url, tree: "", text: "", truncated: false }),
+  screenshot: async () => ({ tab, mimeType: "image/jpeg", width: 1280, height: 800, dataBase64: "AQ==" }),
+  wait: async () => ({ ok: true, waited: "delay" }),
   startScreencast: async () => undefined,
   stopScreencast: async () => undefined,
   listUploads: async () => [],
@@ -406,9 +410,7 @@ test("browser file endpoints are documented and only upload POST gets the 12 MiB
   assert.equal(((await rejected.json()) as { code?: string }).code, "REQUEST_TOO_LARGE");
 });
 
-test("browser upload contract and route error projection stay bounded", async (t) => {
-  const desktop = createBrowserDesktop({ enabled: false, desktopHost: '127.0.0.1', desktopPort: 9 });
-  t.after(() => desktop.close());
+test("browser upload contract and route error projection stay bounded", async () => {
   assert.equal(browserUploadRequest.safeParse({
     files: [{ name: "empty.bin", mimeType: "", contentBase64: "" }],
   }).success, true);
@@ -429,7 +431,7 @@ test("browser upload contract and route error projection stay bounded", async (t
     downloadContent: async () => fail("DOWNLOAD_NOT_READY"),
     deleteDownload: async () => fail("INVALID_INPUT"),
   } as unknown as BrowserService;
-  const app = createBrowserRoutes(browser, desktop);
+  const app = createBrowserRoutes(browser);
 
   assert.equal((await app.request("/api/browser/files")).status, 500);
   assert.equal((await app.request("/api/browser/uploads/id", {
@@ -468,9 +470,7 @@ test("browser upload returns 413 when decoded bytes exceed 8 MiB without a schem
   assert.ok(body.length > 11_184_812);
   assert.ok(Buffer.byteLength(body) < 12 * 1024 * 1024);
 
-  const desktop = createBrowserDesktop({ enabled: false, desktopHost: '127.0.0.1', desktopPort: 9 });
-  t.after(() => desktop.close());
-  const response = await createBrowserRoutes(service, desktop).request(`/api/browser/uploads/${pending.id}`, {
+  const response = await createBrowserRoutes(service).request(`/api/browser/uploads/${pending.id}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body,

@@ -67,7 +67,7 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 - **工具与资源并发分级**：
   1. **无状态 / 只读工具**（如 `read/grep/find/ls`、`search_web/web_fetch`、`get_weather`、`memory_search`、`currentTime`、`domain_agent` 只读查询及各领域 `submit_*` 提交工具）：可自由并发使用，无共享状态冲突。
   2. **共享持久化写工具**：无头后台子会话（短信、新闻、Dream）默认不授予交互式人工审批写工具（需要变更偏好/记忆时输出结构化结果或提案）；聊天派发的 `subagent` 按父轮权限上限与角色约束决定是否下放，其中文件写编辑继续绑定父会话/父运行的逐次人工审批及 `workspaceCommits` 物理路径串行锁，全局仓库写由各自串行队列兜底。
-  3. **独占共享资源**：真实浏览器工具（`navigate/snapshot/act/tab`）绑定实例唯一 Chrome；聊天 `subagent` 在 `single` / `chain` 顺序模式下可按父轮权限继承，在 `parallel` 并发模式下自动屏蔽，避免并发抢占同一桌面窗口。
+  3. **独占共享资源**：统一真实浏览器工具（`browser`）与内置 `browser` 子代理绑定实例唯一 Chrome；聊天 `subagent` 在 `single` / `chain` 顺序模式下可按父轮权限继承，在 `parallel` 并发模式下自动屏蔽，避免并发抢占同一桌面窗口。`/browser` 与客户端通过同源 `POST /api/browser/viewer-ticket` -> `/browser/launch` 免密 cookie、`/ws/browser` 帧流（支持动态手机/桌面视口、触控手势与原生输入）、实时 `files`/`handoff` 推送以及 `/api/events` 中的 `browser_updated` 事件共享该浏览器实例。
 
 聊天侧 `subagent` 编排仍沿用父轮工作区与结果回传语义，不保存独立会话身份或在线状态；父 Stop、断流、超时和关闭传播取消并等待子执行收尾，失败不自动重试。
 

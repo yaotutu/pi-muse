@@ -84,7 +84,7 @@ test("config defaults allow an unconfigured LAN-accessible instance", async (t) 
       },
       weather: { enabled: true, defaultCity: undefined },
       writable: { enabled: true, actionTimeoutMs: 300000 },
-      browser: { enabled: true, executablePath: undefined, allowPrivateTargets: false, timeoutMs: 30000, desktopHost: "127.0.0.1", desktopPort: 6080 },
+      browser: { enabled: true, executablePath: undefined, cdpUrl: undefined, allowPrivateTargets: false, timeoutMs: 30000 },
       presentation: { default: "hidden", overrides: {} },
     },
   );
@@ -171,16 +171,27 @@ test("browser config has no headless fallback because Chrome must stay headed", 
   );
 });
 
-test("browser desktopPort defaults to 6080 and rejects out-of-range values", () => {
-  assert.equal(createConfig({}).browser.desktopPort, 6080);
-  assert.equal(createConfig({ tools: { browser: { desktopPort: 16080 } } }).browser.desktopPort, 16080);
-  assert.throws(
-    () => createConfig({ tools: { browser: { desktopPort: 0 } } }),
-    /desktopPort/,
+test("browser cdpUrl accepts http(s)/ws(s) without credentials and rejects unknown legacy desktop keys", () => {
+  assert.equal(createConfig({}).browser.cdpUrl, undefined);
+  assert.equal(
+    createConfig({ tools: { browser: { cdpUrl: "http://127.0.0.1:9222" } } }).browser.cdpUrl,
+    "http://127.0.0.1:9222",
+  );
+  assert.equal(
+    createConfig({ tools: { browser: { cdpUrl: "ws://127.0.0.1:9222/devtools/browser/abc" } } }).browser.cdpUrl,
+    "ws://127.0.0.1:9222/devtools/browser/abc",
   );
   assert.throws(
-    () => createConfig({ tools: { browser: { desktopPort: 65536 } } }),
-    /desktopPort/,
+    () => createConfig({ tools: { browser: { cdpUrl: "ftp://127.0.0.1:9222" } } }),
+    /tools\.browser\.cdpUrl/,
+  );
+  assert.throws(
+    () => createConfig({ tools: { browser: { cdpUrl: "http://user:pass@127.0.0.1:9222" } } }),
+    /tools\.browser\.cdpUrl/,
+  );
+  assert.throws(
+    () => createConfig({ tools: { browser: { desktopPort: 6080 } } }),
+    /Unrecognized key/,
   );
 });
 

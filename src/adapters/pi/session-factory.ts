@@ -82,7 +82,7 @@ export type PiDeps = {
 };
 
 const subagentBlockedTools = new Set([SUBAGENT_TOOL_NAME, "activity", "schedule", "monitor", "instructions", "bash"]);
-const parallelExclusiveTools = new Set(["navigate", "snapshot", "act", "tab"]);
+const parallelExclusiveTools = new Set(["browser"]);
 const skillTextResourceExtensions = new Set([".md", ".txt", ".json", ".csv", ".yaml", ".yml"]);
 const skillToolEntries = Object.entries(skillToToolsMap);
 const skillControlledToolNames = new Set(skillToolEntries.flatMap(([, names]) => names));

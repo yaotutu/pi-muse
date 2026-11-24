@@ -25,7 +25,6 @@ import type { HabitsScheduler } from "../features/habits/scheduler.js";
 import type { InformationService } from "../features/information/service.js";
 import type { InformationScheduler } from "../features/information/scheduler.js";
 import type { BrowserService } from "../features/browser/browser-service.js";
-import type { BrowserDesktop } from "../http/browser-desktop.js";
 import type { NewsService } from "../features/news/service.js";
 import type { NewsRepository } from "../features/news/types.js";
 import type { DomainAgentRegistry } from "../features/domain-agents/registry.js";
@@ -70,12 +69,11 @@ export type ServiceContainer = {
   newsDatabase: ManagedSqliteDatabase;
   database: DatabaseService;
   browser?: BrowserService;
-  browserDesktop: BrowserDesktop;
   androidUpdates: import("../adapters/releases/android-release-mirror.js").AndroidReleaseMirror;
   messageFeedbackRepository: MessageFeedbackRepository;
 };
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "androidUpdates" | "companions" | "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "habits" | "information" | "news" | "sessions" | "browser" | "browserDesktop" | "messageFeedbackRepository"
+  "androidUpdates" | "companions" | "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "habits" | "information" | "news" | "sessions" | "browser" | "messageFeedbackRepository"
 >;

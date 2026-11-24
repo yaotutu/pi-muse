@@ -1008,60 +1008,63 @@ export const endpoints: EndpointSpec[] = [
   // ---- 真实浏览器 ----
   {
     operationId: "getBrowserStatus",
-    method: "get", path: "/api/browser/status", tag: "浏览器", summary: "查询浏览器与同源桌面入口状态",
+    method: "get", path: "/api/browser/status", tag: "浏览器", summary: "查询真实浏览器运行与状态概览",
     hint:
-      "无论 tools.browser.enabled 是否开启都会注册；disabled 时 viewerPath/desktopPath 为 null 且不探测桌面。" +
-      "desktopAvailable 仅以容器内固定 127.0.0.1:desktopPort 的 vnc.html 2 秒探测判定，代表 noVNC 静态页可服务，不声称 Chrome 健康。",
+      "无论 tools.browser.enabled 是否开启都会注册；查询不会触发 Chrome 懒启动。" +
+      "返回 enabled、running、viewerPath（enabled 时为 /browser）、当前视口 viewport、已知标签统计、待上传/下载计数及人工接管 handoff。",
     auth: true, response: browser.browserStatusResponse,
   },
   {
-    operationId: "createBrowserDesktopTicket",
-    method: "post", path: "/api/browser/desktop-ticket", tag: "浏览器", summary: "换取一次性远程桌面启动 ticket",
+    operationId: "createBrowserViewerTicket",
+    method: "post", path: "/api/browser/viewer-ticket", tag: "浏览器", summary: "换取一次性浏览器操控页启动 ticket",
     hint:
       "必须携带现有 Bearer token。返回的 launchPath 是同源一次性路径，60 秒有效；用当前服务地址直接 GET 打开，" +
-      "服务端签发 HttpOnly 会话 cookie 后 303 到 /browser/desktop/vnc.html。浏览器功能关闭返回 503 BROWSER_DISABLED；" +
-      "noVNC 不可达返回 503 DESKTOP_UNAVAILABLE，不签空票。不要把长期 token 放进 URL。",
-    auth: true, response: browser.browserDesktopTicketResponse,
+      "服务端签发 HttpOnly 会话 cookie 后 303 到 /browser。浏览器功能关闭返回 503 BROWSER_DISABLED。不要把长期 token 放进 URL。",
+    auth: true, response: browser.browserViewerTicketResponse,
     errorResponses: {
-      503: { description: "浏览器关闭（BROWSER_DISABLED）或桌面不可达（DESKTOP_UNAVAILABLE）", schema: resp.errorResponse },
+      503: { description: "浏览器已关闭（BROWSER_DISABLED）", schema: resp.errorResponse },
     },
   },
   {
-    operationId: "launchBrowserDesktop",
-    method: "get", path: "/browser/desktop/launch", tag: "浏览器", summary: "消费一次性桌面 ticket 并进入远程桌面",
+    operationId: "launchBrowserViewer",
+    method: "get", path: "/browser/launch", tag: "浏览器", summary: "消费一次性 ticket 并进入浏览器操控页",
     hint:
-      "URL query 携带 POST /api/browser/desktop-ticket 返回的 ticket；有效时签发 HttpOnly 会话 cookie" +
-      "（SameSite=Strict，Path=/browser/desktop/，Max-Age=3600，HTTPS 直连带 Secure）并 303 到 /browser/desktop/vnc.html。" +
-      "ticket 无效、过期或重放返回 401。该端点不用 Bearer 鉴权，凭 ticket 自身把关。",
-    auth: false, response: browser.browserDesktopLaunchResponse,
+      "URL query 携带 POST /api/browser/viewer-ticket 返回的 ticket；有效时签发 HttpOnly 会话 cookie" +
+      "（SameSite=Strict，Path=/，Max-Age=3600，HTTPS 直连带 Secure，仅授权 /api/browser/* 路由不含 viewer-ticket）并 303 到 /browser。" +
+      "ticket 无效、过期或重放返回 401；浏览器关闭返回 503。该端点不用 Bearer 鉴权，凭 ticket 自身把关。",
+    auth: false, response: browser.browserLaunchResponse,
     successStatus: 303,
-    query: z.object({ ticket: z.string().describe("一次性桌面 ticket") }),
+    query: browser.browserLaunchQuerySchema,
     errorResponses: {
       401: { description: "ticket 无效、已过期或已被使用", schema: resp.errorResponse },
+      503: { description: "浏览器已关闭（BROWSER_DISABLED）", schema: resp.errorResponse },
     },
   },
   {
-    operationId: "getBrowserDesktopAsset",
-    method: "get", path: "/browser/desktop/vnc.html", tag: "浏览器", summary: "远程桌面 noVNC 页面与静态资源",
-    hint:
-      "同源桌面资源前缀 /browser/desktop/ 下所有 GET/HEAD 都需要有效桌面会话 cookie（由 launch 签发），" +
-      "无 cookie 返回 401，其他方法 405；路径穿越与编码逃逸返回 404。实际资源路径由 noVNC 页面内部引用，" +
-      "客户端不应直接拼接。",
-    auth: false, response: browser.browserDesktopAssetResponse, responseContentType: "text/html",
+    operationId: "getBrowserViewerPage",
+    method: "get", path: "/browser", tag: "浏览器", summary: "打开服务端响应式真实浏览器操控页",
+    hint: "免鉴权 HTML 页面，同时适配手机竖屏与桌面端。支持通过 /browser/launch 会话 cookie、无 AccessKey 静默登录或手动输入 AccessKey 调用 POST /api/session 获取 Session Token（清空输入框并移除 URL 中的 accessKey/key）。连接 /ws/browser 实时接收 JPEG 帧流、动态切换手机/桌面视口、原生中文输入、双指缩放与单指滚屏、实时文件上传下载以及人工接管确认。",
+    auth: false, response: browser.browserViewerPageResponse, responseContentType: "text/html",
+  },
+  {
+    operationId: "updateBrowserViewport",
+    method: "put", path: "/api/browser/viewport", tag: "浏览器", summary: "切换共享真实浏览器的视口尺寸与触控模式",
+    hint: "支持 desktop（默认 1280×800）、mobile（默认 390×720，启用触控模拟）或 custom（指定 320–2560 宽高）。修改后会同步更新所有标签视口、重启活跃 screencast 推流并广播 viewport 与 browser_updated 事件。",
+    auth: true, request: browser.browserViewportUpdateSchema, response: browser.browserViewportResponse,
     errorResponses: {
-      401: { description: "缺少或失效的桌面会话 cookie", schema: resp.errorResponse },
+      400: { description: "视口预设、尺寸范围或参数非法", schema: resp.errorResponse },
     },
   },
   {
-    operationId: "getBrowserDebugPage",
-    method: "get", path: "/browser", tag: "浏览器", summary: "打开服务端自带浏览器调试页",
-    hint: "免鉴权 HTML 页面。页面内输入 AccessKey 并调用 POST /api/session 登录，成功后清空输入框，仅在 sessionStorage 保存 Session Token，再通过 REST 管理标签并换取一次性 WS ticket。不接受 URL 密钥自动登录，并移除查询中的 accessKey/key。断线后使用 Reconnect 重新获取 ticket、同步标签并恢复帧流；不重放写操作。该页面不是移动端产品，仅用于验证真实浏览器链路。",
-    auth: false, response: browser.browserDebugResponse, responseContentType: "text/html",
+    operationId: "resolveBrowserHandoff",
+    method: "delete", path: "/api/browser/handoff", tag: "浏览器", summary: "解除当前浏览器人工接管等待状态",
+    hint: "用户在 /browser 手动完成登录、扫码或验证码后调用，幂等清除当前 handoff 状态并广播给 WS 与 /api/events 订阅者。",
+    auth: true, response: browser.browserOkResponse,
   },
   {
     operationId: "listBrowserTabs",
     method: "get", path: "/api/browser/tabs", tag: "浏览器", summary: "列出真实浏览器标签",
-    hint: "首次调用会懒启动系统 Chrome 并使用 DATA_DIR/browser/profile 持久 profile。返回全局标签列表；只有 active=true 的标签会推送帧。",
+    hint: "首次调用会懒启动系统 Chrome（或按 tools.browser.cdpUrl 附着外部 Chrome）并使用 DATA_DIR/runtime/browser/profile 持久 profile。返回全局标签列表；只有 active=true 的标签会推送帧。",
     auth: true, response: browser.browserTabsResponse,
   },
   {
@@ -1073,7 +1076,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "closeBrowserTab",
     method: "delete", path: "/api/browser/tabs/:tabId", tag: "浏览器", summary: "关闭浏览器标签",
-    hint: "关闭指定标签；若关闭激活标签，剩余第一个标签会成为新的激活标签。标签不存在返回 404。",
+    hint: "关闭指定标签；若关闭激活标签，剩余第一个标签会成为新的激活标签。若关闭的标签正在人工接管中，同时清除 handoff。标签不存在返回 404。",
     auth: true, response: browser.browserTabsResponse,
   },
   {
@@ -1091,7 +1094,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "createBrowserWebSocketTicket",
     method: "post", path: "/api/browser/ws-ticket", tag: "浏览器", summary: "换取一次性浏览器 WS ticket",
-    hint: "必须携带现有 Bearer token。返回的 ticket 60 秒过期且只能使用一次；WS 地址为 /ws/browser?ticket=...。完整二进制帧、ready/tabs/error、输入与 ack 协议见 OpenAPI 顶层 x-websocket-contracts.browser，OpenAPI 不把 WebSocket 伪装成普通 HTTP operation。",
+    hint: "必须携带现有 Bearer token（或有效的 /browser/launch 浏览器会话 cookie）。返回的 ticket 60 秒过期且只能使用一次；WS 地址为 /ws/browser?ticket=...。完整二进制帧、ready/tabs/viewport/files/handoff/error、输入与 ack 协议见 OpenAPI 顶层 x-websocket-contracts.browser，OpenAPI 不把 WebSocket 伪装成普通 HTTP operation。",
     auth: true, response: browser.browserTicketResponse,
   },
   {
@@ -1099,9 +1102,9 @@ export const endpoints: EndpointSpec[] = [
     method: "get", path: "/api/browser/files", tag: "浏览器",
     summary: "列出待上传 filechooser 与持久下载记录",
     hint:
-      "必须携带现有 Bearer token。uploads 只来自真实页面的 filechooser 事件，每页最多一个当前 chooser；页面主导航、关闭或出现新 chooser 后旧项失效。" +
-      "downloads 来自 Playwright download 事件并持久化在 DATA_DIR/browser/downloads，普通模型文件工具无法读取。" +
-      "完成下载在容器重启后可读；中断下载标记 failed，不自动重新下载。读取损坏持久数据返回受控 500，不能当作空列表。" +
+      "必须携带现有 Bearer token（或有效的浏览器会话 cookie）。uploads 只来自真实页面的 filechooser 事件，每页最多一个当前 chooser；页面主导航、关闭或出现新 chooser 后旧项失效。" +
+      "downloads 来自 Playwright download 事件并持久化在 DATA_DIR/runtime/browser/downloads，普通模型文件工具无法读取。" +
+      "完成下载在重启后可读；中断下载标记 failed，不自动重新下载。读取损坏持久数据返回受控 500，不能当作空列表。" +
       "该 GET 不会因为下载目录为空而启动 Chrome。",
     auth: true, response: browser.browserFilesResponse,
     errorResponses: {
@@ -1113,7 +1116,7 @@ export const endpoints: EndpointSpec[] = [
     method: "post", path: "/api/browser/uploads/:uploadId", tag: "浏览器",
     summary: "把用户明确选择的本地文件写入当前页面 filechooser",
     hint:
-      "只接受 GET /api/browser/files 返回的当前 uploadId。客户端必须在 Files 面板让用户选择本地文件并点击 Upload 后才能调用；服务端只使用请求中的内存 Base64 字节调用 Playwright fileChooser.setFiles，不读取服务端路径或 workspace。" +
+      "只接受 GET /api/browser/files 或 WS files 推送返回的有效 uploadId。客户端必须在 Files 面板让用户选择本地文件并点击 Upload 后才能调用；服务端只使用请求中的内存 Base64 字节调用 Playwright fileChooser.setFiles，不读取服务端路径或 workspace。" +
       "单选 chooser 必须恰好 1 个文件；多选允许 1 到 4 个；原始字节合计最多 8MiB。contentBase64 必须是严格 Base64 且无 data: 前缀；name 只允许 ASCII 字母、数字、点、下划线和连字符，不能以点开头或包含路径；空 mimeType 使用 application/octet-stream。" +
       "该精确 POST 路径的 JSON 请求体上限为 12MiB；请求体或原始总字节超限返回 413。缺失、已过期、页面关闭或主导航后的 chooser 返回 404；文件数量等非法输入返回 400。成功会消费该一次性 chooser，不新增聊天工具或文件审批旁路。",
     auth: true, request: browser.browserUploadRequest, response: browser.browserOkResponse,
@@ -1155,7 +1158,7 @@ export const endpoints: EndpointSpec[] = [
     method: "delete", path: "/api/browser/downloads/:downloadId", tag: "浏览器",
     summary: "删除浏览器自有下载",
     hint:
-      "只删除 DATA_DIR/browser/downloads 中该 UUID 目录。进行中的下载会先 cancel；异步完成不能复活已删除记录。" +
+      "只删除 DATA_DIR/runtime/browser/downloads 中该 UUID 目录。进行中的下载会先 cancel；异步完成不能复活已删除记录。" +
       "缺失返回 404；删除后 content 与列表记录均不可再读取。",
     auth: true, response: browser.browserOkResponse,
     errorResponses: {

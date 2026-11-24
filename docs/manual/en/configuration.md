@@ -55,8 +55,7 @@ Then edit it:
     },
     "browser": {
       "enabled": true,
-      "allowPrivateTargets": false,
-      "desktopPort": 6080
+      "allowPrivateTargets": false
     },
     "presentation": {
       "default": "hidden",
@@ -102,13 +101,13 @@ Every section and field may be omitted as needed; omitted values use built-in de
 | `tools.web.allowPrivateTargets` | `false` | Explicitly relaxes the private-network/loopback target restriction only for local integration work; all other request security boundaries remain unchanged. |
 | `tools.weather.enabled` | `true` | Whether to declare `get_weather` to the model. |
 | `tools.weather.defaultCity` | Empty | Default city used when the user does not specify one. When empty, the model asks for the city. |
-| `tools.browser.enabled` | `true` | Whether to enable the real-browser domain and the `navigate` / `snapshot` / `act` / `tab` tools. |
+| `tools.browser.enabled` | `true` | Whether to enable the real-browser domain and the unified `browser` tool. |
 | `tools.browser.executablePath` | Empty | Path to the system Chrome executable. When omitted, Playwright's `chrome` channel is used. |
+| `tools.browser.cdpUrl` | Empty | Optional credential-free HTTP(S)/WS(S) CDP endpoint to attach to an existing real Chrome instance. |
 | `tools.browser.allowPrivateTargets` | `false` | Allows loopback and private-network pages only for local integration/testing; the default keeps the public HTTP(S) boundary. |
 | `tools.browser.timeoutMs` | `30000` | Timeout for tab navigation and element operations. |
-| `tools.browser.desktopPort` | `6080` | In-container websockify/noVNC desktop port (1–65535); bound to 127.0.0.1 only. External desktop access goes through the same-origin `/browser/desktop/` gateway. |
 | `tools.presentation.default` | `hidden` | Tool presentation policy for the client's live stream and history projection: `hidden` hides tool calls, while `summary` sends only a controlled summary. |
-| `tools.presentation.overrides` | `{}` | Overrides the default policy by tool name. Names follow the explicit registry in `src/adapters/pi/tools/index.ts`: `currentTime`, `database`, `instructions`, `memory`, `memory_search`, `schedule`, `subagent`, `goal`, `monitor`, `read`, `grep`, `find`, `ls`, `write`, `edit`, `skills`, `search_web`, `web_fetch`, `get_weather`, `navigate`, `snapshot`, `act`, and `tab`. |
+| `tools.presentation.overrides` | `{}` | Overrides the default policy by tool name. Names follow the explicit registry in `src/adapters/pi/tools/index.ts`: `currentTime`, `database`, `instructions`, `memory`, `memory_search`, `schedule`, `subagent`, `goal`, `monitor`, `read`, `grep`, `find`, `ls`, `write`, `edit`, `skills`, `search_web`, `web_fetch`, `get_weather`, and `browser`. |
 
 By default, the `.pi-muse/` directory containing `.pi-muse/config.json` is also the instance data directory. The current default instance directory is unified as `.pi-muse/`; legacy directories are neither read nor migrated automatically. In other words, sessions, memory, jobs, the workspace, and the configuration file stay in the same instance directory.
 
@@ -207,13 +206,11 @@ If you want chat to display only assistant text, add this inside the existing `t
 
 ## Real Browser {#real-browser}
 
-The browser domain uses `playwright-core` to drive the local system Chrome. It does not download a browser and always starts a real GUI window; headless mode is not provided. Chrome starts lazily, and its profile is fixed at `DATA_DIR/runtime/browser/profile/`. The server debug page `/browser` and the Agent's `navigate` / `snapshot` / `act` / `tab` tools share the same instance and persistent login state. When the service closes, WS subscriptions end and Chrome shuts down gracefully. Docker deployment uses Xvfb/X11, x11vnc, websockify, and noVNC to provide a complete real window rather than falling back to headless; see [the browser Docker guide](browser-docker.md).
+The browser domain uses `playwright-core` to drive a real headed Google Chrome instance (`headless: false`; headless mode is not provided), or attaches to an existing real Chrome via `tools.browser.cdpUrl`. Chrome starts lazily with its persistent profile at `DATA_DIR/runtime/browser/profile/`; the responsive viewer `/browser`, the workbench Browser tab, and the Agent's unified `browser` tool share the same instance and login state. When the server shuts down, WS subscribers disconnect and Chrome closes gracefully. For headless Linux servers, use the slim Docker deployment (`Xvfb + google-chrome-stable + Node` without VNC/noVNC); see [the Real Browser Guide](browser.md).
 
-`/browser` does not hard-code a service address. It calls REST APIs relative to the current access address and connects to the frame stream with a same-origin `ws://` or `wss://`. Therefore, local addresses, LAN IPs, domains, and reverse-proxy addresses all work directly. The page never logs in via URL parameters—`accessKey`/`key` query parameters are removed; enter the AccessKey manually. An HTTPS reverse proxy must also forward `/ws/browser` and preserve Upgrade headers.
+`/browser` hard-codes no host or port: it calls relative REST APIs and connects same-origin `ws://` or `wss://` on `/ws/browser` with dynamic mobile/desktop viewport switching, touch gestures, pinch-zoom, native IME input bar, and real-time file/handoff pushes, working over both HTTP LAN and HTTPS reverse proxies (forward `/ws/browser` upgrades when behind HTTPS). Clients can authenticate via Bearer-issued `POST /api/browser/viewer-ticket` -> `/browser/launch?ticket=...` (setting an `HttpOnly; SameSite=Strict` cookie scoped only to `/api/browser/*` excluding `viewer-ticket`, then redirecting `303` to `/browser`), silent empty-key boot when `server.accessKey` is empty, or the AccessKey login form (URL `accessKey`/`key` params are stripped immediately). `GET /api/browser/status` reports browser availability, running state, and viewport without triggering a lazy launch.
 
-The full remote desktop (noVNC) inside Docker is no longer published as a separate port; it is proxied same-origin by the server: `POST /api/browser/desktop-ticket` (Bearer auth) returns a one-time 60-second ticket; open the returned `launchPath` (`/browser/desktop/launch?ticket=...`) and the server issues an HttpOnly session cookie (valid 1 hour) before redirecting to `/browser/desktop/vnc.html`. `GET /api/browser/status` reports browser enablement and desktop availability at any time. Over plain HTTP the desktop traffic is unencrypted—use it only on trusted networks.
-
-Only public HTTP(S) is allowed by default; explicitly set `tools.browser.allowPrivateTargets: true` when local test pages must be accessed. This address rule is only a base implementation shared with the web tools—the browser domain does not depend on `web_fetch`. The browser does not expose arbitrary JavaScript evaluation to the model and does not return cookies, localStorage, or password values. External page titles, text, and element names are treated as untrusted data.
+Only public HTTP(S) is allowed by default; explicitly set `tools.browser.allowPrivateTargets: true` when local test pages must be accessed. This address rule is only a base implementation shared with web tools—the browser domain does not depend on `web_fetch`. The browser never exposes arbitrary JavaScript `evaluate`, cookies, localStorage, or password values to the model; external page titles, text, element names, and screenshots are treated as untrusted data.
 
 ## Error Policy {#error-policy}
 

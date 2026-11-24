@@ -262,6 +262,7 @@ test("docs: activity GET endpoints are authenticated read-only JSON operations w
   const workspaceEvents = paths["/api/events"]?.get?.responses["200"]?.["x-sse-events"];
   assert.deepEqual(Object.keys(workspaceEvents ?? {}).sort(), [
     "activity_updated",
+    "browser_updated",
     "session_presence_updated",
     "session_status_updated",
     "approval_pending",
@@ -724,6 +725,7 @@ test("docs: notification stream documents the client sync protocol and keeps eve
   assert.ok(operation.security?.length);
   assert.deepEqual(Object.keys(operation.responses["200"]["x-sse-events"]).sort(), [
     "activity_updated",
+    "browser_updated",
     "session_presence_updated",
     "session_status_updated",
     "approval_pending",
@@ -752,6 +754,7 @@ test("docs: /api/events SSE schema carries bounded runtime, presence and invalid
   assert.ok(table, "必须声明 x-sse-events 事件契约");
   assert.deepEqual(Object.keys(table).sort(), [
     "activity_updated",
+    "browser_updated",
     "session_presence_updated",
     "session_status_updated",
     "approval_pending",
@@ -1095,7 +1098,7 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
     .filter((e) => !e.sse) // SSE 端点响应是流，不是 JSON schema；safeParse 不适用
     .filter((e) => e.path !== "/api/runs/status")
     .filter((e) => e.path !== "/updates/android/latest") // 缓存可为空；镜像专项测试覆盖成功与 503。
-    .filter((e) => e.path !== "/browser/desktop/launch") // 需票据，下方单独验证 401 契约。
+    .filter((e) => e.path !== "/browser/launch") // 需票据，下方单独验证 401 契约。
     .filter((e) => e.responseContentType !== "text/html") // 调试页与桌面静态页是 HTML/二进制，不参与 JSON response safeParse。
     // 工作区文件 GET 需要显式 selector/path，且 content 需要先准备现存文件；下方单独覆盖。
     .filter((e) => !e.path.startsWith("/api/workspace/files"))
@@ -1108,8 +1111,8 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
     const parsed = endpoint.response.safeParse(await response.json());
     assert.ok(parsed.success, `${path} response drifted from schema: ${parsed.success ? "" : JSON.stringify(parsed.error.issues).slice(0, 200)}`);
   }
-  // 桌面 launch：无有效 ticket 时返回 401 JSON { error }
-  const launchNoTicket = await service.app.request("/browser/desktop/launch");
+  // 浏览器 viewer launch：无有效 ticket 时返回 401 JSON { error }
+  const launchNoTicket = await service.app.request("/browser/launch");
   assert.equal(launchNoTicket.status, 401);
   const launchNoTicketBody = (await launchNoTicket.json()) as { error?: unknown };
   assert.equal(typeof launchNoTicketBody.error, "string");
@@ -1231,7 +1234,7 @@ test("docs: information endpoints expose a bounded authenticated agent-scoped AP
   assert.ok(paths["/api/habits/{domain}/consolidate"]?.post);
 });
 
-test("docs: browser desktop gateway endpoints document status, ticket and redirect contracts", () => {
+test("docs: browser status, viewer ticket, launch cookie, viewport, handoff and WS contract", () => {
   const doc = buildOpenApiDocument();
   const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;
 
@@ -1241,38 +1244,48 @@ test("docs: browser desktop gateway endpoints document status, ticket and redire
   assert.deepEqual(statusOp.security, [{ bearerAuth: [] }]);
   assert.equal(statusOp.tags?.[0], "浏览器");
   assert.match(statusOp.description ?? "", /无论 tools.browser.enabled 是否开启都会注册/);
-  assert.match(statusOp.description ?? "", /desktopAvailable/);
+  assert.match(statusOp.description ?? "", /不会触发 Chrome 懒启动/);
   const statusSchema = responseSchema(statusOp);
   assert.deepEqual(Object.keys(statusSchema.properties ?? {}).sort(), [
-    "desktopAvailable",
-    "desktopPath",
+    "activeTabId",
+    "downloadsCount",
     "enabled",
+    "handoff",
+    "pendingUploadsCount",
+    "running",
+    "tabsCount",
     "viewerPath",
+    "viewport",
   ].sort());
   assert.deepEqual(statusSchema.required?.sort(), [
-    "desktopAvailable",
-    "desktopPath",
+    "activeTabId",
+    "downloadsCount",
     "enabled",
+    "handoff",
+    "pendingUploadsCount",
+    "running",
+    "tabsCount",
     "viewerPath",
+    "viewport",
   ].sort());
 
-  // 2. POST /api/browser/desktop-ticket: 鉴权接口、503 错误定义、返回 launchPath/expiresAt
-  const ticketOp = paths["/api/browser/desktop-ticket"]?.post;
-  assert.ok(ticketOp, "generated OpenAPI must include POST /api/browser/desktop-ticket");
+  // 2. POST /api/browser/viewer-ticket: 鉴权接口、503 错误定义、返回 launchPath/expiresAt
+  const ticketOp = paths["/api/browser/viewer-ticket"]?.post;
+  assert.ok(ticketOp, "generated OpenAPI must include POST /api/browser/viewer-ticket");
   assert.deepEqual(ticketOp.security, [{ bearerAuth: [] }]);
   assert.equal(ticketOp.tags?.[0], "浏览器");
   assert.match(ticketOp.description ?? "", /同源一次性路径/);
   const ticket200 = responseSchema(ticketOp);
   assert.deepEqual(Object.keys(ticket200.properties ?? {}).sort(), ["expiresAt", "launchPath"].sort());
   const ticket503 = ticketOp.responses["503"];
-  assert.ok(ticket503, "POST /api/browser/desktop-ticket must declare 503 response");
+  assert.ok(ticket503, "POST /api/browser/viewer-ticket must declare 503 response");
   const ticket503Schema = ticket503.content?.["application/json"]?.schema;
   assert.deepEqual(Object.keys(ticket503Schema?.properties ?? {}).sort(), ["code", "error"].sort());
   assert.deepEqual(ticket503Schema?.required, ["error"]);
 
-  // 3. GET /browser/desktop/launch: 免鉴权、303 状态码无 content 响应体、Location/set-cookie 头、401 错误
-  const launchOp = paths["/browser/desktop/launch"]?.get;
-  assert.ok(launchOp, "generated OpenAPI must include GET /browser/desktop/launch");
+  // 3. GET /browser/launch: 免鉴权、303 状态码无 content 响应体、Location/set-cookie 头、401 错误
+  const launchOp = paths["/browser/launch"]?.get;
+  assert.ok(launchOp, "generated OpenAPI must include GET /browser/launch");
   assert.equal(launchOp.security, undefined);
   assert.equal(launchOp.tags?.[0], "浏览器");
   const launch303 = launchOp.responses["303"] as {
@@ -1280,19 +1293,30 @@ test("docs: browser desktop gateway endpoints document status, ticket and redire
     content?: unknown;
     headers?: Record<string, { description?: string; schema?: { type: string } }>;
   };
-  assert.ok(launch303, "GET /browser/desktop/launch must declare 303 success response");
+  assert.ok(launch303, "GET /browser/launch must declare 303 success response");
   assert.equal(launch303.content, undefined, "303 redirect response must have no content body");
   assert.ok(launch303.headers?.location, "303 response must declare Location header");
   assert.ok(launch303.headers?.["set-cookie"], "303 response must declare set-cookie header");
   const launch401 = launchOp.responses["401"];
-  assert.ok(launch401, "GET /browser/desktop/launch must declare 401 error response");
+  assert.ok(launch401, "GET /browser/launch must declare 401 error response");
   const launch401Schema = launch401.content?.["application/json"]?.schema;
   assert.deepEqual(Object.keys(launch401Schema?.properties ?? {}).sort(), ["code", "error"].sort());
   assert.deepEqual(launch401Schema?.required, ["error"]);
 
-  // 4. WebSocket 契约登记
+  // 4. PUT /api/browser/viewport 与 DELETE /api/browser/handoff
+  const viewportOp = paths["/api/browser/viewport"]?.put;
+  assert.ok(viewportOp, "generated OpenAPI must include PUT /api/browser/viewport");
+  assert.deepEqual(viewportOp.security, [{ bearerAuth: [] }]);
+  assert.equal(viewportOp.tags?.[0], "浏览器");
+  const handoffOp = paths["/api/browser/handoff"]?.delete;
+  assert.ok(handoffOp, "generated OpenAPI must include DELETE /api/browser/handoff");
+  assert.deepEqual(handoffOp.security, [{ bearerAuth: [] }]);
+  assert.equal(handoffOp.tags?.[0], "浏览器");
+
+  // 5. WebSocket 契约登记：统一到 /ws/browser，不再包含旧 desktop 网关
   const wsContracts = (doc as unknown as { "x-websocket-contracts": Record<string, unknown> })["x-websocket-contracts"];
-  assert.ok(wsContracts?.browserDesktop, "OpenAPI must include browserDesktop WebSocket contract");
+  assert.ok(wsContracts?.browser, "OpenAPI must include browser WebSocket contract");
+  assert.equal(wsContracts?.browserDesktop, undefined);
 });
 
 test("docs: news endpoints freeze the client contract without exposing the internal agent", () => {

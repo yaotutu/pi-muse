@@ -116,6 +116,12 @@ const failureMessage = (error: unknown) => {
 export const createBrowserDownloadStore = (root: string): BrowserDownloadStore => {
   const active = new Map<string, ActiveDownload>();
   const tasks = new Map<string, Promise<void>>();
+  const changeListeners = new Set<() => void>();
+  const notifyChanged = () => {
+    for (const listener of changeListeners) {
+      try { listener(); } catch { /* 通知失败不破坏持久化存储。 */ }
+    }
+  };
 
   const ensureRoot = async () => {
     try {
@@ -283,6 +289,7 @@ export const createBrowserDownloadStore = (root: string): BrowserDownloadStore =
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
       await writeMeta(meta);
+      notifyChanged();
       const failure = await event.failure();
       if (state.deleted) return;
       if (state.interrupted) throw new Error("interrupted");
@@ -308,6 +315,7 @@ export const createBrowserDownloadStore = (root: string): BrowserDownloadStore =
       temporary = undefined;
       await writeMeta({ ...meta, status: "completed", bytes });
       await event.discard().catch(() => undefined);
+      notifyChanged();
     } catch (error) {
       await handle?.close().catch(() => undefined);
       handle = undefined;
@@ -328,6 +336,7 @@ export const createBrowserDownloadStore = (root: string): BrowserDownloadStore =
       await writeMeta(failed).catch(() => undefined);
       await cleanupTransient(event.id).catch(() => undefined);
       await rm(join(directory, "content"), { force: true }).catch(() => undefined);
+      notifyChanged();
     } finally {
       await handle?.close().catch(() => undefined);
       if (active.get(event.id) === state) active.delete(event.id);
@@ -353,6 +362,7 @@ export const createBrowserDownloadStore = (root: string): BrowserDownloadStore =
       await state.cancel().catch(() => undefined);
       await rm(directory, { recursive: true, force: true });
       await tasks.get(downloadId)?.catch(() => undefined);
+      notifyChanged();
       return;
     }
     try {
@@ -363,6 +373,7 @@ export const createBrowserDownloadStore = (root: string): BrowserDownloadStore =
       throw error;
     }
     await rm(directory, { recursive: true, force: true });
+    notifyChanged();
   };
 
   const reconcileOnStart = async () => {
@@ -406,5 +417,6 @@ export const createBrowserDownloadStore = (root: string): BrowserDownloadStore =
     content,
     remove,
     close,
+    onChanged: (listener) => { changeListeners.add(listener); },
   };
 };
