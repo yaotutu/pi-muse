@@ -56,6 +56,7 @@ node --import tsx tests/live/shared-skills.ts --config <path> --allow-live [--ke
 node --import tsx tests/live/information.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/news.ts --config <path> --allow-live [--keep-artifacts] [--allow-private-targets]
 node --import tsx tests/live/database.ts --config <path> --allow-live [--keep-artifacts]
+node --import tsx tests/live/browser.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/session-tool-scope.ts --config <path> --allow-live
 node --import tsx tests/live/session-prompt-scope.ts --config <path> --allow-live --scenario prompt
 node --import tsx tests/live/session-prompt-scope.ts --config <path> --allow-live --scenario dream
@@ -126,6 +127,12 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 - 使用共享 live 参数显式启动隔离真实后端，经透明代理调用当前外部真实模型，不读取或迁移真实数据库。
 - 验证模型实际调用 `database`，在 main 自建表并写入/查询、在 news 建独立测试表且内置新闻 API 仍可读、重启后两库数据保留，以及模型自主删掉本次测试表而不进入审批。
 - 同时检查真实 SQLite 行值与工具返回，不以模型自然语言自述判定成功。`--keep-artifacts` 保留脱敏 summary/tool traces；失败不自动重试。自有 Web renderer、历史回读和错误态仍需另行页面验收。
+
+### `tests/live/browser.ts`
+
+- 使用共享 live 参数启动隔离后端、本地 HTTP 测试夹具与本机真实 GUI Chrome（`tools.browser.enabled=true`、`allowPrivateTargets=true`），经透明代理调用真实外部模型。
+- 验证统一 `browser` 工具链（`navigate` → `snapshot` → `act` 含 `select` → `screenshot` 回看画面）、内置 `browser` 子代理单任务委派以及 `request_handoff` → `DELETE /api/browser/handoff` 生命周期。
+- 同时校验 `browser` / `subagent` 真实代理轨迹、上游 HTTP 200 与浏览器 REST 状态；失败不自动重试，UI 页面验收另在真实浏览器测试 `/docs`、`/browser`（桌面与手机触控）及 `web/` 浏览器标签完成。
 
 ### `pnpm check`
 

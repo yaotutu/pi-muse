@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import {
   chromium,
+  type Browser,
   type BrowserContext,
   type CDPSession,
   type Download,
@@ -19,12 +20,15 @@ import {
   type BrowserTab,
   type BrowserUpload,
   type BrowserUploadFile,
+  type BrowserViewport,
+  type BrowserWaitInput,
 } from "../../features/browser/types.js";
 import { serializeAriaSnapshot, type AriaSnapshotNode } from "../../features/browser/snapshot.js";
 
 type DriverConfig = {
   profileDir: string;
   executablePath?: string;
+  cdpUrl?: string;
   allowPrivateTargets: boolean;
   timeoutMs: number;
 };
@@ -68,14 +72,30 @@ type NativeTargetInfo = {
   type?: unknown;
   embedderData?: Record<string, unknown>;
 };
+
 type LaunchPersistentContext = (
   profileDir: string,
   options: Parameters<typeof chromium.launchPersistentContext>[1],
 ) => Promise<BrowserContext>;
-type DriverDependencies = { launchPersistentContext?: LaunchPersistentContext };
 
-const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
+type ConnectOverCDP = (
+  endpointURL: string,
+  options?: { timeout?: number },
+) => Promise<Browser>;
+
+type DriverDependencies = {
+  launchPersistentContext?: LaunchPersistentContext;
+  connectOverCDP?: ConnectOverCDP;
+};
+
+const DEFAULT_VIEWPORT: BrowserViewport = {
+  preset: "desktop",
+  width: 1280,
+  height: 800,
+  mobile: false,
+};
 const REF_PATTERN = /^s(\d+):((?:f\d+)?e\d+)$/;
+const MAX_SCREENSHOT_BYTES = 2 * 1024 * 1024;
 
 const present = (record: TabRecord): BrowserTab => ({
   id: record.id,
@@ -97,8 +117,8 @@ const normalizeHttpUrl = (rawUrl: string) => {
 };
 
 /**
- * Playwright 只作为系统 Chrome 的驱动适配层：这里负责进程生命周期、CDP
- * screencast 与输入映射，不实现 HTTP/WS 协议，也不暴露任意 JavaScript 给模型。
+ * Playwright 只作为系统 Chrome 的驱动适配层：这里负责进程生命周期、动态视口、
+ * CDP screencast 与输入映射，不实现 HTTP/WS 协议，也不暴露任意 JavaScript 给模型。
  */
 export const createPlaywrightBrowserDriver = (
   config: DriverConfig,
@@ -106,10 +126,15 @@ export const createPlaywrightBrowserDriver = (
 ): BrowserDriver => {
   const launchPersistentContext = dependencies.launchPersistentContext ??
     ((profileDir, options) => chromium.launchPersistentContext(profileDir, options));
+  const connectOverCDP = dependencies.connectOverCDP ??
+    ((endpointURL, options) => chromium.connectOverCDP(endpointURL, options));
+
   let context: BrowserContext | undefined;
+  let attachedBrowser: Browser | undefined;
   let starting: Promise<void> | undefined;
   let nextFrameId = 1;
   let closing: Promise<void> | undefined;
+  let currentViewport: BrowserViewport = { ...DEFAULT_VIEWPORT };
   const tabs = new Map<string, TabRecord>();
   /**
    * ref 只对产生它的那次快照有效。这里给每次快照分配全局递增序号，并在
@@ -121,9 +146,11 @@ export const createPlaywrightBrowserDriver = (
   const recordsByPage = new WeakMap<Page, TabRecord>();
   const pageTargetIds = new WeakMap<Page, string>();
   const casts = new Map<string, CastSession>();
+  const emulationCdps = new Map<string, CDPSession>();
   const tabsListeners = new Set<(tabs: BrowserTab[]) => void>();
   const frameListeners = new Set<(frame: BrowserFrame) => void>();
   const downloadListeners = new Set<(download: BrowserDownloadEvent) => void>();
+  const uploadsListeners = new Set<() => void>();
   const uploadsByTab = new Map<string, PendingUpload>();
   let castProbeTimer: ReturnType<typeof setInterval> | undefined;
   let castProbeRunning = false;
@@ -142,6 +169,12 @@ export const createPlaywrightBrowserDriver = (
     for (const listener of tabsListeners) listener(projected);
   };
 
+  const emitUploadsChanged = () => {
+    for (const listener of uploadsListeners) {
+      try { listener(); } catch { /* 通知失败不破坏 Playwright 事件循环。 */ }
+    }
+  };
+
   const refreshRecord = async (record: TabRecord) => {
     record.url = record.page.url();
     record.title = await record.page.title().catch(() => record.title);
@@ -153,11 +186,14 @@ export const createPlaywrightBrowserDriver = (
   };
 
   const clearUpload = (tabId: string) => {
-    uploadsByTab.delete(tabId);
+    if (uploadsByTab.delete(tabId)) emitUploadsChanged();
   };
 
   const clearPendingUpload = (pending: PendingUpload) => {
-    if (uploadsByTab.get(pending.tabId) === pending) uploadsByTab.delete(pending.tabId);
+    if (uploadsByTab.get(pending.tabId) === pending) {
+      uploadsByTab.delete(pending.tabId);
+      emitUploadsChanged();
+    }
   };
 
   const uploadProjection = async (pending: PendingUpload): Promise<BrowserUpload> => ({
@@ -172,6 +208,43 @@ export const createPlaywrightBrowserDriver = (
     for (const pending of uploadsByTab.values())
       if (pending.id === uploadId) return pending;
     throw new BrowserError("UPLOAD_NOT_FOUND", "Browser upload chooser not found");
+  };
+
+  const applyViewportToPage = async (record: TabRecord, owner: BrowserContext) => {
+    if (context !== owner) return;
+    const page = record.page as Page & {
+      setViewportSize?: (size: { width: number; height: number }) => Promise<void>;
+    };
+    if (typeof page.setViewportSize === "function") {
+      await page.setViewportSize({
+        width: currentViewport.width,
+        height: currentViewport.height,
+      }).catch(() => undefined);
+    }
+    const activeCast = casts.get(record.id);
+    if (activeCast) {
+      await activeCast.cdp.send("Emulation.setTouchEmulationEnabled", {
+        enabled: currentViewport.mobile,
+        maxTouchPoints: currentViewport.mobile ? 5 : 1,
+      }).catch(() => undefined);
+      return;
+    }
+    if (typeof owner.newCDPSession !== "function") return;
+    let cdp = emulationCdps.get(record.id);
+    if (!cdp) {
+      cdp = await owner.newCDPSession(record.page).catch(() => undefined);
+      if (!cdp || context !== owner || !tabs.has(record.id)) {
+        await cdp?.detach().catch(() => undefined);
+        return;
+      }
+      emulationCdps.set(record.id, cdp);
+    }
+    await cdp.send("Emulation.setTouchEmulationEnabled", {
+      enabled: currentViewport.mobile,
+      maxTouchPoints: currentViewport.mobile ? 5 : 1,
+    }).catch(() => {
+      emulationCdps.delete(record.id);
+    });
   };
 
   const registerDownload = (download: Download) => {
@@ -209,16 +282,20 @@ export const createPlaywrightBrowserDriver = (
   const resetContext = (launched: BrowserContext) => {
     if (context !== launched) return;
     context = undefined;
+    attachedBrowser = undefined;
     starting = undefined;
     clearCastProbe();
     for (const cast of casts.values()) {
       cast.cdp.off("Page.screencastFrame", cast.listener);
     }
     casts.clear();
+    emulationCdps.clear();
+    const hadUploads = uploadsByTab.size > 0;
     uploadsByTab.clear();
     snapshotStates.clear();
     tabs.clear();
     emitTabs();
+    if (hadUploads) emitUploadsChanged();
   };
 
   const recordFor = (tabId: string) => {
@@ -266,6 +343,11 @@ export const createPlaywrightBrowserDriver = (
       clearUpload(record.id);
       snapshotStates.delete(record.id);
       tabs.delete(record.id);
+      const emuCdp = emulationCdps.get(record.id);
+      if (emuCdp) {
+        emulationCdps.delete(record.id);
+        void emuCdp.detach().catch(() => undefined);
+      }
       void stopCast(record.id).catch(() => undefined);
       if (record.active && tabs.size) {
         const next = [...tabs.values()][0]!;
@@ -290,6 +372,7 @@ export const createPlaywrightBrowserDriver = (
       };
       // 一页只保留当前 chooser；新 chooser 直接替换旧引用，不尝试清空旧 input。
       uploadsByTab.set(record.id, pending);
+      emitUploadsChanged();
     });
     void refreshRecord(record).finally(emitTabs);
     return record;
@@ -300,39 +383,49 @@ export const createPlaywrightBrowserDriver = (
     if (context) return;
     if (starting) return starting;
     const pending = (async () => {
-      await mkdir(config.profileDir, { recursive: true, mode: 0o700 });
-      // Docker 的 noVNC 通道展示整台 X 屏幕；让 Chrome 按屏幕尺寸占满，不叠一层固定视口。
-      const windowSize = process.env.BROWSER_WINDOW_SIZE;
-      const [windowWidth, windowHeight] = windowSize?.split("x") ?? [];
-      const launched = await launchPersistentContext(config.profileDir, {
-        // 产品要求固定使用带 GUI 的真实 Chrome；Docker 部署由 Xvfb 提供显示，不回退 headless。
-        headless: false,
-        // 进程信号由应用的 shutdown 串行驱动 service.close；Playwright 默认 handler
-        // 会并发关闭同一 Browser，二次 gracefullyClose 会升级为强制 kill。
-        handleSIGINT: false,
-        handleSIGTERM: false,
-        handleSIGHUP: false,
-        acceptDownloads: true,
-        viewport: windowSize ? null : DEFAULT_VIEWPORT,
-        // Linux 容器默认禁止 Chrome 创建 namespace sandbox；这里保持真实 GUI，
-        // 不引入 headless 或远程渲染替代。
-        args: [
-          "--disable-dev-shm-usage",
-          // Linux 容器默认禁止 Chrome 创建 namespace sandbox；本机 macOS 不放宽。
-          ...(process.platform === "linux" ? ["--no-sandbox"] : []),
-          ...(windowSize
-            ? [
-                "--window-position=0,0",
-                `--window-size=${windowWidth},${windowHeight}`,
-                "--hide-crash-restore-bubble",
-                "--test-type",
-              ]
-            : []),
-        ],
-        ...(config.executablePath
-          ? { executablePath: config.executablePath }
-          : { channel: "chrome" as const }),
-      });
+      let launched: BrowserContext;
+      let externalBrowser: Browser | undefined;
+      if (config.cdpUrl) {
+        externalBrowser = await connectOverCDP(config.cdpUrl, { timeout: config.timeoutMs });
+        const existingContext = externalBrowser.contexts()[0];
+        launched = existingContext ?? await externalBrowser.newContext({
+          acceptDownloads: true,
+          viewport: { width: currentViewport.width, height: currentViewport.height },
+        });
+        attachedBrowser = externalBrowser;
+        externalBrowser.on("disconnected", () => resetContext(launched));
+      } else {
+        await mkdir(config.profileDir, { recursive: true, mode: 0o700 });
+        const windowSize = process.env.BROWSER_WINDOW_SIZE;
+        const [windowWidth, windowHeight] = windowSize?.split("x") ?? [];
+        launched = await launchPersistentContext(config.profileDir, {
+          // 产品要求固定使用带 GUI 的真实 Chrome；无桌面 Linux 容器由 Xvfb 提供显示，不回退 headless。
+          headless: false,
+          // 进程信号由应用的 shutdown 串行驱动 service.close；Playwright 默认 handler
+          // 会并发关闭同一 Browser，二次 gracefullyClose 会升级为强制 kill。
+          handleSIGINT: false,
+          handleSIGTERM: false,
+          handleSIGHUP: false,
+          acceptDownloads: true,
+          viewport: { width: currentViewport.width, height: currentViewport.height },
+          args: [
+            "--disable-dev-shm-usage",
+            // Linux 容器默认禁止 Chrome 创建 namespace sandbox；本机 macOS 不放宽。
+            ...(process.platform === "linux" ? ["--no-sandbox"] : []),
+            ...(windowSize
+              ? [
+                  "--window-position=0,0",
+                  `--window-size=${windowWidth},${windowHeight}`,
+                  "--hide-crash-restore-bubble",
+                  "--test-type",
+                ]
+              : []),
+          ],
+          ...(config.executablePath
+            ? { executablePath: config.executablePath }
+            : { channel: "chrome" as const }),
+        });
+      }
       context = launched;
       launched.on("close", () => resetContext(launched));
       try {
@@ -349,13 +442,23 @@ export const createPlaywrightBrowserDriver = (
           }
         });
         if (context !== launched) throw new Error("Browser context closed during startup");
-        for (const page of launched.pages()) registerPage(page, launched);
+        for (const page of launched.pages()) {
+          const record = registerPage(page, launched);
+          await applyViewportToPage(record, launched);
+        }
+        if (config.cdpUrl && !tabs.size) {
+          const initialPage = await launched.newPage();
+          const record = registerPage(initialPage, launched);
+          await applyViewportToPage(record, launched);
+        }
         if (context !== launched) throw new Error("Browser context closed during startup");
         if (tabs.size) setActiveRecord([...tabs.values()][0]!);
         launched.on("page", (page) => {
           if (context !== launched) return;
           const record = registerPage(page, launched);
-          setActiveRecord(record);
+          void applyViewportToPage(record, launched).finally(() => {
+            if (context === launched && tabs.has(record.id)) setActiveRecord(record);
+          });
         });
         launched.on("download", (download) => {
           if (context !== launched) return;
@@ -363,7 +466,8 @@ export const createPlaywrightBrowserDriver = (
         });
       } catch (error) {
         if (context === launched) resetContext(launched);
-        await launched.close().catch(() => undefined);
+        if (externalBrowser) await externalBrowser.close().catch(() => undefined);
+        else await launched.close().catch(() => undefined);
         throw error;
       }
     })();
@@ -446,9 +550,8 @@ export const createPlaywrightBrowserDriver = (
 
   /**
    * Playwright focus emulation 会让所有页面保持 DOM visible，不能据此判断原生
-   * 标签。这里用 Browser root CDP 的 tabActive 元数据，并通过 autoAttachRelated
-   * 的 page targetId 精确关联 Playwright Page；所有临时 CDP session 都在 finally
-   * 分离，避免影响 Playwright 自己的会话。
+   * 标签。支持 Chrome 150+ 时用 Browser root CDP 的 tabActive 元数据精确关联；
+   * 若当前环境不支持该元数据，外层捕获后保留受管 active 状态不报错。
    */
   const detectVisibleRecord = async (owner: BrowserContext) => {
     if (context !== owner) return;
@@ -544,6 +647,71 @@ export const createPlaywrightBrowserDriver = (
     castProbeTimer.unref();
   };
 
+  const startScreencastFor = async (tabId: string) => {
+    await ensureStarted();
+    if (casts.has(tabId)) return;
+    const owner = context!;
+    const record = recordFor(tabId);
+    const cdp = await owner.newCDPSession(record.page);
+    await cdp.send("Emulation.setTouchEmulationEnabled", {
+      enabled: currentViewport.mobile,
+      maxTouchPoints: currentViewport.mobile ? 5 : 1,
+    }).catch(() => undefined);
+    const metrics = await cdp.send("Page.getLayoutMetrics");
+    if (context !== owner) {
+      await cdp.detach().catch(() => undefined);
+      throw new BrowserError("BROWSER_FAILED", "Browser operation failed");
+    }
+    const layout = metrics.cssLayoutViewport ?? metrics.layoutViewport;
+    const viewport = {
+      width: Math.max(1, Math.round(layout?.clientWidth || currentViewport.width)),
+      height: Math.max(1, Math.round(layout?.clientHeight || currentViewport.height)),
+    };
+    const listener = (event: ScreencastFrameEvent) => {
+      // CDP 生产帧与 viewer ack 解耦：驱动收到帧就回 ack，客户端慢只影响自己的 pending。
+      if (event.sessionId > 0)
+        void cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => undefined);
+      const frame: BrowserFrame = {
+        tabId,
+        frameId: nextFrameId++,
+        sessionId: String(event.sessionId),
+        width: event.metadata.deviceWidth ?? viewport.width,
+        height: event.metadata.deviceHeight ?? viewport.height,
+        timestamp: event.metadata.timestamp ?? Date.now(),
+        jpeg: new Uint8Array(Buffer.from(event.data, "base64")),
+      };
+      for (const emit of frameListeners) emit(frame);
+    };
+    casts.set(tabId, { cdp, listener });
+    cdp.on("Page.screencastFrame", listener);
+    ensureCastProbe(owner);
+    try {
+      await cdp.send("Page.startScreencast", {
+        format: "jpeg",
+        quality: 75,
+        maxWidth: viewport.width,
+        maxHeight: viewport.height,
+      });
+      // headed Chrome 的静态页面可能迟迟不触发 screencast 重绘；启动时从真实
+      // GUI 捕一帧，保证切换标签或切换视口后客户端立即看到当前页面而不是空白画布。
+      const captured = await cdp.send("Page.captureScreenshot", {
+        format: "jpeg",
+        quality: 75,
+        fromSurface: true,
+        captureBeyondViewport: false,
+        clip: { x: 0, y: 0, width: viewport.width, height: viewport.height, scale: 1 },
+      }) as { data: string };
+      listener({
+        data: captured.data,
+        sessionId: 0,
+        metadata: { deviceWidth: viewport.width, deviceHeight: viewport.height, timestamp: Date.now() },
+      });
+    } catch (error) {
+      await stopCast(tabId);
+      throw error;
+    }
+  };
+
   const driver: BrowserDriver = {
     start: ensureStarted,
     close: async () => {
@@ -553,13 +721,22 @@ export const createPlaywrightBrowserDriver = (
         const pendingStart = starting;
         if (pendingStart) await pendingStart.catch(() => undefined);
         const current = context;
+        const currentAttached = attachedBrowser;
         context = undefined;
+        attachedBrowser = undefined;
         starting = undefined;
         clearCastProbe();
         for (const tabId of [...casts.keys()]) await stopCast(tabId);
+        for (const cdp of emulationCdps.values()) await cdp.detach().catch(() => undefined);
+        emulationCdps.clear();
+        const hadUploads = uploadsByTab.size > 0;
+        uploadsByTab.clear();
+        snapshotStates.clear();
         tabs.clear();
         emitTabs();
-        await current?.close().catch(() => undefined);
+        if (hadUploads) emitUploadsChanged();
+        if (currentAttached) await currentAttached.close().catch(() => undefined);
+        else await current?.close().catch(() => undefined);
       })();
       const tracked = pending.finally(() => {
         if (closing === tracked) closing = undefined;
@@ -567,13 +744,30 @@ export const createPlaywrightBrowserDriver = (
       closing = tracked;
       return closing;
     },
+    isRunning: () => Boolean(context),
+    getViewport: () => ({ ...currentViewport }),
+    setViewport: async (viewport) => {
+      currentViewport = { ...viewport };
+      const owner = context;
+      if (!owner) return { ...currentViewport };
+      const activeCasts = [...casts.keys()];
+      for (const tabId of activeCasts) {
+        await stopCast(tabId).catch(() => undefined);
+      }
+      await Promise.all([...tabs.values()].map((record) => applyViewportToPage(record, owner)));
+      for (const tabId of activeCasts) {
+        if (context === owner && tabs.has(tabId)) {
+          await startScreencastFor(tabId).catch(() => undefined);
+        }
+      }
+      return { ...currentViewport };
+    },
     listTabs: async () => {
       await ensureStarted();
       const owner = context!;
       await Promise.all([...tabs.values()].map(refreshRecord));
-      await detectVisibleRecord(owner);
-      const projected = [...tabs.values()].map(present);
-      return projected;
+      await detectVisibleRecord(owner).catch(() => undefined);
+      return [...tabs.values()].map(present);
     },
     newTab: async (url) => {
       await ensureStarted();
@@ -583,6 +777,7 @@ export const createPlaywrightBrowserDriver = (
       // newPage 可能只创建后台标签；内部 active 必须跟随 Chrome 真正可见的 page。
       await page.bringToFront();
       const record = registerPage(page, owner);
+      await applyViewportToPage(record, owner);
       setActiveRecord(record);
       await goto(record, url);
       return present(record);
@@ -694,6 +889,17 @@ export const createPlaywrightBrowserDriver = (
         await record.page.keyboard.press(input.key);
         return;
       }
+      if (input.action === "select") {
+        if (!locator) throw new BrowserError("INVALID_INPUT", "select requires ref");
+        if (typeof input.value === "string") {
+          await locator.selectOption({ value: input.value }, { timeout: config.timeoutMs });
+        } else if (typeof input.label === "string") {
+          await locator.selectOption({ label: input.label }, { timeout: config.timeoutMs });
+        } else {
+          throw new BrowserError("INVALID_INPUT", "select requires value or label");
+        }
+        return;
+      }
       const deltaX = input.deltaX ?? 0;
       const deltaY = input.deltaY ?? 0;
       if (locator) await locator.scrollIntoViewIfNeeded({ timeout: config.timeoutMs });
@@ -707,66 +913,55 @@ export const createPlaywrightBrowserDriver = (
       await refreshRecord(record);
       return snapshotOf(record);
     },
-    startScreencast: async (tabId) => {
+    screenshot: async (tabId) => {
       await ensureStarted();
-      if (casts.has(tabId)) return;
-      const owner = context!;
       const record = recordFor(tabId);
-      const cdp = await owner.newCDPSession(record.page);
-      const metrics = await cdp.send("Page.getLayoutMetrics");
-      if (context !== owner) {
-        await cdp.detach().catch(() => undefined);
-        throw new BrowserError("BROWSER_FAILED", "Browser operation failed");
-      }
-      const layout = metrics.cssLayoutViewport ?? metrics.layoutViewport;
-      const viewport = {
-        width: Math.max(1, Math.round(layout.clientWidth)),
-        height: Math.max(1, Math.round(layout.clientHeight)),
-      };
-      const listener = (event: ScreencastFrameEvent) => {
-        // CDP 生产帧与 viewer ack 解耦：驱动收到帧就回 ack，客户端慢只影响自己的 pending。
-        if (event.sessionId > 0)
-          void cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => undefined);
-        const frame: BrowserFrame = {
-          tabId,
-          frameId: nextFrameId++,
-          sessionId: String(event.sessionId),
-          width: event.metadata.deviceWidth ?? viewport.width,
-          height: event.metadata.deviceHeight ?? viewport.height,
-          timestamp: event.metadata.timestamp ?? Date.now(),
-          jpeg: new Uint8Array(Buffer.from(event.data, "base64")),
-        };
-        for (const emit of frameListeners) emit(frame);
-      };
-      casts.set(tabId, { cdp, listener });
-      cdp.on("Page.screencastFrame", listener);
-      ensureCastProbe(owner);
-      try {
-        await cdp.send("Page.startScreencast", {
-          format: "jpeg",
-          quality: 70,
-          maxWidth: viewport.width,
-          maxHeight: viewport.height,
+      await refreshRecord(record);
+      let buffer = await record.page.screenshot({
+        type: "jpeg",
+        quality: 75,
+        fullPage: false,
+        timeout: config.timeoutMs,
+      });
+      if (buffer.byteLength > MAX_SCREENSHOT_BYTES) {
+        buffer = await record.page.screenshot({
+          type: "jpeg",
+          quality: 50,
+          fullPage: false,
+          timeout: config.timeoutMs,
         });
-        // headed Chrome 的静态页面可能迟迟不触发 screencast 重绘；启动时从真实
-        // GUI 捕一帧，保证切换标签后客户端立即看到当前页面而不是空白画布。
-        const captured = await cdp.send("Page.captureScreenshot", {
-          format: "jpeg",
-          quality: 70,
-          fromSurface: true,
-          captureBeyondViewport: false,
-          clip: { x: 0, y: 0, width: viewport.width, height: viewport.height, scale: 1 },
-        }) as { data: string };
-        listener({
-          data: captured.data,
-          sessionId: 0,
-          metadata: { deviceWidth: viewport.width, deviceHeight: viewport.height, timestamp: Date.now() },
-        });
-      } catch (error) {
-        await stopCast(tabId);
-        throw error;
       }
+      if (buffer.byteLength > MAX_SCREENSHOT_BYTES) {
+        throw new BrowserError("PAYLOAD_TOO_LARGE", "Browser screenshot exceeds 2 MiB");
+      }
+      return {
+        tab: present(record),
+        mimeType: "image/jpeg" as const,
+        width: currentViewport.width,
+        height: currentViewport.height,
+        dataBase64: buffer.toString("base64"),
+      };
     },
+    wait: async (tabId, input: BrowserWaitInput) => {
+      await ensureStarted();
+      const record = recordFor(tabId);
+      const timeout = Math.min(Math.max(Math.round(input.timeoutMs ?? 5000), 100), 30_000);
+      if (input.ref) {
+        await locatorFor(record, input.ref).waitFor({ state: "visible", timeout });
+        return { ok: true, waited: "ref" };
+      }
+      if (input.text) {
+        await record.page.getByText(input.text).first().waitFor({ state: "visible", timeout });
+        return { ok: true, waited: "text" };
+      }
+      if (input.loadState) {
+        await record.page.waitForLoadState(input.loadState, { timeout });
+        return { ok: true, waited: input.loadState };
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(timeout, 5000)));
+      return { ok: true, waited: "delay" };
+    },
+    startScreencast: startScreencastFor,
     stopScreencast: stopCast,
     listUploads: async () => {
       if (!context) return [];
@@ -804,6 +999,7 @@ export const createPlaywrightBrowserDriver = (
     onTabsChanged: (listener) => tabsListeners.add(listener),
     onFrame: (listener) => frameListeners.add(listener),
     onDownload: (listener) => downloadListeners.add(listener),
+    onUploadsChanged: (listener) => uploadsListeners.add(listener),
   };
   return driver;
 };

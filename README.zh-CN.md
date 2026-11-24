@@ -48,9 +48,7 @@ Pi Muse 面向个人自用，是单用户、单一助手，不是团队平台或
 
 ### 需要时，使用真实浏览器
 
-启用浏览器工具并准备好合适的 Chrome 后，Pi Muse 操作的是真实图形化 Chrome，不是 headless 替代。可选的浏览器 Docker 部署包含 Chrome 和 noVNC；手机查看器与助手操作同一个服务端浏览器、共用登录状态。人工接管经过鉴权的同源桌面网关，不直接公开原始 VNC 端口。
-
-浏览器是否可用取决于部署与配置。noVNC 桌面网关目前**不支持 HTTPS 终止反代**，请按[浏览器部署指南](docs/manual/browser-docker.md)配置，不要假设任意代理方案都能工作。
+启用浏览器工具并准备好系统 Chrome（或配置 `tools.browser.cdpUrl`）后，Pi Muse 操作的是**完整带界面的真实 Google Chrome**，绝不用 headless 替代。手机与电脑端均通过响应式 `/browser`（或 `web/` 浏览器工作台）经 `/ws/browser` 直接操作同一个 Chrome，支持手机/桌面视口切换、触控滚屏与双指缩放、原生中文输入条、实时文件上传/下载与人工接管（`request_handoff`），不再需要 VNC/noVNC 网关，HTTP 与 HTTPS 均可直接工作。部署与使用细节见[真实浏览器指南](docs/manual/browser.md)。
 
 ## 快速开始
 
@@ -78,7 +76,7 @@ pnpm start
 
 API 默认端口为 `12330`。在服务端主机打开 `http://127.0.0.1:12330/docs`，查看当前运行实例的接口文档。源码开发可改用 `pnpm dev`。
 
-如需带完整浏览器桌面的替代部署，请先配置实例，再按[浏览器 Docker 说明](docs/manual/browser-docker.md)操作。它使用相同的默认宿主 API 端口，不要与本地服务同时占用该端口。
+无桌面 Linux 服务器可先配置实例，再按[真实浏览器指南](docs/manual/browser.md)运行精简 `Xvfb + Chrome + Node` Docker 容器。它使用相同的默认宿主 API 端口，不要与本地服务同时占用该端口。
 
 ### 2. 连接手机
 

@@ -17,42 +17,57 @@ export const browserTicketResponse = z.strictObject({
   expiresAt: z.string().describe("ticket 过期时间（ISO 8601）"),
 });
 
-export const browserStatusResponse = z.strictObject({
-  enabled: z.boolean().describe("tools.browser.enabled；false 时 viewer/desktop 路径均为 null"),
-  viewerPath: z.string().nullable().describe("同源视口调试页路径；enabled 时固定 /browser"),
-  desktopPath: z.string().nullable().describe("同源 noVNC 桌面入口；enabled 时固定 /browser/desktop/vnc.html"),
-  desktopAvailable: z.boolean()
-    .describe("固定 127.0.0.1:desktopPort 的 vnc.html 2 秒探测结果；仅代表 noVNC 静态页可服务，不代表 Chrome 健康"),
+export const browserViewportPresetSchema = z.enum(["desktop", "mobile", "custom"]);
+
+export const browserViewportSchema = z.strictObject({
+  preset: browserViewportPresetSchema.describe("视口预设：desktop、mobile 或 custom"),
+  width: z.number().int().min(320).max(2560).describe("当前浏览器 CSS 视口宽度（px）"),
+  height: z.number().int().min(320).max(2560).describe("当前浏览器 CSS 视口高度（px）"),
+  mobile: z.boolean().describe("是否开启移动端触控模拟（Emulation.setTouchEmulationEnabled）"),
 });
 
-export const browserDesktopTicketResponse = z.strictObject({
-  launchPath: z.string().describe("同源一次性桌面启动路径，60 秒有效；直接以同源地址 GET 打开"),
+export const browserViewportUpdateSchema = z.strictObject({
+  preset: browserViewportPresetSchema.describe("目标视口预设：desktop（默认 1280×800）、mobile（默认 390×720）或 custom"),
+  width: z.number().int().min(320).max(2560).optional().describe("可选视口宽度（custom 必填，320–2560）"),
+  height: z.number().int().min(320).max(2560).optional().describe("可选视口高度（custom 必填，320–2560）"),
+  mobile: z.boolean().optional().describe("可选触控模拟开关；desktop 默认 false，mobile 默认 true"),
+});
+
+export const browserViewportResponse = z.strictObject({
+  viewport: browserViewportSchema,
+});
+
+export const browserHandoffSchema = z.strictObject({
+  id: z.string().describe("人工接管请求唯一 ID"),
+  tabId: z.string().describe("请求接管的标签页 ID"),
+  reason: z.string().describe("模型说明需要用户人工操作的原因（如登录、扫码或验证码）"),
+  url: z.string().describe("发起接管时该标签页当前 URL"),
+  createdAt: z.iso.datetime().describe("接管请求创建时间（ISO 8601）"),
+});
+
+export const browserStatusResponse = z.strictObject({
+  enabled: z.boolean().describe("tools.browser.enabled；false 时 viewerPath 为 null"),
+  running: z.boolean().describe("真实 GUI Chrome 当前是否已启动；查询状态不会触发懒启动"),
+  viewerPath: z.string().nullable().describe("同源浏览器操控页路径；enabled 时固定 /browser"),
+  tabsCount: z.number().int().min(0).describe("当前已知标签数；未启动时为 0"),
+  activeTabId: z.string().nullable().describe("当前激活标签 ID；未启动或无标签时为 null"),
+  viewport: browserViewportSchema.describe("当前共享真实浏览器的视口与触控状态"),
+  pendingUploadsCount: z.number().int().min(0).describe("当前待上传 filechooser 数量"),
+  downloadsCount: z.number().int().min(0).describe("持久下载记录总数"),
+  handoff: browserHandoffSchema.nullable().describe("当前进行中的人工接管请求；无则为 null"),
+});
+
+export const browserViewerTicketResponse = z.strictObject({
+  launchPath: z.string().describe("同源一次性操控页启动路径，60 秒有效；直接以同源地址 GET 打开"),
   expiresAt: z.string().describe("ticket 过期时间（ISO 8601）"),
 });
 
+export const browserLaunchQuerySchema = z.strictObject({
+  ticket: z.string().min(1).describe("一次性浏览器 viewer ticket"),
+});
 
-export const browserDesktopLaunchResponse = z.null()
-  .describe("无响应体：303 重定向到 /browser/desktop/vnc.html，同时签发 HttpOnly 桌面会话 cookie");
-
-export const browserDesktopAssetResponse = z.string()
-  .describe("代理容器内 noVNC 静态资源；需要有效桌面会话 cookie，仅支持 GET/HEAD");
-
-/**
- * 桌面 websockify 代理 WS 契约：载荷是 noVNC/RFB 的不透明二进制流，
- * 服务端不解析帧内容，只做 cookie + Origin 校验与固定回环 upstream 转发。
- */
-export const browserDesktopWebSocketContract = {
-  path: "/browser/desktop/websockify",
-  summary: "远程桌面 VNC websockify 代理",
-  description:
-    "升级必须携带有效桌面会话 cookie（由 GET /browser/desktop/launch 签发）；" +
-    "Origin 头必须存在且严格等于本连接实际协议 + Host（不处理 X-Forwarded-*，" +
-    "TLS 终止反代不受支持）。升级后转发到固定 ws://127.0.0.1:<desktopPort>/websockify，" +
-    "不转发 Cookie/Authorization。载荷为 noVNC/RFB 不透明二进制，子协议 binary；" +
-    "任一端缓冲超过 2MiB、上游 10 秒握手超时或会话 1 小时到期都会断开。",
-  authentication: "HttpOnly 桌面会话 cookie（Path=/browser/desktop/，Max-Age=3600）",
-  frameFormat: "opaque RFB binary stream",
-} as const;
+export const browserLaunchResponse = z.null()
+  .describe("无响应体：303 重定向到 /browser，同时签发 HttpOnly 浏览器域会话 cookie");
 
 export const createBrowserTabSchema = z.strictObject({
   url: z.url().max(2048).regex(/^https?:\/\//, "http(s) only").optional()
@@ -69,7 +84,7 @@ export const browserNavigationSchema = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("reload").describe("重新加载") }),
 ]);
 
-export const browserDebugResponse = z.string().describe("服务端自带的真实浏览器调试页 HTML");
+export const browserViewerPageResponse = z.string().describe("服务端自带的响应式真实浏览器操控页 HTML");
 
 const browserFileName = z.string()
   .min(1)
@@ -121,7 +136,7 @@ export const browserFilesResponse = z.strictObject({
   uploads: z.array(browserUploadSchema)
     .describe("当前页面 filechooser；每页最多一个，导航、关闭或新 chooser 会替换/移除"),
   downloads: z.array(browserDownloadSchema)
-    .describe("持久下载记录；完成记录在容器重启后仍可读取，中断记录标记 failed"),
+    .describe("持久下载记录；完成记录在重启后仍可读取，中断记录标记 failed"),
 });
 
 export const browserUploadRequest = z.strictObject({
@@ -170,16 +185,43 @@ export const browserInputMessageSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("insert_text"), text: z.string().min(1).max(2000) }),
 ]);
 
+export const browserClientViewportMessageSchema = z.strictObject({
+  type: z.literal("viewport"),
+  preset: browserViewportPresetSchema,
+  width: z.number().int().min(320).max(2560).optional(),
+  height: z.number().int().min(320).max(2560).optional(),
+  mobile: z.boolean().optional(),
+});
+
 export const browserServerTabsMessageSchema = z.strictObject({
   type: z.literal("tabs"),
   tabs: z.array(browserTab),
   activeTabId: z.string().nullable(),
 });
 
+export const browserServerViewportMessageSchema = z.strictObject({
+  type: z.literal("viewport"),
+  viewport: browserViewportSchema,
+});
+
+export const browserServerFilesMessageSchema = z.strictObject({
+  type: z.literal("files"),
+  uploads: z.array(browserUploadSchema),
+  downloads: z.array(browserDownloadSchema),
+});
+
+export const browserServerHandoffMessageSchema = z.strictObject({
+  type: z.literal("handoff"),
+  handoff: browserHandoffSchema.nullable(),
+});
+
 export const browserServerReadyMessageSchema = z.strictObject({
   type: z.literal("ready"),
   tabs: z.array(browserTab),
   activeTabId: z.string().nullable(),
+  viewport: browserViewportSchema,
+  files: browserFilesResponse,
+  handoff: browserHandoffSchema.nullable(),
   frameFormat: z.string(),
 });
 
@@ -200,22 +242,32 @@ export const browserAckMessageSchema = z.strictObject({
  */
 export const browserWebSocketContract = {
   path: "/ws/browser",
-  summary: "真实浏览器帧流与输入协议",
+  summary: "真实浏览器帧流、动态视口、实时文件与输入协议",
   description:
-    "先以 Bearer token 调用 POST /api/browser/ws-ticket 获取一次性 60 秒 ticket，再用 " +
+    "先以 Bearer token（或同源浏览器会话 cookie）调用 POST /api/browser/ws-ticket 获取一次性 60 秒 ticket，再用 " +
     "当前访问地址对应的 ws://<host>/ws/browser?ticket=<ticket> 或 wss://<host>/ws/browser?ticket=<ticket> 升级。页面不内置服务地址，本机地址、局域网地址、域名和反向代理地址均可；HTTPS 反向代理下应转发 wss。ticket 使用一次后立即删除，不把长期 token 放 URL。 " +
-    "服务端先发送 ready，随后在标签状态变化时发送 tabs。帧为二进制：4 字节大端 metadataLength + UTF-8 JSON metadata + JPEG 字节。 " +
+    "服务端先发送 ready（含 tabs、viewport、files、handoff），随后实时推送 tabs、viewport、files 与 handoff 变化。帧为二进制：4 字节大端 metadataLength + UTF-8 JSON metadata + JPEG 字节。 " +
     "客户端必须绘制帧后发送 {type:'frame_ack',frameId,sessionId}；慢客户端会被跳帧，缓冲超过 2MiB 会断开。 " +
-    "仅当前激活标签推帧；切换标签时旧标签停止 screencast、新标签重启。没有订阅者时不推流。",
+    "仅当前激活标签推帧；切换标签或调整视口时会重启 screencast 并立即发送首帧。没有订阅者时不推流。",
   authentication: "POST /api/browser/ws-ticket 换取的一次性短时 ticket；WS URL query 只携带该 ticket",
   frameFormat: "uint32be metadataLength + utf8-json metadata + jpeg bytes",
   serverMessages: {
     ready: browserServerReadyMessageSchema,
     tabs: browserServerTabsMessageSchema,
+    viewport: browserServerViewportMessageSchema,
+    files: browserServerFilesMessageSchema,
+    handoff: browserServerHandoffMessageSchema,
     error: browserServerErrorMessageSchema,
   },
   clientMessages: {
     frame_ack: browserAckMessageSchema,
+    viewport: browserClientViewportMessageSchema,
     input: browserInputMessageSchema,
   },
 } as const;
+
+export type BrowserStatusDto = z.infer<typeof browserStatusResponse>;
+export type BrowserViewportDto = z.infer<typeof browserViewportSchema>;
+export type BrowserViewportUpdateDto = z.infer<typeof browserViewportUpdateSchema>;
+export type BrowserHandoffDto = z.infer<typeof browserHandoffSchema>;
+export type BrowserViewerTicketDto = z.infer<typeof browserViewerTicketResponse>;

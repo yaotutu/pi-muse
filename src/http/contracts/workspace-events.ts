@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MAX_CURRENT_RUNS, MAX_TRACKED_ACTIVITIES } from "../../features/workspace/session-status.js";
 import { activityOverview } from "./activities.js";
+import { browserHandoffSchema } from "./browser.js";
 import { sessionStatus } from "./session-status.js";
 import {
   MAX_PENDING_APPROVALS,
@@ -139,6 +140,15 @@ export const workspaceEvents = {
     .describe(
       "后台领域（如 sms/news）条目、执行记录、行为习惯、偏好或设置发生变化时的轻量失效通知；同一 (domain, scope) 在缓冲中合并，clients 只按需重读对应只读接口。",
     ),
+  browser_updated: z
+    .strictObject({
+      instanceId: instanceIdSchema,
+      scope: z.enum(["tabs", "viewport", "files", "handoff", "lifecycle"]).describe("发生变更的浏览器状态范围。"),
+      handoff: browserHandoffSchema.nullable().optional().describe("scope=handoff 时携带当前人工接管请求；null 表示已解除。"),
+    })
+    .describe(
+      "真实浏览器标签、视口、待上传/下载文件、人工接管或运行状态变化时的轻量推送；客户端按需刷新浏览器视图或提示用户接管。",
+    ),
 } as const;
 
 export const WORKSPACE_SSE_DESCRIPTION = [
@@ -198,3 +208,4 @@ export type ApprovalUpdatedEventDto = z.infer<typeof workspaceEvents.approval_up
 export type ActivityUpdatedEventDto = z.infer<typeof workspaceEvents.activity_updated>;
 export type ConversationUpdatedEventDto = z.infer<typeof workspaceEvents.conversation_updated>;
 export type DomainUpdatedEventDto = z.infer<typeof workspaceEvents.domain_updated>;
+export type BrowserUpdatedEventDto = z.infer<typeof workspaceEvents.browser_updated>;

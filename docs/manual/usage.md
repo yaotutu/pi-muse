@@ -23,7 +23,7 @@
 
 ## 浏览器 {#browser}
 
-服务端提供真实图形浏览器能力，启用与访问范围由配置控制。Docker 与 noVNC 部署见[浏览器说明](browser-docker.md)；手机从设置的「浏览器」通过原生 WebView 连接服务端同一个 Chrome，使用当前连接获取一次性同源票据，不另填桌面地址或密码。入口见[资料与设置](profile-and-settings.md)。
+服务端提供完整带界面的真实 Google Chrome 浏览器能力，启用与访问范围由配置控制。详见[真实浏览器指南](browser.md)；手机端（`rich-ui`）或网页工作台通过 `POST /api/browser/viewer-ticket` 获取一次性同源票据并在 `/browser/launch` 免登打开 `/browser`（或直接访问 `/browser`），动态切换手机/桌面视口、原生输入和完成人工接管。入口见[资料与设置](profile-and-settings.md)。
 
 ## 数据与网络 {#data-and-network}
 

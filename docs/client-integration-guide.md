@@ -41,7 +41,7 @@
 - **可读文档**：`GET /docs`（免鉴权，Scalar 交互式文档；优先加载服务端同源 `/scalar.js`，离线失败时回退 CDN）。
 - **机器可读契约**：`GET /openapi.json`（免鉴权，OpenAPI 3.1，由服务端 `src/http/contracts/` 通过 zod v4 schema 自动生成）。其中：
   - SSE 端点的每一种事件 schema 与行为说明在对应端点的 `responses["200"]["x-sse-events"]` 与 `description`；
-  - WebSocket 协议（如真实浏览器视口帧流与远程桌面代理）在顶层 `x-websocket-contracts`；
+  - WebSocket 协议（如真实浏览器帧流、动态视口与交互输入）在顶层 `x-websocket-contracts`；
   - 每个端点均含 `description` 与 `x-agent-hint`，包含调用前置条件、副作用、冲突码与同步步骤。
 
 ### 3.2 实例版本与时区核对
@@ -100,7 +100,7 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
    - 调用 `POST /api/session`（Body：`{ accessKey?: string }`，服务端未配置访问密钥的回环开发部署可省略或传空对象）换取 `{ token, mode: "live" }`。
    - 该 Bearer Token 长期有效（除非服务端配置修改或清除了 `accessKey`），后续所有 `/api/*` 请求通过请求头 `Authorization: Bearer <token>` 传递（`/api/health`、`/api/session`、`/docs`、`/openapi.json`、`/scalar.js`、`/updates/android/*` 与一次性 ticket 落地入口除外）。
    - **安全红线**：接入端只持久化服务地址与 `token`，**绝不持久化明文 `accessKey`**，也不在日志/错误上报中打印 `token` 或 `accessKey`。
-   - **禁止 URL 传 Token**：浏览器原生 `EventSource` 不支持自定义请求头，**不要**为图方便把 token 放进 URL query；请使用支持自定义 Header 的流式 HTTP 客户端读取 SSE；下载助手形象 PNG 等二进制资源同样必须走带 `Authorization` 头的请求。需要从浏览器/WebView 打开交互页时（如真实浏览器 WS 或 noVNC 桌面），先用 Bearer Token 调用接口换取 60 秒一次性 ticket。
+   - **禁止 URL 传 Token**：浏览器原生 `EventSource` 不支持自定义请求头，**不要**为图方便把 token 放进 URL query；请使用支持自定义 Header 的流式 HTTP 客户端读取 SSE；下载助手形象 PNG 等二进制资源同样必须走带 `Authorization` 头的请求。需要从浏览器/WebView 打开响应式真实浏览器操控页 `/browser` 或连接 `/ws/browser` 时，先用 Bearer Token 调用接口换取 60 秒一次性 ticket。
 2. **常见 HTTP 状态码约定**：
    - `401 Unauthorized`：Token 失效或未授权；提示并引导重新鉴权，**禁止**用无效凭据无限自动重连（尤其是 SSE）。
    - `409 Conflict`：版本冲突（聊天 `expectedRevision`）、会话正忙/正删除（`SESSION_DELETING`）、审批已进入其他终态（409 Body 会附带最新 `{ error, approval }` 完整视图）、删除会话清单过期（`SESSION_SCHEDULES_CHANGED`）或任务仍在运行（`SESSION_JOB_RUNNING`）。处理原则：**保留未成功提交的本地草稿/待发载荷**，先刷新权威状态，再决定下一步。
@@ -150,6 +150,7 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
 4. **失效信号与防竞态刷新**：
    - `session_directory_updated`：重读 `GET /api/sessions`。
    - `domain_updated`：携带 `{ instanceId, domain, scope }`（`scope` 为 `items | runs | habits | preferences | settings`）；按对应领域（如 `"sms"`、`"news"`）与 `scope` 定向刷新偏好、习惯或列表状态，替代高频轮询。
+   - `browser_updated`：携带 `{ instanceId, scope, handoff? }`（`scope` 为 `tabs | viewport | files | handoff | lifecycle`）；当真实浏览器切换标签、调整视口、上传/下载变化或助手发起/解除人工接管（`handoff`）时推送，客户端按需刷新或提示用户接管。
    - `conversation_updated`：仅携带 `{ instanceId, sessionId, piSessionId }`，不含消息正文。收到后核对 `instanceId`：
      - 对当前展示中的会话：若该会话此刻正在跑聊天 SSE 流，先打“历史待刷新”脏标记，等本轮流收尾后再读 `GET /api/conversation`；否则立即读取。**如果一次 `GET /api/conversation` 请求尚未返回期间又到达新的 `conversation_updated`，必须在这次请求完成后立刻补读一轮**，避免漏掉新消息。
      - 对后台未激活会话：可仅保留脏标记，待切回该会话时再读取权威历史，节省请求。
@@ -252,12 +253,12 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
 - **助手形象包（`/api/companions*`，`rich-ui`）**：
   - 纯客户端展示资源，不进入模型上下文。每个完整包固定包含 8 个状态 PNG，顺序与名称为：`idle`、`thinking`、`responding`、`working`、`waiting-approval`、`success`、`error`、`stopped`。
   - 拉取包列表 `GET /api/companions` 后按 `version` 校验缓存，通过 `GET /api/companions/:packId/assets/:state`（带 Bearer Token 头，不可放 URL）下载 PNG 并核对 `ETag`。若服务端包被删除/损坏或切换服务器，接入端安全回退到内置形象；切换形象时不要重建整个连接宿主或断开 SSE。
-- **共享真实浏览器（`/api/browser/*`、`/ws/browser`、`/browser/desktop/*`，`rich-ui`）**：
-  - 用户与产品助手共享同一个服务端懒启动的可见 Chrome，关闭客户端浏览窗口不会关闭后端 Chrome。
-  - 先查 `GET /api/browser/status` 确认 `enabled` 与 `desktopAvailable`。
-  - **视口帧流方式**：调用 `POST /api/browser/ws-ticket` 换取 60 秒一次性 ticket，连接 `ws(s)://<host>/ws/browser?ticket=<ticket>`。服务端发送二进制帧格式为：`4 字节大端无符号整数 metadataLength` + `UTF-8 JSON metadata` + `JPEG 图片字节`。客户端每绘制完成一帧，必须发送 `{ type: "frame_ack", frameId, sessionId }` 配合流控（慢客户端会被跳帧，积压超 2 MiB 会断连）。交互输入指令见 OpenAPI `x-websocket-contracts.browser`。
-  - **远程桌面 noVNC 方式**：调用 `POST /api/browser/desktop-ticket` 获取一次性 `launchPath`（60 秒有效），在受控 WebView 中以同源完整地址打开，服务端签发 `Path=/browser/desktop/` 的 HttpOnly 会话 Cookie 并 303 重定向至 `/browser/desktop/vnc.html`（注意其配套 websockify 校验同源 Origin，TLS 终止反代下需注意 Origin 一致性）。
-  - **上传与下载**：页面触发的待处理 `filechooser` 和持久化下载通过 `GET /api/browser/files` 获取，分别由用户明确选文件后调用 `POST /api/browser/uploads/:uploadId` 或 `GET /api/browser/downloads/:downloadId/content` 处理。
+- **共享真实浏览器（`/api/browser/*`、`/browser`、`/browser/launch`、`/ws/browser`，`rich-ui`）**：
+  - 用户与产品助手共享同一个服务端懒启动的可见 Chrome，关闭客户端浏览窗口不会关闭后端 Chrome；同时兼容 HTTP 局域网与 HTTPS 反向代理。
+  - 先查 `GET /api/browser/status` 确认 `enabled`、`running`、`viewerPath`、`viewport` 与当前人工接管 `handoff`（查询不会触发懒启动）。
+  - **推荐嵌入式响应式操控页（`/browser`）**：用 Bearer Token 调用 `POST /api/browser/viewer-ticket` 获取 60 秒一次性 `launchPath`（`/browser/launch?ticket=...`），在受控 WebView 或浏览器同源打开后，服务端签发 `HttpOnly; SameSite=Strict` 会话 Cookie（仅授权 `/api/browser/*` 且不含 `viewer-ticket`）并 `303` 重定向至 `/browser`，内置手机/桌面视口切换、触控滚屏、双指缩放、原生中文输入条、实时文件/接管提示。
+  - **原生自绘帧流方式**：调用 `POST /api/browser/ws-ticket` 换取 60 秒一次性 ticket，连接 `ws(s)://<host>/ws/browser?ticket=<ticket>`；也可通过 `PUT /api/browser/viewport` 或 WS `viewport` 消息切换视口，并用 `DELETE /api/browser/handoff` 确认完成人工接管。服务端二进制帧格式为 `uint32be metadataLength + UTF-8 JSON metadata + JPEG bytes`，客户端绘制后须发送 `{ type: "frame_ack", frameId, sessionId }` 配合流控。交互输入与实时 `tabs`/`viewport`/`files`/`handoff` 推送协议见 OpenAPI `x-websocket-contracts.browser`。
+  - **上传与下载**：页面触发的待处理 `filechooser` 和持久化下载通过 `GET /api/browser/files` 或 WS `files` 获取，分别由用户明确选文件后调用 `POST /api/browser/uploads/:uploadId` 或 `GET /api/browser/downloads/:downloadId/content` 处理。
 - **Android 更新镜像（`/updates/android/*`）**：
   - 免业务鉴权，仅原生 Android 客户端检查与下载 APK 更新时按需接入。
 

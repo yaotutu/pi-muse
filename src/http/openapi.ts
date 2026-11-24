@@ -3,7 +3,7 @@ import { HABIT_DOMAIN_PATTERN, HABIT_ID_PATTERN } from "../features/habits/types
 import { SESSION_ID_PATTERN } from "../features/conversation/session-id.js";
 import { z } from "zod";
 import { endpoints } from "./contracts/endpoints.js";
-import { browserDesktopWebSocketContract, browserWebSocketContract } from "./contracts/browser.js";
+import { browserWebSocketContract } from "./contracts/browser.js";
 import { serviceVersion, type ServiceVersion } from "../bootstrap/service-version.js";
 
 const defaultVersion = await serviceVersion;
@@ -179,7 +179,6 @@ const websocketContracts = {
       ]),
     ),
   },
-  browserDesktop: browserDesktopWebSocketContract,
 };
 
 export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) => {

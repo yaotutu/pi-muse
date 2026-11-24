@@ -23,7 +23,7 @@ For editing assistant identity, persona, and user profile, as well as local them
 
 ## Browser {#browser}
 
-The server provides a real graphical browser capability, with enabling and access scope controlled by configuration. For Docker and noVNC deployment, see [the browser guide](browser-docker.md). Settings → Browser opens the same server-side Chrome in a native WebView, using a one-time same-origin ticket obtained through the current connection rather than a separate desktop address or password. See [Profile and settings](profile-and-settings.md) for the entry point.
+The server provides a full headed Google Chrome browser, with availability and target boundaries controlled by configuration. See the [Real Browser Guide](browser.md). Clients obtain a one-time ticket via `POST /api/browser/viewer-ticket` to open `/browser/launch` into the responsive `/browser` page (with dynamic mobile/desktop viewports, touch scrolling, native IME input, and handoff completion). See [Profile and settings](profile-and-settings.md) for the entry point.
 
 ## Data and Network {#data-and-network}
 

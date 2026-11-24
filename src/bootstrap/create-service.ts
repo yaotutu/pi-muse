@@ -66,7 +66,6 @@ import { createWeatherService } from "../features/weather/weather-service.js";
 import { createBrowserService } from "../features/browser/browser-service.js";
 import { createPlaywrightBrowserDriver } from "../adapters/browser/playwright-driver.js";
 import { createBrowserDownloadStore } from "../adapters/browser/download-store.js";
-import { createBrowserDesktop } from "../http/browser-desktop.js";
 import { createSessionHistory } from "../adapters/pi/session-history.js";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { openPi } from "../adapters/pi/session-factory.js";
@@ -138,17 +137,24 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
         maxContentChars: config.web.maxContentChars,
       })
     : undefined;
-  // 浏览器懒启动：仅配置开启且第一次标签/帧流/Agent 工具需要时才拉起系统 Chrome。
+  // 浏览器懒启动：仅配置开启且第一次标签/帧流/Agent 工具需要时才拉起真实 GUI Chrome。
   let browser: ReturnType<typeof createBrowserService> | undefined;
   if (config.browser.enabled) {
     const browserDownloads = createBrowserDownloadStore(layout.browserDownloadsDir);
     await browserDownloads.reconcileOnStart();
-    browser = createBrowserService(createPlaywrightBrowserDriver({
-      profileDir: layout.browserProfileDir,
-      executablePath: config.browser.executablePath,
-      allowPrivateTargets: config.browser.allowPrivateTargets,
-      timeoutMs: config.browser.timeoutMs,
-    }), browserDownloads);
+    browser = createBrowserService(
+      createPlaywrightBrowserDriver({
+        profileDir: layout.browserProfileDir,
+        executablePath: config.browser.executablePath,
+        cdpUrl: config.browser.cdpUrl,
+        allowPrivateTargets: config.browser.allowPrivateTargets,
+        timeoutMs: config.browser.timeoutMs,
+      }),
+      browserDownloads,
+      {
+        onStateChange: (scope, handoff) => workspaceEvents.browserChanged(scope, handoff),
+      },
+    );
   }
   const goals = createGoalService(createGoalRepository(mainDatabase));
   const actions = createActionService(createActionRepository(mainDatabase), { onChange: (action) => workspaceEvents.approvalChanged(action) });
@@ -524,13 +530,6 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   const dreamScheduler = createDreamScheduler(dream);
   const companions = createCompanionService(createCompanionStore(layout));
   const workspaceFiles = createWorkspaceFileService(createWorkspaceFileStore(layout, workspaceCommits));
-  // 同源桌面网关单例：无论 browser.enabled 与否都创建，/api/browser/status 总是可答；
-  // 关闭时仅清内存 ticket/session 与 WS 代理，不参与 feature/pi 生命周期。
-  const browserDesktop = createBrowserDesktop({
-    enabled: config.browser.enabled,
-    desktopHost: config.browser.desktopHost,
-    desktopPort: config.browser.desktopPort,
-  });
   const sessions = createSessionService({ repository: sessionRepository, storage: sessionStorage, hub: conversationHub,
     jobs, monitors, actions, feedback: messageFeedbackRepository, pauseMain: () => information!.pause(),
     forgetPresence: workspaceEvents.presence.forget, publishHistoryChange: workspaceEvents.conversationHistoryChanged,
@@ -539,7 +538,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
   // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
   const traces = createModelTraceReader(layout.tracesDir);
   const androidUpdates = createAndroidReleaseMirror(layout.androidUpdatesDir);
-  const dependencies = { androidUpdates, companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, habits, habitsScheduler, information, informationScheduler, news, domainAgents, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, browserDesktop, messageFeedbackRepository };
+  const dependencies = { androidUpdates, companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, habits, habitsScheduler, information, informationScheduler, news, domainAgents, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
@@ -555,11 +554,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
       await approvalExpiry;
       // 新闻写方与在途请求都收尾后再关库；之后不再接受任何 news_* 写入。
       results.push(...await closeDatabases());
-      try {
-        await browser?.close();
-      } finally {
-        browserDesktop.close();
-      }
+      await browser?.close();
       await recency.flush();
       // 执行源收尾后再关记录代理：取消产生的 abort/断流 trace 先完成旁路写入。
       await modelTrace?.close();

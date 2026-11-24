@@ -23,6 +23,16 @@ import { createTracesRoutes } from "./routes/traces.js";
 import { createBrowserRoutes } from "./routes/browser.js";
 import { serviceVersion } from "../bootstrap/service-version.js";
 
+const readCookie = (header: string | undefined, name: string): string | undefined => {
+  if (!header) return undefined;
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=");
+    if (index < 0) continue;
+    if (part.slice(0, index).trim() === name) return part.slice(index + 1).trim();
+  }
+  return undefined;
+};
+
 // 只挂载 HTTP/协议适配：使用已组装的服务，不创建 store，也不启动或关闭调度器。
 export async function createHttpApp(dependencies: HttpDependencies) {
   const { config, auth, conversationHub } = dependencies;
@@ -117,13 +127,22 @@ export async function createHttpApp(dependencies: HttpDependencies) {
       : c.json({ error: "Workspace access key is required or invalid" }, 401);
   });
   app.use("/api/*", async (c, next) => {
-    if (!auth.authorized(c.req.header("Authorization")))
+    const isBrowserApi =
+      c.req.path.startsWith("/api/browser/") &&
+      c.req.path !== "/api/browser/viewer-ticket";
+    const browserCookie = isBrowserApi
+      ? readCookie(c.req.header("Cookie"), "pi_muse_browser")
+      : undefined;
+    if (
+      !auth.authorized(c.req.header("Authorization")) &&
+      !(browserCookie && dependencies.browser?.hasViewerSession(browserCookie))
+    )
       return c.json({ error: "Unauthorized: open a new session" }, 401);
     await next();
   });
   // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
   app.route("/", createWorkspaceEventRoutes(dependencies.workspaceEvents));
-  app.route("/", createBrowserRoutes(dependencies.browser, dependencies.browserDesktop));
+  app.route("/", createBrowserRoutes(dependencies.browser));
   app.route("/api/sessions", createMessageRoutes(dependencies));
   app.route("/api/habits", createHabitsRoutes(dependencies));
   app.route("/api/information", createInformationRoutes(dependencies));

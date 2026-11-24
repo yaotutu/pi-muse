@@ -7,6 +7,7 @@ export class BrowserError extends Error {
       | "UPLOAD_NOT_FOUND"
       | "DOWNLOAD_NOT_FOUND"
       | "DOWNLOAD_NOT_READY"
+      | "HANDOFF_NOT_FOUND"
       | "PAYLOAD_TOO_LARGE"
       | "STALE_REF"
       | "BROWSER_FAILED",
@@ -16,6 +17,22 @@ export class BrowserError extends Error {
     this.name = "BrowserError";
   }
 }
+
+export type BrowserViewportPreset = "desktop" | "mobile" | "custom";
+
+export type BrowserViewport = {
+  preset: BrowserViewportPreset;
+  width: number;
+  height: number;
+  mobile: boolean;
+};
+
+export type BrowserViewportInput = {
+  preset: BrowserViewportPreset;
+  width?: number;
+  height?: number;
+  mobile?: boolean;
+};
 
 export type BrowserTab = {
   id: string;
@@ -33,6 +50,42 @@ export type BrowserSnapshot = {
   tree: string;
   text: string;
   truncated: boolean;
+};
+
+export type BrowserScreenshot = {
+  tab: BrowserTab;
+  untrusted: true;
+  mimeType: "image/jpeg";
+  width: number;
+  height: number;
+  dataBase64: string;
+};
+
+export type BrowserHandoff = {
+  id: string;
+  tabId: string;
+  reason: string;
+  url: string;
+  createdAt: string;
+};
+
+export type BrowserUpdateScope =
+  | "tabs"
+  | "viewport"
+  | "files"
+  | "handoff"
+  | "lifecycle";
+
+export type BrowserStatus = {
+  enabled: boolean;
+  running: boolean;
+  viewerPath: string | null;
+  tabsCount: number;
+  activeTabId: string | null;
+  viewport: BrowserViewport;
+  pendingUploadsCount: number;
+  downloadsCount: number;
+  handoff: BrowserHandoff | null;
 };
 
 export type BrowserFrame = {
@@ -56,7 +109,7 @@ export type BrowserInputEvent =
   | { type: "insert_text"; text: string };
 
 export type BrowserActStep = {
-  action: "click" | "type" | "press" | "scroll" | "hover";
+  action: "click" | "type" | "press" | "scroll" | "hover" | "select";
   ref?: string;
   x?: number;
   y?: number;
@@ -64,6 +117,8 @@ export type BrowserActStep = {
   key?: string;
   deltaX?: number;
   deltaY?: number;
+  value?: string;
+  label?: string;
 };
 
 export type BrowserActInput = { steps: BrowserActStep[] };
@@ -74,6 +129,13 @@ export type BrowserActStepResult = {
   ok: boolean;
   code?: BrowserError["code"];
   error?: string;
+};
+
+export type BrowserWaitInput = {
+  text?: string;
+  ref?: string;
+  loadState?: "domcontentloaded" | "load";
+  timeoutMs?: number;
 };
 
 export type BrowserUpload = {
@@ -130,12 +192,14 @@ export type BrowserDownloadStore = {
   content: (downloadId: string) => Promise<BrowserDownloadContent>;
   remove: (downloadId: string) => Promise<void>;
   close: () => Promise<void>;
+  onChanged?: (listener: () => void) => void;
 };
 
 /** 驱动层只描述能力，不感知 HTTP、WS、pi 或配置文件。 */
 export type BrowserDriver = {
   start: () => Promise<void>;
   close: () => Promise<void>;
+  isRunning: () => boolean;
   listTabs: () => Promise<BrowserTab[]>;
   newTab: (url?: string) => Promise<BrowserTab>;
   closeTab: (tabId: string) => Promise<BrowserTab[]>;
@@ -143,9 +207,13 @@ export type BrowserDriver = {
   navigate: (tabId: string, url: string) => Promise<BrowserTab>;
   history: (tabId: string, action: "back" | "forward") => Promise<BrowserTab>;
   reload: (tabId: string) => Promise<BrowserTab>;
+  getViewport: () => BrowserViewport;
+  setViewport: (viewport: BrowserViewport) => Promise<BrowserViewport>;
   input: (tabId: string, event: BrowserInputEvent) => Promise<void>;
   act: (tabId: string, step: BrowserActStep) => Promise<void>;
   snapshot: (tabId: string) => Promise<Omit<BrowserSnapshot, "untrusted">>;
+  screenshot: (tabId: string) => Promise<Omit<BrowserScreenshot, "untrusted">>;
+  wait: (tabId: string, input: BrowserWaitInput) => Promise<{ ok: boolean; waited: string }>;
   startScreencast: (tabId: string) => Promise<void>;
   stopScreencast: (tabId: string) => Promise<void>;
   listUploads: () => Promise<BrowserUpload[]>;
@@ -154,6 +222,7 @@ export type BrowserDriver = {
   onTabsChanged?: (listener: (tabs: BrowserTab[]) => void) => void;
   onFrame?: (listener: (frame: BrowserFrame) => void) => void;
   onDownload?: (listener: (download: BrowserDownloadEvent) => void) => void;
+  onUploadsChanged?: (listener: () => void) => void;
 };
 
 /** WS 适配层只需提供最小发送/关闭能力；协议语义留在 BrowserService。 */

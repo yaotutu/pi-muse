@@ -15,7 +15,7 @@ This manual introduces installation, connection, daily use, and security boundar
 - [Profile and settings](profile-and-settings.md): edit assistant and user profiles, choose a theme, and manage connections, browser access, and app updates.
 - [Core Capabilities](usage.md): overview of tasks, goals, memory, browser, and data boundaries.
 - [Configuration](configuration.md): look up server configuration fields and the data directory.
-- [Browser Docker and noVNC](browser-docker.md): deploy a graphical browser when needed.
+- [Real Browser](browser.md): operate the headed GUI Chrome across mobile/desktop `/browser` and slim Docker deployment.
 - [Development](development.md): local documentation site, business development, and API documentation entry points.
 - [FAQ](troubleshooting.md): diagnose connections, AccessKeys, models, attachments, and approvals.
 

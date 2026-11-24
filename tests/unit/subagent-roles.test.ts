@@ -39,7 +39,7 @@ const tmpDir = async (t: { after: (fn: () => Promise<void>) => void }, prefix: s
   return dir;
 };
 
-const EXPECTED_BUILTIN_NAMES = ["planner", "reviewer", "scout", "worker"];
+const EXPECTED_BUILTIN_NAMES = ["browser", "planner", "reviewer", "scout", "worker"];
 
 test("missing user directory falls back to the 4 built-in roles without throwing", async (t) => {
   const root = await tmpDir(t, "personal-bot-roles-missing-");
@@ -61,7 +61,7 @@ test("user directory adds a new role and may override a same-named built-in", as
   // 用户覆盖同名角色时 Map.set 替换条目，最终名集合仍是 5 个（4 内置 + 1 新增），
   // 用户版 `scout` 取代内置版的 description/systemPrompt。
   const names = roles.map((role) => role.name).sort();
-  assert.deepEqual(names, ["guide", "planner", "reviewer", "scout", "worker"]);
+  assert.deepEqual(names, ["browser", "guide", "planner", "reviewer", "scout", "worker"]);
   const scout = roles.find((role) => role.name === "scout");
   assert.equal(scout?.description, "fast structured recon replacement");
   assert.ok(scout && scout.systemPrompt.includes("do work"));

@@ -395,7 +395,8 @@ test("chat subagent excludes exclusive browser tools in parallel mode while pres
   const singleTools = new Set(
     (singleChildReq.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name),
   );
-  for (const browserTool of ["navigate", "snapshot", "act", "tab"]) {
+  // 串行模式包含 browser 工具，并行模式自动剥离，阻止子代理在共享浏览器标签页互相踩踏。
+  for (const browserTool of ["browser"]) {
     assert.equal(singleTools.has(browserTool), true, `single mode should inherit ${browserTool}`);
   }
   assert.equal(singleTools.has("currentTime"), true);
@@ -412,7 +413,7 @@ test("chat subagent excludes exclusive browser tools in parallel mode while pres
     const parallelTools = new Set(
       (req.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name),
     );
-    for (const browserTool of ["navigate", "snapshot", "act", "tab"]) {
+    for (const browserTool of ["browser"]) {
       assert.equal(parallelTools.has(browserTool), false, `parallel mode must exclude ${browserTool}`);
     }
     for (const statelessTool of ["read", "currentTime", "domain_agent"]) {

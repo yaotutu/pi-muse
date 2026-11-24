@@ -73,7 +73,7 @@ export const skillToToolsMap: Record<string, string[]> = {
   goal: ["goal"],
   memory: ["memory", "memory_search"],
   web: ["search_web", "web_fetch"],
-  browser: ["navigate", "snapshot", "act", "tab"],
+  browser: ["browser"],
   write: ["write", "edit"],
   "skill-creator": ["skills"],
 };
@@ -135,7 +135,7 @@ const registrations = [
   },
   { names: ["search_web", "web_fetch"], create: (deps: ToolDependencies) => deps.web ? createWebTools(deps.web) : [] },
   { names: ["get_weather"], create: (deps: ToolDependencies) => deps.weather ? [weatherTool(deps.weather)] : [] },
-  { names: ["navigate", "snapshot", "act", "tab"], create: (deps: ToolDependencies) => deps.browser ? createBrowserTools(deps.browser) : [] },
+  { names: ["browser"], create: (deps: ToolDependencies) => deps.browser ? createBrowserTools(deps.browser) : [] },
 ];
 
 export const registeredToolNames: readonly string[] = [...registrations.flatMap((group) => group.names), SUBAGENT_TOOL_NAME];

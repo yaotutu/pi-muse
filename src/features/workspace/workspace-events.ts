@@ -1,5 +1,6 @@
 import type { ActivityOverview } from "../activities/types.js";
 import type { PendingAction } from "../actions/types.js";
+import type { BrowserHandoff, BrowserUpdateScope } from "../browser/types.js";
 import type { SessionPhase, SessionStatus, StatusRun } from "./session-status.js";
 import { MAX_CURRENT_RUNS, MAX_TRACKED_ACTIVITIES, MAX_STATUS_TOOLS, MAX_STATUS_SUBAGENTS } from "./session-status.js";
 import { createSessionPresence, type SessionPresence } from "./session-presence.js";
@@ -14,7 +15,8 @@ export type WorkspaceUpdate =
   | { event: "activity_updated"; activity: ActivityOverview }
   | { event: "session_directory_updated" }
   | { event: "conversation_updated"; conversation: { sessionId: string; piSessionId: string } }
-  | { event: "domain_updated"; domain: string; scope: DomainUpdateScope };
+  | { event: "domain_updated"; domain: string; scope: DomainUpdateScope }
+  | { event: "browser_updated"; scope: BrowserUpdateScope; handoff?: BrowserHandoff | null };
 type Subscriber = { notify: (event: WorkspaceUpdate) => void; close: () => void };
 export class ExecutionCapacityError extends Error {
   constructor() { super("Too many active executions (maximum 32)"); }
@@ -25,7 +27,7 @@ const labelFor: Record<SessionPhase, string> = {
   preparing: "正在准备执行", waiting_model: "等待模型响应", responding: "正在生成回复",
   executing_tool: "正在执行工具", waiting_subagents: "正在等待子代理", waiting_approval: "等待人工审批", finalizing: "正在保存结果",
 };
-const toolLabel = (name: string | null) => ({ search_web: "正在搜索资料", web_fetch: "正在读取网页", read: "正在读取文件", write: "正在写入文件", edit: "正在编辑文件", subagent: "正在委派子代理" }[name ?? ""] ?? "正在执行工具");
+const toolLabel = (name: string | null) => ({ search_web: "正在搜索资料", web_fetch: "正在读取网页", browser: "正在操作浏览器", read: "正在读取文件", write: "正在写入文件", edit: "正在编辑文件", subagent: "正在委派子代理" }[name ?? ""] ?? "正在执行工具");
 
 /** 只保留当前运行的展示投影，不拥有执行锁，不写活动历史或事件重放日志。 */
 export const createWorkspaceEvents = (recency?: { initial: Record<string, string>; save: (value: Record<string, string>) => void }) => {
@@ -87,6 +89,11 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
     domainChanged: (domain: string, scope: DomainUpdateScope) => {
       if (closed) return;
       publish({ event: "domain_updated", domain, scope });
+    },
+    /** 真实浏览器标签、视口、文件或人工接管状态变更时的轻量通知。 */
+    browserChanged: (scope: BrowserUpdateScope, handoff?: BrowserHandoff | null) => {
+      if (closed) return;
+      publish({ event: "browser_updated", scope, ...(handoff !== undefined ? { handoff } : {}) });
     },
     /**
      * 活动概览投影推送：由会话服务在活动状态变化时调用。

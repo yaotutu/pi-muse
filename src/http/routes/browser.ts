@@ -1,18 +1,30 @@
 import { Hono } from "hono";
 import type { BrowserService } from "../../features/browser/browser-service.js";
 import { BrowserError } from "../../features/browser/types.js";
-import type { BrowserDesktop } from "../browser-desktop.js";
 import {
+  browserLaunchQuerySchema,
   browserNavigationSchema,
   browserUploadRequest,
+  browserViewportUpdateSchema,
   createBrowserTabSchema,
 } from "../contracts/browser.js";
-import { browserDebugPage } from "../browser-debug-page.js";
+import { browserViewerPage } from "../browser-viewer-page.js";
+
+const securityHeaders = {
+  "cache-control": "no-store",
+  "referrer-policy": "no-referrer",
+} as const;
+
+const DEFAULT_VIEWPORT = {
+  preset: "desktop" as const,
+  width: 1280,
+  height: 800,
+  mobile: false,
+};
 
 /** 浏览器 REST 只做契约校验与受控错误投影；WS 升级由 Node server 适配层处理。 */
 export const createBrowserRoutes = (
   browser: BrowserService | undefined,
-  desktop: BrowserDesktop,
 ) => {
   const app = new Hono();
 
@@ -25,7 +37,8 @@ export const createBrowserRoutes = (
     const status =
       caught.code === "TAB_NOT_FOUND" ||
       caught.code === "UPLOAD_NOT_FOUND" ||
-      caught.code === "DOWNLOAD_NOT_FOUND"
+      caught.code === "DOWNLOAD_NOT_FOUND" ||
+      caught.code === "HANDOFF_NOT_FOUND"
         ? 404
         : caught.code === "DOWNLOAD_NOT_READY"
           ? 409
@@ -41,34 +54,86 @@ export const createBrowserRoutes = (
   };
 
   app.get("/browser", (c) =>
-    c.html(browserDebugPage, 200, { "cache-control": "no-store" }),
+    c.html(browserViewerPage, 200, { "cache-control": "no-store" }),
   );
 
-  // 同源远程桌面网关：launch 消费一次性 ticket 签 cookie；静态资源需 cookie。
-  // 这两条路径不经过 /api/* 的 Bearer 中间件，自身用 ticket/cookie 把关。
-  app.get("/browser/desktop/launch", (c) => desktop.launch(new URL(c.req.url)));
-  app.get("/browser/desktop/vnc.html", (c) => desktop.proxy(c.req.raw));
-  app.all("/browser/desktop/*", (c) => desktop.proxy(c.req.raw));
-  app.get("/api/browser/status", async (c) =>
-    c.json(await desktop.status(), 200, {
-      "cache-control": "no-store",
-      "referrer-policy": "no-referrer",
-    }),
-  );
-  app.post("/api/browser/desktop-ticket", async (c) => {
-    const headers = { "cache-control": "no-store", "referrer-policy": "no-referrer" };
-    if (!desktop.enabled)
-      return c.json({ error: "Browser is disabled", code: "BROWSER_DISABLED" }, 503, headers);
-    const ticket = await desktop.createTicket();
-    if (!ticket)
-      return c.json({ error: "Remote desktop is unavailable", code: "DESKTOP_UNAVAILABLE" }, 503, headers);
-    return c.json({
-      launchPath: `/browser/desktop/launch?ticket=${ticket.value}`,
-      expiresAt: new Date(ticket.expiresAt).toISOString(),
-    }, 200, headers);
+  // 一次性免登入口：消费 ticket 后签发仅限于 /api/browser/*（不含 viewer-ticket）的 HttpOnly cookie。
+  app.get("/browser/launch", (c) => {
+    if (!browser) {
+      return c.json({ error: "Browser is disabled", code: "BROWSER_DISABLED" }, 503, securityHeaders);
+    }
+    const parsed = browserLaunchQuerySchema.safeParse({ ticket: c.req.query("ticket") });
+    if (!parsed.success) {
+      return c.json({ error: "Invalid or expired browser ticket", code: "INVALID_TICKET" }, 401, securityHeaders);
+    }
+    const session = browser.consumeViewerTicket(parsed.data.ticket);
+    if (!session) {
+      return c.json({ error: "Invalid or expired browser ticket", code: "INVALID_TICKET" }, 401, securityHeaders);
+    }
+    const secure = new URL(c.req.url).protocol === "https:" ? "; Secure" : "";
+    const cookie =
+      `pi_muse_browser=${session.sessionId}; HttpOnly; SameSite=Strict; ` +
+      `Path=/; Max-Age=${session.maxAgeSeconds}${secure}`;
+    return new Response(null, {
+      status: 303,
+      headers: {
+        ...securityHeaders,
+        "set-cookie": cookie,
+        location: "/browser",
+      },
+    });
+  });
+
+  app.get("/api/browser/status", async (c) => {
+    if (!browser) {
+      return c.json({
+        enabled: false,
+        running: false,
+        viewerPath: null,
+        tabsCount: 0,
+        activeTabId: null,
+        viewport: DEFAULT_VIEWPORT,
+        pendingUploadsCount: 0,
+        downloadsCount: 0,
+        handoff: null,
+      }, 200, securityHeaders);
+    }
+    try {
+      return c.json(await browser.status(), 200, securityHeaders);
+    } catch (caught) {
+      const value = error(caught);
+      return c.json(value.body, value.status, securityHeaders);
+    }
+  });
+
+  app.post("/api/browser/viewer-ticket", (c) => {
+    if (!browser) {
+      return c.json({ error: "Browser is disabled", code: "BROWSER_DISABLED" }, 503, securityHeaders);
+    }
+    return c.json(browser.createViewerTicket(), 200, securityHeaders);
   });
 
   if (!browser) return app;
+
+  app.put("/api/browser/viewport", async (c) => {
+    const parsed = browserViewportUpdateSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid browser viewport request", code: "INVALID_REQUEST" }, 400);
+    try {
+      return c.json({ viewport: await browser.setViewport(parsed.data) });
+    } catch (caught) {
+      const value = error(caught);
+      return c.json(value.body, value.status);
+    }
+  });
+
+  app.delete("/api/browser/handoff", (c) => {
+    try {
+      return c.json(browser.resolveHandoff());
+    } catch (caught) {
+      const value = error(caught);
+      return c.json(value.body, value.status);
+    }
+  });
 
   app.get("/api/browser/tabs", async (c) => {
     try { return c.json({ tabs: await browser.listTabs() }); }

@@ -61,7 +61,7 @@ SMS collection requires the Android native module, system permission, enablement
 
 ## Subagent {#subagent}
 
-The assistant can call `subagent` for a bounded single/parallel/chain operation. It has in-memory context only, creates no session or directory, uses the same workspace and returns its result directly to the caller. It cannot recursively delegate, schedule, monitor, register independent activity or change assistant instructions. Roles only narrow permissions. File changes still require individual approval; stopping the parent cancels child execution.
+The assistant can call `subagent` for a bounded single/parallel/chain operation (including the built-in `browser` subagent role; `parallel` mode automatically strips the `browser` tool to avoid tab collisions). It has in-memory context only, creates no session or directory, uses the same workspace and returns its result directly to the caller. It cannot recursively delegate, schedule, monitor, register independent activity or change assistant instructions. Roles only narrow permissions. File changes still require individual approval; stopping the parent cancels child execution.
 
 ## Reset and delete sessions {#reset-and-delete-sessions}
 

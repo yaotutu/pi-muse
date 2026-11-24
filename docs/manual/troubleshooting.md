@@ -61,7 +61,7 @@
 
 ## 真实浏览器无法打开 {#browser-cannot-open}
 
-手机端可通过「设置 → 应用与连接 → 浏览器」以一次性同源票据通过原生 WebView 查看并操作服务端 Chrome（详见[资料与设置](profile-and-settings.md#real-browser)）。若提示未启用或桌面不可达，请检查服务端是否开启 `tools.browser.enabled` 且系统 Chrome / Docker noVNC 正常运行；排错时不要将默认无鉴权的 noVNC 端口直接暴露到公网（部署细节见[浏览器部署说明](browser-docker.md)）。
+客户端或手机可通过 `POST /api/browser/viewer-ticket` 换取一次性票据进入 `/browser`（或直接访问 `/browser`），无需配置独立 VNC 端口。若提示未启用或无法启动，请检查服务端是否开启 `tools.browser.enabled`、宿主机/容器内 `google-chrome` 或 `tools.browser.cdpUrl` 是否就绪；若通过 HTTPS 反向代理访问，需确保 `/ws/browser` 转发并保留 WebSocket Upgrade 头（详情见[真实浏览器指南](browser.md)）。
 
 ## 应用更新检查或安装失败 {#app-update-failed}
 

@@ -48,9 +48,7 @@ Optional Android SMS processing is **off by default** and needs system permissio
 
 ### A real browser when you need it
 
-With browser tools enabled and a suitable Chrome installation, Pi Muse operates a real graphical Chrome, not a headless substitute. The optional browser Docker deployment includes Chrome and noVNC; the phone's browser viewer and assistant use that same server-side browser and login state. Human takeover uses an authenticated same-origin desktop gateway, not a publicly exposed raw VNC port.
-
-Browser availability depends on deployment and configuration. The noVNC desktop gateway currently does **not** support HTTPS-terminating reverse proxies; follow the [browser deployment guide](docs/manual/en/browser-docker.md) rather than assuming any proxy setup will work.
+With browser tools enabled and a suitable Chrome installation (or `tools.browser.cdpUrl`), Pi Muse operates a **full, headed graphical Google Chrome**, never a headless substitute. Both mobile phones and desktop browsers use `/browser` (or the `web/` Browser workbench) over `/ws/browser`—complete with mobile/desktop viewport switching, touch scrolling & pinch-zoom, native IME text input, real-time file choosers/downloads, and `request_handoff` prompts. No separate VNC or noVNC gateway is needed, and the same unified endpoints work over both HTTP and HTTPS. Follow the [Real Browser Guide](docs/manual/en/browser.md) for local and Docker deployment details.
 
 ## Quick start
 
@@ -78,7 +76,7 @@ pnpm start
 
 The default API port is `12330`. Open `http://127.0.0.1:12330/docs` on the server host for the running instance's API documentation. For source development, use `pnpm dev` instead.
 
-For the alternative deployment with a full browser desktop, configure the instance first, then follow [Browser Docker](docs/manual/en/browser-docker.md). It uses the same default host API port, so do not start it alongside the local server on that port.
+For headless Linux servers, follow [Real Browser Guide](docs/manual/en/browser.md) to run the slim `Xvfb + Chrome + Node` Docker image. It uses the same default host API port, so do not start it alongside the local server on that port.
 
 ### 2. Connect your phone
 

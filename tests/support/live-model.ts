@@ -83,7 +83,7 @@ export const createLiveModel = async (model: { baseUrl: string; apiKey?: string 
             goal: normalizedSystemText.includes("global personal goals"),
             web: normalizedSystemText.includes("search_web and web_fetch"),
             weather: normalizedSystemText.includes("Use get_weather"),
-            browser: normalizedSystemText.includes("real-browser tools"),
+            browser: normalizedSystemText.includes("unified `browser` tool"),
           },
           assistants,
         };

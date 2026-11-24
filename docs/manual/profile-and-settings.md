@@ -92,9 +92,9 @@
 
 ## 真实浏览器 {#real-browser}
 
-在「设置」的「应用与连接」分组中点「浏览器」，通过原生 WebView 查看和操作服务端同一个 Chrome。客户端不单独配置桌面地址或密码，而是沿当前连接获取一次性同源票据，不把 API Token 注入查看器地址。关闭查看器不会关闭服务端 Chrome；未启用浏览器或桌面不可达时会明确提示。
+通过移动端或网页入口使用真实浏览器：先用已认证会话向 `POST /api/browser/viewer-ticket` 获取一次性 `launchPath` 并以 `/browser/launch?ticket=...` 免登打开 `/browser`（也可以直接访问 `/browser`），查看并操作服务端同一个带 GUI 的真实 Chrome。客户端不单独配置桌面地址或密码，也不把 API Token 注入 URL；页面支持手机/桌面视口切换、触控滚屏与原生中文输入。关闭查看器不会关闭服务端 Chrome；遇到登录/验证码等人工接管请求时，完成后点击「我已完成」即可继续。
 
-部署说明见[真实浏览器 Docker 与 noVNC](browser-docker.md)。原始 noVNC 端口不能绕过鉴权直接公开到公网。
+部署和操控详情见[真实浏览器指南](browser.md)。
 
 ## Android 应用更新 {#android-updates}
 
