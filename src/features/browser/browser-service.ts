@@ -31,7 +31,11 @@ type ClientState = {
   pendingFrame?: { frameId: number; sessionId: string; tabId: string };
 };
 
-const TICKET_LIFETIME_MS = 60_000;
+/**
+ * 一次性票据有效期：覆盖用户拿到链接后从容打开（手机端可能还要切网络、唤起输入法），
+ * 同时保持“一次性 + 短时”语义，避免长期凭据沉在 URL 里。
+ */
+const TICKET_LIFETIME_MS = 600_000;
 const VIEWER_SESSION_TTL_MS = 3_600_000;
 const VIEWER_SESSION_MAX_AGE_SECONDS = 3600;
 const MAX_CLIENT_BUFFER_BYTES = 2 * 1024 * 1024;

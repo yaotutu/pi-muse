@@ -188,15 +188,30 @@ test("status stays non-launching, viewport/files/handoff push over WS and tab cl
   await flush();
   assert.equal(ws.sentText.some((m) => (m as { type: string; downloads?: unknown[] }).type === "files" && (m as { downloads?: unknown[] }).downloads?.length === 1), true);
 
-  // Viewer ticket single-use + session lookup
+  // Viewer ticket single-use + session lookup + 10 分钟有效期
   const ticket = h.service.createViewerTicket();
   const match = ticket.launchPath.match(/ticket=([^&]+)/);
   assert.ok(match?.[1]);
+  const ticketLifetimeMs = Date.parse(ticket.expiresAt) - Date.now();
+  assert.ok(
+    ticketLifetimeMs > 9 * 60_000 && ticketLifetimeMs <= 10 * 60_000,
+    `viewer ticket must stay valid for about 10 minutes, got ${ticketLifetimeMs}ms`,
+  );
   const session = h.service.consumeViewerTicket(match[1]);
   assert.ok(session);
   assert.equal(h.service.consumeViewerTicket(match[1]), undefined);
   assert.equal(h.service.hasViewerSession(session.sessionId), true);
   assert.equal(h.service.hasViewerSession("unknown-session"), false);
+
+  // WS ticket 同样按 10 分钟有效，且消费后立即失效
+  const wsTicket = h.service.createTicket();
+  const wsLifetimeMs = Date.parse(wsTicket.expiresAt) - Date.now();
+  assert.ok(
+    wsLifetimeMs > 9 * 60_000 && wsLifetimeMs <= 10 * 60_000,
+    `ws ticket must stay valid for about 10 minutes, got ${wsLifetimeMs}ms`,
+  );
+  assert.equal(h.service.consumeTicket(wsTicket.ticket), true);
+  assert.equal(h.service.consumeTicket(wsTicket.ticket), false);
 
   // Screenshot & wait validation
   const shot = await h.service.screenshot("tab-2");

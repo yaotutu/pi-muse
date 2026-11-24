@@ -13,7 +13,7 @@ export const browserTabsResponse = z.strictObject({
 });
 
 export const browserTicketResponse = z.strictObject({
-  ticket: z.string().describe("一次性 WS ticket；60 秒过期且使用后立即失效"),
+  ticket: z.string().describe("一次性 WS ticket；10 分钟过期且使用后立即失效"),
   expiresAt: z.string().describe("ticket 过期时间（ISO 8601）"),
 });
 
@@ -58,7 +58,7 @@ export const browserStatusResponse = z.strictObject({
 });
 
 export const browserViewerTicketResponse = z.strictObject({
-  launchPath: z.string().describe("同源一次性操控页启动路径，60 秒有效；直接以同源地址 GET 打开"),
+  launchPath: z.string().describe("同源一次性操控页启动路径，10 分钟有效；直接以同源地址 GET 打开"),
   expiresAt: z.string().describe("ticket 过期时间（ISO 8601）"),
 });
 
@@ -244,12 +244,12 @@ export const browserWebSocketContract = {
   path: "/ws/browser",
   summary: "真实浏览器帧流、动态视口、实时文件与输入协议",
   description:
-    "先以 Bearer token（或同源浏览器会话 cookie）调用 POST /api/browser/ws-ticket 获取一次性 60 秒 ticket，再用 " +
+    "先以 Bearer token（或同源浏览器会话 cookie）调用 POST /api/browser/ws-ticket 获取一次性 10 分钟 ticket，再用 " +
     "当前访问地址对应的 ws://<host>/ws/browser?ticket=<ticket> 或 wss://<host>/ws/browser?ticket=<ticket> 升级。页面不内置服务地址，本机地址、局域网地址、域名和反向代理地址均可；HTTPS 反向代理下应转发 wss。ticket 使用一次后立即删除，不把长期 token 放 URL。 " +
     "服务端先发送 ready（含 tabs、viewport、files、handoff），随后实时推送 tabs、viewport、files 与 handoff 变化。帧为二进制：4 字节大端 metadataLength + UTF-8 JSON metadata + JPEG 字节。 " +
     "客户端必须绘制帧后发送 {type:'frame_ack',frameId,sessionId}；慢客户端会被跳帧，缓冲超过 2MiB 会断开。 " +
     "仅当前激活标签推帧；切换标签或调整视口时会重启 screencast 并立即发送首帧。没有订阅者时不推流。",
-  authentication: "POST /api/browser/ws-ticket 换取的一次性短时 ticket；WS URL query 只携带该 ticket",
+  authentication: "POST /api/browser/ws-ticket 换取的一次性短时 ticket（10 分钟有效）；WS URL query 只携带该 ticket",
   frameFormat: "uint32be metadataLength + utf8-json metadata + jpeg bytes",
   serverMessages: {
     ready: browserServerReadyMessageSchema,

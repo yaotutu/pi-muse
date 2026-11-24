@@ -43,7 +43,7 @@
 - **契约入口**：`/docs`「浏览器」「事件与通知」、顶层 `x-websocket-contracts.browser`（以 `/openapi.json` 为准）
 - **要点与接入端注意**：
   - **已移除旧 noVNC 桌面网关**：下线 `POST /api/browser/desktop-ticket`、`GET /browser/desktop/launch`、`/browser/desktop/*`、配置字段 `tools.browser.desktopPort`/`desktopHost` 以及 `GET /api/browser/status` 中的 `desktopAvailable`/`desktopPath`；OpenAPI 的 `x-websocket-contracts.browserDesktop` 同步移除。
-  - **推荐统一 `/browser` 免密启动入口**：用 Bearer Token 调用 `POST /api/browser/viewer-ticket` 获取 60 秒一次性 `launchPath`（`/browser/launch?ticket=...`），在 WebView/浏览器同源打开后服务端签发仅限 `/api/browser/*`（不含 `viewer-ticket`）的 `HttpOnly; SameSite=Strict` 会话 Cookie 并 `303` 重定向到 `/browser`（HTTP/HTTPS 均适用）。
+  - **推荐统一 `/browser` 免密启动入口**：用 Bearer Token 调用 `POST /api/browser/viewer-ticket` 获取 10 分钟有效的一次性 `launchPath`（`/browser/launch?ticket=...`），在 WebView/浏览器同源打开后服务端签发仅限 `/api/browser/*`（不含 `viewer-ticket`）的 `HttpOnly; SameSite=Strict` 会话 Cookie 并 `303` 重定向到 `/browser`（HTTP/HTTPS 均适用）。
   - **状态、动态视口与人工接管（Handoff）新接口**：
     - `GET /api/browser/status` 改为返回 `enabled`、`running`、`viewerPath`、`tabsCount`、`activeTabId`、`viewport`、`pendingUploadsCount`、`downloadsCount`、`handoff`（查询不会触发 Chrome 懒启动）。
     - 新增 `PUT /api/browser/viewport`（及 `/ws/browser` `viewport` 双向消息）在 `desktop` / `mobile` / `custom` 视口与触控模拟间动态切换。

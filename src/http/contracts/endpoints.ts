@@ -1018,7 +1018,7 @@ export const endpoints: EndpointSpec[] = [
     operationId: "createBrowserViewerTicket",
     method: "post", path: "/api/browser/viewer-ticket", tag: "浏览器", summary: "换取一次性浏览器操控页启动 ticket",
     hint:
-      "必须携带现有 Bearer token。返回的 launchPath 是同源一次性路径，60 秒有效；用当前服务地址直接 GET 打开，" +
+      "必须携带现有 Bearer token。返回的 launchPath 是同源一次性路径，10 分钟有效；用当前服务地址直接 GET 打开，" +
       "服务端签发 HttpOnly 会话 cookie 后 303 到 /browser。浏览器功能关闭返回 503 BROWSER_DISABLED。不要把长期 token 放进 URL。",
     auth: true, response: browser.browserViewerTicketResponse,
     errorResponses: {
@@ -1094,7 +1094,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "createBrowserWebSocketTicket",
     method: "post", path: "/api/browser/ws-ticket", tag: "浏览器", summary: "换取一次性浏览器 WS ticket",
-    hint: "必须携带现有 Bearer token（或有效的 /browser/launch 浏览器会话 cookie）。返回的 ticket 60 秒过期且只能使用一次；WS 地址为 /ws/browser?ticket=...。完整二进制帧、ready/tabs/viewport/files/handoff/error、输入与 ack 协议见 OpenAPI 顶层 x-websocket-contracts.browser，OpenAPI 不把 WebSocket 伪装成普通 HTTP operation。",
+    hint: "必须携带现有 Bearer token（或有效的 /browser/launch 浏览器会话 cookie）。返回的 ticket 10 分钟过期且只能使用一次；WS 地址为 /ws/browser?ticket=...。完整二进制帧、ready/tabs/viewport/files/handoff/error、输入与 ack 协议见 OpenAPI 顶层 x-websocket-contracts.browser，OpenAPI 不把 WebSocket 伪装成普通 HTTP operation。",
     auth: true, response: browser.browserTicketResponse,
   },
   {

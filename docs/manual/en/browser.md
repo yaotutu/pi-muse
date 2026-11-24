@@ -15,7 +15,7 @@ Pick any of the following runtime modes (the HTTP/WebSocket API and behavior rem
 The server includes a built-in responsive viewer at `/browser` (and embeds it in the `web/` workbench's "Browser" tab):
 
 - **Authentication**:
-  - Clients holding a Bearer token can call `POST /api/browser/viewer-ticket` for a 60-second single-use `launchPath` and open `/browser/launch?ticket=...` on the same origin. The server sets a scoped `HttpOnly; SameSite=Strict` session cookie (valid only for `/api/browser/*`, excluding `viewer-ticket`) and redirects (`303`) to `/browser`.
+  - Clients holding a Bearer token can call `POST /api/browser/viewer-ticket` for a single-use `launchPath` valid for 10 minutes and open `/browser/launch?ticket=...` on the same origin. The server sets a scoped `HttpOnly; SameSite=Strict` session cookie (valid only for `/api/browser/*`, excluding `viewer-ticket`) and redirects (`303`) to `/browser`.
   - Visiting `/browser` directly performs a silent empty-key session boot when `server.accessKey` is unset, or prompts for the AccessKey via `POST /api/session` (immediately stripping any `?accessKey` or `?key` query parameter from the URL).
 - **HTTP & HTTPS Agnostic**: Uses relative REST URLs and same-origin `ws://` / `wss://` matching the current page origin (HTTPS reverse proxies only need to forward WebSocket upgrades on `/ws/browser`).
 - **Mobile Touch & Native Input**:

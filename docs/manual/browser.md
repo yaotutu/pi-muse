@@ -15,7 +15,7 @@ Pi Muse 提供**完整、带 GUI 的真实 Google Chrome**（固定 `headless: f
 服务端直接内建响应式真实浏览器操控页 `/browser`（同时在 `web/` 联调台提供「浏览器」视图标签）：
 
 - **认证与免密直开**：
-  - 客户端可通过已登录的 Bearer Token 调用 `POST /api/browser/viewer-ticket` 换取 60 秒一次性 `launchPath`，用同源 `/browser/launch?ticket=...` 打开；服务端签发 `HttpOnly; SameSite=Strict` 会话 cookie（仅限 `/api/browser/*` 且不包含 `viewer-ticket`）并 `303` 跳转到 `/browser`。
+  - 客户端可通过已登录的 Bearer Token 调用 `POST /api/browser/viewer-ticket` 换取 10 分钟有效的一次性 `launchPath`，用同源 `/browser/launch?ticket=...` 打开；服务端签发 `HttpOnly; SameSite=Strict` 会话 cookie（仅限 `/api/browser/*` 且不包含 `viewer-ticket`）并 `303` 跳转到 `/browser`。
   - 直接访问 `/browser` 时，若服务端未设置 `server.accessKey`，页面自动静默完成一次无密钥会话认证并连上 `/ws/browser`；若已配置 `server.accessKey`，则弹出访问密钥输入框登录（并在初始化时立即清除 URL 中的 `?accessKey`/`?key` 查询参数）。
 - **协议与网络兼容**：自动使用当前访问协议的同源 `http(s)://` 与 `ws(s)://`，HTTP 局域网与 HTTPS 反向代理均可直接使用（反代需透传 `/ws/browser` Upgrade 头）。
 - **移动端触控与中文输入**：
