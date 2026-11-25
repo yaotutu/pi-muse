@@ -300,7 +300,7 @@ test("activity e2e: child model and tool steps nest under the parent invocation 
     assert.ok(result.steps.some((step) => step.kind === "tool" && step.parentId === child.id));
   }
   assertClosedSteps(result);
-  const childRequests = model.requests.filter((request) => JSON.stringify(request.messages.filter((message) => message.role === "system")).includes("专职子代理"));
+  const childRequests = model.requests.filter((request) => JSON.stringify(request.messages.filter((message) => message.role === "system")).includes("You are Pi Muse's specialized "));
   assert.ok(childRequests.length >= 4);
   for (const request of childRequests) assert.ok(!(request.tools as { function: { name: string } }[]).some((tool) => ["activity", "bash", "subagent"].includes(tool.function.name)));
   assert.equal((await list()).activities.length, 1);

@@ -31,7 +31,7 @@ const fixture = async (t: TestContext) => {
 const terminalSuccess = (events: { type: string }[]) => assert.equal(events.at(-1)?.type, "RUN_FINISHED");
 const userText = (value: unknown) => typeof value === "string" ? value : Array.isArray(value) ? value.map((item) => item.text ?? "").join("") : "";
 const childRequest = (request: { messages: { role: string; content: unknown }[] }) =>
-  request.messages.some((message) => message.role === "system" && userText(message.content).includes("专职子代理"));
+  request.messages.some((message) => message.role === "system" && userText(message.content).includes("You are Pi Muse's specialized "));
 
 test("e2e: built entry authenticates, streams tools, persists state and restarts with the same token/history", { timeout: 90_000 }, async (t) => {
   const { service, client, token } = await fixture(t);

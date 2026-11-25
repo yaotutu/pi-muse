@@ -176,7 +176,7 @@ test("subagent is a stateless self-contained function and creates no workspace o
   await h.run("main", "子代理，问一下现在时间");
   assert.deepEqual(await sessionDirectories(), beforeDirs);
   assert.deepEqual(await readdir(h.service().layout.workspaceDir), beforeFiles);
-  const child = h.model.requests.find((r) => JSON.stringify(r.messages).includes("短信专职子代理"));
+  const child = h.model.requests.find((r) => JSON.stringify(r.messages).includes("specialized SMS subagent"));
   assert.ok(child, "must actually execute a child model request");
   const namesOf = (request: typeof child) => (request.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name).sort();
   assert.deepEqual(namesOf(child), ["currentTime", "sms_get_instructions", "sms_query", "sms_update_instructions"]);
@@ -247,7 +247,7 @@ test("subagent ignores parent chat skills and custom extension hooks", async (t)
   }`);
   await h.run("main", "子代理执行一个简单问题");
   const names = (request: typeof h.model.requests[number]) => (request.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name).sort();
-  const child = h.model.requests.find((request) => JSON.stringify(request.messages).includes("短信专职子代理"))!;
+  const child = h.model.requests.find((request) => JSON.stringify(request.messages).includes("specialized SMS subagent"))!;
   assert.ok(child);
   assert.deepEqual(names(child), ["currentTime", "sms_get_instructions", "sms_query", "sms_update_instructions"]);
   assert.deepEqual(await h.service().actions.list(), []);

@@ -1574,7 +1574,7 @@ test("subagent: parent delegates to an isolated child and receives its result wi
     "instructions reads or replaces",
     "## Work activity management",
   ]) assert.ok(!childSystem.includes(unavailableGuidance), `child prompt must not describe ${unavailableGuidance}`);
-  assert.match(childSystem, /短信专职子代理/);
+  assert.match(childSystem, /specialized SMS subagent/);
   assert.ok(children[0].messages.every((message) => !JSON.stringify(message.content).includes("请用子代理完成一次测试")), "parent message history must not leak into child context");
   assert.ok((await h.getHistory()).some((message) => String(message.content).includes("SUBAGENT-MARKER")));
   await assert.rejects(readFile(join(h.dataDir, "tasks.json")), { code: "ENOENT" });

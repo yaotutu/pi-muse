@@ -34,8 +34,8 @@ test("subagents prompt lists registered chat subagents, card isolation, and rout
   assert.match(text, /`browser` \(浏览器助手\): 多步操作共享真实浏览器/);
   assert.match(text, /excluded from your conversation context by default/);
   assert.match(text, /【子代理引用:<subagentId>】\.\.\.【引用结束】/);
-  assert.match(text, /route that task to the corresponding `sms` or `news` subagent via `subagent`/);
-  assert.match(text, /NEVER store SMS\/News filtering or notification preferences ONLY in global `memory`/);
+  assert.match(text, /route that task to that subagent via `subagent`/);
+  assert.match(text, /NEVER store a subagent's domain-specific filtering or notification preferences ONLY in global `memory`/);
 });
 
 test("domain notification context excludes all domain-tagged cards without mutating stored history", () => {
