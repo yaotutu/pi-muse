@@ -243,6 +243,9 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
     id: "sms",
     name: "短信助手",
     description: "处理手机短信与外部信息的查询、筛选过滤、提醒与静默偏好规则（subagents/sms/INSTRUCTIONS.md）管理。",
+    routingHint:
+      "Route any SMS/information record query or SMS filtering/alert/ignore preference to `sms`. " +
+      "Never store SMS filtering preferences only in global `memory` or `assistant/INSTRUCTIONS.md`, because background SMS screening does not read them.",
     triggers: ["chat", "background"],
     isEnabled: async () => (await deps.information.getSettings()).enabled,
     executionPolicy: { stateless: true, parallelAllowed: true },
@@ -286,6 +289,9 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
     id: "news",
     name: "新闻助手",
     description: "处理 RSS 新闻源与文章筛选、新闻记录查询及阅读兴趣偏好规则（subagents/news/INSTRUCTIONS.md）管理。",
+    routingHint:
+      "Route any RSS source/article/run query or news topic/interest/ignore preference to `news`. " +
+      "Never store news filtering preferences only in global `memory` or `assistant/INSTRUCTIONS.md`, because background news screening does not read them.",
     triggers: ["chat", "background"],
     isEnabled: () => true,
     executionPolicy: { stateless: true, parallelAllowed: true },
@@ -326,6 +332,8 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
     id: "browser",
     name: "浏览器助手",
     description: "在独立内存上下文中操作共享真实 GUI Chrome 浏览器执行多步网页浏览、交互与信息提取，遇登录或验证码发起人工接管。",
+    routingHint:
+      "Route multi-step real browser interaction, login/CAPTCHA handoff, or complex webpage extraction to `browser` so large page snapshots stay isolated from main conversation history.",
     triggers: ["chat"],
     isEnabled: () => Boolean(deps.browser),
     executionPolicy: { stateless: true, parallelAllowed: false },

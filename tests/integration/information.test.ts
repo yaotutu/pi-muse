@@ -278,7 +278,7 @@ test("information HTTP ingestion, SDK decisions, notifications and feedback proj
   assert.equal(silentId.length > 0, true);
 });
 
-test("ordinary chat excludes SMS notification cards from model context without rewriting history", async (t) => {
+test("notifications posted into main chat are directly visible to main model while sms rules stay isolated", async (t) => {
   const h = await fixture(t);
   const sessionId = "main";
   await h.setupPipeline({ enabled: true, batchWindowSeconds: 3600 }, "Always be concise.");
@@ -312,14 +312,14 @@ test("ordinary chat excludes SMS notification cards from model context without r
   assert.ok(firstRequests.every((request) =>
     request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Specialized subagents")),
   ));
-  // 短信偏好不污染 main 系统提示词，短信卡片也不进入普通对话大模型上下文
+  // 短信规则不污染 main 系统提示词，但已推入主聊天窗口的通知对主模型直接可见
   assert.ok(firstRequests.every((request) =>
     !request.messages.some((message) => message.role === "system" && requestText(message.content).includes("Always be concise.")),
   ));
   const firstAssistantTexts = firstRequests.flatMap((request) =>
     request.messages.filter((message) => message.role === "assistant").map((message) => requestText(message.content)),
   );
-  assert.ok(firstAssistantTexts.every((text) => !text.includes("INFORMATION-NOTIFY")));
+  assert.ok(firstAssistantTexts.some((text) => text.includes("INFORMATION-NOTIFY")));
   assert.ok(firstAssistantTexts.some((text) => text.includes("generic server notification")));
 
   await h.restart();
@@ -329,12 +329,12 @@ test("ordinary chat excludes SMS notification cards from model context without r
   const reopenedBaseline = h.model.requests.length;
   const secondChat = await h.runChat(sessionId, "重启后普通对话");
   assert.match(secondChat, /RUN_FINISHED/);
-  assert.ok(h.model.requests.slice(reopenedBaseline).every((request) =>
-    request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")),
+  assert.ok(h.model.requests.slice(reopenedBaseline).some((request) =>
+    request.messages.filter((message) => message.role === "assistant").some((message) => requestText(message.content).includes("INFORMATION-NOTIFY")),
   ));
 });
 
-test("subagent stays declared and SMS cards remain excluded regardless of sms toggle", async (t) => {
+test("subagent stays declared regardless of sms toggle and topic sessions do not receive main sms notifications", async (t) => {
   const h = await fixture(t);
   const sessionId = "main";
   await h.setupPipeline({ enabled: false, batchWindowSeconds: 3600 });
@@ -364,7 +364,7 @@ test("subagent stays declared and SMS cards remain excluded regardless of sms to
   for (const request of enabledRequests) {
     assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Specialized subagents")));
     assert.equal(requestToolNames(request).includes("subagent"), true);
-    assert.ok(request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")));
+    assert.ok(request.messages.filter((message) => message.role === "assistant").some((message) => requestText(message.content).includes("INFORMATION-NOTIFY")));
   }
 
   const other = await h.service().sessions.create("专题");
@@ -384,7 +384,6 @@ test("subagent stays declared and SMS cards remain excluded regardless of sms to
   for (const request of disabledRequests) {
     assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Specialized subagents")));
     assert.equal(requestToolNames(request).includes("subagent"), true);
-    assert.ok(request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")));
   }
 
   // 领域规则走统一文件审批，配置页和文件页读取同一原文。

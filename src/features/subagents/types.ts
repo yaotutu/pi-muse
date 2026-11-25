@@ -71,6 +71,8 @@ export type SubagentSummary = {
   id: string;
   name: string;
   description: string;
+  /** 由该 Subagent 自己维护的「给主聊天的路由注意事项」，主聊天自动提取拼接；无则 null。 */
+  routingHint: string | null;
   triggers: readonly SubagentTrigger[];
   enabled: boolean;
   executionPolicy: SubagentExecutionPolicy;
@@ -92,6 +94,7 @@ export type SubagentChatDescriptor = {
   id: string;
   name: string;
   description: string;
+  routingHint?: string;
   parallelAllowed: boolean;
 };
 
@@ -129,6 +132,7 @@ export type SubagentRegistration = {
   id: string;
   name: string;
   description: string;
+  routingHint?: string;
   triggers: readonly SubagentTrigger[];
   isEnabled?: () => Promise<boolean> | boolean;
   /** 仅当 triggers 包含 "chat" 时生效：控制是否向主聊天开放路由（默认 true，不因后台定时开关关闭而阻止聊天查库或改规则）。 */

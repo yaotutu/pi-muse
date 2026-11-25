@@ -62,6 +62,7 @@ export const subagentSummarySchema = z.strictObject({
   id: subagentIdParamSchema.describe("Subagent 唯一标识（如 sms、news、browser、habits、dream）"),
   name: z.string().min(1).describe("Subagent 展示名称"),
   description: z.string().min(1).describe("Subagent 职责与能力声明"),
+  routingHint: z.string().nullable().describe("由该 Subagent 自己维护并注入主聊天提示词的路由注意事项；无则为 null"),
   triggers: z.array(subagentTriggerSchema).min(1).describe("支持的触发入口（chat=可由主聊天路由调用；background=由后台任务/事件触发）"),
   enabled: z.boolean().describe("当前是否处于启用可用状态"),
   executionPolicy: subagentExecutionPolicySchema.describe("执行策略（纯函数无跨次上下文、是否允许并发）"),

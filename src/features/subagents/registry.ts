@@ -71,6 +71,7 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
     id: agent.id,
     name: agent.name,
     description: agent.description,
+    routingHint: agent.routingHint?.trim() || null,
     triggers: [...agent.triggers],
     enabled: agent.isEnabled ? Boolean(await agent.isEnabled()) : true,
     executionPolicy: { ...agent.executionPolicy },
@@ -121,6 +122,7 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
         id: agent.id,
         name: agent.name,
         description: agent.description,
+        ...(agent.routingHint?.trim() ? { routingHint: agent.routingHint.trim() } : {}),
         parallelAllowed: agent.executionPolicy.parallelAllowed,
       });
     }

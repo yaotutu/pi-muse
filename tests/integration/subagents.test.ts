@@ -46,6 +46,11 @@ test("GET /api/subagents and GET /api/subagents/:id expose all 5 specialized sub
       assert.ok(detail.capabilities.tools.length >= 1, `${id} should expose tools`);
       assert.ok(Array.isArray(detail.capabilities.skills));
       assert.ok(Array.isArray(detail.capabilities.mcp));
+      if (id === "sms" || id === "news" || id === "browser") {
+        assert.ok(typeof detail.routingHint === "string" && detail.routingHint.length > 0, `${id} should own routingHint`);
+      } else {
+        assert.equal(detail.routingHint, null);
+      }
       if (id === "sms" || id === "news") {
         assert.equal(detail.hasUserInstructions, true);
         assert.equal(detail.editability.userInstructions, "editable");

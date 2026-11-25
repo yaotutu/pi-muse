@@ -29,7 +29,6 @@ import type { BrowserService } from "../../features/browser/browser-service.js";
 import type { SkillsService } from "../../features/skills/service.js";
 import type { SubagentRegistry } from "../../features/subagents/registry.js";
 import { buildSystemPrompt } from "./system-prompt.js";
-import { createDomainNotificationContextExtension } from "./domain-notification-context.js";
 import { createResourceLoader } from "./resource-loader.js";
 import { createTools, skillToToolsMap, registeredToolNames } from "./tools/index.js";
 import { createWritableFileTools } from "./tools/files-writable.js";
@@ -229,14 +228,8 @@ export async function openPi(deps: PiDeps) {
   const recalledMemories = deps.userText && memory ? await memory.recall(deps.userText) : [];
   const assistantInstructions = await readResolvedProfileFile(layout.assistantInstructionsFile, layout.workspaceDir);
 
-  // 3. 挂载领域卡片隔离扩展与统一专职 Subagent 路由扩展
-  const inlineExtensions: InlineExtension[] = [
-    {
-      name: "pi-muse-domain-notification-context",
-      hidden: true,
-      factory: createDomainNotificationContextExtension(),
-    },
-  ];
+  // 3. 挂载统一专职 Subagent 路由扩展（进入主聊天窗口的消息对主模型直接可见，不再隐藏过滤）
+  const inlineExtensions: InlineExtension[] = [];
   const chatSubagents = deps.subagents ? await deps.subagents.listChatDescriptors() : [];
   if (deps.subagents && chatSubagents.length > 0) {
     const registry = deps.subagents;
