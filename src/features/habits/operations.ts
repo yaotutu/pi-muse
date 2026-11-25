@@ -2,7 +2,7 @@ import { isWorkspaceText } from "../../shared/workspace-text.js";
 import { HabitError } from "./errors.js";
 import {
   HABIT_ID_PATTERN,
-  MAX_HABITS_PER_DOMAIN,
+  MAX_HABITS_PER_SUBAGENT,
   MAX_HABIT_TEXT_LENGTH,
   type HabitItem,
   type HabitOperation,
@@ -46,10 +46,10 @@ export const parseHabitOperationsArray = (
   if (!Array.isArray(raw)) {
     throw new HabitError("INVALID_INPUT", "Habit operations must be an array");
   }
-  if (raw.length > MAX_HABITS_PER_DOMAIN) {
+  if (raw.length > MAX_HABITS_PER_SUBAGENT) {
     throw new HabitError(
       "INVALID_INPUT",
-      `At most ${MAX_HABITS_PER_DOMAIN} habit operations are allowed per batch`,
+      `At most ${MAX_HABITS_PER_SUBAGENT} habit operations are allowed per batch`,
     );
   }
 

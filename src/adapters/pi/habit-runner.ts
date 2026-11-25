@@ -2,7 +2,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { parseHabitConsolidationResult } from "../../features/habits/operations.js";
 import {
-  MAX_HABITS_PER_DOMAIN,
+  MAX_HABITS_PER_SUBAGENT,
   MAX_HABIT_TEXT_LENGTH,
   type HabitConsolidateModelInput,
   type HabitConsolidateModelOutcome,
@@ -26,7 +26,7 @@ export const habitOperationsArraySchema = Type.Array(
     },
     { additionalProperties: false },
   ),
-  { maxItems: MAX_HABITS_PER_DOMAIN },
+  { maxItems: MAX_HABITS_PER_SUBAGENT },
 );
 
 const habitUpdatesParameters = Type.Object(
@@ -84,7 +84,7 @@ export const createHabitConsolidationRunner =
       loadPrompt("habits/consolidate.md"),
       `## Domain\n${input.domain} (${input.domainName})\n${input.domainSummary}`,
       `## User Instructions (INSTRUCTIONS.md — highest authority, do not duplicate)\n${input.instructions.trim() || "(none)"}`,
-      `## Current Consolidated Habits (${input.existingHabits.length}/${MAX_HABITS_PER_DOMAIN})\n${existingList}`,
+      `## Current Consolidated Habits (${input.existingHabits.length}/${MAX_HABITS_PER_SUBAGENT})\n${existingList}`,
     ].join("\n\n");
 
     const prompt = [

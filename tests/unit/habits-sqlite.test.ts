@@ -7,7 +7,7 @@ import { createHabitsRepository } from "../../src/adapters/storage/habits-reposi
 import { HABITS_SCHEMA_VERSION, habitsModule } from "../../src/adapters/storage/habits-schema.js";
 import { openSqliteDatabase, type ManagedSqliteDatabase } from "../../src/adapters/storage/sqlite-database.js";
 import { ensureSqliteModules } from "../../src/adapters/storage/sqlite-modules.js";
-import { MAX_HABITS_PER_DOMAIN, type HabitSignalPayload } from "../../src/features/habits/types.js";
+import { MAX_HABITS_PER_SUBAGENT, type HabitSignalPayload } from "../../src/features/habits/types.js";
 
 const tempDir = (prefix: string) => mkdtemp(join(tmpdir(), `${prefix}-`));
 
@@ -61,10 +61,10 @@ test("habits module owns 3 tables and enforces CRUD + 50-item cap", async (t) =>
   assert.deepEqual((await repo.listHabits("sms")).map((h) => h.id), [h2.id]);
 
   // Fill up to 50 items total (already 1 left in sms, add 49)
-  for (let i = 0; i < MAX_HABITS_PER_DOMAIN - 1; i++) {
+  for (let i = 0; i < MAX_HABITS_PER_SUBAGENT - 1; i++) {
     await repo.addHabit("sms", `习惯条款-${i}`, "manual");
   }
-  assert.equal((await repo.listHabits("sms")).length, MAX_HABITS_PER_DOMAIN);
+  assert.equal((await repo.listHabits("sms")).length, MAX_HABITS_PER_SUBAGENT);
   await assert.rejects(() => repo.addHabit("sms", "overflow", "manual"), { code: "LIMIT_EXCEEDED" });
 });
 
@@ -100,7 +100,7 @@ test("cursor commit atomically updates habits, advances cursor, prunes signals, 
     error: "MODEL_REQUEST_FAILED",
     at: "2026-11-23T01:00:00.000Z",
   });
-  let meta = await repo.getDomainMeta("sms");
+  let meta = await repo.getSubagentMeta("sms");
   assert.equal(meta.cursorSeq, 0);
   assert.equal(meta.lastRunStatus, "failed");
   assert.equal(meta.lastRunError, "MODEL_REQUEST_FAILED");
@@ -123,7 +123,7 @@ test("cursor commit atomically updates habits, advances cursor, prunes signals, 
     expectedUpdatedAt,
   });
 
-  meta = await repo.getDomainMeta("sms");
+  meta = await repo.getSubagentMeta("sms");
   assert.equal(meta.cursorSeq, s2.seq);
   assert.equal(meta.lastRunStatus, "succeeded");
   assert.equal(meta.lastRunProcessed, 2);

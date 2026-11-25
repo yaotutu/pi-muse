@@ -3,7 +3,7 @@ import type { UserReaction } from "../../shared/feedback.js";
 export const HABIT_SUBAGENT_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 export const HABIT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
-export const MAX_HABITS_PER_DOMAIN = 50;
+export const MAX_HABITS_PER_SUBAGENT = 50;
 export const MAX_HABIT_TEXT_LENGTH = 300;
 
 /** 习惯自动归纳兜底周期：与 Dream 一致为 2 小时。 */
@@ -62,8 +62,8 @@ export type HabitSignalRecord = {
 
 export type HabitRunStatus = "succeeded" | "failed" | "skipped" | "cancelled";
 
-export type HabitDomainMeta = {
-  domain: string;
+export type HabitSubagentMeta = {
+  subagentId: string;
   cursorSeq: number;
   lastRunAt: string | null;
   lastRunStatus: HabitRunStatus | null;
@@ -82,7 +82,7 @@ export type HabitPendingSignal = {
   updatedAt: string;
 };
 
-export type HabitDomainSummary = {
+export type HabitSubagentSummary = {
   subagentId: string;
   name: string;
   summary: string;
@@ -96,7 +96,7 @@ export type HabitDomainSummary = {
   lastRunError: string | null;
 };
 
-export type HabitDomainOverview = {
+export type HabitSubagentOverview = {
   subagentId: string;
   name: string;
   summary: string;
@@ -138,7 +138,7 @@ export type HabitConsolidateModelOutcome =
   | { ok: true; operations: HabitOperation[] }
   | { ok: false; error: HabitConsolidateModelError };
 
-export type HabitDomainDefinition = {
+export type HabitSubagentDefinition = {
   id: string;
   name: string;
   summary: string;
@@ -148,7 +148,7 @@ export type HabitDomainDefinition = {
 export type HabitRepository = {
   validateAll: () => Promise<void>;
   listHabits: (domain: string) => Promise<HabitItem[]>;
-  getDomainMeta: (domain: string) => Promise<HabitDomainMeta>;
+  getSubagentMeta: (domain: string) => Promise<HabitSubagentMeta>;
   addHabit: (domain: string, text: string, source: HabitSource) => Promise<HabitItem>;
   updateHabit: (domain: string, habitId: string, text: string) => Promise<HabitItem>;
   deleteHabit: (domain: string, habitId: string) => Promise<{ deleted: true; id: string }>;

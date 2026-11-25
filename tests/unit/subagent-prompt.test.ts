@@ -4,7 +4,7 @@ import { createNotificationMessage, notificationSubagentIdOf } from "../../src/a
 import {
   SUBAGENTS_HEADING,
   buildSubagentsSystemPrompt,
-} from "../../src/adapters/pi/domain-notification-context.js";
+} from "../../src/adapters/pi/system-prompt.js";
 
 const runId = "inforun_01234567-89ab-cdef-0123-456789abcdef";
 
@@ -31,7 +31,7 @@ test("subagents prompt renders each subagent's own description and routingHint",
   assert.doesNotMatch(prompt, /excluded from your conversation context/);
 });
 
-test("notificationSubagentIdOf extracts valid subagent tags and ignores invalid markers", () => {
+test("notificationSubagentIdOf extracts valid subagent tags and ignores missing or invalid markers", () => {
   const smsNotification = createNotificationMessage({
     id: `info-notification-${runId}-0`,
     text: "快递取件码 1234",
@@ -39,11 +39,8 @@ test("notificationSubagentIdOf extracts valid subagent tags and ignores invalid 
   });
   const generic = createNotificationMessage({ id: "server-notification-1", text: "monitor changed" });
   const badTag = createNotificationMessage({ id: "bad-tag-1", text: "bad", subagentId: "INVALID!" });
-  const legacy = createNotificationMessage({ id: `info-notification-${runId}-1`, text: "旧短信提醒" });
 
   assert.equal(notificationSubagentIdOf(smsNotification), "sms");
   assert.equal(notificationSubagentIdOf(generic), undefined);
   assert.equal(notificationSubagentIdOf(badTag), undefined);
-  assert.equal(notificationSubagentIdOf(legacy), "sms");
-  assert.equal("personalBotSubagentId" in legacy, false);
 });

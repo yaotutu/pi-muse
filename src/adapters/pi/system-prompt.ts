@@ -1,11 +1,25 @@
-import { buildSubagentsSystemPrompt } from "./domain-notification-context.js";
 import type { SubagentChatDescriptor } from "../../features/subagents/types.js";
 import { ACTIVITY_TOOL_INSTRUCTIONS } from "./tools/activity.js";
 import type { DataLayout } from "../storage/data-layout.js";
 import { readResolvedProfileFile } from "../storage/workspace-document-includes.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
 import type { MemoryItem } from "../../features/memory/types.js";
-import { loadPrompt } from "../prompts/loader.js";
+import { loadPrompt, renderPrompt } from "../prompts/loader.js";
+
+export const SUBAGENTS_HEADING = "Specialized subagents";
+
+export const buildSubagentsSystemPrompt = (
+  subagents: readonly SubagentChatDescriptor[],
+): string => {
+  const lines = subagents.map((agent) =>
+    agent.routingHint
+      ? `- \`${agent.id}\` (${agent.name}): ${agent.description}\n  Routing note: ${agent.routingHint}`
+      : `- \`${agent.id}\` (${agent.name}): ${agent.description}`,
+  );
+  return `\n${renderPrompt("assistant/subagents.md", {
+    SUBAGENTS: lines.join("\n"),
+  })}`;
+};
 
 const section = (heading: string, text: string): string =>
   text ? `\n\n## ${heading}\n${text}` : "";

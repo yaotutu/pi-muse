@@ -14,9 +14,9 @@ import {
   HABIT_SIGNAL_BATCH_SIZE,
   type HabitConsolidateModelInput,
   type HabitConsolidateModelOutcome,
-  type HabitDomainDefinition,
-  type HabitDomainOverview,
-  type HabitDomainSummary,
+  type HabitSubagentDefinition,
+  type HabitSubagentOverview,
+  type HabitSubagentSummary,
   type HabitItem,
   type HabitOperation,
   type HabitPendingSignal,
@@ -28,7 +28,7 @@ import {
 
 export type CreateHabitsServiceDeps = {
   repository: HabitRepository;
-  domains: readonly HabitDomainDefinition[];
+  domains: readonly HabitSubagentDefinition[];
   consolidateModel: (
     input: HabitConsolidateModelInput,
     signal: AbortSignal,
@@ -82,7 +82,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
   const intervalMs = deps.intervalMs ?? HABIT_CONSOLIDATION_INTERVAL_MS;
   const signalBatchSize = deps.signalBatchSize ?? HABIT_SIGNAL_BATCH_SIZE;
 
-  const domainMap = new Map<string, HabitDomainDefinition>();
+  const domainMap = new Map<string, HabitSubagentDefinition>();
   for (const def of deps.domains) {
     const id = validDomainId(def.id);
     if (domainMap.has(id)) {
@@ -92,14 +92,14 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
   }
 
   let closed = false;
-  const activeRuns = new Map<string, { controller: AbortController; promise: Promise<HabitDomainOverview> }>();
+  const activeRuns = new Map<string, { controller: AbortController; promise: Promise<HabitSubagentOverview> }>();
   const backgroundAutoRuns = new Set<Promise<void>>();
 
   const ensureOpen = () => {
     if (closed) throw new HabitError("SHUTDOWN", "Habits service is closing");
   };
 
-  const requireDomain = (rawDomain: string): HabitDomainDefinition => {
+  const requireDomain = (rawDomain: string): HabitSubagentDefinition => {
     const id = validDomainId(rawDomain);
     const def = domainMap.get(id);
     if (!def) {
@@ -123,11 +123,11 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
     }
   };
 
-  const getOverview = async (rawDomain: string): Promise<HabitDomainOverview> => {
+  const getOverview = async (rawDomain: string): Promise<HabitSubagentOverview> => {
     const def = requireDomain(rawDomain);
     const [habits, meta, { active }] = await Promise.all([
       deps.repository.listHabits(def.id),
-      deps.repository.getDomainMeta(def.id),
+      deps.repository.getSubagentMeta(def.id),
       getActiveUnconsolidated(def.id),
     ]);
     const pendingSignals = [...active]
@@ -152,12 +152,12 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
     };
   };
 
-  const listDomainSummaries = async (): Promise<HabitDomainSummary[]> => {
-    const summaries: HabitDomainSummary[] = [];
+  const listSubagentSummaries = async (): Promise<HabitSubagentSummary[]> => {
+    const summaries: HabitSubagentSummary[] = [];
     for (const def of domainMap.values()) {
       const [habits, meta, { active }] = await Promise.all([
         deps.repository.listHabits(def.id),
-        deps.repository.getDomainMeta(def.id),
+        deps.repository.getSubagentMeta(def.id),
         getActiveUnconsolidated(def.id),
       ]);
       summaries.push({
@@ -247,9 +247,9 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
   };
 
   const runConsolidationLoop = async (
-    def: HabitDomainDefinition,
+    def: HabitSubagentDefinition,
     signal: AbortSignal,
-  ): Promise<HabitDomainOverview> => {
+  ): Promise<HabitSubagentOverview> => {
     const finishWork = deps.observeWork?.("main", `habits:${def.id}`, `正在整理${def.name}习惯`);
     let totalProcessed = 0;
 
@@ -343,7 +343,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
       }
 
       if (totalProcessed === 0) {
-        const currentMeta = await deps.repository.getDomainMeta(def.id);
+        const currentMeta = await deps.repository.getSubagentMeta(def.id);
         await deps.repository.commitConsolidationBatch({
           domain: def.id,
           operations: [],
@@ -372,7 +372,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
     }
   };
 
-  const consolidate = async (rawDomain: string, externalSignal?: AbortSignal): Promise<HabitDomainOverview> => {
+  const consolidate = async (rawDomain: string, externalSignal?: AbortSignal): Promise<HabitSubagentOverview> => {
     ensureOpen();
     const def = requireDomain(rawDomain);
     if (activeRuns.has(def.id)) {
@@ -421,7 +421,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
       if (activeRuns.has(def.id)) continue;
       const { active } = await getActiveUnconsolidated(def.id);
       if (!active.length) continue;
-      const meta = await deps.repository.getDomainMeta(def.id);
+      const meta = await deps.repository.getSubagentMeta(def.id);
       const anchor = meta.lastRunAt ?? active[0]!.createdAt;
       const anchorMs = Date.parse(anchor);
       if (!Number.isNaN(anchorMs) && Date.now() - anchorMs < intervalMs) {
@@ -444,7 +444,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
 
   return {
     listDomains: () => [...domainMap.keys()],
-    listDomainSummaries,
+    listSubagentSummaries,
     hasDomain: (domain: string) => domainMap.has(domain),
     getOverview,
     listHabits,

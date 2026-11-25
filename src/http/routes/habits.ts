@@ -37,7 +37,7 @@ export const createHabitsRoutes = (dependencies: Pick<HttpDependencies, "habits"
     }
   };
 
-  app.get("/", (c) => handle(c, async () => ({ subagents: await habits.listDomainSummaries() })));
+  app.get("/", (c) => handle(c, async () => ({ subagents: await habits.listSubagentSummaries() })));
 
   app.get("/:subagentId", (c) => handle(c, () => habits.getOverview(c.req.param("subagentId"))));
 

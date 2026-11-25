@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { HabitError } from "../../features/habits/errors.js";
 import {
-  MAX_HABITS_PER_DOMAIN,
-  type HabitDomainMeta,
+  MAX_HABITS_PER_SUBAGENT,
+  type HabitSubagentMeta,
   type HabitItem,
   type HabitOperation,
   type HabitRepository,
@@ -60,7 +60,7 @@ const readDomainHabitsSync = (database: DatabaseSync, domain: string): HabitItem
     )
     .all(domain) as unknown as HabitRow[]).map(rowToHabit);
 
-const readDomainMetaSync = (database: DatabaseSync, domain: string): HabitDomainMeta => {
+const readSubagentMetaSync = (database: DatabaseSync, domain: string): HabitSubagentMeta => {
   const row = database
     .prepare(
       "SELECT domain, cursor_seq, last_run_at, last_run_status, last_run_processed, last_run_error FROM habit_domains WHERE domain = ?",
@@ -68,7 +68,7 @@ const readDomainMetaSync = (database: DatabaseSync, domain: string): HabitDomain
     .get(domain) as DomainRow | undefined;
   if (!row) {
     return {
-      domain,
+      subagentId: domain,
       cursorSeq: 0,
       lastRunAt: null,
       lastRunStatus: null,
@@ -77,7 +77,7 @@ const readDomainMetaSync = (database: DatabaseSync, domain: string): HabitDomain
     };
   }
   return {
-    domain: row.domain,
+    subagentId: row.domain,
     cursorSeq: row.cursor_seq,
     lastRunAt: row.last_run_at,
     lastRunStatus: row.last_run_status,
@@ -128,7 +128,7 @@ const applyOperationsInMemory = (
       continue;
     }
     if (op.op === "add") {
-      if (items.length >= MAX_HABITS_PER_DOMAIN) continue;
+      if (items.length >= MAX_HABITS_PER_SUBAGENT) continue;
       if (hasDuplicateText(op.text)) continue;
       items.push({
         id: newHabitId(),
@@ -191,9 +191,9 @@ export const createHabitsRepository = (managed: ManagedSqliteDatabase): HabitRep
       return readDomainHabitsSync(managed.database, domain);
     }),
 
-    getDomainMeta: (domain) => managed.serialize(() => {
+    getSubagentMeta: (domain) => managed.serialize(() => {
       ensureOnce();
-      return readDomainMetaSync(managed.database, domain);
+      return readSubagentMetaSync(managed.database, domain);
     }),
 
     addHabit: (domain, text, source) => managed.serialize(() => {
@@ -201,10 +201,10 @@ export const createHabitsRepository = (managed: ManagedSqliteDatabase): HabitRep
       const now = new Date().toISOString();
       return managed.transaction(() => {
         const current = readDomainHabitsSync(managed.database, domain);
-        if (current.length >= MAX_HABITS_PER_DOMAIN) {
+        if (current.length >= MAX_HABITS_PER_SUBAGENT) {
           throw new HabitError(
             "LIMIT_EXCEEDED",
-            `At most ${MAX_HABITS_PER_DOMAIN} habits are allowed for domain ${domain}`,
+            `At most ${MAX_HABITS_PER_SUBAGENT} habits are allowed for domain ${domain}`,
           );
         }
         const created: HabitItem = {
@@ -285,7 +285,7 @@ export const createHabitsRepository = (managed: ManagedSqliteDatabase): HabitRep
 
     listUnconsolidatedSignals: (domain) => managed.serialize(() => {
       ensureOnce();
-      const meta = readDomainMetaSync(managed.database, domain);
+      const meta = readSubagentMetaSync(managed.database, domain);
       const rows = managed.database
         .prepare(
           "SELECT seq, domain, target_id, payload_json, created_at FROM habit_signals WHERE domain = ? AND seq > ? ORDER BY seq ASC",
