@@ -623,8 +623,10 @@ test("docs: subagent stays inside the parent run and no background task creation
   const doc = buildOpenApiDocument();
   type Operation = { description: string; responses: Record<string, { content: Record<string, { schema: { properties: Record<string, unknown> } }> }> };
   const chat = doc.paths["/api/conversation/run"].post as Operation;
-  for (const rule of [/subagent/, /最多8项/, /最多4个/, /结果后主模型继续/, /写入仍逐次审批/, /绑定父运行/, /取消并等待子会话清理/])
+  for (const rule of [/subagent/, /最多 8 项/, /最多 4 个/, /结果后主模型继续/, /版本绑定人工审批/, /绑定父运行/, /取消并等待子会话清理/])
     assert.match(chat.description, rule);
+  assert.ok(doc.paths["/api/subagents"]?.get, "generated doc must include GET /api/subagents");
+  assert.ok(doc.paths["/api/subagents/{id}"]?.get, "generated doc must include GET /api/subagents/{id}");
   const snapshot = doc.paths["/api/identity"].get as Operation;
   assert.match(snapshot.description, /jobs/i);
   assert.match(snapshot.description, /不提供 POST \/api\/agent\/tasks/);

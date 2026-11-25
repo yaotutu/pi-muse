@@ -18,6 +18,7 @@ import { createMessageRoutes } from "./routes/messages.js";
 import { createHabitsRoutes } from "./routes/habits.js";
 import { createInformationRoutes } from "./routes/information.js";
 import { createNewsRoutes } from "./routes/news.js";
+import { createSubagentRoutes } from "./routes/subagents.js";
 import { createWorkspaceEventRoutes } from "./routes/events.js";
 import { createTracesRoutes } from "./routes/traces.js";
 import { createBrowserRoutes } from "./routes/browser.js";
@@ -150,6 +151,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/api/assistant", createAssistantRoutes(dependencies));
   app.route("/api/companions", createCompanionRoutes(dependencies.companions));
   app.route("/api/news", createNewsRoutes(dependencies));
+  app.route("/api/subagents", createSubagentRoutes(dependencies));
   app.route("/", createTracesRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);

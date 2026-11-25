@@ -36,6 +36,16 @@
 
 ## 变更与须知记录
 
+### 2026-11-25 — 统一专职 Subagent 注册与新增只读检视接口 `/api/subagents`
+
+- **影响端形态**：`rich-ui`
+- **类型**：`feature`
+- **契约入口**：`/docs`「Subagents」（`GET /api/subagents`、`GET /api/subagents/:id`）
+- **要点与接入端注意**：
+  - **新增只读检视接口**：服务端将所有专职子代理收口为统一静态注册的 5 个 `Subagent`（`sms`、`news`、`browser`、`habits`、`dream`），并开放 `GET /api/subagents` 与 `GET /api/subagents/:id`。富交互客户端可直接展示每个 Subagent 的身份、触发入口（`chat`/`background`）、启用状态、纯函数策略、内置系统提示词全文、关联用户指令/习惯快照，以及静态绑定的 `tools`、`skills`、`mcp`（预留槽位）和各维度可编辑性元信息。
+  - **现有业务接口保持不变**：`/api/information/*`、`/api/news/*`、`/api/habits/*`、`/api/dream/*`、`/api/conversation/run` 等既有接口均无破坏性变更。
+  - **内置技能清理**：移除过时的内置 `task` 技能（以及旧编程风角色 `scout/planner/reviewer/worker`）；主聊天默认通过统一 `subagent` 工具向开放的专职 Subagent（`sms`、`news`、`browser`）路由任务。
+
 ### 2026-11-24 — 真实浏览器 Clean Break 重构（移除 noVNC 网关，统一 `/browser` 操控与新增视口/接管协议）
 
 - **影响端形态**：`rich-ui`
