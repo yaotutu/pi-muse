@@ -24,6 +24,8 @@ Pi Muse 使用统一的三层结构组装模型上下文：服务端内置系统
 
 这五份文件均采用**最后一次成功保存生效**。新闻与短信后台不会读取聊天技能、`assistant/INSTRUCTIONS.md` 或全局 `memory.md`；主对话也通过统一的 `subagent` 工具按需协同读写对应子代理指令。
 
+全新实例首次初始化工作区时，还会额外生成一份一次性的 `workspace/assistant/BOOTSTRAP.md` 破冰引导（仅在 `SOUL.md` 与 `USER.md` 均为空时注入主聊天，引导你用 1～2 轮对话自然设定助手风格与个人称呼）。一旦你在聊天中审批写入或通过设置页保存了 `SOUL.md` / `USER.md`（或手动删除 `BOOTSTRAP.md`），该引导自动退场，之后重启也不会再次生成。
+
 ## 用顶部 Frontmatter 拆分引用 {#frontmatter-include}
 
 当某个指令或人设文件变长时，无需把所有规则堆在同一份 Markdown 中。上述**全部五份**工作区托管文档都支持在**文件最顶部**使用标准 YAML Frontmatter `include:` 引用其他纯文本文件。

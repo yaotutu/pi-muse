@@ -4,6 +4,7 @@ import { isCompanionPackId } from "../../features/companions/types.js";
 export { isCompanionPackId } from "../../features/companions/types.js";
 import { isSessionId } from "../../features/conversation/session-id.js";
 export { isSessionId } from "../../features/conversation/session-id.js";
+import { loadPrompt } from "../prompts/loader.js";
 
 /** 路径唯一声明；新布局不读取、转换或删除旧实例数据。 */
 export type DataLayout = {
@@ -15,7 +16,7 @@ export type DataLayout = {
   /** 网页监控本次保持 JSON 文件，不迁数据库。 */
   monitorsFile: string;
   mainDatabaseFile: string; newsDatabaseFile: string;
-  soulFile: string; userFile: string; authKeyFile: string;
+  soulFile: string; userFile: string; bootstrapFile: string; authKeyFile: string;
   androidUpdatesDir: string; browserProfileDir: string; browserDownloadsDir: string; skillsDir: string; tracesDir: string;
 };
 export const createDataLayout = (dataDir: string): DataLayout => {
@@ -40,6 +41,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     monitorsFile: join(stateDir, "monitors.json"),
     mainDatabaseFile: join(stateDir, "main.sqlite"), newsDatabaseFile: join(stateDir, "news.sqlite"),
     soulFile: join(assistant, "SOUL.md"), userFile: join(assistant, "USER.md"),
+    bootstrapFile: join(assistant, "BOOTSTRAP.md"),
     authKeyFile: join(runtime, "auth", "auth.key"),
     androidUpdatesDir: join(runtime, "android-updates"),
     browserProfileDir: join(runtime, "browser", "profile"),
@@ -80,8 +82,10 @@ export const ensureLayout = async (layout: DataLayout): Promise<void> => {
   }
 };
 
-/** 列表直接展示实际文件，首次初始化为空，已有内容保持原样。 */
+/** 列表直接展示实际文件，首次初始化为空，已有内容保持原样；全新工作区额外写入一次性 BOOTSTRAP.md。 */
 export const initializeWorkspaceDocuments = async (layout: DataLayout): Promise<void> => {
+  let freshSoul = false;
+  let freshUser = false;
   for (const file of [
     layout.assistantInstructionsFile,
     layout.soulFile,
@@ -89,7 +93,23 @@ export const initializeWorkspaceDocuments = async (layout: DataLayout): Promise<
     layout.newsInstructionsFile,
     layout.smsInstructionsFile,
   ]) {
-    try { await writeFile(file, "", { flag: "wx", mode: 0o600 }); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+    try {
+      await writeFile(file, "", { flag: "wx", mode: 0o600 });
+      if (file === layout.soulFile) freshSoul = true;
+      if (file === layout.userFile) freshUser = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+  if (freshSoul && freshUser) {
+    try {
+      await writeFile(
+        layout.bootstrapFile,
+        `${loadPrompt("assistant/bootstrap.md").trim()}\n`,
+        { flag: "wx", mode: 0o600 },
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
   }
 };

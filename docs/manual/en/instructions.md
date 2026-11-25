@@ -24,6 +24,8 @@ All persistent persona and instruction files live under the single instance work
 
 Every document follows **last successful save wins**. News and SMS background pipelines never load chat skills, `assistant/INSTRUCTIONS.md`, or global `memory.md`; the main chat collaborates with them explicitly via the unified `subagent` tool.
 
+On a brand-new workspace, the server also seeds a one-time `workspace/assistant/BOOTSTRAP.md` onboarding guide (injected into main chat only while both `SOUL.md` and `USER.md` are empty, guiding a short 1-2 turn conversation to establish your assistant's persona and your preferences). As soon as either `SOUL.md` or `USER.md` is saved with content—or if you delete `BOOTSTRAP.md`—it automatically retires and is never recreated on subsequent restarts.
+
 ## Splitting Files with Top-of-File Frontmatter {#frontmatter-include}
 
 When an instruction or profile document grows complex, you do not have to keep everything inside one file. All **five** managed workspace Markdown documents support standard YAML Frontmatter `include:` at the **very top of the file** to pull in other plain-text files inside `workspace/`.

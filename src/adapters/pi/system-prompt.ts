@@ -25,7 +25,7 @@ const section = (heading: string, text: string): string =>
   text ? `\n\n## ${heading}\n${text}` : "";
 
 export type SystemPromptOptions = {
-  layout: Pick<DataLayout, "soulFile" | "userFile" | "workspaceDir">;
+  layout: Pick<DataLayout, "soulFile" | "userFile" | "workspaceDir"> & Partial<Pick<DataLayout, "bootstrapFile">>;
   memory: Pick<MemoryService, "renderForPrompt">;
   /** 最终模型工具名单：已经包含会话技能与可用能力过滤。 */
   allowedToolNames: readonly string[];
@@ -79,9 +79,16 @@ export const buildSystemPrompt = async ({
     ...trailingToolSections.filter((entry) => has(...entry.tools)).map((entry) => loadPrompt(entry.promptPath)),
   );
 
+  const soul = (await readResolvedProfileFile(layout.soulFile, layout.workspaceDir)).trim();
+  const user = (await readResolvedProfileFile(layout.userFile, layout.workspaceDir)).trim();
+  const bootstrap = !soul && !user && layout.bootstrapFile
+    ? (await readResolvedProfileFile(layout.bootstrapFile, layout.workspaceDir)).trim()
+    : "";
+
   return capabilitySegments.join("\n") +
-    section("Your identity (SOUL)", (await readResolvedProfileFile(layout.soulFile, layout.workspaceDir)).trim()) +
-    section("The user (USER)", (await readResolvedProfileFile(layout.userFile, layout.workspaceDir)).trim()) +
+    section("First-run onboarding (BOOTSTRAP)", bootstrap) +
+    section("Your identity (SOUL)", soul) +
+    section("The user (USER)", user) +
     section("Assistant instructions", assistantInstructions ?? "") +
     (await memory.renderForPrompt({ includeMemory: has("memory_search"), recalledMemories }));
 };

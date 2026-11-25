@@ -118,7 +118,7 @@ chmod 600 .pi-muse/config.json
 ```text
 DATA_DIR/
   workspace/
-    assistant/                      USER.md、SOUL.md、INSTRUCTIONS.md
+    assistant/                      USER.md、SOUL.md、INSTRUCTIONS.md（全新实例另含一次性 BOOTSTRAP.md）
     subagents/news/INSTRUCTIONS.md  新闻推荐规则
     subagents/sms/INSTRUCTIONS.md   短信提醒规则
     files/                          普通文件

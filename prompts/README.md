@@ -17,6 +17,7 @@
 | 文件 | 所属 Agent / 模块 | 作用与关键机制 |
 | --- | --- | --- |
 | [assistant/base.md](assistant/base.md) | 主对话助手 | 基础人设骨架、工作区文件边界、能力与安全总约束 |
+| [assistant/bootstrap.md](assistant/bootstrap.md) | 主对话助手（全新实例首轮） | 全新工作区初始化为 `workspace/assistant/BOOTSTRAP.md` 的一次性破冰引导；一旦 `SOUL.md` 或 `USER.md` 有内容即自动退场 |
 | [assistant/subagents.md](assistant/subagents.md) | 主对话助手 | 开放聊天路由的专职 Subagent 清单、领域通知卡片隔离说明与路由规约 |
 | `assistant/tools/*.md` | 主对话各能力工具 | 随当轮实际可用工具动态拼装（`files` / `current-time` / `write` / `database` / `instructions` / `skills` / `activity` / `memory` / `schedule` / `monitor` / `goal` / `weather` / `web` / `browser`） |
 | [subagents/sms-chat.md](subagents/sms-chat.md) | 短信专职 Subagent（聊天态） | 负责主聊天路由过来的短信查询与 `subagents/sms/INSTRUCTIONS.md` 合并审批更新 |

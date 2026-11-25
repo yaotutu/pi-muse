@@ -120,7 +120,7 @@ Public session IDs and internal pi IDs are distinct. `main` is permanent, topic 
 ```text
 DATA_DIR/
   workspace/
-    assistant/                      USER.md, SOUL.md, INSTRUCTIONS.md
+    assistant/                      USER.md, SOUL.md, INSTRUCTIONS.md (fresh workspaces also seed one-time BOOTSTRAP.md)
     subagents/news/INSTRUCTIONS.md  News recommendation instructions
     subagents/sms/INSTRUCTIONS.md   SMS alert instructions
     files/                          Ordinary files

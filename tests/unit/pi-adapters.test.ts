@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createDataLayout, ensureLayout } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout, ensureLayout, initializeWorkspaceDocuments } from "../../src/adapters/storage/data-layout.js";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
 import { createIdentityRepository } from "../../src/adapters/storage/identity-repository.js";
 import { renderMemoryMarkdown } from "../../src/adapters/storage/memory-markdown.js";
@@ -314,6 +314,27 @@ test("system prompt reads profile files in order, omits blanks and refreshes mem
   assert.match(refreshed, /## Your identity \(SOUL\)\nnew soul/);
   assert.ok(!refreshed.includes("The user (USER)"));
   assert.ok(!refreshed.includes("gentle assistant"));
+});
+
+test("first-run BOOTSTRAP.md is seeded on fresh workspaces and retires once SOUL or USER is filled", async (t) => {
+  const { layout, memory } = await setup(t);
+  await initializeWorkspaceDocuments(layout);
+  const firstRun = await buildSystemPrompt({ layout, memory, allowedToolNames: ["write", "edit"] });
+  assert.match(firstRun, /## First-run onboarding \(BOOTSTRAP\)/);
+  assert.match(firstRun, /assistant\/SOUL\.md/);
+
+  // 写入 SOUL.md 后破冰引导自动退出，不再注入系统提示词。
+  await writeFile(layout.soulFile, "Concise and pragmatic assistant");
+  const afterSoul = await buildSystemPrompt({ layout, memory, allowedToolNames: ["write", "edit"] });
+  assert.doesNotMatch(afterSoul, /First-run onboarding \(BOOTSTRAP\)/);
+  assert.match(afterSoul, /## Your identity \(SOUL\)\nConcise and pragmatic assistant/);
+
+  // 删除 BOOTSTRAP.md 后再次初始化不会在已有工作区重新生成。
+  await writeFile(layout.soulFile, "");
+  await rm(layout.bootstrapFile);
+  await initializeWorkspaceDocuments(layout);
+  const afterDelete = await buildSystemPrompt({ layout, memory, allowedToolNames: ["write", "edit"] });
+  assert.doesNotMatch(afterDelete, /First-run onboarding \(BOOTSTRAP\)/);
 });
 
 test("resource loader isolates CLI resources and supplies only the explicit system prompt", async () => {
