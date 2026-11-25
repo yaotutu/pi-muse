@@ -1,6 +1,6 @@
 # Pi Muse Manual
 
-This manual introduces installation, connection, daily use, and security boundaries for the Pi Muse server and standalone mobile client. It is checked against the current repository source; current source does not automatically equal a released APK. For Android capabilities, use the [mobile client Releases](https://github.com/yaotutu/pi-muse-mobile/releases) and the corresponding release notes.
+This manual introduces installation, connection, daily use, and security boundaries for the Pi Muse server and clients. It is checked against the current repository source; current source does not automatically equal a released package. Check your client build's actual release notes for its supported capabilities.
 
 ## Where to Start {#where-to-start}
 

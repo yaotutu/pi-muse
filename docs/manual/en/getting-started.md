@@ -2,7 +2,7 @@
 
 This guide explains how to configure and start the Pi Muse server from scratch, connect the Android mobile client, send a message, and receive a reply. For the authoritative description of every configuration field, see [Configuration](configuration.md). For daily agents, attachments, workspace files, and approvals, see [Conversations and agents](conversations-and-agents.md) and [Attachments, files, and approvals](files-and-approvals.md).
 
-This manual was checked against the current repository source; source capabilities do not automatically equal those of a released APK in [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases). When using a release build, follow its actual UI and release notes.
+This manual was checked against the current repository source; source capabilities do not automatically equal those of a released package. When using a release build, follow its actual UI and release notes.
 
 ## Prerequisites {#prerequisites}
 
@@ -81,7 +81,7 @@ Restarting the service does not rerun expired one-off reminders, and failed jobs
 
 ## Connect the Mobile Client {#connect-mobile-client}
 
-1. Download and install the Android APK matching your device architecture from [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases). Check that release's notes first; do not assume every capability in current server source is already in the APK.
+1. Install the client package matching your device architecture (such as the Flutter Android APK). Check that build's release notes first; do not assume every capability in current server source is already in the client build.
    iOS users may download `app-release-unsigned.ipa` only when that asset is actually present in the selected release, then re-sign it using their own valid certificate and provisioning profile. An unsigned IPA cannot be installed directly. This is not App Store or TestFlight distribution and does not use the Android in-app updater.
 2. Confirm the phone can reach the server:
    - The phone may connect directly over HTTP to a LAN or remote server. A domain, certificate, or HTTPS reverse proxy is not required.

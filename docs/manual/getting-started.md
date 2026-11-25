@@ -2,7 +2,7 @@
 
 本页介绍从零配置并启动 Pi Muse 服务端，连接 Android 手机客户端，发送消息并收到回复。完整配置字段以[配置说明](configuration.md)为准；会话管理、附件、工作区文件和审批的日常操作分别见[对话与会话](conversations-and-agents.md)和[附件、文件与审批](files-and-approvals.md)。
 
-本手册按当前仓库源码核对编写；源码能力不自动等于 [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases) 中某个已发布 APK 的能力。使用发布版时，以该版本实际界面和版本说明为准。
+本手册按当前仓库源码核对编写；源码能力不自动等于某个已发布安装包的能力。使用发布版时，以该版本实际界面和版本说明为准。
 
 ## 前提 {#prerequisites}
 
@@ -81,7 +81,7 @@ Pi Muse 服务端还承载定时提醒扫描、Dream 记忆整理和网页监控
 
 ## 连接手机客户端 {#connect-mobile-client}
 
-1. 从 [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases) 下载并安装与你设备架构匹配的 Android APK。安装前核对该 Release 说明；不要把当前服务端源码能力当成 APK 已有能力。
+1. 安装与你设备架构匹配的客户端安装包（如 Flutter Android APK）。安装前核对对应版本说明；不要把当前服务端源码能力当成客户端已有能力。
    iOS 用户只有在对应 Release 实际提供 `app-release-unsigned.ipa` 时，才可下载后使用自己的有效证书和描述文件重新签名安装。未签名 IPA 不能直接安装；它不是 App Store 或 TestFlight 分发，也不走 Android 应用内更新。
 2. 确认手机能访问服务端：
    - 手机可直接通过 HTTP 连接局域网或远程服务端；域名、证书和 HTTPS 反向代理都不是必需项。

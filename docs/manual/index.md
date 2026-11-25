@@ -1,6 +1,6 @@
 # Pi Muse 手册
 
-本手册介绍 Pi Muse 服务端和独立移动客户端的安装、连接、日常使用与安全边界。内容按当前仓库源码核对；当前源码不自动等于某个已发布 APK，Android 实际能力以[移动客户端 Releases](https://github.com/yaotutu/pi-muse-mobile/releases)及对应版本说明为准。
+本手册介绍 Pi Muse 服务端和客户端的安装、连接、日常使用与安全边界。内容按当前仓库源码核对；当前源码不自动等于某个已发布安装包，客户端实际能力以对应版本说明为准。
 
 ## 从哪里开始 {#where-to-start}
 

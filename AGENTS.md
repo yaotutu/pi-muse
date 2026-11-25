@@ -50,7 +50,7 @@ pnpm test:live --config <protected-config-path> --allow-live
 - **依赖方向**：`features/` 持有业务规则与最小 ports；`adapters/` 实现 pi、存储、安全网络、浏览器与 AG-UI；`http/` 是薄路由/鉴权/契约/presenter。feature 不依赖 Hono、pi SDK 或具体文件系统 adapter，依赖测试在 `tests/unit/dependencies.test.ts`。新能力先确定权限、审批、取消和失败语义；开发 Agent 能用的工具不等于产品模型可以使用。
 - **执行与历史**：pi `createAgentSession` 负责 agent loop，`SessionManager`/JSONL 是正文、附件与工具事实权威。`adapters/pi/session-factory.ts` 装配持久化聊天会话；所有独立内存子会话（聊天 `subagent`、短信 `information-runner.ts`、新闻 `news-runner.ts`、Dream `dream-runner.ts`）统一由唯一通用内核 `adapters/pi/subagent-runner.ts`（默认零权限、硬拦截 `bash`/`subagent`）按配置组装执行；`execution.ts` 处理事件/取消/错误脱敏，不自造循环或另一份聊天历史。
 - **助手与会话**：`features/sessions` 管理永久 `main` 与专题会话，`features/conversation` 按公开 `sessionId` 协调运行；`piSessionId` 随重置变化。助手指令、技能开关、长期记忆与文件全局共享，聊天历史和运行按会话隔离。定时任务和监控按会话归属，删除时显式删除或转到 `main`。subagent 只是继承父轮实际工具上限的内存执行工具，无独立业务身份、历史或目录。
-- **业务事实**：反馈、信息处理、新闻源、习惯归纳、任务等由各自 storage repository 管理；这些不是另一份聊天历史，不为它们复制正文历史或隐式改变聊天 revision。新闻与短信以 `features/domain-agents` 注册为独立后台领域子 Agent，各自维护独立 `workspace/domains/<id>/INSTRUCTIONS.md`（支持顶部 Frontmatter `include:`）、通用习惯引擎 `habits`（长期已归纳习惯与未消化反馈热缓冲）与仓库 `prompts/` 系统提示词，后台绝不注入聊天技能；主会话通过 `domain_agent` 工具协同 `get_instructions` / `update_instructions` / `query`（写操作经工作区文件版本绑定审批）。重要短信通知只向默认会话追加通知，携带显式 `domainId`，默认不进入主聊天上下文，仅在用户引用时进入；新闻引用由用户带入主聊天草稿。Dream 为全局整理状态，提示词统一托管在 `prompts/dream/`。
+- **业务事实**：反馈、信息处理、新闻源、习惯归纳、任务等由各自 storage repository 管理；这些不是另一份聊天历史，不为它们复制正文历史或隐式改变聊天 revision。新闻、短信、浏览器、习惯归纳与 Dream 统一在 `features/subagents` + `adapters/pi/subagents/catalog.ts` 注册为静态自包含的无状态专职 Subagent（短信与新闻各自维护独立 `workspace/subagents/<id>/INSTRUCTIONS.md`、通用习惯引擎 `habits` 与仓库 `prompts/` 系统提示词，后台绝不注入聊天技能；通过 `GET /api/subagents` 与 `GET /api/subagents/:id` 对外只读暴露配置）；主会话通过统一 `subagent` 工具路由任务（修改规则经工作区文件版本绑定审批）。重要短信通知只向默认会话追加通知，携带显式 `subagentId`，默认不进入主聊天上下文，仅在用户以 `【子代理引用:<subagentId>】...【引用结束】` 显式引用时进入；新闻引用由用户带入主聊天草稿。Dream 为全局整理状态，提示词统一托管在 `prompts/dream/`。
 - **文件与审批**：文件路径统一由 `adapters/storage/data-layout.ts` 声明。模型 write/edit 走版本绑定审批，手动 HTTP 文件管理走完整预览确认；共享提交队列，但不能互相绕过授权。
 - **生命周期**：关闭先停止执行源、拒绝新工作，再取消运行并等待副作用和资源清理。取消不回滚已有副作用，不恢复未完成模型轮，不自动重试业务写入。
 - **客户端协议**：`src/http/contracts/` 是 HTTP/SSE 的唯一来源，`openapi.ts` 生成 `/openapi.json`，Scalar `/docs` 展示。聊天 AG-UI 流与 `/api/events` 通知流独立。以当前源码和契约为实现依据；历史 OpenMuse/nanobot 资料仅说明设计来源，不是每次开发的兼容目标。
@@ -63,7 +63,7 @@ pnpm test:live --config <protected-config-path> --allow-live
 - 文件工具仅可达唯一 `workspace/` 根及启用技能的精确只读资源；所有会话与子任务共用文件根，拒绝越界和符号链接绕过。单进程单 DATA_DIR；仅缺失文件可以初始化，损坏文档报错，不静默置空或删除。
 - 本工作区是可丢弃的开发环境；本项目实例、数据库、会话及其他开发业务数据可直接用于测试，允许按任务写入、污染、重置、清空或迁移，无需额外确认。不强制隔离目录、独立端口或专用测试实例。生产/非本项目资源、凭据泄露和正式签名/发布不在这项授权内。
 - 本项目服务可随开发需要启动、停止、构建和重启，无需逐次请示，也不需要保护开发服务不中断；直接用当前实例运行最新代码，默认收尾保持可用。操作前只需核对进程归属并精确限定本项目，启动后核对 health/版本/接口。已有脚本的临时数据实现不构成人工验收的强制隔离要求。已验收模块可本地 commit，仅纳入本任务文件，不覆盖他人改动。不自动 push、发布、bump、修改 CI/全局配置或 amend。
-- 积极委派已获用户授权（2026-11-05），当前支持 Antigravity 与 Claude Code 双工具协同，日常主要使用 Antigravity：主会话负责需求理解、派单、diff 审查与验收，调查实现优先交给原生子 Agent（Antigravity `invoke_subagent` 或 Claude Code sub agent）；需要第三方模型时经 Magpie 本地网关（`http://127.0.0.1:3425`），当前可用性以[模型可用性快照](docs/model-availability.md)为准（`model-audit` 技能巡检维护），用前必须实测。执行者不 commit/push，产物经审查后由主会话提交。路由表与派单纪律见[协作指南](docs/agent-workflow-guide.md)。开发委派与产品内 `subagent` 工具是两套机制。
+- 积极委派已获用户授权（2026-11-05），当前支持 Antigravity 与 Claude Code 双工具协同，日常主要使用 Antigravity：主会话负责需求理解、派单、diff 审查与验收，调查实现优先交给原生子 Agent（Antigravity `invoke_subagent` 或 Claude Code sub agent）；不再为子任务指定第三方模型或维护多模型路由表。执行者不 commit/push，产物经审查后由主会话提交。派单纪律见[协作指南](docs/agent-workflow-guide.md)。开发委派与产品内 `subagent` 工具是两套机制。
 
 ## 按任务必读
 
