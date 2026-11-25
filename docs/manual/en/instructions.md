@@ -16,13 +16,13 @@ All persistent persona and instruction files live under the single instance work
 
 | File path (relative to `workspace/`) | Scope | Main edit entry points | Timing and limits |
 | --- | --- | --- | --- |
-| `assistant/INSTRUCTIONS.md` | Shared assistant rules across all chat sessions | Settings → Assistant instructions; Workspace files; chat `instructions` tool (approval required) | Next chat turn; 20,000 chars per file; empty string clears |
+| `assistant/AGENTS.md` | Shared assistant rules across all chat sessions | Settings → Assistant instructions; Workspace files; chat `instructions` tool (approval required) | Next chat turn; 20,000 chars per file; empty string clears |
 | `assistant/SOUL.md` | Assistant persona, tone, and working style | Settings → Identity & Profile; Workspace files; model `write` / `edit` (approval required) | Next chat turn; 20,000 chars per file; empty string clears |
 | `assistant/USER.md` | Your background, naming preference, and context | Settings → Identity & Profile; Workspace files; model `write` / `edit` (approval required) | Next chat turn; 20,000 chars per file; empty string clears |
-| `subagents/sms/INSTRUCTIONS.md` | SMS/information filtering and notification rules | Settings → SMS preferences; Workspace files; chat `subagent` tool (approval required) | Next SMS analysis batch; 20,000 chars per file |
-| `subagents/news/INSTRUCTIONS.md` | News RSS recommendation and filter rules | Settings → News preferences; Workspace files; chat `subagent` tool (approval required) | Next news screening batch; 20,000 chars per file |
+| `subagents/sms/AGENTS.md` | SMS/information filtering and notification rules | Settings → SMS preferences; Workspace files; chat `subagent` tool (approval required) | Next SMS analysis batch; 20,000 chars per file |
+| `subagents/news/AGENTS.md` | News RSS recommendation and filter rules | Settings → News preferences; Workspace files; chat `subagent` tool (approval required) | Next news screening batch; 20,000 chars per file |
 
-Every document follows **last successful save wins**. News and SMS background pipelines never load chat skills, `assistant/INSTRUCTIONS.md`, or global `memory.md`; the main chat collaborates with them explicitly via the unified `subagent` tool.
+Every document follows **last successful save wins**. News and SMS background pipelines never load chat skills, `assistant/AGENTS.md`, or global `memory.md`; the main chat collaborates with them explicitly via the unified `subagent` tool.
 
 On a brand-new workspace, the server also seeds a one-time `workspace/assistant/BOOTSTRAP.md` onboarding guide (injected into main chat only while both `SOUL.md` and `USER.md` are empty, guiding a short 1-2 turn conversation to establish your assistant's persona and your preferences). As soon as either `SOUL.md` or `USER.md` is saved with content—or if you delete `BOOTSTRAP.md`—it automatically retires and is never recreated on subsequent restarts.
 
@@ -69,7 +69,7 @@ include: [./bank.md, ./delivery-rules.md]
 - **Reads and saves always preserve raw text and return diagnostics**: HTTP endpoints (`/api/assistant/instructions`, `/api/profile`, `/api/information/preferences`, `/api/news/preferences`), the Workspace Files editor, and assistant read tools always return and save the raw Markdown including top-of-file `include:` frontmatter without writing expanded text back over your source file. In addition, `/api/assistant/instructions`, `/api/information/preferences`, and `/api/news/preferences` expose an `includes` diagnostics array reporting each resolved target's status (`loaded`, `missing`, `invalid`, `cycle`, `depth_exceeded`, `truncated`, `empty`) and workspace path.
 - **Expanded dynamically before model calls**: each chat turn, SMS run, news screening batch, and Dream consolidation expands includes dynamically. Editing a child file takes effect on the next model call without re-saving the parent file.
 - **Missing or invalid targets never block execution**: missing files, out-of-workspace paths, symlinks, and non-text targets are recorded in `includes` diagnostics and skipped during prompt assembly while keeping all valid instructions active.
-- **Dream compatibility**: Dream reads expanded documents when deduplicating proposals, and appends approved pending suggestions to the end of raw `USER.md`, `SOUL.md`, or `INSTRUCTIONS.md` files without flattening top-of-file frontmatter.
+- **Dream compatibility**: Dream reads expanded documents when deduplicating proposals, and appends approved pending suggestions to the end of raw `USER.md`, `SOUL.md`, or `AGENTS.md` files without flattening top-of-file frontmatter.
 
 ## SMS and News Domain Rules {#sms-and-news-domains}
 
@@ -77,7 +77,7 @@ include: [./bank.md, ./delivery-rules.md]
 
 SMS processing is disabled by default. Its system prompt uses a **Default-Silent** baseline: uncertain messages without an explicit directive default to `silent` (promotions, carrier marketing, routine completed login OTPs, ordinary mid-transit shipping updates), while actionable alerts default to `notify` (pickup codes/delivery exceptions, unusual financial alerts, account security warnings, itinerary changes). Decisions follow strict precedence from highest to lowest:
 
-1. **Your explicit instructions**: `workspace/subagents/sms/INSTRUCTIONS.md` (highest authority).
+1. **Your explicit instructions**: `workspace/subagents/sms/AGENTS.md` (highest authority).
 2. **Recent unconsolidated feedback**: likes, dislikes, saves, and comments you left on recent SMS notifications in `main` chat (held in a hot buffer until consolidated into long-term habits).
 3. **Consolidated user habits**: durable rules distilled incrementally by the cursor-driven habit engine (or added/edited manually by you) in `main.sqlite`, preserving early preferences even beyond the buffer window.
 4. **Default-Silent baseline**: conservative fallback filter when higher tiers give no directive.
@@ -86,7 +86,7 @@ The SMS pipeline keeps two isolated channels sharing these preferences: daily re
 
 ### News Independent Screening and Feedback {#news-screening}
 
-News collection uses `news.sqlite` independently and screens articles using `subagents/news/INSTRUCTIONS.md`, consolidated habits, and unconsolidated per-article likes, dislikes, saves, and comments. Recommendations and reasons appear only inside News and never post chat notifications; see [News reading](news.md).
+News collection uses `news.sqlite` independently and screens articles using `subagents/news/AGENTS.md`, consolidated habits, and unconsolidated per-article likes, dislikes, saves, and comments. Recommendations and reasons appear only inside News and never post chat notifications; see [News reading](news.md).
 
 ## Editing Methods and Security Boundaries {#editing-and-boundaries}
 

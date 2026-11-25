@@ -248,5 +248,5 @@ test("agent instructions share an atomic writer and a missing tool argument cann
   const noApproval = await tool.execute("clear", { action: "set", content: "" }, undefined, undefined, {} as never);
   assert.equal(noApproval.isError, true);
   assert.equal(await readAssistantInstructions(file), "second");
-  assert.deepEqual(await readdir(dirname(file)), ["INSTRUCTIONS.md"]);
+  assert.deepEqual(await readdir(dirname(file)), ["AGENTS.md"]);
 });

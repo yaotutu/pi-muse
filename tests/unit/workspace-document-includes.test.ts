@@ -24,7 +24,7 @@ const makeWorkspace = async (t: test.TestContext) => {
 
 test("non-include documents, missing roots, middle rules and other frontmatter keys stay verbatim", async (t) => {
   const { workspace } = await makeWorkspace(t);
-  const target = join(workspace, "assistant", "INSTRUCTIONS.md");
+  const target = join(workspace, "assistant", "AGENTS.md");
 
   assert.equal(await readResolvedProfileFile(target, workspace), "");
 
@@ -47,7 +47,7 @@ test("non-include documents, missing roots, middle rules and other frontmatter k
 
 test("frontmatter include resolves relative sibling, UTF-8, single string, inline array and CRLF paths", async (t) => {
   const { workspace } = await makeWorkspace(t);
-  const smsMain = join(workspace, "subagents", "sms", "INSTRUCTIONS.md");
+  const smsMain = join(workspace, "subagents", "sms", "AGENTS.md");
   await writeFile(join(workspace, "subagents", "sms", "bank.md"), "Notify bank fraud alerts.", "utf8");
   await writeFile(join(workspace, "subagents", "sms", "快递规则.md"), "Notify pickup codes only.", "utf8");
   await writeFile(join(workspace, "subagents", "sms", "empty.md"), "   \n\t  ", "utf8");
@@ -111,7 +111,7 @@ test("nested includes respect max depth 5 and stop expanding beyond depth 5", as
   await writeFile(join(dir, "d3.md"), "---\ninclude: [./d4.md]\n---\nDEPTH-3-BODY", "utf8");
   await writeFile(join(dir, "d2.md"), "---\ninclude: [./d3.md]\n---\nDEPTH-2-BODY", "utf8");
   await writeFile(join(dir, "d1.md"), "---\ninclude: [./d2.md]\n---\nDEPTH-1-BODY", "utf8");
-  const root = join(dir, "INSTRUCTIONS.md");
+  const root = join(dir, "AGENTS.md");
   await writeFile(root, "---\ninclude: [./d1.md]\n---\nDEPTH-0-ROOT", "utf8");
 
   const resolved = await readResolvedProfileFile(root, workspace);
@@ -124,12 +124,12 @@ test("nested includes respect max depth 5 and stop expanding beyond depth 5", as
 test("cycles and diamond includes resolve safely without duplication or recursion errors", async (t) => {
   const { workspace } = await makeWorkspace(t);
   const dir = join(workspace, "assistant");
-  const root = join(dir, "INSTRUCTIONS.md");
+  const root = join(dir, "AGENTS.md");
 
   await writeFile(join(dir, "shared.md"), "DIAMOND-SHARED-ONCE", "utf8");
-  await writeFile(join(dir, "b.md"), "---\ninclude: [./INSTRUCTIONS.md, ./shared.md]\n---\nFROM-B", "utf8");
+  await writeFile(join(dir, "b.md"), "---\ninclude: [./AGENTS.md, ./shared.md]\n---\nFROM-B", "utf8");
   await writeFile(join(dir, "c.md"), "---\ninclude: [./b.md, ./shared.md]\n---\nFROM-C", "utf8");
-  await writeFile(root, "---\ninclude: [./INSTRUCTIONS.md, ./b.md, ./c.md]\n---\nROOT-CYCLE", "utf8");
+  await writeFile(root, "---\ninclude: [./AGENTS.md, ./b.md, ./c.md]\n---\nROOT-CYCLE", "utf8");
 
   const resolved = await readResolvedProfileFile(root, workspace);
   assert.ok(resolved.includes("ROOT-CYCLE"));
@@ -141,7 +141,7 @@ test("cycles and diamond includes resolve safely without duplication or recursio
 test("missing, escaping, absolute, symlinked, directory and non-text includes are silently skipped", async (t) => {
   const { root: dataRoot, workspace } = await makeWorkspace(t);
   const smsDir = join(workspace, "subagents", "sms");
-  const smsMain = join(smsDir, "INSTRUCTIONS.md");
+  const smsMain = join(smsDir, "AGENTS.md");
   await writeFile(join(dataRoot, "outside-secret.txt"), "TOP-SECRET-OUTSIDE", "utf8");
   await writeFile(join(smsDir, "valid.md"), "VALID-INCLUDED-RULE", "utf8");
   await mkdir(join(smsDir, "subdir"));
@@ -184,7 +184,7 @@ test("missing, escaping, absolute, symlinked, directory and non-text includes ar
 test("resolved content strictly enforces total character cap with truncation notice", async (t) => {
   const { workspace } = await makeWorkspace(t);
   const dir = join(workspace, "assistant");
-  const root = join(dir, "INSTRUCTIONS.md");
+  const root = join(dir, "AGENTS.md");
 
   await writeFile(join(dir, "first.md"), "A".repeat(120), "utf8");
   await writeFile(join(dir, "second.md"), "B".repeat(500), "utf8");

@@ -319,9 +319,9 @@ test("workspace managed Markdown and settings endpoints read and replace the sam
   const entries = [
     { path: "assistant/USER.md", settings: "/api/profile", key: "user" },
     { path: "assistant/SOUL.md", settings: "/api/profile", key: "soul" },
-    { path: "assistant/INSTRUCTIONS.md", settings: "/api/assistant/instructions", key: "instructions" },
-    { path: "subagents/news/INSTRUCTIONS.md", settings: "/api/news/preferences", key: "instructions" },
-    { path: "subagents/sms/INSTRUCTIONS.md", settings: "/api/information/preferences", key: "instructions" },
+    { path: "assistant/AGENTS.md", settings: "/api/assistant/instructions", key: "instructions" },
+    { path: "subagents/news/AGENTS.md", settings: "/api/news/preferences", key: "instructions" },
+    { path: "subagents/sms/AGENTS.md", settings: "/api/information/preferences", key: "instructions" },
   ];
   for (const { path, settings, key } of entries) {
     const file = `/api/workspace/files/content?path=${path}`;
@@ -361,7 +361,7 @@ test("assistant instructions model update is approved and detects a newer settin
   const pending = tool.execute("instructions-edit", { action: "set", content: "model" },
     undefined, undefined, {} as never);
   const approval = await waitUntil(async () => (await service.actions.snapshotPending())[0], "instructions approval");
-  assert.equal((approval.payload as Record<string, string>).path, "assistant/INSTRUCTIONS.md");
+  assert.equal((approval.payload as Record<string, string>).path, "assistant/AGENTS.md");
   const settings = "/api/assistant/instructions";
   assert.equal((await request(service, settings, {
     headers, method: "PUT", body: jsonBody({ instructions: "newer user edit" }),

@@ -83,7 +83,7 @@ export const createHabitConsolidationRunner =
     const systemPrompt = [
       loadPrompt("habits/consolidate.md"),
       `## Domain\n${input.domain} (${input.domainName})\n${input.domainSummary}`,
-      `## User Instructions (INSTRUCTIONS.md — highest authority, do not duplicate)\n${input.instructions.trim() || "(none)"}`,
+      `## User Instructions (AGENTS.md — highest authority, do not duplicate)\n${input.instructions.trim() || "(none)"}`,
       `## Current Consolidated Habits (${input.existingHabits.length}/${MAX_HABITS_PER_SUBAGENT})\n${existingList}`,
     ].join("\n\n");
 

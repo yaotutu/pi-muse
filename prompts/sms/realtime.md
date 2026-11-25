@@ -7,7 +7,7 @@ Decision baseline — Default-Silent Principle:
 - Usually `notify` by default: package ready for pickup with pickup codes/lockers, urgent delivery exceptions, large/unusual financial transactions, upcoming credit-card/bill due alerts, account security or unfamiliar-login warnings, travel/itinerary/appointment changes, important direct human messages, and anything matching explicit user instructions or positive feedback.
 
 Decision precedence (highest to lowest):
-1. Explicit User Instructions (`workspace/subagents/sms/INSTRUCTIONS.md`) — highest authority.
+1. Explicit User Instructions (`workspace/subagents/sms/AGENTS.md`) — highest authority.
 2. Recent Unconsolidated Feedback (`likes`, `dislikes`, `saved` flags, and user comments not yet consolidated into long-term habits) — immediate behavioral correction.
 3. Consolidated User Habits (`[hab_...]` rules distilled over time from user feedback) — accumulated long-term patterns.
 4. Default-Silent Baseline — conservative filter when higher tiers give no directive.

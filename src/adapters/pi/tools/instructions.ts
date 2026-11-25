@@ -6,7 +6,7 @@ import { managedWorkspaceTexts } from "../../workspace/managed-text.js";
 import { readAssistantInstructions } from "../../storage/assistant-instructions.js";
 
 /**
- * 助手指令工具：按用户明确请求读取或更新全局助手指令（INSTRUCTIONS.md）。
+ * 助手指令工具：按用户明确请求读取或更新全局助手指令（AGENTS.md）。
  * 修改后在下一轮对话开始时自动注入 System Prompt 生效。
  */
 export const instructionsTool = (

@@ -54,7 +54,7 @@
 | 数据 | 形式 | 说明 |
 | --- | --- | --- |
 | `workspace/assistant/{SOUL,USER}.md` | Markdown | 全局助手人设与用户资料 |
-| `workspace/assistant/INSTRUCTIONS.md`、`workspace/domains/{sms,news}/INSTRUCTIONS.md` | Markdown | 主助手与各领域 Agent 的用户指令 |
+| `workspace/assistant/AGENTS.md`、`workspace/domains/{sms,news}/AGENTS.md` | Markdown | 主助手与各领域 Agent 的用户指令 |
 | `prompts/**`（随仓库发布） | Markdown | 统一系统提示词模板（含 Dream、短信、新闻、主助手与工具说明） |
 | `state/assistant/memory.md` | Markdown | 长期记忆条目，带稳定 id 供按 id 修改/删除 |
 | `state/assistant/identity.json` | JSON | 身份设置，属于配置 |

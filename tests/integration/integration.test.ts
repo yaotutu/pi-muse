@@ -1514,7 +1514,7 @@ test("assistant instructions: conversation can update shared instructions via in
   const pendingRun = h.events(run1);
   const action = await waitForTest(async () => (await h.service().actions.snapshotPending())[0], "assistant instructions file approval");
   assert.equal(action.kind, "file_write");
-  assert.equal(action.payload.path, "assistant/INSTRUCTIONS.md");
+  assert.equal(action.payload.path, "assistant/AGENTS.md");
   assert.equal(action.payload.content, "RULE-FROM-CHAT: Always be polite.");
   assert.equal(action.sessionId, topic0.id);
   const before = await (await h.request("/api/assistant/instructions")).json();
@@ -1627,7 +1627,7 @@ test("subagent: write approval is owned by the parent run and Stop cancels child
   assert.equal(settled.status, "cancelled");
   assert.equal(settled.revision, 2);
   assert.equal(settled.decidedAt, null);
-  assert.equal(await readFile(join(h.dataDir, "workspace", "subagents", "sms", "INSTRUCTIONS.md"), "utf8"), "");
+  assert.equal(await readFile(join(h.dataDir, "workspace", "subagents", "sms", "AGENTS.md"), "utf8"), "");
   assert.equal((await h.service().conversationHub.forSession("main")).isRunning(), false);
 });
 

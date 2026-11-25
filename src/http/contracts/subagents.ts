@@ -51,7 +51,7 @@ export const subagentEditabilitySchema = z.strictObject({
 });
 
 export const subagentInstructionsSnapshotSchema = z.strictObject({
-  path: z.string().min(1).describe("关联用户指令在工作区内的相对路径（如 subagents/sms/INSTRUCTIONS.md）"),
+  path: z.string().min(1).describe("关联用户指令在工作区内的相对路径（如 subagents/sms/AGENTS.md）"),
   instructions: z.string().describe("用户指令原文（保留顶部 YAML Frontmatter include: 引用）"),
   includes: z.array(workspaceIncludeDiagnosticSchema).optional().describe("顶部 YAML Frontmatter include: 引用展开诊断"),
   habits: z.array(habitItemSchema).describe("当前关联领域已归纳及手动维护的行为习惯"),

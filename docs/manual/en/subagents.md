@@ -6,8 +6,8 @@ Pi Muse has one main assistant for everyday conversation, backed by a set of **s
 
 | Name | ID | Triggers | Responsibility |
 | --- | --- | --- | --- |
-| **SMS Assistant** | `sms` | Chat routing + Background | Screens incoming SMS (default-silent, notifying only for pickup codes, bills, travel, or security alerts), generates archive briefings, and handles SMS queries and `subagents/sms/INSTRUCTIONS.md` updates from chat |
-| **News Assistant** | `news` | Chat routing + Background | Screens RSS articles in the background, and handles news source/article queries and `subagents/news/INSTRUCTIONS.md` preference updates from chat |
+| **SMS Assistant** | `sms` | Chat routing + Background | Screens incoming SMS (default-silent, notifying only for pickup codes, bills, travel, or security alerts), generates archive briefings, and handles SMS queries and `subagents/sms/AGENTS.md` updates from chat |
+| **News Assistant** | `news` | Chat routing + Background | Screens RSS articles in the background, and handles news source/article queries and `subagents/news/AGENTS.md` preference updates from chat |
 | **Browser Assistant** | `browser` | Chat routing | Operates the shared real GUI Chrome in an isolated context for multi-step browsing and extraction, requesting manual handoff at `/browser` on login or CAPTCHA gates |
 | **Habits Consolidator** | `habits` | Background only | Periodically distills long-term user habits from likes, dislikes, bookmarks, and comments on SMS and News |
 | **Dream Consolidator** | `dream` | Background only | Periodically reviews incremental main-chat messages and proposes long-term memory and profile updates for review |
@@ -29,6 +29,6 @@ Each feature decides where its output belongs:
 The server exposes all registered subagents read-only via `GET /api/subagents` and `GET /api/subagents/:id`, allowing clients to display:
 - Identity, trigger modes (`chat` / `background`), enabled status, and self-maintained `routingHint`
 - Full built-in system prompts, bound tools, skills, and MCP bindings
-- Linked user instruction files (`INSTRUCTIONS.md`), `include:` diagnostics, and consolidated habits
+- Linked user instruction files (`AGENTS.md`), `include:` diagnostics, and consolidated habits
 
-To edit explicit SMS or News rules, use Settings, Workspace Files (`subagents/sms/INSTRUCTIONS.md`, `subagents/news/INSTRUCTIONS.md`), or ask the assistant in chat to propose an approved update.
+To edit explicit SMS or News rules, use Settings, Workspace Files (`subagents/sms/AGENTS.md`, `subagents/news/AGENTS.md`), or ask the assistant in chat to propose an approved update.

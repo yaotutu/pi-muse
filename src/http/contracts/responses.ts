@@ -111,7 +111,7 @@ export const profileResponse = z.object({
   user: z.string().describe("USER.md 内容；空串表示未设置"),
 });
 export const instructionsResponse = z.object({
-  instructions: z.string().describe("各聊天会话共用的助手指令文本（INSTRUCTIONS.md）"),
+  instructions: z.string().describe("各聊天会话共用的助手指令文本（AGENTS.md）"),
   includes: z.array(workspaceIncludeDiagnosticSchema).describe("文档顶部 YAML frontmatter `include:` 引用展开诊断"),
 });
 export type InstructionsDto = z.infer<typeof instructionsResponse>;

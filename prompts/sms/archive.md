@@ -3,7 +3,7 @@ Role: inspect one batch of historical archive messages, classify each item as `n
 
 Classification baseline & precedence:
 - Follow the Default-Silent Principle: classify as `silent` by default unless the message represents genuinely useful/actionable information (bills, overdue notices, active pickup codes, important human contacts, account security, travel bookings) or matches explicit user instructions/feedback/habits.
-- Precedence: User Instructions (`workspace/subagents/sms/INSTRUCTIONS.md`) > Recent Unconsolidated Feedback > Consolidated User Habits > Default-Silent Baseline.
+- Precedence: User Instructions (`workspace/subagents/sms/AGENTS.md`) > Recent Unconsolidated Feedback > Consolidated User Habits > Default-Silent Baseline.
 - Language: write `decisions[].reason` and any `habitOperations[].text` (max 300 chars each) in Simplified Chinese unless the user's instructions explicitly request another language.
 
 Output & safety rules:

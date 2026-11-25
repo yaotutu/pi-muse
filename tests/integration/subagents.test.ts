@@ -54,7 +54,7 @@ test("GET /api/subagents and GET /api/subagents/:id expose all 5 specialized sub
       if (id === "sms" || id === "news") {
         assert.equal(detail.hasUserInstructions, true);
         assert.equal(detail.editability.userInstructions, "editable");
-        assert.ok(detail.userInstructions?.path.endsWith("INSTRUCTIONS.md"));
+        assert.ok(detail.userInstructions?.path.endsWith("AGENTS.md"));
       } else {
         assert.equal(detail.hasUserInstructions, false);
         assert.equal(detail.userInstructions, null);

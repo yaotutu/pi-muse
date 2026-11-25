@@ -244,7 +244,7 @@ export const saveInstructionsSchema = z.strictObject({ instructions: z.string().
 export const dreamTargetSchema = z
   .enum(["user", "soul", "instructions", "memory"])
   .describe(
-    "笔记归属目标：user=全局 USER.md，soul=全局 SOUL.md，instructions=全局助手指令 INSTRUCTIONS.md，memory=按需检索的长期记忆",
+    "笔记归属目标：user=全局 USER.md，soul=全局 SOUL.md，instructions=全局助手指令 AGENTS.md，memory=按需检索的长期记忆",
   );
 export const updateDreamSchema = z.strictObject({
   enabled: z.boolean().describe("是否启用 Dream 后台自动记忆整理"),

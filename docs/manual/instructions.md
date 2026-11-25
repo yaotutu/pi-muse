@@ -16,13 +16,13 @@ Pi Muse 使用统一的三层结构组装模型上下文：服务端内置系统
 
 | 文档路径（相对 `workspace/`） | 作用范围 | 主要编辑入口 | 生效时机与上限 |
 | --- | --- | --- | --- |
-| `assistant/INSTRUCTIONS.md` | 所有聊天会话共享的助手指令 | 设置 → 助手指令；工作区文件；聊天中的 `instructions` 工具（需审批） | 下一轮聊天起生效；单文件保存上限 20,000 字符；空串清空 |
+| `assistant/AGENTS.md` | 所有聊天会话共享的助手指令 | 设置 → 助手指令；工作区文件；聊天中的 `instructions` 工具（需审批） | 下一轮聊天起生效；单文件保存上限 20,000 字符；空串清空 |
 | `assistant/SOUL.md` | 助手性格、表达风格与人设定位 | 设置 → 身份与人设；工作区文件；模型 `write` / `edit`（需审批） | 下一轮聊天起全局生效；单文件保存上限 20,000 字符；空串清空 |
 | `assistant/USER.md` | 你的个人背景、称呼与长期偏好 | 设置 → 身份与人设；工作区文件；模型 `write` / `edit`（需审批） | 下一轮聊天起全局生效；单文件保存上限 20,000 字符；空串清空 |
-| `subagents/sms/INSTRUCTIONS.md` | 短信/信息后台过滤与通知判断规则 | 设置 → 短信偏好；工作区文件；聊天中的 `subagent`（需审批） | 下一次短信分析批次起生效；单文件保存上限 20,000 字符 |
-| `subagents/news/INSTRUCTIONS.md` | 新闻 RSS 推荐与屏蔽规则 | 设置 → 新闻偏好；工作区文件；聊天中的 `subagent`（需审批） | 下一次新闻筛选批次起生效；单文件保存上限 20,000 字符 |
+| `subagents/sms/AGENTS.md` | 短信/信息后台过滤与通知判断规则 | 设置 → 短信偏好；工作区文件；聊天中的 `subagent`（需审批） | 下一次短信分析批次起生效；单文件保存上限 20,000 字符 |
+| `subagents/news/AGENTS.md` | 新闻 RSS 推荐与屏蔽规则 | 设置 → 新闻偏好；工作区文件；聊天中的 `subagent`（需审批） | 下一次新闻筛选批次起生效；单文件保存上限 20,000 字符 |
 
-这五份文件均采用**最后一次成功保存生效**。新闻与短信后台不会读取聊天技能、`assistant/INSTRUCTIONS.md` 或全局 `memory.md`；主对话也通过统一的 `subagent` 工具按需协同读写对应子代理指令。
+这五份文件均采用**最后一次成功保存生效**。新闻与短信后台不会读取聊天技能、`assistant/AGENTS.md` 或全局 `memory.md`；主对话也通过统一的 `subagent` 工具按需协同读写对应子代理指令。
 
 全新实例首次初始化工作区时，还会额外生成一份一次性的 `workspace/assistant/BOOTSTRAP.md` 破冰引导（仅在 `SOUL.md` 与 `USER.md` 均为空时注入主聊天，引导你用 1～2 轮对话自然设定助手风格与个人称呼）。一旦你在聊天中审批写入或通过设置页保存了 `SOUL.md` / `USER.md`（或手动删除 `BOOTSTRAP.md`），该引导自动退场，之后重启也不会再次生成。
 
@@ -69,7 +69,7 @@ include: [./bank.md, ./快递规则.md]
 - **读写始终保持原文并附带诊断**：HTTP 接口（`/api/assistant/instructions`、`/api/profile`、`/api/information/preferences`、`/api/news/preferences`）、工作区文件编辑器以及助手读取工具均返回并保存含顶部 `include:` 的原始 Markdown，绝不会把展开内容拍平写回主文件。其中 `/api/assistant/instructions`、`/api/information/preferences` 与 `/api/news/preferences` 会额外返回 `includes` 诊断数组，逐项说明每个引用的状态（`loaded`、`missing`、`invalid`、`cycle`、`depth_exceeded`、`truncated`、`empty`）及工作区相对路径。
 - **注入模型前实时展开**：每次聊天轮、短信判定、新闻筛选及 Dream 查重都会重新读取并展开所有引用文件；修改任意被引入的子文件后，从下一轮模型调用起立即生效，不需要重新保存主文件。
 - **缺失或非法引用静默跳过**：被引用的文件尚未创建、已删除、越界或不是纯文本时，服务端仅记入 `includes` 诊断状态并在组装提示词时跳过该条目、保留其余有效规则，不会阻止保存或中断执行。
-- **与 Dream 协作**：Dream 整理记忆时会读取展开后的完整文档用于查重对比；你在确认待决建议并应用到 `USER.md`、`SOUL.md` 或 `INSTRUCTIONS.md` 时，写回过程基于原始文本在末尾去重追加，不会破坏文件顶部的 `include:` 块。
+- **与 Dream 协作**：Dream 整理记忆时会读取展开后的完整文档用于查重对比；你在确认待决建议并应用到 `USER.md`、`SOUL.md` 或 `AGENTS.md` 时，写回过程基于原始文本在末尾去重追加，不会破坏文件顶部的 `include:` 块。
 
 ## 短信与新闻领域规则 {#sms-and-news-domains}
 
@@ -77,7 +77,7 @@ include: [./bank.md, ./快递规则.md]
 
 短信后台默认关闭。系统提示词采用**默认静默（Default-Silent）**基线——拿不准且无明确指令时默认判为 `silent`（如促销广告、运营商营销、常规已完成登录验证码、无须操作的普通物流中转），仅在确认值得打扰时发出提醒（如取件码/驿站/配送异常、大额或异常账单、账号安全告警、行程变更等）。模型判定按以下顺序生效：
 
-1. **你的明确指令**：`workspace/subagents/sms/INSTRUCTIONS.md`（最高权威）。
+1. **你的明确指令**：`workspace/subagents/sms/AGENTS.md`（最高权威）。
 2. **近期未消化反馈**：你在主聊天中对近期短信通知留下的喜欢、不喜欢、收藏与评论纠偏（作为热缓冲实时传入，直到下一次习惯归纳完成）。
 3. **已归纳行为习惯**：通用习惯引擎按消费游标每 2 小时或每累积 5 条去重反馈后沉淀（及你手动编辑）的长期行为规则，保存在 `main.sqlite`，不会丢失早期偏好。
 4. **默认静默基线**：前三层均未明确覆盖时的保守过滤兜底。
@@ -86,7 +86,7 @@ include: [./bank.md, ./快递规则.md]
 
 ### 新闻独立筛选与反馈 {#news-screening}
 
-新闻阅读使用独立的 `news.sqlite`，按 `subagents/news/INSTRUCTIONS.md`、通用习惯引擎维护的行为习惯，以及尚未归纳的逐篇喜欢/不喜欢/收藏/评论反馈完成筛选。推荐结果与推荐理由只保留在新闻视图中，不会向主聊天推送通知；详细操作见[新闻阅读](news.md)。
+新闻阅读使用独立的 `news.sqlite`，按 `subagents/news/AGENTS.md`、通用习惯引擎维护的行为习惯，以及尚未归纳的逐篇喜欢/不喜欢/收藏/评论反馈完成筛选。推荐结果与推荐理由只保留在新闻视图中，不会向主聊天推送通知；详细操作见[新闻阅读](news.md)。
 
 ## 编辑方式与安全边界 {#editing-and-boundaries}
 

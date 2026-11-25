@@ -128,7 +128,7 @@ const buildSmsSystemPrompt = (
   habits: readonly HabitItem[],
 ): string => [
   loadPrompt(promptPath),
-  `## User Instructions (workspace/subagents/sms/INSTRUCTIONS.md)\n${instructions.trim() || "(none)"}`,
+  `## User Instructions (workspace/subagents/sms/AGENTS.md)\n${instructions.trim() || "(none)"}`,
   `## Consolidated User Habits\n${formatHabitsForPrompt(habits)}`,
 ].join("\n\n");
 

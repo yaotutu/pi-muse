@@ -31,10 +31,10 @@ export const createDataLayout = (dataDir: string): DataLayout => {
   return {
     root, workspaceDir, sessionsDir, stateDir, profileDir,
     companionsDir: join(assets, "companions"),
-    assistantInstructionsFile: join(assistant, "INSTRUCTIONS.md"),
+    assistantInstructionsFile: join(assistant, "AGENTS.md"),
     assistantSkillOverridesFile: join(profileDir, "skill-overrides.json"),
-    newsInstructionsFile: join(workspaceDir, "subagents", "news", "INSTRUCTIONS.md"),
-    smsInstructionsFile: join(workspaceDir, "subagents", "sms", "INSTRUCTIONS.md"),
+    newsInstructionsFile: join(workspaceDir, "subagents", "news", "AGENTS.md"),
+    smsInstructionsFile: join(workspaceDir, "subagents", "sms", "AGENTS.md"),
     sessionIndexFile: join(sessionsDir, "index.json"),
     agentDir: join(runtime, "pi"), piAuthFile: join(runtime, "auth", "pi.json"),
     memoryMarkdownFile: join(profileDir, "memory.md"), identityFile: join(profileDir, "identity.json"),

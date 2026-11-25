@@ -24,7 +24,7 @@ const sampleAgent = (overrides: Partial<SubagentRegistration> = {}): SubagentReg
   skills: [],
   mcp: [],
   userInstructions: {
-    path: "subagents/sms/INSTRUCTIONS.md",
+    path: "subagents/sms/AGENTS.md",
     read: async () => ({ instructions: "只提醒验证码", habits: [], unconsolidatedFeedbackCount: 0 }),
   },
   runChatTask: async (task) => ({ agent: "sms", task, output: `done:${task}` }),
@@ -78,7 +78,7 @@ test("subagent registry exposes list, detail, chat descriptors, and enforces ava
 
   const smsDetail = await registry.getDetail("sms");
   assert.equal(smsDetail.prompts.length, 1);
-  assert.equal(smsDetail.userInstructions?.path, "subagents/sms/INSTRUCTIONS.md");
+  assert.equal(smsDetail.userInstructions?.path, "subagents/sms/AGENTS.md");
   assert.equal(smsDetail.userInstructions?.instructions, "只提醒验证码");
 
   const dreamDetail = await registry.getDetail("dream");

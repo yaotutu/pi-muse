@@ -58,7 +58,7 @@ test("e2e: built entry authenticates, streams tools, persists state and restarts
   await service.restart();
   assert.deepEqual(await client.history("main"), before);
   assert.equal((await client.request("/api/identity")).status, 200, "auth.key and token survive process restart");
-  assert.equal(await readFile(join(service.dataDir, "workspace/assistant/INSTRUCTIONS.md"), "utf8"), "E2E-INSTRUCTIONS");
+  assert.equal(await readFile(join(service.dataDir, "workspace/assistant/AGENTS.md"), "utf8"), "E2E-INSTRUCTIONS");
   assert.equal(typeof token, "string");
   terminalSuccess(await client.run("hello after restart", "main"));
   assert.match(JSON.stringify(await client.history("main")), /after restart/);
@@ -98,11 +98,11 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     assert.equal(action.sessionId, running.sessionId);
     assert.equal(action.revision, 1);
     assert.match(action.preview.after, /短信审批写入测试/);
-    assert.equal(action.preview.path, "subagents/sms/INSTRUCTIONS.md");
+    assert.equal(action.preview.path, "subagents/sms/AGENTS.md");
     assert.equal(action.preview.before, "");
     assert.equal(action.preview.beforeExists, true);
     assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "files", "subagents"]);
-    const target = join(service.dataDir, "workspace", "subagents", "sms", "INSTRUCTIONS.md");
+    const target = join(service.dataDir, "workspace", "subagents", "sms", "AGENTS.md");
     assert.equal(await readFile(target, "utf8"), "");
     if (decision === "cancel") {
       assert.equal((await client.json("/api/conversation/stop", { sessionId: running.sessionId, runId: running.runId })).stopped, true);

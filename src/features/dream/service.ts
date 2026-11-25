@@ -74,7 +74,7 @@ const PENDING_LIMIT = 50;
  * - 进程内串行执行，避免多会话同时跑整理轮互相覆盖全局 USER/SOUL/memory；
  * - 游标只在整轮成功后推进，失败不动；
  * - 写入前比对读取时的文本版本，不覆盖用户在整理期间的新改动；
- * - 会话在整理期间被删除时停止提交，绝不因写 dream.json 或 INSTRUCTIONS.md 重建会话。
+ * - 会话在整理期间被删除时停止提交，绝不因写 dream.json 或 AGENTS.md 重建会话。
  */
 export const createDreamService = (deps: DreamDependencies) => {
   const { repository, notes, memory, conversations, propose } = deps;

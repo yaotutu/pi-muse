@@ -387,7 +387,7 @@ test("subagent stays declared regardless of sms toggle and topic sessions do not
   }
 
   // 领域规则走统一文件审批，配置页和文件页读取同一原文。
-  const instructionsPath = join(h.dataDir, "workspace", "assistant", "INSTRUCTIONS.md");
+  const instructionsPath = join(h.dataDir, "workspace", "assistant", "AGENTS.md");
   await writeFile(instructionsPath, "MAIN-ONLY-RULE\n", "utf8");
   for (const [domain, endpoint, instructions] of [
     ["sms", "/api/information/preferences", "信用卡还款必须提醒我"],
@@ -397,14 +397,14 @@ test("subagent stays declared regardless of sms toggle and topic sessions do not
     const run = h.runChat(sessionId, `设定领域规则:${domain}:${instructions}`);
     const action = await waitForTest(async () => (await h.service().actions.snapshotPending())[0], "domain rule approval");
     assert.equal(action.kind, "file_write");
-    assert.equal(action.payload.path, `subagents/${domain}/INSTRUCTIONS.md`);
+    assert.equal(action.payload.path, `subagents/${domain}/AGENTS.md`);
     assert.equal(action.payload.content, instructions);
     assert.deepEqual((await h.call(endpoint)).body, before, "unapproved write must not change preferences");
     assert.equal((await h.call(`/api/approvals/${action.id}/decision`, { method: "POST", body: JSON.stringify({ decision: "approve" }) })).status, 200);
     assert.match(await run, /RUN_FINISHED/);
     assert.equal(((await h.call(endpoint)).body as { instructions: string }).instructions, instructions);
-    assert.equal(await readFile(join(h.dataDir, "workspace", "subagents", domain, "INSTRUCTIONS.md"), "utf8"), instructions);
-    const path = `subagents/${domain}/INSTRUCTIONS.md`;
+    assert.equal(await readFile(join(h.dataDir, "workspace", "subagents", domain, "AGENTS.md"), "utf8"), instructions);
+    const path = `subagents/${domain}/AGENTS.md`;
     const fileEndpoint = `/api/workspace/files/content?path=${encodeURIComponent(path)}`;
     const fromSettings = `  ${instructions}\n\n`;
     assert.equal((await h.call(endpoint, { method: "PUT", body: JSON.stringify({ instructions: fromSettings }) })).status, 200);

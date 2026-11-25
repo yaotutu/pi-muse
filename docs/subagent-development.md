@@ -24,7 +24,7 @@ Pi Muse 的非主聊天 AI 能力采用**「唯一底层执行内核 + 唯一上
    - 不在主聊天提示词 [prompts/assistant/subagents.md](../prompts/assistant/subagents.md) 中硬编码点名具体 Subagent；每个开放聊天路由的 Subagent 必须通过自身的 `description` 与 `routingHint` 字段自我声明职责与路由避坑提示。
 4. **写操作与人工审批边界**
    - 后台无头模式（`background`）只允许使用带严格 JSON Schema 校验的结构化提交工具，不得授予自由写文件工具。
-   - 聊天路由模式（`chat`）如需修改该 Subagent 关联的工作区规则文件（`workspace/subagents/<id>/INSTRUCTIONS.md`），必须通过运行时上下文透传的 `writeWorkspaceFile` 走**版本绑定人工审批**，且写路径写死为本 Subagent 专属文件，不可越权改写 `SOUL.md`、`USER.md` 或 `assistant/INSTRUCTIONS.md`。
+   - 聊天路由模式（`chat`）如需修改该 Subagent 关联的工作区规则文件（`workspace/subagents/<id>/AGENTS.md`），必须通过运行时上下文透传的 `writeWorkspaceFile` 走**版本绑定人工审批**，且写路径写死为本 Subagent 专属文件，不可越权改写 `SOUL.md`、`USER.md` 或 `assistant/AGENTS.md`。
 5. **输出通道由业务语义决定，进主窗口即对主模型可见**
    - 每个业务自行决定产出是留在独立列表视图（如新闻文章）还是推入主聊天窗口（如重要短信提醒、归档简报）。
    - 凡是推入主聊天窗口的通知消息（带 `subagentId` 标记），均直接对主模型可见（所见即所得），不再做隐藏过滤。
@@ -48,7 +48,7 @@ Pi Muse 的非主聊天 AI 能力采用**「唯一底层执行内核 + 唯一上
 | `executionPolicy` | `{ stateless: true, parallelAllowed: boolean }` |
 | `prompts()` | 返回该 Subagent 绑定的全部内置提示词片段（含 `key`、`label`、`trigger`、`sourcePath`、`content`），供 `GET /api/subagents/:id` 完整展示 |
 | `tools` / `skills` / `mcp` | 静态声明绑定的全部工具、技能与 MCP 服务器清单（当前无 MCP 时传 `[]`） |
-| `userInstructions?` | 可选，关联 `workspace/subagents/<id>/INSTRUCTIONS.md` 与习惯快照 |
+| `userInstructions?` | 可选，关联 `workspace/subagents/<id>/AGENTS.md` 与习惯快照 |
 | `runChatTask?` | `triggers` 含 `"chat"` 时必填，内部调用 `runSubagent` 完成单次内存执行 |
 
 ---
@@ -62,7 +62,7 @@ Pi Muse 的非主聊天 AI 能力采用**「唯一底层执行内核 + 唯一上
 2. **准备专属工具与数据边界**
    - 聊天态工具：只暴露本 Subagent 需要的最小只读查询与受控写工具（写工作区规则必须复用 `ctx.writeWorkspaceFile`）。
    - 后台态工具：通过 `runStructuredSubagent` 绑定唯一带严格 schema 校验的提交工具。
-   - 如需持久化用户规则文件，在 [data-layout.ts](../src/adapters/storage/data-layout.ts) 与 [managed-text.ts](../src/adapters/workspace/managed-text.ts) 声明 `workspace/subagents/<id>/INSTRUCTIONS.md`；如需接入行为习惯归纳，在 `create-service.ts` 注册到 `habits`。
+   - 如需持久化用户规则文件，在 [data-layout.ts](../src/adapters/storage/data-layout.ts) 与 [managed-text.ts](../src/adapters/workspace/managed-text.ts) 声明 `workspace/subagents/<id>/AGENTS.md`；如需接入行为习惯归纳，在 `create-service.ts` 注册到 `habits`。
 3. **在 `catalog.ts` 注册 `SubagentRegistration`**
    - 在 [src/adapters/pi/subagents/catalog.ts](../src/adapters/pi/subagents/catalog.ts) 中完整填写 `id`、`name`、`description`、`routingHint`、`triggers`、`executionPolicy`、`prompts`、`tools`、`skills`、`mcp`、`userInstructions` 与 `runChatTask`。
    - 注册后即**自动**进入：

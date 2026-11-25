@@ -20,12 +20,12 @@ export const informationSettingsRequestSchema = informationSettingsSchema;
 export const informationSettingsResponse = informationSettingsSchema;
 
 export const informationPreferencesRequestSchema = z.strictObject({
-  instructions: z.string().max(20_000).refine(isWorkspaceText, "Invalid text").describe("用户主动编写的短信 Subagent 指令（subagents/sms/INSTRUCTIONS.md）"),
+  instructions: z.string().max(20_000).refine(isWorkspaceText, "Invalid text").describe("用户主动编写的短信 Subagent 指令（subagents/sms/AGENTS.md）"),
 });
 
 export const informationPreferencesResponse = z.strictObject({
   instructions: z.string().describe("用户主动编写的领域指令文本"),
-  includes: z.array(workspaceIncludeDiagnosticSchema).describe("INSTRUCTIONS.md 顶部 YAML frontmatter `include:` 引用展开诊断"),
+  includes: z.array(workspaceIncludeDiagnosticSchema).describe("AGENTS.md 顶部 YAML frontmatter `include:` 引用展开诊断"),
   habits: z.array(habitItemSchema).describe("通用习惯引擎沉淀的行为习惯条文（自动定期从反馈归纳，也可手动增删改）"),
   unconsolidatedFeedbackCount: z.number().int().nonnegative().describe("去重后尚未归纳成长期习惯的近期反馈条数；样本明细统一通过 GET /api/habits/sms 查看"),
 });

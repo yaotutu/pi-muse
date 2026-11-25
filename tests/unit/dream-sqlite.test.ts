@@ -28,7 +28,7 @@ const fullState = (): DreamState => ({
     status: "partial",
     changed: ["user", "memory"],
     processed: 12,
-    error: "INSTRUCTIONS.md was modified concurrently",
+    error: "AGENTS.md was modified concurrently",
   },
   pending: [
     { id: "pending_1", text: "喜欢乌龙茶", suggestedTarget: "user", reason: "ambiguous", createdAt: TIMESTAMP },
@@ -56,7 +56,7 @@ test("dream state round-trips the switch, cursors, pending items and last run", 
   assert.deepEqual(read.pending.map((item) => item.id), ["pending_1", "pending_2"]);
   assert.equal(read.pending[0]?.sourceSessionId, undefined);
   assert.equal(read.pending[1]?.sourceSessionId, SESSION);
-  assert.equal(read.lastRun?.error, "INSTRUCTIONS.md was modified concurrently");
+  assert.equal(read.lastRun?.error, "AGENTS.md was modified concurrently");
   assert.deepEqual(read.lastRun?.changed, ["user", "memory"]);
 });
 
