@@ -364,7 +364,7 @@ test("committed session directory changes invalidate other signed-in clients", {
   assert.deepEqual((await directory.json()).sessions.map((item: { id: string }) => item.id), ["main"]);
 });
 
-test("domain mutations emit coalesced domain_updated events on /api/events", async (t) => {
+test("subagent mutations emit coalesced subagent_updated events on /api/events", async (t) => {
   const { service, headers } = await fixture(t);
   const stream = await connect(t, service, headers);
 
@@ -372,9 +372,9 @@ test("domain mutations emit coalesced domain_updated events on /api/events", asy
     while (true) {
       const frame = await Promise.race([
         stream.nextFrame(),
-        sleep(3000).then(() => { throw new Error(`timed out waiting for domain_updated ${domain}:${scope}`); }),
+        sleep(3000).then(() => { throw new Error(`timed out waiting for subagent_updated ${domain}:${scope}`); }),
       ]);
-      if (frame.event === "domain_updated" && frame.data.domain === domain && frame.data.scope === scope) {
+      if (frame.event === "subagent_updated" && frame.data.subagentId === domain && frame.data.scope === scope) {
         return frame.data as { instanceId: string; domain: string; scope: string };
       }
     }

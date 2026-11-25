@@ -44,7 +44,7 @@ Feedback binds the public session, internal pi session, and message id. Raw acti
 
 Assistant instructions, skill switches, profile, long-term memory, permissions, and workspace are shared by all conversations. Open Settings → Assistant instructions and tap the text to read it. Tap Edit when you want to make changes. An empty field opens the editor directly. Tap Save at the bottom of the editor. The last successful save takes effect on the next turn in every conversation. The single-file save limit is 20,000 characters, and an empty value clears the instructions. For large rules, split sub-files with top-of-file YAML Frontmatter `include:`; see [Instructions and prompts](instructions.md).
 
-Long text in Settings starts with a preview. News preferences (`domains/news/INSTRUCTIONS.md`) and SMS preferences (`domains/sms/INSTRUCTIONS.md`) save raw text in their editors and likewise support top-of-file `include:`. Profile fields save together, while Dream exposes only the global toggle and pending-proposal confirmation.
+Long text in Settings starts with a preview. News preferences (`subagents/news/INSTRUCTIONS.md`) and SMS preferences (`subagents/sms/INSTRUCTIONS.md`) save raw text in their editors and likewise support top-of-file `include:`. Profile fields save together, while Dream exposes only the global toggle and pending-proposal confirmation.
 
 If saving instructions or skills has an unknown outcome, read back the server settings before deciding whether to submit the retained draft.
 

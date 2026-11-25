@@ -150,7 +150,7 @@ const validateInputItem = (input: InformationInputItem): void => {
 };
 
 export type CreateInformationServiceDeps = {
-  domainId?: string;
+  subagentId?: string;
   repository: InformationRepository;
   instructions: {
     read: () => Promise<string>;
@@ -164,7 +164,7 @@ export type CreateInformationServiceDeps = {
       notify: (
         text: string,
         id: string,
-        options?: { signal?: AbortSignal; domainId?: string },
+        options?: { signal?: AbortSignal; subagentId?: string },
       ) => Promise<InformationPublicationReceipt>;
     };
     release: () => void;
@@ -214,7 +214,7 @@ const signalsToFeedbackExamples = (signals: readonly HabitSignalPayload[]): Info
  * - 日常实时通道支持 retryFailed 重跑失败条目，状态变化发出 domain_updated 轻量失效事件。
  */
 export const createInformationService = (deps: CreateInformationServiceDeps) => {
-  const domainId = deps.domainId ?? "sms";
+  const subagentId = deps.subagentId ?? "sms";
   const habitsPort: Pick<HabitsService, "getPromptContext" | "applyOperations"> = deps.habits ?? {
     getPromptContext: async () => emptyHabitPromptContext(),
     applyOperations: async () => [],
@@ -275,7 +275,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
   const loadPromptContext = async () => {
     const [instructions, habitCtx] = await Promise.all([
       (deps.instructions.readResolved ?? deps.instructions.read)(),
-      habitsPort.getPromptContext(domainId),
+      habitsPort.getPromptContext(subagentId),
     ]);
     return {
       instructions,
@@ -315,7 +315,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
   const getPreferences = async (): Promise<InformationPreferencesView> => {
     const [{ instructions, includes }, habitCtx] = await Promise.all([
       readInstructionsWithIncludes(),
-      habitsPort.getPromptContext(domainId),
+      habitsPort.getPromptContext(subagentId),
     ]);
     return {
       instructions,
@@ -497,7 +497,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
         try {
           receipt = await retained.conversation.notify(publication.text, publication.notificationId, {
             signal,
-            domainId,
+            subagentId,
           });
         } catch (error) {
           errorText = sanitizeError(error);
@@ -678,7 +678,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
       });
 
       if (!isRealtime && parsed.habitOperations?.length) {
-        await habitsPort.applyOperations(domainId, parsed.habitOperations, "consolidated", expectedUpdatedAt);
+        await habitsPort.applyOperations(subagentId, parsed.habitOperations, "consolidated", expectedUpdatedAt);
       }
 
       notifyChanged("items");

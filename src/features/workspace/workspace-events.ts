@@ -7,7 +7,7 @@ import { createSessionPresence, type SessionPresence } from "./session-presence.
 
 /** 活动进入终态的集合：这些状态不再出现在 ready.activities，变化只通过 activity_updated 通知一次。 */
 const ACTIVITY_TERMINAL: ReadonlySet<ActivityOverview["status"]> = new Set(["completed", "failed", "stopped", "interrupted"]);
-export type DomainUpdateScope = "items" | "runs" | "habits" | "preferences" | "settings";
+export type SubagentUpdateScope = "items" | "runs" | "habits" | "preferences" | "settings";
 export type WorkspaceUpdate =
   | { event: "session_presence_updated"; presence: SessionPresence }
   | { event: "session_status_updated"; status: SessionStatus }
@@ -15,7 +15,7 @@ export type WorkspaceUpdate =
   | { event: "activity_updated"; activity: ActivityOverview }
   | { event: "session_directory_updated" }
   | { event: "conversation_updated"; conversation: { sessionId: string; piSessionId: string } }
-  | { event: "domain_updated"; domain: string; scope: DomainUpdateScope }
+  | { event: "subagent_updated"; subagentId: string; scope: SubagentUpdateScope }
   | { event: "browser_updated"; scope: BrowserUpdateScope; handoff?: BrowserHandoff | null };
 type Subscriber = { notify: (event: WorkspaceUpdate) => void; close: () => void };
 export class ExecutionCapacityError extends Error {
@@ -85,10 +85,10 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
       if (closed) return;
       publish({ event: "conversation_updated", conversation });
     },
-    /** 后台领域数据（条目、运行、习惯、偏好或设置）变更时的轻量失效信号。 */
-    domainChanged: (domain: string, scope: DomainUpdateScope) => {
+    /** 专职 Subagent 数据（条目、运行、习惯、偏好或设置）变更时的轻量失效信号。 */
+    subagentChanged: (subagentId: string, scope: SubagentUpdateScope) => {
       if (closed) return;
-      publish({ event: "domain_updated", domain, scope });
+      publish({ event: "subagent_updated", subagentId, scope });
     },
     /** 真实浏览器标签、视口、文件或人工接管状态变更时的轻量通知。 */
     browserChanged: (scope: BrowserUpdateScope, handoff?: BrowserHandoff | null) => {

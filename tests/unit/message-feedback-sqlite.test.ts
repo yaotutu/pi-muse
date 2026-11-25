@@ -48,7 +48,7 @@ const makeFact = (
   runId: "run-1",
   jobId: null,
   notificationId: null,
-  domainId: null,
+  subagentId: null,
   feedbackAvailable: true,
   ...overrides,
 });

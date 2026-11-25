@@ -46,7 +46,7 @@ const newHabitId = () => `hab_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
 
 const rowToHabit = (row: HabitRow): HabitItem => ({
   id: row.id,
-  domain: row.domain,
+  subagentId: row.domain,
   text: row.text,
   source: row.source,
   createdAt: row.created_at,
@@ -132,7 +132,7 @@ const applyOperationsInMemory = (
       if (hasDuplicateText(op.text)) continue;
       items.push({
         id: newHabitId(),
-        domain: options.domain,
+        subagentId: options.domain,
         text: op.text,
         source: options.source,
         createdAt: options.now,
@@ -209,7 +209,7 @@ export const createHabitsRepository = (managed: ManagedSqliteDatabase): HabitRep
         }
         const created: HabitItem = {
           id: newHabitId(),
-          domain,
+          subagentId: domain,
           text,
           source,
           createdAt: now,
@@ -241,7 +241,7 @@ export const createHabitsRepository = (managed: ManagedSqliteDatabase): HabitRep
           .run(text, now, domain, habitId);
         return {
           id: existing.id,
-          domain: existing.domain,
+          subagentId: existing.domain,
           text,
           source: existing.source,
           createdAt: existing.created_at,

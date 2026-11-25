@@ -20,7 +20,7 @@ export const informationSettingsRequestSchema = informationSettingsSchema;
 export const informationSettingsResponse = informationSettingsSchema;
 
 export const informationPreferencesRequestSchema = z.strictObject({
-  instructions: z.string().max(20_000).refine(isWorkspaceText, "Invalid text").describe("用户主动编写的信息后台指令（domains/sms/INSTRUCTIONS.md）"),
+  instructions: z.string().max(20_000).refine(isWorkspaceText, "Invalid text").describe("用户主动编写的短信 Subagent 指令（subagents/sms/INSTRUCTIONS.md）"),
 });
 
 export const informationPreferencesResponse = z.strictObject({

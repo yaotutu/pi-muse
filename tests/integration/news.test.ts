@@ -223,7 +223,7 @@ for(const scenario of ["valid","object-notifications","duplicate"] as const) {
     assert.deepEqual(Object.keys(tool.function.parameters.properties).sort(),["decisions"]);
     assert.equal("notifications" in tool.function.parameters.properties,false);
     const systemText=String(model.requests[0].messages.find((m)=>m.role==="system")?.content ?? "");
-    assert.ok(systemText.includes("## User Instructions (workspace/domains/news/INSTRUCTIONS.md)"));
+    assert.ok(systemText.includes("## User Instructions (workspace/subagents/news/INSTRUCTIONS.md)"));
     assert.ok(!systemText.includes("Enabled skill guidance"));
     assert.ok(!systemText.includes("Main conversation instructions"));
     if(scenario!=="valid")assert.equal(run.model?.error,"INVALID_MODEL_RESULT");

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { createConfig } from "../../src/config/load-config.js";
-import { habitDomainOverviewResponse, habitItemResponse } from "../../src/http/contracts/habits.js";
+import { habitSubagentOverviewResponse, habitItemResponse } from "../../src/http/contracts/habits.js";
 import { informationPreferencesResponse } from "../../src/http/contracts/information.js";
 import { newsPreferencesResponseSchema } from "../../src/http/contracts/news.js";
 import { createFakeModel, type ModelRequest } from "../support/fake-model.js";
@@ -68,7 +68,7 @@ test("habits HTTP CRUD, validation, and model consolidation failure preservation
   assert.equal((await h.api("/api/habits/sms", "POST", { text: "   " })).status, 400);
 
   // Manual CRUD on sms
-  const initialOverview = habitDomainOverviewResponse.parse((await h.api("/api/habits/sms")).body);
+  const initialOverview = habitSubagentOverviewResponse.parse((await h.api("/api/habits/sms")).body);
   assert.equal(initialOverview.habits.length, 0);
   assert.equal(initialOverview.unconsolidatedCount, 0);
 
@@ -107,15 +107,15 @@ test("habits HTTP CRUD, validation, and model consolidation failure preservation
   const smsPrefsBefore = informationPreferencesResponse.parse((await h.api("/api/information/preferences")).body);
   assert.equal(smsPrefsBefore.unconsolidatedFeedbackCount, 1);
   assert.equal(smsPrefsBefore.habits.length, 1);
-  const domainsList = (await h.api("/api/habits")).body as { domains: Array<{ domain: string; name: string; unconsolidatedCount: number }> };
-  assert.ok(domainsList.domains.some((entry) => entry.domain === "sms" && entry.unconsolidatedCount === 1));
+  const subagentsList = (await h.api("/api/habits")).body as { subagents: Array<{ subagentId: string; name: string; unconsolidatedCount: number }> };
+  assert.ok(subagentsList.subagents.some((entry) => entry.subagentId === "sms" && entry.unconsolidatedCount === 1));
   const smsHabitOverview = (await h.api("/api/habits/sms")).body as { name: string; summary: string; pendingSignals: Array<{ comments: string[]; reaction: string | null; saved: boolean }> };
   assert.equal(smsHabitOverview.name, "短信助手");
   assert.ok(smsHabitOverview.summary.length > 0);
   assert.equal(smsHabitOverview.pendingSignals.length, 1);
 
   // Failing model consolidation MUST preserve hot buffer (cursorSeq=0, unconsolidatedCount=1)
-  const failedConsol = habitDomainOverviewResponse.parse(
+  const failedConsol = habitSubagentOverviewResponse.parse(
     (await h.api("/api/habits/sms/consolidate", "POST", {})).body,
   );
   assert.equal(failedConsol.lastRunStatus, "failed");
@@ -135,7 +135,7 @@ test("habits HTTP CRUD, validation, and model consolidation failure preservation
     },
   );
 
-  const succeededConsol = habitDomainOverviewResponse.parse(
+  const succeededConsol = habitSubagentOverviewResponse.parse(
     (await h.api("/api/habits/sms/consolidate", "POST", {})).body,
   );
   assert.equal(succeededConsol.lastRunStatus, "succeeded");
@@ -162,7 +162,7 @@ test("habits HTTP CRUD, validation, and model consolidation failure preservation
 
   // Delete manual habit
   assert.equal((await h.api(`/api/habits/sms/${created.id}`, "DELETE")).status, 200);
-  assert.equal(habitDomainOverviewResponse.parse((await h.api("/api/habits/sms")).body).habits.length, 1);
+  assert.equal(habitSubagentOverviewResponse.parse((await h.api("/api/habits/sms")).body).habits.length, 1);
 
   // News domain feedback -> auto-threshold consolidation after 5 distinct articles
   const now = new Date().toISOString();
@@ -197,7 +197,7 @@ test("habits HTTP CRUD, validation, and model consolidation failure preservation
   }
 
   const newsConsolidated = await waitForTest(async () => {
-    const ov = habitDomainOverviewResponse.parse((await h.api("/api/habits/news")).body);
+    const ov = habitSubagentOverviewResponse.parse((await h.api("/api/habits/news")).body);
     return !ov.running && ov.unconsolidatedCount === 0 && ov.habits.length > 0 ? ov : undefined;
   }, "auto threshold consolidation for news", 8000);
   assert.equal(newsConsolidated.habits[0]?.text, "新闻优先精选底层架构与工程实战，跳过融资八卦");

@@ -570,7 +570,7 @@ test("archive channel incrementally updates habits across batches and isolates r
             const now = new Date().toISOString();
             storedHabits.push({
               id: `hab_${storedHabits.length + 1}`,
-              domain,
+              subagentId: domain,
               text: op.text,
               source,
               createdAt: now,

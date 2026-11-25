@@ -298,7 +298,7 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
       return { ...state, activities, notices };
     }
     case "session_directory_updated":
-    case "domain_updated":
+    case "subagent_updated":
       return state;
     case "browser_updated": {
       if (state.instanceId !== action.data.instanceId) return state;

@@ -98,11 +98,11 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     assert.equal(action.sessionId, running.sessionId);
     assert.equal(action.revision, 1);
     assert.match(action.preview.after, /短信审批写入测试/);
-    assert.equal(action.preview.path, "domains/sms/INSTRUCTIONS.md");
+    assert.equal(action.preview.path, "subagents/sms/INSTRUCTIONS.md");
     assert.equal(action.preview.before, "");
     assert.equal(action.preview.beforeExists, true);
-    assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "domains", "files"]);
-    const target = join(service.dataDir, "workspace", "domains", "sms", "INSTRUCTIONS.md");
+    assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "files", "subagents"]);
+    const target = join(service.dataDir, "workspace", "subagents", "sms", "INSTRUCTIONS.md");
     assert.equal(await readFile(target, "utf8"), "");
     if (decision === "cancel") {
       assert.equal((await client.json("/api/conversation/stop", { sessionId: running.sessionId, runId: running.runId })).stopped, true);
@@ -179,7 +179,7 @@ test("e2e: chat contexts are isolated, files are global and deleted sessions nev
   assert.ok(!(await client.json("/api/sessions")).sessions.some((s:{id:string})=>s.id===owner.id));
   await assert.rejects(stat(join(service.dataDir,"sessions",owner.id)),{code:"ENOENT"});
   assert.equal(await readFile(join(service.dataDir,"workspace","common.md"),"utf8"),"COMMON-WORKSPACE");
-  assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "common.md", "domains", "files"]);
+  assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "common.md", "files", "subagents"]);
 });
 
 test("e2e: workspace named SSE pushes ready state and real run status without memory invalidation frames", { timeout: 90_000 }, async (t) => {
@@ -248,7 +248,7 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
   await readHistoryInvalidation();
   const spec = await client.json("/openapi.json");
   assert.deepEqual(Object.keys(spec.paths["/api/events"].get.responses["200"]["x-sse-events"]).sort(),
-    ["activity_updated", "session_presence_updated", "session_status_updated", "approval_pending", "approval_updated", "conversation_updated", "session_directory_updated", "domain_updated", "browser_updated", "ready"].sort());
+    ["activity_updated", "session_presence_updated", "session_status_updated", "approval_pending", "approval_updated", "conversation_updated", "session_directory_updated", "subagent_updated", "browser_updated", "ready"].sort());
   // 结束服务应关闭长连接，客户端读到 EOF。
   await service.stop();
   // 运行终态后还可能有最新的空闲头像帧；必须校验后排空，而非把它误认成额外业务操作。

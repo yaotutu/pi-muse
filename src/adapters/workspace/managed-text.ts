@@ -5,8 +5,8 @@ export const managedWorkspaceTexts = {
   user: "assistant/USER.md",
   soul: "assistant/SOUL.md",
   assistantInstructions: "assistant/INSTRUCTIONS.md",
-  smsInstructions: "domains/sms/INSTRUCTIONS.md",
-  newsInstructions: "domains/news/INSTRUCTIONS.md",
+  smsInstructions: "subagents/sms/INSTRUCTIONS.md",
+  newsInstructions: "subagents/news/INSTRUCTIONS.md",
 } as const;
 
 export const managedWorkspaceTarget = (root: string, target: string) =>

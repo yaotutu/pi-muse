@@ -1599,7 +1599,7 @@ test("subagent: browser subagent is self-contained read-only workspace + browser
   assert.ok(tools.includes("read"));
   assert.ok(tools.includes("browser"));
   assert.ok(children.some((request) => JSON.stringify(request.messages).includes("SUBAGENT-WORKSPACE-CONTENT")));
-  assert.deepEqual((await readdir(h.service().layout.workspaceDir)).sort(), ["assistant", "domains", "files", "subagent-test.md"]);
+  assert.deepEqual((await readdir(h.service().layout.workspaceDir)).sort(), ["assistant", "files", "subagent-test.md", "subagents"]);
 
 });
 
@@ -1627,7 +1627,7 @@ test("subagent: write approval is owned by the parent run and Stop cancels child
   assert.equal(settled.status, "cancelled");
   assert.equal(settled.revision, 2);
   assert.equal(settled.decidedAt, null);
-  assert.equal(await readFile(join(h.dataDir, "workspace", "domains", "sms", "INSTRUCTIONS.md"), "utf8"), "");
+  assert.equal(await readFile(join(h.dataDir, "workspace", "subagents", "sms", "INSTRUCTIONS.md"), "utf8"), "");
   assert.equal((await h.service().conversationHub.forSession("main")).isRunning(), false);
 });
 

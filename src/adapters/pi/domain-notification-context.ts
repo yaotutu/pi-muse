@@ -1,7 +1,7 @@
 import type { ContextEvent, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { SubagentChatDescriptor } from "../../features/subagents/types.js";
 import { renderPrompt } from "../prompts/loader.js";
-import { notificationDomainIdOf } from "./notification-message.js";
+import { notificationSubagentIdOf } from "./notification-message.js";
 
 type AgentMessage = ContextEvent["messages"][number];
 
@@ -28,7 +28,7 @@ export const projectDomainNotificationContext = (
 ): AgentMessage[] => {
   const projected = messages.filter((message) => {
     if (message.role !== "assistant") return true;
-    return !notificationDomainIdOf(message);
+    return !notificationSubagentIdOf(message);
   });
   return projected.length === messages.length ? [...messages] : projected;
 };

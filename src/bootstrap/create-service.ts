@@ -245,7 +245,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
         facts: history.messageFacts,
         repository: messageFeedbackRepository,
         onFeedbackChanged: async ({ sessionId: fbSessionId, fact, feedback }) => {
-          if (fbSessionId !== "main" || fact.domainId !== "sms" || !fact.notificationId || !information) return;
+          if (fbSessionId !== "main" || fact.subagentId !== "sms" || !fact.notificationId || !information) return;
           const signal = await information.buildHabitSignal(fact.notificationId, feedback);
           if (signal) {
             await habits.recordSignal("sms", fact.notificationId, signal);
@@ -338,7 +338,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
       },
     ],
     consolidateModel: createHabitConsolidationRunner({ config, layout, modelRuntime }),
-    onChanged: (domain) => workspaceEvents.domainChanged(domain, "habits"),
+    onChanged: (subagentId) => workspaceEvents.subagentChanged(subagentId, "habits"),
     observeWork: workspaceEvents.presence.observe,
   });
   const habitsScheduler = createHabitsScheduler(habits);
@@ -346,13 +346,13 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     observeWork: workspaceEvents.presence.observe,
     retainMain: () => conversationHub.retainSession("main"),
     habits,
-    onChanged: (scope: "items" | "runs" | "preferences" | "settings") => workspaceEvents.domainChanged("sms", scope),
+    onChanged: (scope: "items" | "runs" | "preferences" | "settings") => workspaceEvents.subagentChanged("sms", scope),
     runModel: createInformationRunner({ config, layout, modelRuntime }),
   };
-  // 短信领域指令存入工作区，行为习惯与热缓冲统一由 habits 模块托管。
+  // 短信 Subagent 指令存入工作区，行为习惯与热缓冲统一由 habits 模块托管。
   information = createInformationService({
     ...informationDeps,
-    domainId: "sms",
+    subagentId: "sms",
     instructions: smsInstructions,
     synthesizeBriefing: createInformationBriefingRunner({ config, layout, modelRuntime }),
     repository: informationRepository,
@@ -387,7 +387,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     instructions: newsInstructions,
     habits,
     onFeedbackChanged: (payload) => habits.recordSignal("news", payload.targetId, payload),
-    onChanged: (scope) => workspaceEvents.domainChanged("news", scope),
+    onChanged: (scope) => workspaceEvents.subagentChanged("news", scope),
     runModel: createNewsScreeningRunner({ config, layout, modelRuntime }),
   });
   const informationScheduler = createInformationScheduler(information);
@@ -397,7 +397,7 @@ export const createService = async (config: Config, options: { sharedSkillsDir?:
     repository: newsRepository,
     screening: newsScreening,
     fetchFeed: (url, signal) => fetchRss2(url, config.web, signal),
-    onChanged: (scope) => workspaceEvents.domainChanged("news", scope),
+    onChanged: (scope) => workspaceEvents.subagentChanged("news", scope),
   });
   subagents = createSubagentRegistry({
     agents: createBuiltinSubagents({

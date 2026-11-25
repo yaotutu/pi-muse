@@ -207,7 +207,7 @@ const createDomainChatTools = (options: {
           saved.text || "Instruction change did not report success. Check the file approval result before trying again.",
         );
       }
-      const result = { domainId: prefix, path: instructionsPath, instructions: params.instructions, updated: true };
+      const result = { subagentId: prefix, path: instructionsPath, instructions: params.instructions, updated: true };
       return {
         content: [{ type: "text", text: JSON.stringify(result) }],
         details: result,
@@ -242,7 +242,7 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
   const sms: SubagentRegistration = {
     id: "sms",
     name: "短信助手",
-    description: "处理手机短信与外部信息的查询、筛选过滤、提醒与静默偏好规则（domains/sms/INSTRUCTIONS.md）管理。",
+    description: "处理手机短信与外部信息的查询、筛选过滤、提醒与静默偏好规则（subagents/sms/INSTRUCTIONS.md）管理。",
     triggers: ["chat", "background"],
     isEnabled: async () => (await deps.information.getSettings()).enabled,
     executionPolicy: { stateless: true, parallelAllowed: true },
@@ -285,7 +285,7 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
   const news: SubagentRegistration = {
     id: "news",
     name: "新闻助手",
-    description: "处理 RSS 新闻源与文章筛选、新闻记录查询及阅读兴趣偏好规则（domains/news/INSTRUCTIONS.md）管理。",
+    description: "处理 RSS 新闻源与文章筛选、新闻记录查询及阅读兴趣偏好规则（subagents/news/INSTRUCTIONS.md）管理。",
     triggers: ["chat", "background"],
     isEnabled: () => true,
     executionPolicy: { stateless: true, parallelAllowed: true },

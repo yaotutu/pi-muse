@@ -131,8 +131,8 @@ test("SMS and News expand workspace instructions includes while keeping HTTP GET
   const h = await fixture(t);
   const { workspaceDir } = h.service.layout;
 
-  await writeFile(join(workspaceDir, "domains", "sms", "bank.md"), "SMS-SUB-BANK-ALERTS", "utf8");
-  await writeFile(join(workspaceDir, "domains", "news", "topics.md"), "NEWS-SUB-AI-SYSTEMS", "utf8");
+  await writeFile(join(workspaceDir, "subagents", "sms", "bank.md"), "SMS-SUB-BANK-ALERTS", "utf8");
+  await writeFile(join(workspaceDir, "subagents", "news", "topics.md"), "NEWS-SUB-AI-SYSTEMS", "utf8");
   await writeFile(join(workspaceDir, "files", "vip.md"), "SHARED-VIP-CONTACT", "utf8");
   await writeFile(join(workspaceDir, "files", "forbidden-secret.md"), "FORBIDDEN-SECRET-MUST-NOT-EXPAND", "utf8");
 
@@ -168,7 +168,7 @@ test("SMS and News expand workspace instructions includes while keeping HTTP GET
   assert.ok(smsReq, "expected SMS realtime model request");
   const smsSystem = systemPromptOf(smsReq);
   assert.ok(smsSystem.includes("SMS root instructions."));
-  assert.ok(smsSystem.includes("<!-- begin include: domains/sms/bank.md -->\nSMS-SUB-BANK-ALERTS\n<!-- end include: domains/sms/bank.md -->"));
+  assert.ok(smsSystem.includes("<!-- begin include: subagents/sms/bank.md -->\nSMS-SUB-BANK-ALERTS\n<!-- end include: subagents/sms/bank.md -->"));
   assert.ok(smsSystem.includes("SHARED-VIP-CONTACT"));
   assert.ok(smsSystem.includes("learned-sms-only"));
   assert.ok(!smsSystem.includes("FORBIDDEN-SECRET-MUST-NOT-EXPAND"), "habits must never expand include directives");
@@ -207,7 +207,7 @@ test("SMS and News expand workspace instructions includes while keeping HTTP GET
   assert.ok(newsReq, "expected News screening model request");
   const newsSystem = systemPromptOf(newsReq);
   assert.ok(newsSystem.includes("News root instructions."));
-  assert.ok(newsSystem.includes("<!-- begin include: domains/news/topics.md -->\nNEWS-SUB-AI-SYSTEMS\n<!-- end include: domains/news/topics.md -->"));
+  assert.ok(newsSystem.includes("<!-- begin include: subagents/news/topics.md -->\nNEWS-SUB-AI-SYSTEMS\n<!-- end include: subagents/news/topics.md -->"));
   assert.ok(newsSystem.includes("SHARED-VIP-CONTACT"));
   assert.ok(newsSystem.includes("learned-news-only"));
   assert.ok(!newsSystem.includes("FORBIDDEN-SECRET-MUST-NOT-EXPAND"), "News habits must never expand include directives");
@@ -253,7 +253,7 @@ test("instructions and domain preferences return accurate include diagnostics ac
     ],
   );
 
-  await writeFile(join(workspaceDir, "domains", "sms", "valid.md"), "SMS-VALID", "utf8");
+  await writeFile(join(workspaceDir, "subagents", "sms", "valid.md"), "SMS-VALID", "utf8");
   const smsDoc = "---\ninclude:\n  - ./valid.md\n  - ./missing.md\n---\nSMS-ROOT";
   const savedSms = await h.api("/api/information/preferences", "PUT", { instructions: smsDoc });
   assert.equal(savedSms.status, 200);

@@ -14,7 +14,7 @@ import {
 import type { ConversationAttachmentView } from "../../features/conversation/attachments.js";
 import type { MessageExecutionFact } from "../../features/messages/types.js";
 import type { DreamMessage } from "../../features/dream/types.js";
-import { notificationDomainIdOf, notificationIdOf } from "./notification-message.js";
+import { notificationSubagentIdOf, notificationIdOf } from "./notification-message.js";
 
 /** 从 pi 的文本/内容块中提取可展示文本；非文本内容保持不可见。 */
 export const textOf = (content: unknown): string =>
@@ -205,7 +205,7 @@ export const projectMessageFacts = (
     runId: turn?.runId ?? null,
     jobId: turn?.jobId ?? null,
     notificationId: null,
-    domainId: null,
+    subagentId: null,
     feedbackAvailable: true,
   });
 
@@ -234,7 +234,7 @@ export const projectMessageFacts = (
         runId: null,
         jobId: null,
         notificationId,
-        domainId: notificationDomainIdOf(message) ?? null,
+        subagentId: notificationSubagentIdOf(message) ?? null,
         feedbackAvailable: true,
       });
       turn = undefined;

@@ -80,7 +80,7 @@ test("habit operations validation and interleaved target deduplication prevent l
   assert.equal(formatHabitsForPrompt([]), "(none)");
   assert.equal(
     formatHabitsForPrompt([
-      { id: "hab_a", domain: "sms", text: "规则A", source: "consolidated", createdAt: "t", updatedAt: "t" },
+      { id: "hab_a", subagentId: "sms", text: "规则A", source: "consolidated", createdAt: "t", updatedAt: "t" },
     ]),
     "- [hab_a] 规则A",
   );

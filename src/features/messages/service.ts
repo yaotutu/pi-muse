@@ -325,7 +325,7 @@ export const createMessageFeedbackSession = (input: {
           runId: fact.runId,
           jobId: fact.jobId,
           notificationId: fact.notificationId,
-          domainId: fact.domainId,
+          subagentId: fact.subagentId,
           feedbackAvailable: available(fact),
         };
         return {

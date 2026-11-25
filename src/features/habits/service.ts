@@ -8,7 +8,7 @@ import {
 import {
   HABIT_AUTO_THRESHOLD,
   HABIT_CONSOLIDATION_INTERVAL_MS,
-  HABIT_DOMAIN_PATTERN,
+  HABIT_SUBAGENT_PATTERN,
   HABIT_HOT_BUFFER_MAX,
   HABIT_ID_PATTERN,
   HABIT_SIGNAL_BATCH_SIZE,
@@ -57,8 +57,8 @@ const toPendingSignal = (payload: HabitSignalPayload): HabitPendingSignal => ({
 
 const validDomainId = (raw: string): string => {
   const domain = typeof raw === "string" ? raw.trim() : "";
-  if (!HABIT_DOMAIN_PATTERN.test(domain)) {
-    throw new HabitError("INVALID_INPUT", "Invalid habit domain identifier");
+  if (!HABIT_SUBAGENT_PATTERN.test(domain)) {
+    throw new HabitError("INVALID_INPUT", "Invalid habit subagent identifier");
   }
   return domain;
 };
@@ -135,7 +135,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
       .slice(0, HABIT_HOT_BUFFER_MAX)
       .map((entry) => toPendingSignal(entry.payload));
     return {
-      domain: def.id,
+      subagentId: def.id,
       name: def.name,
       summary: def.summary,
       running: activeRuns.has(def.id),
@@ -161,7 +161,7 @@ export const createHabitsService = (deps: CreateHabitsServiceDeps) => {
         getActiveUnconsolidated(def.id),
       ]);
       summaries.push({
-        domain: def.id,
+        subagentId: def.id,
         name: def.name,
         summary: def.summary,
         running: activeRuns.has(def.id),

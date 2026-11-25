@@ -16,7 +16,7 @@ export type ConversationNotificationReceipt = {
   messageId: string;
 };
 
-export type ConversationNotification = { id: string; text: string; domainId?: string };
+export type ConversationNotification = { id: string; text: string; subagentId?: string };
 
 export type ConversationTurn = {
   userId: string;

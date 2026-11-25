@@ -323,8 +323,8 @@ for (const decision of ["approve", "cancel"] as const) {
     const child = waiting.steps.find((step) => step.id === write.parentId)!;
     assert.equal(write.kind, "tool");
     assert.equal(child.kind, "subagent");
-    assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "domains", "files"]);
-    const target = join(service.dataDir, "workspace", "domains", "sms", "INSTRUCTIONS.md");
+    assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "files", "subagents"]);
+    const target = join(service.dataDir, "workspace", "subagents", "sms", "INSTRUCTIONS.md");
     assert.equal(await readFile(target, "utf8"), "");
     if (decision === "approve") {
       await client.decideApproval(action.id, "approve");

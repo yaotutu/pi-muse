@@ -41,7 +41,7 @@ import {
   type ApprovalPendingEventDto,
   type ApprovalUpdatedEventDto,
   type ConversationUpdatedEventDto,
-  type DomainUpdatedEventDto,
+  type SubagentUpdatedEventDto,
   type ReadyEventDto,
 } from "../../../src/http/contracts/workspace-events.js";
 export type { SseEvent };
@@ -661,7 +661,7 @@ export type WorkspaceEvent =
   | { type: "activity_updated"; data: ActivityUpdatedEventDto }
   | { type: "session_directory_updated"; data: { instanceId: string } }
   | { type: "conversation_updated"; data: ConversationUpdatedEventDto }
-  | { type: "domain_updated"; data: DomainUpdatedEventDto }
+  | { type: "subagent_updated"; data: SubagentUpdatedEventDto }
   | { type: "browser_updated"; data: BrowserUpdatedEventDto };
 
 /**
@@ -760,10 +760,10 @@ export const subscribeWorkspaceEvents = async (
             event = { type: "conversation_updated", data: parsed.data };
             break;
           }
-          case "domain_updated": {
-            const parsed = workspaceEvents.domain_updated.safeParse(payload);
+          case "subagent_updated": {
+            const parsed = workspaceEvents.subagent_updated.safeParse(payload);
             if (!parsed.success) throw invalid();
-            event = { type: "domain_updated", data: parsed.data };
+            event = { type: "subagent_updated", data: parsed.data };
             break;
           }
           case "browser_updated": {

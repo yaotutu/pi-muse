@@ -82,7 +82,7 @@ test("workspace files: flat listing is stable and skips links, and old selectors
   const response=await request(service,"/api/workspace/files",{headers}); assert.equal(response.status,200);
   const body=workspaceListResponse.parse(await response.json());
   assert.deepEqual(Object.keys(body).sort(),["entries","path"]);
-  assert.deepEqual(body.entries.map((e)=>e.path),["assistant","domains","files","z-dir","a.md"]);
+  assert.deepEqual(body.entries.map((e)=>e.path),["assistant","files","subagents","z-dir","a.md"]);
   assert.deepEqual((await (await request(service,"/api/workspace/files?path=z-dir",{headers})).json()).entries,[]);
   for(const query of ["scope=anything","sessionId=main","path=..","path=/etc","path=a%5Cb"]) assert.equal((await request(service,`/api/workspace/files?${query}`,{headers})).status,400,query);
 });
@@ -320,8 +320,8 @@ test("workspace managed Markdown and settings endpoints read and replace the sam
     { path: "assistant/USER.md", settings: "/api/profile", key: "user" },
     { path: "assistant/SOUL.md", settings: "/api/profile", key: "soul" },
     { path: "assistant/INSTRUCTIONS.md", settings: "/api/assistant/instructions", key: "instructions" },
-    { path: "domains/news/INSTRUCTIONS.md", settings: "/api/news/preferences", key: "instructions" },
-    { path: "domains/sms/INSTRUCTIONS.md", settings: "/api/information/preferences", key: "instructions" },
+    { path: "subagents/news/INSTRUCTIONS.md", settings: "/api/news/preferences", key: "instructions" },
+    { path: "subagents/sms/INSTRUCTIONS.md", settings: "/api/information/preferences", key: "instructions" },
   ];
   for (const { path, settings, key } of entries) {
     const file = `/api/workspace/files/content?path=${path}`;

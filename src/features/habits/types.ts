@@ -1,6 +1,6 @@
 import type { UserReaction } from "../../shared/feedback.js";
 
-export const HABIT_DOMAIN_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
+export const HABIT_SUBAGENT_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 export const HABIT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 export const MAX_HABITS_PER_DOMAIN = 50;
@@ -19,7 +19,7 @@ export type HabitSource = "consolidated" | "manual";
 
 export type HabitItem = {
   id: string;
-  domain: string;
+  subagentId: string;
   text: string;
   source: HabitSource;
   createdAt: string;
@@ -83,7 +83,7 @@ export type HabitPendingSignal = {
 };
 
 export type HabitDomainSummary = {
-  domain: string;
+  subagentId: string;
   name: string;
   summary: string;
   running: boolean;
@@ -97,7 +97,7 @@ export type HabitDomainSummary = {
 };
 
 export type HabitDomainOverview = {
-  domain: string;
+  subagentId: string;
   name: string;
   summary: string;
   running: boolean;

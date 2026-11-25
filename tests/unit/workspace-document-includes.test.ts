@@ -13,8 +13,8 @@ const makeWorkspace = async (t: test.TestContext) => {
   const root = await mkdtemp(join(tmpdir(), "pi-muse-doc-includes-"));
   const workspace = join(root, "workspace");
   await mkdir(join(workspace, "assistant"), { recursive: true });
-  await mkdir(join(workspace, "domains", "sms"), { recursive: true });
-  await mkdir(join(workspace, "domains", "news"), { recursive: true });
+  await mkdir(join(workspace, "subagents", "sms"), { recursive: true });
+  await mkdir(join(workspace, "subagents", "news"), { recursive: true });
   await mkdir(join(workspace, "files"), { recursive: true });
   t.after(async () => {
     await rm(root, { recursive: true, force: true });
@@ -47,10 +47,10 @@ test("non-include documents, missing roots, middle rules and other frontmatter k
 
 test("frontmatter include resolves relative sibling, UTF-8, single string, inline array and CRLF paths", async (t) => {
   const { workspace } = await makeWorkspace(t);
-  const smsMain = join(workspace, "domains", "sms", "INSTRUCTIONS.md");
-  await writeFile(join(workspace, "domains", "sms", "bank.md"), "Notify bank fraud alerts.", "utf8");
-  await writeFile(join(workspace, "domains", "sms", "快递规则.md"), "Notify pickup codes only.", "utf8");
-  await writeFile(join(workspace, "domains", "sms", "empty.md"), "   \n\t  ", "utf8");
+  const smsMain = join(workspace, "subagents", "sms", "INSTRUCTIONS.md");
+  await writeFile(join(workspace, "subagents", "sms", "bank.md"), "Notify bank fraud alerts.", "utf8");
+  await writeFile(join(workspace, "subagents", "sms", "快递规则.md"), "Notify pickup codes only.", "utf8");
+  await writeFile(join(workspace, "subagents", "sms", "empty.md"), "   \n\t  ", "utf8");
   await writeFile(join(workspace, "files", "vip-contacts.md"), "Always notify Alice & Bob.", "utf8");
 
   await writeFile(
@@ -74,8 +74,8 @@ test("frontmatter include resolves relative sibling, UTF-8, single string, inlin
     resolved,
     [
       "Root SMS rule.",
-      "<!-- begin include: domains/sms/bank.md -->\nNotify bank fraud alerts.\n<!-- end include: domains/sms/bank.md -->",
-      "<!-- begin include: domains/sms/快递规则.md -->\nNotify pickup codes only.\n<!-- end include: domains/sms/快递规则.md -->",
+      "<!-- begin include: subagents/sms/bank.md -->\nNotify bank fraud alerts.\n<!-- end include: subagents/sms/bank.md -->",
+      "<!-- begin include: subagents/sms/快递规则.md -->\nNotify pickup codes only.\n<!-- end include: subagents/sms/快递规则.md -->",
       "<!-- begin include: files/vip-contacts.md -->\nAlways notify Alice & Bob.\n<!-- end include: files/vip-contacts.md -->",
     ].join("\n\n"),
   );
@@ -83,7 +83,7 @@ test("frontmatter include resolves relative sibling, UTF-8, single string, inlin
   await writeFile(smsMain, "---\ninclude: bank.md\n---\nSingle entry.", "utf8");
   const single = await readResolvedProfileFile(smsMain, workspace);
   assert.match(single, /^Single entry\./);
-  assert.match(single, /<!-- begin include: domains\/sms\/bank\.md -->\nNotify bank fraud alerts\./);
+  assert.match(single, /<!-- begin include: subagents\/sms\/bank\.md -->\nNotify bank fraud alerts\./);
 
   await writeFile(smsMain, "---\ninclude: [./bank.md, ../../files/vip-contacts.md]\n---\nInline array.", "utf8");
   const inline = await readResolvedProfileFile(smsMain, workspace);
@@ -95,7 +95,7 @@ test("frontmatter include resolves relative sibling, UTF-8, single string, inlin
   const onlyFrontmatter = await readResolvedProfileFile(smsMain, workspace);
   assert.equal(
     onlyFrontmatter,
-    "<!-- begin include: domains/sms/bank.md -->\nNotify bank fraud alerts.\n<!-- end include: domains/sms/bank.md -->",
+    "<!-- begin include: subagents/sms/bank.md -->\nNotify bank fraud alerts.\n<!-- end include: subagents/sms/bank.md -->",
   );
 });
 
@@ -140,7 +140,7 @@ test("cycles and diamond includes resolve safely without duplication or recursio
 
 test("missing, escaping, absolute, symlinked, directory and non-text includes are silently skipped", async (t) => {
   const { root: dataRoot, workspace } = await makeWorkspace(t);
-  const smsDir = join(workspace, "domains", "sms");
+  const smsDir = join(workspace, "subagents", "sms");
   const smsMain = join(smsDir, "INSTRUCTIONS.md");
   await writeFile(join(dataRoot, "outside-secret.txt"), "TOP-SECRET-OUTSIDE", "utf8");
   await writeFile(join(smsDir, "valid.md"), "VALID-INCLUDED-RULE", "utf8");
@@ -171,7 +171,7 @@ test("missing, escaping, absolute, symlinked, directory and non-text includes ar
 
   const resolved = await readResolvedProfileFile(smsMain, workspace);
   assert.ok(resolved.includes("Keep running safely."));
-  assert.ok(resolved.includes("<!-- begin include: domains/sms/valid.md -->\nVALID-INCLUDED-RULE\n<!-- end include: domains/sms/valid.md -->"));
+  assert.ok(resolved.includes("<!-- begin include: subagents/sms/valid.md -->\nVALID-INCLUDED-RULE\n<!-- end include: subagents/sms/valid.md -->"));
   assert.ok(!resolved.includes("TOP-SECRET-OUTSIDE"));
   assert.ok(!resolved.includes("internal-link.md"));
 

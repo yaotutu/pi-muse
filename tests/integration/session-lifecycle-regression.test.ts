@@ -157,12 +157,12 @@ test("instructions and workspace are shared while conversation JSONL is isolated
   assert.doesNotMatch(bRequest, /hello-A-ONLY/);
   assert.doesNotMatch(JSON.stringify(await h.snapshot(b.id)), /hello-A-ONLY/);
   const workspace = h.service().layout.workspaceDir;
-  assert.deepEqual((await readdir(workspace)).sort(), ["assistant", "domains", "files"]);
+  assert.deepEqual((await readdir(workspace)).sort(), ["assistant", "files", "subagents"]);
   await writeFile(join(workspace,"common.md"),"COMMON-FILE");
   await h.run(a.id,"读 common.md"); await h.run(b.id,"读 common.md");
   assert.match(JSON.stringify(await h.snapshot(a.id)),/COMMON-FILE/);
   assert.match(JSON.stringify(await h.snapshot(b.id)),/COMMON-FILE/);
-  assert.deepEqual((await readdir(workspace)).sort(), ["assistant", "common.md", "domains", "files"]);
+  assert.deepEqual((await readdir(workspace)).sort(), ["assistant", "common.md", "files", "subagents"]);
 });
 
 test("subagent is a stateless self-contained function and creates no workspace or session directory", async (t) => {
@@ -251,7 +251,7 @@ test("subagent ignores parent chat skills and custom extension hooks", async (t)
   assert.ok(child);
   assert.deepEqual(names(child), ["currentTime", "sms_get_instructions", "sms_query", "sms_update_instructions"]);
   assert.deepEqual(await h.service().actions.list(), []);
-  assert.deepEqual((await readdir(h.service().layout.workspaceDir)).sort(), ["assistant", "domains", "files"]);
+  assert.deepEqual((await readdir(h.service().layout.workspaceDir)).sort(), ["assistant", "files", "subagents"]);
 });
 
 test("an admitted reset finishes before a queued delete validates its preview", async (t) => {

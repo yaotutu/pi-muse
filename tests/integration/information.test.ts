@@ -204,7 +204,7 @@ test("information HTTP ingestion, SDK decisions, notifications and feedback proj
   const notification = afterNotify.messages.find((message) => message.id === receipt.messageId);
   assert.equal(notification?.metadata?.source, "notification");
   assert.ok(notification?.metadata?.notificationId);
-  assert.equal(notification?.metadata?.domainId, "sms");
+  assert.equal(notification?.metadata?.subagentId, "sms");
 
   await h.call(`/api/sessions/${sessionId}/messages/${encodeURIComponent(receipt.messageId)}/feedback/comments`, {
     method: "POST", body: JSON.stringify({ piSessionId: receipt.piSessionId, text: "old preference" }),
@@ -398,14 +398,14 @@ test("subagent stays declared and SMS cards remain excluded regardless of sms to
     const run = h.runChat(sessionId, `设定领域规则:${domain}:${instructions}`);
     const action = await waitForTest(async () => (await h.service().actions.snapshotPending())[0], "domain rule approval");
     assert.equal(action.kind, "file_write");
-    assert.equal(action.payload.path, `domains/${domain}/INSTRUCTIONS.md`);
+    assert.equal(action.payload.path, `subagents/${domain}/INSTRUCTIONS.md`);
     assert.equal(action.payload.content, instructions);
     assert.deepEqual((await h.call(endpoint)).body, before, "unapproved write must not change preferences");
     assert.equal((await h.call(`/api/approvals/${action.id}/decision`, { method: "POST", body: JSON.stringify({ decision: "approve" }) })).status, 200);
     assert.match(await run, /RUN_FINISHED/);
     assert.equal(((await h.call(endpoint)).body as { instructions: string }).instructions, instructions);
-    assert.equal(await readFile(join(h.dataDir, "workspace", "domains", domain, "INSTRUCTIONS.md"), "utf8"), instructions);
-    const path = `domains/${domain}/INSTRUCTIONS.md`;
+    assert.equal(await readFile(join(h.dataDir, "workspace", "subagents", domain, "INSTRUCTIONS.md"), "utf8"), instructions);
+    const path = `subagents/${domain}/INSTRUCTIONS.md`;
     const fileEndpoint = `/api/workspace/files/content?path=${encodeURIComponent(path)}`;
     const fromSettings = `  ${instructions}\n\n`;
     assert.equal((await h.call(endpoint, { method: "PUT", body: JSON.stringify({ instructions: fromSettings }) })).status, 200);

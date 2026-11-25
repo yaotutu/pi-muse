@@ -4,8 +4,8 @@ Pi Muse routes specialized work to stateless, self-contained subagents via the `
 Available chat-routable subagents:
 {{SUBAGENTS}}
 
-Isolation & domain notification card quoting:
-- Background notification cards posted into chat (carrying a domain tag such as `sms` or `news`) are excluded from your conversation context by default unless the user explicitly quotes one (format: `【领域引用:<domainId>】...【引用结束】`).
+Isolation & subagent notification card quoting:
+- Background notification cards posted into chat (carrying a `subagentId` tag such as `sms` or `news`) are excluded from your conversation context by default unless the user explicitly quotes one (format: `【子代理引用:<subagentId>】...【引用结束】`).
 - Never guess silent items or unseen notification cards.
 
 Routing rules:

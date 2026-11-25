@@ -129,7 +129,7 @@ export const newsRefreshResponseSchema = z.strictObject({
 });
 
 export const newsPreferencesResponseSchema = z.strictObject({
-  instructions: z.string().max(20000).describe("用户明确保存的新闻筛选指令（domains/news/INSTRUCTIONS.md）"),
+  instructions: z.string().max(20000).describe("用户明确保存的新闻 Subagent 筛选指令（subagents/news/INSTRUCTIONS.md）"),
   includes: z.array(workspaceIncludeDiagnosticSchema).describe("INSTRUCTIONS.md 顶部 YAML frontmatter `include:` 引用展开诊断"),
   habits: z.array(habitItemSchema).describe("通用习惯引擎从文章反馈自动归纳（或用户手动维护）的行为习惯列表"),
   unconsolidatedFeedbackCount: z.number().int().nonnegative().describe("去重后尚未归纳成长期习惯的文章反馈热缓冲条数"),

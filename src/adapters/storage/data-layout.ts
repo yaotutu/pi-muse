@@ -32,8 +32,8 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     companionsDir: join(assets, "companions"),
     assistantInstructionsFile: join(assistant, "INSTRUCTIONS.md"),
     assistantSkillOverridesFile: join(profileDir, "skill-overrides.json"),
-    newsInstructionsFile: join(workspaceDir, "domains", "news", "INSTRUCTIONS.md"),
-    smsInstructionsFile: join(workspaceDir, "domains", "sms", "INSTRUCTIONS.md"),
+    newsInstructionsFile: join(workspaceDir, "subagents", "news", "INSTRUCTIONS.md"),
+    smsInstructionsFile: join(workspaceDir, "subagents", "sms", "INSTRUCTIONS.md"),
     sessionIndexFile: join(sessionsDir, "index.json"),
     agentDir: join(runtime, "pi"), piAuthFile: join(runtime, "auth", "pi.json"),
     memoryMarkdownFile: join(profileDir, "memory.md"), identityFile: join(profileDir, "identity.json"),
@@ -63,8 +63,8 @@ export const ensureLayout = async (layout: DataLayout): Promise<void> => {
   const { root, workspaceDir } = layout;
   for (const directory of [
     root,
-    workspaceDir, join(workspaceDir, "assistant"), join(workspaceDir, "domains"),
-    join(workspaceDir, "domains", "news"), join(workspaceDir, "domains", "sms"), join(workspaceDir, "files"),
+    workspaceDir, join(workspaceDir, "assistant"), join(workspaceDir, "subagents"),
+    join(workspaceDir, "subagents", "news"), join(workspaceDir, "subagents", "sms"), join(workspaceDir, "files"),
     layout.sessionsDir, layout.stateDir, layout.profileDir,
     join(root, "assets"), layout.companionsDir, layout.skillsDir,
     join(root, "runtime"), join(root, "runtime", "auth"), layout.agentDir,
