@@ -27,7 +27,7 @@ import type { InformationScheduler } from "../features/information/scheduler.js"
 import type { BrowserService } from "../features/browser/browser-service.js";
 import type { NewsService } from "../features/news/service.js";
 import type { NewsRepository } from "../features/news/types.js";
-import type { DomainAgentRegistry } from "../features/domain-agents/registry.js";
+import type { SubagentRegistry } from "../features/subagents/registry.js";
 import type { ManagedSqliteDatabase } from "../adapters/storage/sqlite-database.js";
 import type { DatabaseService } from "../features/database/database-service.js";
 
@@ -63,7 +63,7 @@ export type ServiceContainer = {
   information: InformationService;
   informationScheduler: InformationScheduler;
   news: NewsService;
-  domainAgents: DomainAgentRegistry;
+  subagents: SubagentRegistry;
   /** news.sqlite 的聚合仓储与唯一 Managed 连接；AgentSQL 工具复用同一实例。 */
   newsRepository: NewsRepository;
   newsDatabase: ManagedSqliteDatabase;
@@ -75,5 +75,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "androidUpdates" | "companions" | "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "habits" | "information" | "news" | "sessions" | "browser" | "messageFeedbackRepository"
+  "androidUpdates" | "companions" | "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "traces" | "dream" | "habits" | "information" | "news" | "subagents" | "sessions" | "browser" | "messageFeedbackRepository"
 >;

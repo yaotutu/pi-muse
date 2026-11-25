@@ -259,8 +259,11 @@ test("information HTTP ingestion, SDK decisions, notifications and feedback proj
   const chatStream = await h.runChat(sessionId, "查询信息");
   assert.match(chatStream, /RUN_FINISHED/);
   assert.ok(h.model.requests.slice(chatTraceBaseline).some((request) =>
-    requestToolNames(request).includes("domain_agent") &&
+    requestToolNames(request).includes("subagent") &&
     request.messages.some((message) => requestText(message.content).includes("查询信息")),
+  ));
+  assert.ok(h.model.requests.slice(chatTraceBaseline).some((request) =>
+    requestToolNames(request).includes("sms_query"),
   ));
 
   const topic = await h.service().sessions.create("专题不接收短信");
@@ -307,7 +310,7 @@ test("ordinary chat excludes SMS notification cards from model context without r
   const firstRequests = h.model.requests.slice(chatBaseline);
   assert.ok(firstRequests.length >= 1);
   assert.ok(firstRequests.every((request) =>
-    request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Background domain agents")),
+    request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Specialized subagents")),
   ));
   // 短信偏好不污染 main 系统提示词，短信卡片也不进入普通对话大模型上下文
   assert.ok(firstRequests.every((request) =>
@@ -331,7 +334,7 @@ test("ordinary chat excludes SMS notification cards from model context without r
   ));
 });
 
-test("domain_agent stays declared and SMS cards remain excluded regardless of sms toggle", async (t) => {
+test("subagent stays declared and SMS cards remain excluded regardless of sms toggle", async (t) => {
   const h = await fixture(t);
   const sessionId = "main";
   await h.setupPipeline({ enabled: false, batchWindowSeconds: 3600 });
@@ -341,8 +344,8 @@ test("domain_agent stays declared and SMS cards remain excluded regardless of sm
   const closedRequests = h.model.requests.slice(closedBaseline);
   assert.ok(closedRequests.length >= 1);
   for (const request of closedRequests) {
-    assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Background domain agents")));
-    assert.equal(requestToolNames(request).includes("domain_agent"), true);
+    assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Specialized subagents")));
+    assert.equal(requestToolNames(request).includes("subagent"), true);
   }
 
   await h.setupPipeline({ enabled: true, batchWindowSeconds: 3600 });
@@ -359,8 +362,8 @@ test("domain_agent stays declared and SMS cards remain excluded regardless of sm
   const enabledRequests = h.model.requests.slice(enabledBaseline);
   assert.ok(enabledRequests.length >= 1);
   for (const request of enabledRequests) {
-    assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Background domain agents")));
-    assert.equal(requestToolNames(request).includes("domain_agent"), true);
+    assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Specialized subagents")));
+    assert.equal(requestToolNames(request).includes("subagent"), true);
     assert.ok(request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")));
   }
 
@@ -368,7 +371,7 @@ test("domain_agent stays declared and SMS cards remain excluded regardless of sm
   const otherBaseline = h.model.requests.length;
   await h.runChat(other.id, "另一个会话普通回复");
   for (const request of h.model.requests.slice(otherBaseline)) {
-    assert.equal(requestToolNames(request).includes("domain_agent"), true);
+    assert.equal(requestToolNames(request).includes("subagent"), true);
     assert.ok(!request.messages.some((message) => requestText(message.content).includes("INFORMATION-NOTIFY")));
   }
 
@@ -379,8 +382,8 @@ test("domain_agent stays declared and SMS cards remain excluded regardless of sm
   await h.runChat(sessionId, "关闭后普通回复");
   const disabledRequests = h.model.requests.slice(disabledBaseline);
   for (const request of disabledRequests) {
-    assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Background domain agents")));
-    assert.equal(requestToolNames(request).includes("domain_agent"), true);
+    assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Specialized subagents")));
+    assert.equal(requestToolNames(request).includes("subagent"), true);
     assert.ok(request.messages.filter((message) => message.role === "assistant").every((message) => !requestText(message.content).includes("INFORMATION-NOTIFY")));
   }
 

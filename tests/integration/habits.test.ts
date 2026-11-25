@@ -205,8 +205,8 @@ test("habits HTTP CRUD, validation, and model consolidation failure preservation
   assert.equal(newsPrefs.habits.length, 1);
   assert.equal(newsPrefs.unconsolidatedFeedbackCount, 0);
 
-  // Also verify domain_agent tool sees `habits` snapshot directly!
-  const overviewSnap = await h.service.domainAgents.getInstructions("sms");
-  assert.equal(overviewSnap.habits.length, 1);
+  // Also verify unified subagent registry detail sees `habits` snapshot directly!
+  const smsDetail = await h.service.subagents.getDetail("sms");
+  assert.equal(smsDetail.userInstructions?.habits.length, 1);
   assert.equal(randomUUID().length > 0, true);
 });

@@ -111,7 +111,7 @@ const execute = async (options: LiveOptions) => {
         },
       },
     }));
-    await enableBuiltinSkills(service, ["task", "browser"]);
+    await enableBuiltinSkills(service, ["browser"]);
 
     http = serve({ fetch: service.app.fetch, hostname: "127.0.0.1", port: 0 });
     if (!http.listening) await once(http, "listening");

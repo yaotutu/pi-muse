@@ -245,14 +245,18 @@ export async function createFakeModel() {
       }
       let selected: { name: string; args: object } | undefined;
       if (last === "E2E parallel") selected = { name: "subagent", args: { mode: "parallel", tasks: [
-        { agent: "scout", task: "E2E clock A" }, { agent: "reviewer", task: "E2E clock B" },
+        { agent: "sms", task: "E2E clock A" }, { agent: "news", task: "E2E clock B" },
       ] } };
       else if (last === "E2E chain") selected = { name: "subagent", args: { mode: "chain", tasks: [
-        { agent: "worker", task: "E2E seed" }, { agent: "reviewer", task: "E2E previous {previous}" },
+        { agent: "sms", task: "E2E seed" }, { agent: "news", task: "E2E previous {previous}" },
       ] } };
-      else if (last === "E2E single") selected = { name: "subagent", args: { mode: "single", tasks: [{ agent: "worker", task: "E2E clock single" }] } };
+      else if (last === "E2E single") selected = { name: "subagent", args: { mode: "single", tasks: [{ agent: "sms", task: "E2E clock single" }] } };
+      else if (last === "E2E browser single") selected = { name: "subagent", args: { mode: "single", tasks: [{ agent: "browser", task: "E2E clock single" }] } };
+      else if (last === "E2E browser parallel") selected = { name: "subagent", args: { mode: "parallel", tasks: [
+        { agent: "browser", task: "E2E clock A" }, { agent: "sms", task: "E2E clock B" },
+      ] } };
       else if (last.startsWith("E2E web ")) selected = { name: "web_fetch", args: { url: last.slice("E2E web ".length) } };
-      else if (last.startsWith("E2E child-web ")) selected = { name: "subagent", args: { mode: "single", tasks: [{ agent: "worker", task: "E2E web " + last.slice("E2E child-web ".length) }] } };
+      else if (last.startsWith("E2E child-web ")) selected = { name: "subagent", args: { mode: "single", tasks: [{ agent: "sms", task: "E2E web " + last.slice("E2E child-web ".length) }] } };
       else if (last === "Task: E2E seed") {
         event({ content: "E2E-CHAIN-SEED" }); event({}, "stop"); res.end("data: [DONE]\n\n"); return;
       } else if (last.startsWith("Task: E2E previous ")) {
@@ -293,7 +297,7 @@ export async function createFakeModel() {
       }
       if (toolResults.length === 1 && /活动子代理/.test(last) && declaresTool("subagent")) {
         event({ role: "assistant" });
-        event(toolCall("subagent", { mode: "single", tasks: [{ agent: "worker", task: "子代理完成部分调研" }] }));
+        event(toolCall("subagent", { mode: "single", tasks: [{ agent: "sms", task: "子代理完成部分调研" }] }));
         event({}, "tool_calls");
         res.end("data: [DONE]\n\n");
         return;
@@ -400,21 +404,20 @@ export async function createFakeModel() {
     if (declaresTool("subagent") && /子代理/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });
       const task = /子代理写入/.test(last) ? "帮我写入草稿" : /子代理挂起/.test(last) ? "freeze" : /子代理读取/.test(last) ? "读 subagent-test.md" : "Reply SUBAGENT-MARKER";
-      event(toolCall("subagent", { mode: "single", tasks: [{ agent: /只读子代理/.test(last) ? "scout" : "worker", task }] }));
+      const targetAgent = /只读子代理/.test(last) ? "browser" : "sms";
+      event(toolCall("subagent", { mode: "single", tasks: [{ agent: targetAgent, task }] }));
       event({}, "tool_calls");
       res.end("data: [DONE]\n\n");
       return;
     }
-    // 领域规则修改测试触发词优先于"提醒我"日程规则匹配。
-    if (declaresTool("domain_agent") && !pendingToolResult) {
+    // 领域规则修改与查询：主聊天路由给 sms / news subagent，子代理内部调用对应专属工具。
+    if (declaresTool("subagent") && !pendingToolResult) {
       const ruleMatch = last.match(/设定领域规则:([a-z][a-z0-9_-]*):([^\n]+)/);
       if (ruleMatch) {
         event({ role: "assistant" });
-        event(toolCall("domain_agent", {
-          action: "update_instructions",
-          domain: ruleMatch[1]!,
-          instructions: ruleMatch[2]!.trim(),
-          reason: "test rule update",
+        event(toolCall("subagent", {
+          mode: "single",
+          tasks: [{ agent: ruleMatch[1]!, task: last }],
         }));
         event({}, "tool_calls");
         res.end("data: [DONE]\n\n");
@@ -422,7 +425,42 @@ export async function createFakeModel() {
       }
       if (/查询信息/.test(last)) {
         event({ role: "assistant" });
-        event(toolCall("domain_agent", { action: "query", domain: "sms", queryAction: "overview" }));
+        event(toolCall("subagent", {
+          mode: "single",
+          tasks: [{ agent: "sms", task: "查询信息" }],
+        }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+    }
+    // 专职 sms / news 子代理执行内部工具
+    if ((declaresTool("sms_update_instructions") || declaresTool("news_update_instructions")) && !pendingToolResult) {
+      const ruleMatch = last.match(/设定领域规则:([a-z][a-z0-9_-]*):([^\n]+)/);
+      if (ruleMatch) {
+        const prefix = ruleMatch[1] === "news" ? "news" : "sms";
+        event({ role: "assistant" });
+        event(toolCall(`${prefix}_update_instructions`, {
+          instructions: ruleMatch[2]!.trim(),
+          reason: "test rule update",
+        }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+      if (/帮我写入草稿/.test(last) && declaresTool("sms_update_instructions")) {
+        event({ role: "assistant" });
+        event(toolCall("sms_update_instructions", {
+          instructions: "# 短信审批写入测试\n",
+          reason: "subagent approval test",
+        }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+      if (/查询信息/.test(last) && declaresTool("sms_query")) {
+        event({ role: "assistant" });
+        event(toolCall("sms_query", { action: "overview" }));
         event({}, "tool_calls");
         res.end("data: [DONE]\n\n");
         return;

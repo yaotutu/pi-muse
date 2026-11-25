@@ -35,8 +35,8 @@ const safeTarget = async (root: string, path: string, boundaryDir?: string) => {
   };
 };
 
-const validateText = (content: string, managed: boolean, subagentId?: string) => {
-  if (managed && subagentId) return "Subagents cannot modify managed setting files.";
+const validateText = (content: string, managed: boolean, subagentId?: string, allowManagedForSubagent?: boolean) => {
+  if (managed && subagentId && !allowManagedForSubagent) return "Subagents cannot modify managed setting files.";
   if (managed && content.length > ASSISTANT_TEXT_LIMIT) return `Settings text exceeds ${ASSISTANT_TEXT_LIMIT} characters.`;
   if (!isWorkspaceText(content)) return "File content must be valid UTF-8 without NUL bytes.";
 };
@@ -50,6 +50,7 @@ export const createWritableFileTools = (
   boundaryDir?: string,
   observation?: ActivityToolObservation,
   commitQueue?: WorkspaceCommitQueue,
+  options?: { allowManagedForSubagent?: boolean },
 ) => [
   defineTool({
     name: "write", label: "Write file",
@@ -72,7 +73,7 @@ export const createWritableFileTools = (
         return deniedResult("Access denied: unsafe or unreadable file path.");
       }
       const content = params.content;
-      const validationError = validateText(content, managed, context?.subagentId);
+      const validationError = validateText(content, managed, context?.subagentId, options?.allowManagedForSubagent);
       if (validationError) return deniedResult(validationError);
       const approved = await awaitFileApproval(
         actions,
@@ -135,7 +136,7 @@ export const createWritableFileTools = (
       const content = original.content.slice(0, first) + params.newText + original.content.slice(first + params.oldText.length);
       if (Buffer.byteLength(content, "utf8") > MAX_TEXT_FILE_BYTES)
         return deniedResult("File too large: edited files are limited to 100KB.");
-      const validationError = validateText(content, managed, context?.subagentId);
+      const validationError = validateText(content, managed, context?.subagentId, options?.allowManagedForSubagent);
       if (validationError) return deniedResult(validationError);
       const approved = await awaitFileApproval(
         actions,

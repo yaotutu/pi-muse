@@ -1,20 +1,20 @@
 import type { ContextEvent, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { DomainAgentPromptSummary } from "../../features/domain-agents/types.js";
+import type { SubagentChatDescriptor } from "../../features/subagents/types.js";
 import { renderPrompt } from "../prompts/loader.js";
 import { notificationDomainIdOf } from "./notification-message.js";
 
 type AgentMessage = ContextEvent["messages"][number];
 
-export const DOMAIN_AGENTS_HEADING = "Background domain agents";
+export const SUBAGENTS_HEADING = "Specialized subagents";
 
-export const buildDomainAgentsSystemPrompt = (
-  domains: readonly DomainAgentPromptSummary[],
+export const buildSubagentsSystemPrompt = (
+  subagents: readonly SubagentChatDescriptor[],
 ): string => {
-  const domainLines = domains.map(
-    (domain) => `- \`${domain.id}\` (${domain.name}): ${domain.summary}`,
+  const lines = subagents.map(
+    (agent) => `- \`${agent.id}\` (${agent.name}): ${agent.description}`,
   );
-  return `\n${renderPrompt("assistant/domain-agents.md", {
-    DOMAINS: domainLines.join("\n"),
+  return `\n${renderPrompt("assistant/subagents.md", {
+    SUBAGENTS: lines.join("\n"),
   })}`;
 };
 

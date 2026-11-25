@@ -13,6 +13,7 @@ import * as habits from "./habits.js";
 import * as information from "./information.js";
 import * as companion from "./companions.js";
 import * as news from "./news.js";
+import * as subagent from "./subagents.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
 import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
 
@@ -385,7 +386,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateInformationPreferences",
     method: "put", path: "/api/information/preferences", tag: "信息后台", summary: "保存信息领域指令",
-    hint: "保存用户指令 instructions 原文（最多 20000 字符；空串清空；保留顶部 YAML frontmatter `include:` 引用并返回最新 includes 诊断）到 domains/sms/INSTRUCTIONS.md，最后保存生效，不写主会话 assistant/INSTRUCTIONS.md；也可通过主对话 domain_agent 工具修改。",
+    hint: "保存用户指令 instructions 原文（最多 20000 字符；空串清空；保留顶部 YAML frontmatter `include:` 引用并返回最新 includes 诊断）到 domains/sms/INSTRUCTIONS.md，最后保存生效，不写主会话 assistant/INSTRUCTIONS.md；也可通过主对话路由至 sms subagent 修改。",
     auth: true, request: information.informationPreferencesRequestSchema, response: information.informationPreferencesResponse,
     errorResponses: {
       400: { description: "非法请求或超长 instructions", schema: resp.errorResponse },
@@ -611,11 +612,32 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateNewsPreferences",
     method: "put", path: "/api/news/preferences", tag: "新闻", summary: "保存新闻领域指令",
-    hint: "instructions 最多 20000 字符，空串清空；最后成功保存生效，原样保留顶部 YAML frontmatter `include:` 引用并返回最新 includes 诊断。本接口和工作区文件页编辑同一份 workspace/domains/news/INSTRUCTIONS.md，也不触发模型；也可在主聊天通过 domain_agent 调整。",
+    hint: "instructions 最多 20000 字符，空串清空；最后成功保存生效，原样保留顶部 YAML frontmatter `include:` 引用并返回最新 includes 诊断。本接口和工作区文件页编辑同一份 workspace/domains/news/INSTRUCTIONS.md，也不触发模型；也可在主聊天路由至 news subagent 调整。",
     auth: true, request: news.newsPreferencesUpdateRequestSchema, response: news.newsPreferencesResponseSchema,
     errorResponses: {
       400: { description: "非法请求或超长 instructions", schema: resp.errorResponse },
       503: { description: "服务正在关闭；指令未保存", schema: resp.errorResponse },
+    },
+  },
+  // ---- 专职 Subagent 检视（只读）----
+  {
+    operationId: "listSubagents",
+    method: "get", path: "/api/subagents", tag: "Subagents", summary: "列出服务端已注册的全部专职 Subagent 及其能力绑定",
+    hint: "返回全仓统一注册中心内的所有专职 Subagent（如 sms、news、browser、habits、dream），包含各 Subagent 的触发入口（chat/background）、启用状态、纯函数执行策略、静态绑定的工具/技能/MCP 槽位以及各维度可编辑性元信息。",
+    auth: true, response: subagent.subagentsListResponseSchema,
+    errorResponses: {
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "getSubagent",
+    method: "get", path: "/api/subagents/:id", tag: "Subagents", summary: "查看单个专职 Subagent 的完整配置、提示词与能力详情",
+    hint: "只读返回目标 Subagent 的完整详情，包括全部内置系统提示词原文与来源路径、静态绑定的工具/技能/MCP 列表，以及（若关联）工作区用户指令原文、include 诊断与已归纳习惯快照。当前仅开放只读检视，不在此接口提供修改。",
+    auth: true, response: subagent.subagentDetailResponseSchema,
+    errorResponses: {
+      400: { description: "非法 Subagent ID 格式", schema: resp.errorResponse },
+      404: { description: "Subagent 不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
   // ---- 增量聊天（AG-UI SSE 输出）----
@@ -626,10 +648,10 @@ export const endpoints: EndpointSpec[] = [
       "message.attachments 最多 4 项，随本条消息一次性提交：PNG/JPEG/GIF/WebP 单图最大 8MiB，全部原始字节合计最大 8MiB，严格 UTF-8 文本合计最大 100000 字节；请求体上限 12MiB，超限在 SSE/历史/模型开始前返回 413 REQUEST_TOO_LARGE。图片需要当前单业务模型支持视觉，服务端不自动换模型、不静默丢图；PDF/Office/压缩包及其他二进制拒绝，SVG/HTML 只按不可信文本处理。completed 重放或失败显式重试必须保持附件顺序与字节 SHA-256 身份一致。" +
       "主模型可调用 database 工具自主操作 main/news 托管 SQLite：可查询、写入、建表、改列和删表，无逐次 SQL 审批或表级权限。news 与新闻 API 共用同一数据库；main 是默认库，不表示其他业务已全部迁入。该工具不接受任意文件路径、不附加外部数据库或加载扩展；文件 write/edit 的审批边界不变。" +
       "database 的调用/结果按现有 tools.presentation 的 hidden/summary 投影，工具帧隐藏 SQL 参数和原始行；模型仍可能在最终回答中引用结果。Stop 不保证中断已开始的同步 SQL，已提交修改不会因稍后取消而撤销。结果未明先查询核对，不自动重放。" +
-      "主模型可在本轮调用 subagent 工具（官方 pi 1.3.0 示例适配），子会话返回结果后主模型继续；这不是独立后台任务队列，不提供创建子任务的 HTTP 接口。" +
-      "工具参数为单个 {agent,task}、并行 {tasks:[{agent,task}]} 或链式 {chain:[{agent,task}]} 三选一；最多8项，最多4个子会话并发，链式用 {previous} 引用上一步结果，失败即停止。" +
+      "主模型可在本轮调用 subagent 工具将专职任务路由至服务端已注册且开放 chat 触发的专职 Subagent（如 sms、news、browser），子会话返回结果后主模型继续；这不是独立后台任务队列，不提供创建子任务的 HTTP 接口（可通过 GET /api/subagents 检视全部 Subagent 配置）。" +
+      "工具参数统一为 {mode: 'single'|'parallel'|'chain', tasks: [{agent, task}]}；最多 8 项，最多 4 个子会话并发，链式用 {previous} 引用上一步结果，失败即停止；独占资源类 Subagent（如 browser）在 parallel 模式下会被拒绝。" +
       "subagent 的客户端卡片按 tools.presentation 的 hidden/summary 策略显示，参数正文不透出；父 SSE 不直接嵌套子会话聊天流或暴露原始工具详情。" +
-      "子代理只使用内存上下文，所有会话共用同一个扁平工作区，不创建任何子目录；写入仍逐次审批，审批 sessionId/runId 绑定父运行。Stop、父超时、删除会话和聊天流断开会同时取消并等待子会话清理；不会在服务重启后自动续跑。",
+      "所有 Subagent 均遵循纯函数语义（无跨次聊天上下文），仅在单次执行周期内拥有独立内存会话记录，所有会话共用同一个扁平工作区，不创建任何子目录；写工作区规则仍走版本绑定人工审批，审批 sessionId/runId 绑定父运行。Stop、父超时、删除会话和聊天流断开会同时取消并等待子会话清理；不会在服务重启后自动续跑。",
     auth: true, request: req.runRequestSchema, response: z.object({}).describe("SSE 流"),
     errorResponses: {
       400: { description: "非法消息、附件或会话 ID；未创建可见用户轮", schema: resp.errorResponse },

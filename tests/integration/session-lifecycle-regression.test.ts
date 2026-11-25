@@ -165,24 +165,21 @@ test("instructions and workspace are shared while conversation JSONL is isolated
   assert.deepEqual((await readdir(workspace)).sort(), ["assistant", "common.md", "domains", "files"]);
 });
 
-test("subagent is an in-memory function and creates no workspace or session directory", async (t) => {
+test("subagent is a stateless self-contained function and creates no workspace or session directory", async (t) => {
   const h = await fixture(t);
   const sessionDirectories = async () => (await readdir(h.service().layout.sessionsDir, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
   const beforeDirs = await sessionDirectories();
   const beforeFiles = await readdir(h.service().layout.workspaceDir);
-  await h.service().information.saveSettings({enabled:true,batchWindowSeconds:3600});
-  await enableBuiltinSkills(h.service(), ["task", "skill-creator", "browser"]);
+  await h.service().information.saveSettings({ enabled: true, batchWindowSeconds: 3600 });
+  await enableBuiltinSkills(h.service(), ["skill-creator", "browser"]);
   await h.run("main", "子代理，问一下现在时间");
   assert.deepEqual(await sessionDirectories(), beforeDirs);
   assert.deepEqual(await readdir(h.service().layout.workspaceDir), beforeFiles);
-  const child = h.model.requests.find((r) => JSON.stringify(r.messages).includes("## Subagent role"));
-  assert.ok(child,"must actually execute a child model request");
-  const namesOf=(request:typeof child)=>(request.tools??[]).map((tool)=>(tool as {function:{name:string}}).function.name).sort();
-  const parent=h.model.requests.find((request)=>!JSON.stringify(request.messages).includes("## Subagent role"))!;
-  const blocked=new Set(["bash","subagent","schedule","monitor","activity","instructions"]);
-  assert.deepEqual(namesOf(child),namesOf(parent).filter((name)=>!blocked.has(name)));
-  for(const inherited of ["skills","browser","domain_agent"])assert.ok(namesOf(child).includes(inherited),inherited);
+  const child = h.model.requests.find((r) => JSON.stringify(r.messages).includes("短信专职子代理"));
+  assert.ok(child, "must actually execute a child model request");
+  const namesOf = (request: typeof child) => (request.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name).sort();
+  assert.deepEqual(namesOf(child), ["currentTime", "sms_get_instructions", "sms_query", "sms_update_instructions"]);
   assert.match(JSON.stringify(await h.snapshot("main")), /SUBAGENT-MARKER/);
 });
 
@@ -192,7 +189,7 @@ test("reset rotates only pi identity, cancels approvals and preserves title, rul
   await h.run(id,"hello before reset");
   const before = await h.snapshot(id);
   await h.request(`/api/assistant/instructions`,"PUT",{instructions:"KEEP-RULE"});
-  await h.request(`/api/assistant/skills`,"PUT",{overrides:{"builtin/task":false}});
+  await h.request(`/api/assistant/skills`,"PUT",{overrides:{"builtin/web":false}});
   await writeFile(join(h.service().layout.workspaceDir,"keep.md"),"KEEP-FILE");
   const pending = await h.service().actions.submit("file_write","pending",{path:"keep.md",content:"new",originalContent:"KEEP-FILE",beforeExists:"true"},{sessionId:id,runId:"pending"});
   const reset = await h.request(`/api/sessions/${id}/reset`,"POST",{});
@@ -205,7 +202,7 @@ test("reset rotates only pi identity, cancels approvals and preserves title, rul
   const after = await h.snapshot(id);
   assert.notEqual(after.piSessionId,before.piSessionId); assert.deepEqual(after.messages,[]);
   assert.equal((await (await h.request(`/api/assistant/instructions`)).json()).instructions,"KEEP-RULE");
-  assert.equal((await h.service().skills.describe()).skills.find((s)=>s.name==="task")?.enabled,false);
+  assert.equal((await h.service().skills.describe()).skills.find((s)=>s.name==="web")?.enabled,false);
   assert.equal(await readFile(join(h.service().layout.workspaceDir,"keep.md"),"utf8"),"KEEP-FILE");
 });
 test("missing-file diagnostics are safe in SSE, next model request, JSONL and reopened history", async (t) => {
@@ -232,33 +229,28 @@ test("missing-file diagnostics are safe in SSE, next model request, JSONL and re
 });
 
 
-test("subagent uses the SDK active-tool snapshot and extension hooks cannot reactivate child tools",async(t)=>{
-  const h=await fixture(t);
-  await mkdir(h.service().layout.subagentsDir,{recursive:true});
-  await writeFile(join(h.service().layout.subagentsDir,"worker.md"),"---\nname: worker\ndescription: Role may only narrow the parent snapshot.\ntools: currentTime, write, skills, subagent\n---\nReturn a concise result.\n");
-  const skill=join(h.service().layout.skillsDir,"snapshot-scope");
-  await mkdir(skill,{recursive:true});
-  await writeFile(join(skill,"SKILL.md"),"---\nname: snapshot-scope\ndescription: Isolated extension permission regression.\n---\nUse the current tool set.\n");
+test("subagent ignores parent chat skills and custom extension hooks", async (t) => {
+  const h = await fixture(t);
+  await h.service().information.saveSettings({ enabled: true, batchWindowSeconds: 3600 });
+  const skill = join(h.service().layout.skillsDir, "snapshot-scope");
+  await mkdir(skill, { recursive: true });
+  await writeFile(join(skill, "SKILL.md"), "---\nname: snapshot-scope\ndescription: Isolated extension permission regression.\n---\nUse the current tool set.\n");
   await h.service().skills.updateOverrides({
-    "builtin/task": true, "builtin/write": true, "builtin/skill-creator": true,
+    "builtin/write": true, "builtin/skill-creator": true,
     "user/snapshot-scope": true,
   });
-  await writeFile(join(skill,"extension.ts"),`export default function(pi) {
+  await writeFile(join(skill, "extension.ts"), `export default function(pi) {
     pi.on("agent_start", () => {
       if (pi.getActiveTools().includes("subagent")) pi.setActiveTools(["subagent", "currentTime"]);
       else pi.setActiveTools(["write", "currentTime"]);
     });
   }`);
-  await h.run("main","子代理执行一个简单问题");
-  const names=(request:typeof h.model.requests[number])=>(request.tools??[]).map((tool)=>(tool as {function:{name:string}}).function.name).sort();
-  const parent=h.model.requests.find((request)=>!JSON.stringify(request.messages).includes("## Subagent role"))!;
-  const child=h.model.requests.find((request)=>JSON.stringify(request.messages).includes("## Subagent role"))!;
+  await h.run("main", "子代理执行一个简单问题");
+  const names = (request: typeof h.model.requests[number]) => (request.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name).sort();
+  const child = h.model.requests.find((request) => JSON.stringify(request.messages).includes("短信专职子代理"))!;
   assert.ok(child);
-  assert.ok(names(parent).includes("subagent"));
-  // 父装配候选含 write，但子调用接纳时 SDK 活跃快照已被可信扩展收窄。
-  assert.ok(names(parent).includes("write"));
-  assert.deepEqual(names(child),["currentTime"]);
-  assert.deepEqual(await h.service().actions.list(),[]);
+  assert.deepEqual(names(child), ["currentTime", "sms_get_instructions", "sms_query", "sms_update_instructions"]);
+  assert.deepEqual(await h.service().actions.list(), []);
   assert.deepEqual((await readdir(h.service().layout.workspaceDir)).sort(), ["assistant", "domains", "files"]);
 });
 

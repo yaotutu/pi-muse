@@ -1,5 +1,6 @@
 import { COMPANION_STATES, COMPANION_PACK_ID_PATTERN } from "../features/companions/types.js";
 import { HABIT_DOMAIN_PATTERN, HABIT_ID_PATTERN } from "../features/habits/types.js";
+import { SUBAGENT_ID_PATTERN } from "../features/subagents/types.js";
 import { SESSION_ID_PATTERN } from "../features/conversation/session-id.js";
 import { z } from "zod";
 import { endpoints } from "./contracts/endpoints.js";
@@ -62,6 +63,7 @@ const describePathParam = (path: string, name: string): string => {
     if (path.includes("/approvals/")) return "审批项唯一标识（如 apv_...）";
     if (path.includes("/information/items/")) return "信息原始条目唯一标识（info_...）";
     if (path.includes("/information/runs/")) return "信息处理 run 唯一标识（inforun_...）";
+    if (path.startsWith("/api/subagents/")) return "已注册的专职 Subagent 唯一标识（如 sms、news、browser、habits、dream；小写字母开头）";
     return "目标资源唯一标识";
   }
   if (path.startsWith("/api/habits/")) {
@@ -88,6 +90,8 @@ const pathParams = (path: string) => {
           ? { type: "string" as const, enum: [...COMPANION_STATES], description }
         : name === "sessionId"
         ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: SESSION_ID_PATTERN.source, description }
+        : path.startsWith("/api/subagents/") && name === "id"
+          ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: SUBAGENT_ID_PATTERN.source, description }
         : path.startsWith("/api/habits/") && name === "domain"
           ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: HABIT_DOMAIN_PATTERN.source, description }
         : path.startsWith("/api/habits/") && name === "habitId"

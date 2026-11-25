@@ -1,6 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ConversationNotification } from "../../features/conversation/types.js";
-import { DOMAIN_ID_PATTERN } from "../../features/domain-agents/types.js";
+import { SUBAGENT_ID_PATTERN } from "../../features/subagents/types.js";
 
 /**
  * 服务端生成的确定性通知，不代表模型回复，也没有 token 消耗。
@@ -42,5 +42,5 @@ export const notificationDomainIdOf = (message: AssistantMessage): string | unde
   if (!id) return undefined;
   const domainId = "personalBotDomainId" in message ? message.personalBotDomainId : undefined;
   if (domainId === undefined) return legacySmsNotificationId.test(id) ? "sms" : undefined;
-  return typeof domainId === "string" && DOMAIN_ID_PATTERN.test(domainId) ? domainId : undefined;
+  return typeof domainId === "string" && SUBAGENT_ID_PATTERN.test(domainId) ? domainId : undefined;
 };

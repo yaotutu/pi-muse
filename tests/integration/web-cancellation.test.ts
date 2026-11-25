@@ -12,8 +12,8 @@ import { createConfig } from "../../src/config/load-config.js";
 import type { ModelRequest } from "../support/fake-model.js";
 
 /** HTTP、工具和pi都是真实链路；provider仅用固定工具请求保证每次覆盖在途取消。 */
-for (const delegated of [false, true]) {
-  test(`${delegated ? "subagent" : "foreground"} Stop aborts an in-flight web_fetch socket and releases the parent`, { timeout: 15_000 }, async (t) => {
+test("foreground Stop aborts an in-flight web_fetch socket and releases the parent", { timeout: 15_000 }, async (t) => {
+    const delegated = false;
     const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-web-stop-"));
     let service: Awaited<ReturnType<typeof createService>> | undefined;
     const providerRequests: ModelRequest[] = [];
@@ -66,7 +66,7 @@ for (const delegated of [false, true]) {
       runtime: { dataDir, runTimeoutMs: 12_000, schedulerIntervalMs: 60_000, monitorScanIntervalMs: 60_000 },
       tools: { web: { allowPrivateTargets: true, timeoutMs: 30_000 } },
     }));
-    await enableBuiltinSkills(service, delegated ? ["web", "task"] : ["web"]);
+    await enableBuiltinSkills(service, ["web"]);
     const headers = { Authorization: `Bearer ${service.auth.login()}`, "content-type": "application/json" };
     const runId = randomUUID();
     const running = Promise.resolve(service.app.request("/api/conversation/run", {
@@ -84,6 +84,5 @@ for (const delegated of [false, true]) {
     assert.match(text, /"code":"STOPPED"/);
     assert.ok(!text.includes('"type":"RUN_FINISHED"'));
     assert.equal((await service.conversationHub.forSession("main")).isRunning(), false);
-    assert.equal(providerRequests.length, delegated ? 2 : 1, "cancelled tool must not start another model turn");
+    assert.equal(providerRequests.length, 1, "cancelled tool must not start another model turn");
   });
-}

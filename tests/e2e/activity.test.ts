@@ -30,7 +30,8 @@ const fixture = async (t: TestContext, options: Partial<Omit<ServiceProcessOptio
   assert.equal(login.status, 200);
   const { token } = await login.json();
   const client = createTestClient(() => service!.baseUrl, token, 45_000, t.signal);
-  await client.enableSkills(["task", "write"]);
+  await client.enableSkills(["write"]);
+  await client.json("/api/information/settings", { enabled: true, batchWindowSeconds: 3600 }, "PUT");
   const list = async (query = "") => activitiesResponse.parse(await client.json("/api/activities" + query));
   const detail = async (id: string) => activityDetailResponse.parse(await client.json(`/api/activities/${id}`));
   const one = async (sessionId: string) => {
@@ -285,7 +286,7 @@ for (const decision of ["approve", "deny", "expire", "cancel", "conflict"] as co
 test("activity e2e: child model and tool steps nest under the parent invocation without granting activity capability", async (t) => {
   const { service, model, client, one, list } = await fixture(t);
   succeeded(await client.run(script([start, { name: "subagent", args: { mode: "parallel", tasks: [
-    { agent: "worker", task: "E2E clock A" }, { agent: "reviewer", task: "E2E clock B" },
+    { agent: "sms", task: "E2E clock A" }, { agent: "news", task: "E2E clock B" },
   ] } }, complete]), "main"));
   const result = await one("main");
   assert.equal(result.activity.status, "completed");
@@ -299,7 +300,7 @@ test("activity e2e: child model and tool steps nest under the parent invocation 
     assert.ok(result.steps.some((step) => step.kind === "tool" && step.parentId === child.id));
   }
   assertClosedSteps(result);
-  const childRequests = model.requests.filter((request) => JSON.stringify(request.messages.filter((message) => message.role === "system")).includes("## Subagent role"));
+  const childRequests = model.requests.filter((request) => JSON.stringify(request.messages.filter((message) => message.role === "system")).includes("专职子代理"));
   assert.ok(childRequests.length >= 4);
   for (const request of childRequests) assert.ok(!(request.tools as { function: { name: string } }[]).some((tool) => ["activity", "bash", "subagent"].includes(tool.function.name)));
   assert.equal((await list()).activities.length, 1);
@@ -309,7 +310,7 @@ test("activity e2e: child model and tool steps nest under the parent invocation 
 for (const decision of ["approve", "cancel"] as const) {
   test(`activity e2e: child approval ${decision} stays nested in the parent activity and preserves filesystem truth`, async (t) => {
     const { service, client, one } = await fixture(t);
-    const running = await client.startRun(script([start, { name: "subagent", args: { mode: "single", tasks: [{ agent: "worker", task: "帮我写入草稿" }] } }]), "main");
+    const running = await client.startRun(script([start, { name: "subagent", args: { mode: "single", tasks: [{ agent: "sms", task: "帮我写入草稿" }] } }]), "main");
     const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval in activity");
     assert.equal(action.sessionId, running.sessionId);
     // 子代理发起的审批预览仍指向真实文件作用域；归属字段由服务端既有装配决定，
@@ -323,8 +324,8 @@ for (const decision of ["approve", "cancel"] as const) {
     assert.equal(write.kind, "tool");
     assert.equal(child.kind, "subagent");
     assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "domains", "files"]);
-    const target=join(service.dataDir,"workspace","draft.md");
-    await assert.rejects(stat(target), { code: "ENOENT" });
+    const target = join(service.dataDir, "workspace", "domains", "sms", "INSTRUCTIONS.md");
+    assert.equal(await readFile(target, "utf8"), "");
     if (decision === "approve") {
       await client.decideApproval(action.id, "approve");
       succeeded(await running.done);
@@ -332,7 +333,7 @@ for (const decision of ["approve", "cancel"] as const) {
     } else {
       await client.json("/api/conversation/stop", { sessionId: running.sessionId, runId: running.runId });
       failed(await running.done);
-      await assert.rejects(stat(target), { code: "ENOENT" });
+      assert.equal(await readFile(target, "utf8"), "");
     }
     const result = await one(running.sessionId);
     assertClosedSteps(result);

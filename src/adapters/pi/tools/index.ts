@@ -21,11 +21,8 @@ import { weatherTool } from "./weather.js";
 import { createBrowserTools } from "./browser.js";
 import { instructionsTool } from "./instructions.js";
 import { createActivityTool, ACTIVITY_TOOL_NAME } from "./activity.js";
-import { createDomainAgentTool, DOMAIN_AGENT_TOOL_NAME } from "./domain-agent.js";
-import type { DomainAgentRegistry } from "../../../features/domain-agents/registry.js";
 import type { ActivityRun } from "../../../features/activities/types.js";
 import { SUBAGENT_TOOL_NAME } from "../subagent/extension.js";
-import { managedWorkspaceTexts } from "../../workspace/managed-text.js";
 import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
 import type { DatabaseService } from "../../../features/database/database-service.js";
 import { databaseTool } from "./database.js";
@@ -51,7 +48,6 @@ type ToolDependencies = {
   weather?: WeatherService;
   browser?: BrowserService;
   layout?: DataLayout;
-  domainAgents?: DomainAgentRegistry;
   database?: Pick<DatabaseService, "execute">;
   readOnlyFiles?: readonly ReadOnlyFile[];
   workspaceCommits?: WorkspaceCommitQueue;
@@ -69,7 +65,6 @@ const isSubagent = (deps: ToolDependencies) => deps.isSubagent === true;
 export const skillToToolsMap: Record<string, string[]> = {
   cron: ["schedule"],
   monitor: ["monitor"],
-  task: ["subagent"],
   goal: ["goal"],
   memory: ["memory", "memory_search"],
   web: ["search_web", "web_fetch"],
@@ -90,19 +85,6 @@ const writableTools = (deps: ToolDependencies) =>
 const registrations = [
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
   { names: ["database"], create: (deps: ToolDependencies) => deps.database ? [databaseTool(deps.database)] : [] },
-  { names: [DOMAIN_AGENT_TOOL_NAME], create: (deps: ToolDependencies) => {
-    if (!deps.domainAgents || !deps.sessionId) return [];
-    const write = writableTools(deps)[0]?.execute;
-    return [createDomainAgentTool(deps.domainAgents, {
-      readOnly: isSubagent(deps),
-      writeInstructions: write ? async (domainId, instructions, toolCallId, signal, context) => {
-        const path = domainId === "news" ? managedWorkspaceTexts.newsInstructions
-          : domainId === "sms" ? managedWorkspaceTexts.smsInstructions : undefined;
-        if (!path) return { isError: true };
-        return write(toolCallId, { path, content: instructions }, signal, undefined, context);
-      } : undefined,
-    })];
-  } },
   { names: [ACTIVITY_TOOL_NAME], create: (deps: ToolDependencies) => deps.activity && !isSubagent(deps) ? [createActivityTool(deps.activity)] : [] },
   { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout
     ? [] : [instructionsTool(deps.layout, writableTools(deps)[0]?.execute)] },

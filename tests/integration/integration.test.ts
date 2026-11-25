@@ -48,7 +48,6 @@ const expectedTools = [
   "browser",
   "currentTime",
   "database",
-  "domain_agent",
   "edit",
   "find",
   "get_weather",
@@ -67,7 +66,7 @@ const expectedTools = [
   "web_fetch",
   "write",
 ];
-const harnessSkills = ["memory", "web", "write", "task", "cron", "monitor", "goal", "skill-creator", "browser"];
+const harnessSkills = ["memory", "web", "write", "cron", "monitor", "goal", "skill-creator", "browser"];
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(predicate: () => boolean) {
   for (let i = 0; i < 200; i++) {
@@ -1564,9 +1563,10 @@ test("subagent: parent delegates to an isolated child and receives its result wi
   const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: Reply SUBAGENT-MARKER")));
   assert.equal(children.length, 1);
   const childTools = (children[0].tools as { function: { name: string } }[]).map((tool) => tool.function.name);
-  for (const name of ["subagent", "delegate_task", "bash", "schedule", "monitor", "activity", "instructions"])
+  for (const name of ["subagent", "delegate_task", "bash", "schedule", "monitor", "activity", "instructions", "write", "edit", "skills"])
     assert.ok(!childTools.includes(name), `child must not expose ${name}`);
-  for (const name of ["skills", "domain_agent"]) assert.ok(childTools.includes(name), `child inherits ${name}`);
+  for (const name of ["sms_query", "sms_get_instructions", "sms_update_instructions", "currentTime"])
+    assert.ok(childTools.includes(name), `sms subagent binds ${name}`);
   const childSystem = String(children[0].messages.find((message) => message.role === "system")?.content);
   for (const unavailableGuidance of [
     "Use schedule to create",
@@ -1574,8 +1574,7 @@ test("subagent: parent delegates to an isolated child and receives its result wi
     "instructions reads or replaces",
     "## Work activity management",
   ]) assert.ok(!childSystem.includes(unavailableGuidance), `child prompt must not describe ${unavailableGuidance}`);
-  assert.match(childSystem, /use the skills\s+tool/);
-  assert.ok(childSystem.includes("## Background domain agents"));
+  assert.match(childSystem, /短信专职子代理/);
   assert.ok(children[0].messages.every((message) => !JSON.stringify(message.content).includes("请用子代理完成一次测试")), "parent message history must not leak into child context");
   assert.ok((await h.getHistory()).some((message) => String(message.content).includes("SUBAGENT-MARKER")));
   await assert.rejects(readFile(join(h.dataDir, "tasks.json")), { code: "ENOENT" });
@@ -1585,11 +1584,11 @@ test("subagent: parent delegates to an isolated child and receives its result wi
   assert.equal(await readFile(join(h.dataDir, "tasks.json"), "utf8"), original);
 });
 
-test("subagent: permissions inherit parent ceilings and shared reads preserve private-root isolation", { timeout: 30000 }, async (t) => {
+test("subagent: browser subagent is self-contained read-only workspace + browser and preserves private-root isolation", { timeout: 30000 }, async (t) => {
   const h = await harness();
   t.after(h.close);
   await writeFile(join(h.service().layout.workspaceDir, "subagent-test.md"), "SUBAGENT-WORKSPACE-CONTENT");
-  await h.request("/api/assistant/skills", { overrides: { "builtin/task": true, "builtin/memory": false, "builtin/write": false, "builtin/web": false } }, "PUT");
+  await h.request("/api/assistant/skills", { overrides: { "builtin/memory": false, "builtin/write": false, "builtin/web": false } }, "PUT");
   const events = await h.events(input([user("请让只读子代理读取共享文件")], "child-read"));
   assert.equal(events.at(-1)?.type, "RUN_FINISHED");
   const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: ")));
@@ -1598,6 +1597,7 @@ test("subagent: permissions inherit parent ceilings and shared reads preserve pr
   for (const name of ["memory", "write", "edit", "search_web", "web_fetch", "subagent", "schedule", "monitor", "instructions", "skills", "bash"])
     assert.ok(!tools.includes(name), name);
   assert.ok(tools.includes("read"));
+  assert.ok(tools.includes("browser"));
   assert.ok(children.some((request) => JSON.stringify(request.messages).includes("SUBAGENT-WORKSPACE-CONTENT")));
   assert.deepEqual((await readdir(h.service().layout.workspaceDir)).sort(), ["assistant", "domains", "files", "subagent-test.md"]);
 
@@ -1606,6 +1606,7 @@ test("subagent: permissions inherit parent ceilings and shared reads preserve pr
 test("subagent: write approval is owned by the parent run and Stop cancels child without committing", { timeout: 30000 }, async (t) => {
   const h = await harness(15000);
   t.after(h.close);
+  await h.request("/api/information/settings", { enabled: true, batchWindowSeconds: 3600 }, "PUT");
   const run = input([user("请子代理写入草稿")], "child-write");
   const pendingRun = h.events(run);
   let action: Awaited<ReturnType<ReturnType<typeof h.service>["actions"]["snapshotPending"]>>[number] | undefined;
@@ -1626,13 +1627,14 @@ test("subagent: write approval is owned by the parent run and Stop cancels child
   assert.equal(settled.status, "cancelled");
   assert.equal(settled.revision, 2);
   assert.equal(settled.decidedAt, null);
-  await assert.rejects(readFile(join(h.dataDir,"workspace","draft.md")),{code:"ENOENT"});
+  assert.equal(await readFile(join(h.dataDir, "workspace", "domains", "sms", "INSTRUCTIONS.md"), "utf8"), "");
   assert.equal((await h.service().conversationHub.forSession("main")).isRunning(), false);
 });
 
 test("subagent: Stop interrupts the child provider and releases the parent run", { timeout: 30000 }, async (t) => {
   const h = await harness(15000);
   t.after(h.close);
+  await h.request("/api/information/settings", { enabled: true, batchWindowSeconds: 3600 }, "PUT");
   const run = input([user("请子代理挂起")], "child-stop");
   const response = h.events(run);
   await until(() => h.model.requests.length >= 2);

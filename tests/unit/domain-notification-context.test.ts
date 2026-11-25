@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createNotificationMessage, notificationDomainIdOf } from "../../src/adapters/pi/notification-message.js";
 import {
-  DOMAIN_AGENTS_HEADING,
-  buildDomainAgentsSystemPrompt,
+  SUBAGENTS_HEADING,
+  buildSubagentsSystemPrompt,
   projectDomainNotificationContext,
 } from "../../src/adapters/pi/domain-notification-context.js";
 
@@ -21,20 +21,21 @@ const emailNotification = createNotificationMessage({
   domainId: "email",
 });
 
-test("domain prompt lists registered domains, card isolation, and rule persistence routing", () => {
-  const prompt = buildDomainAgentsSystemPrompt([
-    { id: "sms", name: "短信助手", summary: "过滤手机短信并维护提醒规则" },
-    { id: "news", name: "新闻助手", summary: "筛选 RSS 文章并维护推荐偏好" },
+test("subagents prompt lists registered chat subagents, card isolation, and routing rules", () => {
+  const prompt = buildSubagentsSystemPrompt([
+    { id: "sms", name: "短信助手", description: "过滤手机短信并维护提醒规则", parallelAllowed: true },
+    { id: "news", name: "新闻助手", description: "筛选 RSS 文章并维护推荐偏好", parallelAllowed: true },
+    { id: "browser", name: "浏览器助手", description: "多步操作共享真实浏览器", parallelAllowed: false },
   ]);
   const text = prompt.replace(/\s+/g, " ");
-  assert.match(text, new RegExp(`## ${DOMAIN_AGENTS_HEADING}`));
+  assert.match(text, new RegExp(`## ${SUBAGENTS_HEADING}`));
   assert.match(text, /`sms` \(短信助手\): 过滤手机短信并维护提醒规则/);
   assert.match(text, /`news` \(新闻助手\): 筛选 RSS 文章并维护推荐偏好/);
+  assert.match(text, /`browser` \(浏览器助手\): 多步操作共享真实浏览器/);
   assert.match(text, /excluded from your conversation context by default/);
   assert.match(text, /【领域引用:<domainId>】\.\.\.【引用结束】/);
-  assert.match(text, /Call `get_instructions` for that `domain` first/);
-  assert.match(text, /Call `update_instructions`/);
-  assert.match(text, /NEVER store domain filtering\/notification rules ONLY in global `memory`/);
+  assert.match(text, /route that task to the corresponding `sms` or `news` subagent via `subagent`/);
+  assert.match(text, /NEVER store SMS\/News filtering or notification preferences ONLY in global `memory`/);
 });
 
 test("domain notification context excludes all domain-tagged cards without mutating stored history", () => {

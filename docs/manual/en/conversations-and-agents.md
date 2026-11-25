@@ -52,7 +52,7 @@ Skill selections are bound to their source identity. See [Skill directories and 
 
 ## News and SMS {#background-services}
 
-News and SMS run as independent domain agents without chat skills, chat history access, or global memory access. Edit their `INSTRUCTIONS.md` files in Settings or Workspace Files, or ask the assistant in chat to propose an update via `domain_agent` for approval.
+News and SMS run as independent specialized subagents without chat skills, chat history access, or global memory access. Edit their `INSTRUCTIONS.md` files in Settings or Workspace Files, or ask the assistant in chat to route an update through the `sms` / `news` subagent for approval.
 
 - News collection and reading are described in [News](news.md). Discussing an article directly appends an explicitly untrusted reference to the existing draft of the active chat. It remains editable, is not sent automatically, and does not open a session picker. You can return to the original article.
 - SMS is a global pipeline, disabled initially, using a **Default-Silent baseline and four-tier precedence** (explicit `INSTRUCTIONS.md` > unconsolidated notification feedback in the hot buffer > consolidated long-term `habits` > Default-Silent baseline; see [Instructions and prompts](instructions.md#sms-and-news-domains)). After daily realtime analysis, only `notify` results are appended as system notifications to `main` history without starting an extra main-chat model response, while silent or failed batches stay quiet; historical bulk imports use a separate archive queue that incrementally submits habit updates across batches and posts at most one `<= 1,200`-character Chinese briefing once drained. A message rejected by the upstream model's content safety review is automatically isolated on its own without failing the rest of the batch, and the archive briefing is still delivered while naturally noting how many messages were skipped. Domain notification cards remain excluded from main chat model context unless you explicitly quote them into the conversation.
@@ -61,7 +61,9 @@ SMS collection requires the Android native module, system permission, enablement
 
 ## Subagent {#subagent}
 
-The assistant can call `subagent` for a bounded single/parallel/chain operation (including the built-in `browser` subagent role; `parallel` mode automatically strips the `browser` tool to avoid tab collisions). It has in-memory context only, creates no session or directory, uses the same workspace and returns its result directly to the caller. It cannot recursively delegate, schedule, monitor, register independent activity or change assistant instructions. Roles only narrow permissions. File changes still require individual approval; stopping the parent cancels child execution.
+The server registers 5 statically self-contained specialized subagents (`sms`, `news`, `browser`, `habits`, `dream`), all stateless across invocations (with an isolated in-memory session per run) and inspectable via `GET /api/subagents` and `GET /api/subagents/:id` (exposing prompts, tools, skills, and MCP bindings).
+
+The main assistant routes specialized chat tasks via `subagent` in `single`/`parallel`/`chain` mode to chat-enabled subagents (`sms`, `news`, `browser`); the exclusive `browser` subagent is rejected in `parallel` mode to prevent window contention. Subagents create no sessions or directories, cannot recursively delegate or access `bash`, require version-bound approval for workspace rule edits, and cancel when the parent run stops.
 
 ## Reset and delete sessions {#reset-and-delete-sessions}
 

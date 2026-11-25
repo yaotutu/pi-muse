@@ -138,7 +138,7 @@ test("activity-integration: activity with subagent step nesting", async (t) => {
       runtime: { dataDir, runTimeoutMs: 3000, schedulerIntervalMs: 60000, monitorScanIntervalMs: 60000 },
     }),
   );
-  await enableBuiltinSkills(service, ["task"]);
+  await service.information.saveSettings({ enabled: true, batchWindowSeconds: 3600 });
   const token = service.auth.login();
   const headers = { Authorization: `Bearer ${token}` };
 

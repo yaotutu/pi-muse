@@ -1,17 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionFactory, type AgentToolResult, type AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
+import type { SubagentChatDescriptor, SubagentChatRunResult } from "../../../features/subagents/types.js";
 
 export const SUBAGENT_TOOL_NAME = "subagent";
 export type SubagentMode = "single" | "parallel" | "chain";
-export type SubagentRole = { name: string; description: string; systemPrompt: string; tools?: string[] };
-export type SubagentResult = { agent: string; task: string; output: string; isError?: boolean };
+export type SubagentResult = SubagentChatRunResult;
 export type SubagentRunner = (
-  role: SubagentRole, task: string, signal: AbortSignal | undefined,
+  agent: SubagentChatDescriptor,
+  task: string,
+  signal: AbortSignal | undefined,
   update: (result: SubagentResult) => void,
   parentToolCallId?: string,
   subagentId?: string,
-  parentTools?: readonly string[],
   mode?: SubagentMode,
 ) => Promise<SubagentResult>;
 type Details = { mode: SubagentMode; results: SubagentResult[]; denied?: boolean };
@@ -20,15 +21,10 @@ const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
 const taskItem = Type.Object({
-  agent: Type.String({ minLength: 1, description: "Role name from available agents." }),
+  agent: Type.String({ minLength: 1, description: "Subagent ID from available subagents." }),
   task: Type.String({ minLength: 1, description: "Self-contained instruction; child does not inherit parent conversation history." }),
 }, { additionalProperties: false });
 
-// Adapted from pi-coding-agent 1.3.0 examples/extensions/subagent/index.ts (MIT).
-// Retain upstream single/parallel/chain execution semantics, chain {previous} substitution,
-// concurrency (4), task limits (8), and output cap (50 KiB), but locally unify parameters
-// into top-level required mode + tasks to avoid mixed-parameter ambiguity.
-// CLI spawning/discovery/TUI are replaced by injected, permission-bounded SDK sessions.
 export const subagentParameters = Type.Object({
   mode: Type.Union([
     Type.Literal("single"),
@@ -52,14 +48,18 @@ const truncateOutput = (output: string) => {
   return `${bytes.subarray(0, end).toString("utf8")}\n\n[Output truncated]`;
 };
 
-export const createSubagentTool = (roles: readonly SubagentRole[], run: SubagentRunner, queued?: (id: string, role: string) => void, activeTools?: () => readonly string[]) => defineTool({
+export const createSubagentTool = (
+  agents: readonly SubagentChatDescriptor[],
+  run: SubagentRunner,
+  queued?: (id: string, role: string) => void,
+) => defineTool({
   name: SUBAGENT_TOOL_NAME,
   label: "Subagent",
-  description: "Delegate self-contained work to subagents with isolated contexts. " +
+  description: "Route self-contained specialized work to stateless subagents with isolated execution contexts. " +
     "Provide mode ('single' | 'parallel' | 'chain') and tasks array (1-8 tasks). " +
     "Single mode requires exactly 1 task; parallel runs tasks concurrently; chain runs tasks sequentially where {previous} inserts prior step output. " +
-    "Results return to you in this tool call, not a background queue. You share the caller's workspace; no arbitrary cwd. " +
-    `Available agents: ${roles.map((role) => `${role.name}: ${role.description}`).join("; ")}`,
+    "Results return to you in this tool call, not a background queue. " +
+    `Available subagents: ${agents.map((agent) => `${agent.id} (${agent.name}): ${agent.description}`).join("; ")}`,
   parameters: subagentParameters,
   constrainedSampling: { type: "json_schema", strict: "prefer" },
   async execute(_id, params, signal, onUpdate): Promise<AgentToolResult<Details>> {
@@ -72,13 +72,20 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
     if (mode === "single" && params.tasks.length !== 1) {
       return reject("Single mode requires exactly one task. For multiple tasks, set mode to 'chain' (sequential) or 'parallel' (concurrent).");
     }
-    const missing = params.tasks.find((request) => !roles.some((role) => role.name === request.agent));
+    const missing = params.tasks.find((request) => !agents.some((agent) => agent.id === request.agent));
     if (missing) {
-      return reject(`Unknown agent role. Available agents: ${roles.map((role) => role.name).join(", ")}`);
+      return reject(`Unknown subagent. Available subagents: ${agents.map((agent) => agent.id).join(", ")}`);
+    }
+    if (mode === "parallel") {
+      const nonParallel = params.tasks.find((request) => {
+        const candidate = agents.find((agent) => agent.id === request.agent);
+        return candidate && !candidate.parallelAllowed;
+      });
+      if (nonParallel) {
+        return reject(`Subagent '${nonParallel.agent}' cannot run in parallel mode because it uses an exclusive resource. Use 'single' or 'chain' mode instead.`);
+      }
     }
 
-    // SDK 的实际声明集合在调用接纳时捕获一次，不能用装配候选名单代替。
-    const parentTools = activeTools ? [...activeTools()] : undefined;
     const requests = params.tasks;
     const childIds = requests.map(() => `subagent-${randomUUID()}`);
     requests.forEach((request, index) => queued?.(childIds[index], request.agent));
@@ -90,16 +97,16 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
     });
     const runOne = async (index: number, task: string) => {
       signal?.throwIfAborted();
-      const role = roles.find((candidate) => candidate.name === requests[index].agent)!;
+      const agent = agents.find((candidate) => candidate.id === requests[index].agent)!;
       let result: SubagentResult;
       try {
-        result = await run(role, task, signal, () => {
+        result = await run(agent, task, signal, () => {
           // 仅报告进度，不把未结束的子会话原始消息/诊断塞入父会话。
-          update?.({ content: [{ type: "text", text: `Subagent ${role.name} is working` }], details: { mode, results: results.filter(Boolean) } });
-        }, _id, childIds[index], parentTools, mode);
+          update?.({ content: [{ type: "text", text: `Subagent ${agent.id} is working` }], details: { mode, results: results.filter(Boolean) } });
+        }, _id, childIds[index], mode);
       } catch {
         signal?.throwIfAborted();
-        result = { agent: role.name, task, output: "Subagent execution failed", isError: true };
+        result = { agent: agent.id, task, output: "Subagent execution failed", isError: true };
       }
       signal?.throwIfAborted();
       results[index] = { ...result, output: truncateOutput(result.output) };
@@ -108,7 +115,7 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
     };
     if (mode === "parallel") {
       let nextIndex = 0;
-      // 上游同样按输入顺序返回，最多四项同时运行；取消后不启动尚未开始的项。
+      // 按输入顺序返回，最多四项同时运行；取消后不启动尚未开始的项。
       await Promise.allSettled(Array.from({ length: Math.min(MAX_CONCURRENCY, requests.length) }, async () => {
         while (nextIndex < requests.length) {
           const index = nextIndex++;
@@ -146,5 +153,9 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
   },
 });
 
-export const createSubagentExtension = (roles: readonly SubagentRole[], run: SubagentRunner, activeTools: () => readonly string[], queued?: (id: string, role: string) => void): ExtensionFactory =>
-  (pi) => { pi.registerTool(createSubagentTool(roles, run, queued, activeTools)); };
+export const createSubagentExtension = (
+  agents: readonly SubagentChatDescriptor[],
+  run: SubagentRunner,
+  queued?: (id: string, role: string) => void,
+): ExtensionFactory =>
+  (pi) => { pi.registerTool(createSubagentTool(agents, run, queued)); };

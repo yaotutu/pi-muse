@@ -106,7 +106,7 @@ const execute = async ({ configPath, scenario }: Options) => {
 
     if (scenario === "prompt") {
       const openAgent = (await client.createSession("live-prompt-open", [
-        "cron", "monitor", "goal", "memory", "web", "write", "skill-creator", "task", "browser",
+        "cron", "monitor", "goal", "memory", "web", "write", "skill-creator", "browser",
       ])).id;
       const closedAgent = (await client.createSession("live-prompt-closed")).id;
       await client.json(`/api/assistant/instructions`, {
@@ -123,7 +123,7 @@ const execute = async ({ configPath, scenario }: Options) => {
       }, "POST");
 
       const subagentRun = await client.startRun(
-        `请只调用一次subagent工具，严格使用参数：{"mode":"single","tasks":[{"agent":"worker","task":"不要调用任何工具，只回复LIVE_AGENT_PROMPT_CHILD_OK，不要解释。"}]}。等待真实结果后只回复LIVE_AGENT_PROMPT_PARENT_OK。不要重试。`,
+        `请只调用一次subagent工具，严格使用参数：{"mode":"single","tasks":[{"agent":"news","task":"不要调用任何工具，只回复LIVE_AGENT_PROMPT_CHILD_OK，不要解释。"}]}。等待真实结果后只回复LIVE_AGENT_PROMPT_PARENT_OK。不要重试。`,
         openAgent,
       );
       terminalEvent(await subagentRun.done);

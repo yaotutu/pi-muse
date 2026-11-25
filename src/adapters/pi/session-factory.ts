@@ -27,29 +27,24 @@ import type { WebService } from "../../features/web/types.js";
 import type { WeatherService } from "../../features/weather/types.js";
 import type { BrowserService } from "../../features/browser/browser-service.js";
 import type { SkillsService } from "../../features/skills/service.js";
+import type { SubagentRegistry } from "../../features/subagents/registry.js";
 import { buildSystemPrompt } from "./system-prompt.js";
-import {
-  createDomainNotificationContextExtension,
-} from "./domain-notification-context.js";
-import type { DomainAgentRegistry } from "../../features/domain-agents/registry.js";
+import { createDomainNotificationContextExtension } from "./domain-notification-context.js";
 import { createResourceLoader } from "./resource-loader.js";
 import { createTools, skillToToolsMap, registeredToolNames } from "./tools/index.js";
+import { createWritableFileTools } from "./tools/files-writable.js";
 import type { ReadOnlyFile } from "./tools/path-guard.js";
-import { loadSubagentRoles } from "../storage/subagent-roles.js";
 import { createSubagentExtension, SUBAGENT_TOOL_NAME } from "./subagent/extension.js";
-import { renderPrompt } from "../prompts/loader.js";
 import type { ActivityRun, ActivityObservation } from "../../features/activities/types.js";
 import { createActivityObserver } from "./activity-observer.js";
 import { createToolPresentation, type ToolPresentation } from "../ag-ui/tool-presentation.js";
 import type { WorkspaceCommitQueue } from "../workspace/file-commit-queue.js";
 import type { StatusRun } from "../../features/workspace/session-status.js";
 import { createStatusObserver } from "./status-observer.js";
-import { runSubagent } from "./subagent-runner.js";
 
 /**
  * pi 装配的依赖集合。全部经由组合入口显式注入；可选能力（goals/actions/
- * monitors/web/weather）缺省时对应工具不声明，不留第二套装配路径。
- * 单对象参数消除此前 13 个位置参数的传错序风险。
+ * monitors/web/weather/subagents）缺省时对应工具不声明，不留第二套装配路径。
  */
 export type PiDeps = {
   config: Config;
@@ -76,13 +71,11 @@ export type PiDeps = {
   presentation?: ToolPresentation;
   /** 与手动 HTTP 文件入口共用，保证最终版本检查与提交按物理路径串行。 */
   workspaceCommits?: WorkspaceCommitQueue;
-  /** 主聊天的领域子 Agent 注册表；后台子 Agent 独立运行且绝不反向读取主会话上下文。 */
-  domainAgents?: DomainAgentRegistry;
+  /** 统一专职 Subagent 注册中心；主聊天通过 subagent 工具按能力声明路由任务。 */
+  subagents?: SubagentRegistry;
   database?: Pick<import("../../features/database/database-service.js").DatabaseService, "execute">;
 };
 
-const subagentBlockedTools = new Set([SUBAGENT_TOOL_NAME, "activity", "schedule", "monitor", "instructions", "bash"]);
-const parallelExclusiveTools = new Set(["browser"]);
 const skillTextResourceExtensions = new Set([".md", ".txt", ".json", ".csv", ".yaml", ".yml"]);
 const skillToolEntries = Object.entries(skillToToolsMap);
 const skillControlledToolNames = new Set(skillToolEntries.flatMap(([, names]) => names));
@@ -182,7 +175,7 @@ const collectReadableSkillFiles = async (skills: readonly Skill[]): Promise<Read
   return files;
 };
 
-/** 装配持久化聊天会话；子会话委派统一组装后交给 runSubagent 内核执行。 */
+/** 装配持久化聊天会话；专职子代理路由统一委托给已注册的 SubagentRegistry。 */
 export async function openPi(deps: PiDeps) {
   const { config, layout, sessionManager, memory, jobs, modelRuntime } = deps;
   const { goals, actions, actionTimeoutMs, monitors, web, weather, browser, skills } = deps;
@@ -190,8 +183,6 @@ export async function openPi(deps: PiDeps) {
   const cwd = layout.workspaceDir;
   const agentDir = layout.agentDir;
   const presentation = deps.presentation ?? createToolPresentation(config.presentation);
-  const hasDomainAgents = Boolean(deps.domainAgents?.describeForPrompt().length && deps.sessionId);
-  const domainAgentsForSession = hasDomainAgents ? deps.domainAgents : undefined;
 
   // 1. 只装配用户已选择的来源身份；关闭、被覆盖以及同名新来源都不会自动加载。
   const selectedSkills = await loadEnabledProductSkills(skills);
@@ -228,7 +219,6 @@ export async function openPi(deps: PiDeps) {
     skillsService: skills,
     writableEnabled: deps.config.writable.enabled,
     workspaceCommits: deps.workspaceCommits,
-    domainAgents: domainAgentsForSession,
     database: deps.database,
   });
 
@@ -239,7 +229,7 @@ export async function openPi(deps: PiDeps) {
   const recalledMemories = deps.userText && memory ? await memory.recall(deps.userText) : [];
   const assistantInstructions = await readResolvedProfileFile(layout.assistantInstructionsFile, layout.workspaceDir);
 
-  // 3. 挂载领域卡片隔离扩展，并在启用 task 时把聊天委派统一接入通用 runSubagent。
+  // 3. 挂载领域卡片隔离扩展与统一专职 Subagent 路由扩展
   const inlineExtensions: InlineExtension[] = [
     {
       name: "pi-muse-domain-notification-context",
@@ -247,16 +237,15 @@ export async function openPi(deps: PiDeps) {
       factory: createDomainNotificationContextExtension(),
     },
   ];
-  let activeParentTools: () => readonly string[] = () => [];
-  if (enabledSkillNames.has("task")) {
-    const roles = await loadSubagentRoles(layout.subagentsDir);
-    const parentSkillIds = selectedSkills.map((skill) => skill.catalogId);
+  const chatSubagents = deps.subagents ? await deps.subagents.listChatDescriptors() : [];
+  if (deps.subagents && chatSubagents.length > 0) {
+    const registry = deps.subagents;
     const extension = createSubagentExtension(
-      roles,
-      async (role, task, signal, update, parentToolCallId, queuedChildId, parentTools, mode) => {
+      chatSubagents,
+      async (agent, task, signal, update, parentToolCallId, queuedChildId) => {
         signal?.throwIfAborted();
         const childId = queuedChildId ?? `subagent-${randomUUID()}`;
-        deps.status?.observe({ kind: "subagent", phase: "start", id: childId, role: role.name });
+        deps.status?.observe({ kind: "subagent", phase: "start", id: childId, role: agent.id });
         const parentStepId = `main:tool:${parentToolCallId}`;
         deps.activity?.observe({
           id: childId,
@@ -267,85 +256,30 @@ export async function openPi(deps: PiDeps) {
         });
         try {
           signal?.throwIfAborted();
-          const isParallel = mode === "parallel";
-          const parentToolSet = new Set(parentTools ?? []);
-          const childSelectedSkills = await loadEnabledProductSkills(skills, parentSkillIds);
-          const childEnabledNames = new Set(childSelectedSkills.map((skill) => skill.name));
-          const childActiveSkills = childSelectedSkills.filter(
-            (skill) =>
-              !["task", "cron", "monitor"].includes(skill.name) &&
-              (skill.name !== "browser" || (Boolean(browser) && !isParallel)),
-          );
-          const {
-            extensionResult: childExtensions,
-            extensionToolNames: childExtensionToolNames,
-          } = await loadSkillExtensions(childActiveSkills, layout);
-
-          const allChildTools = createTools({
-            root: cwd,
-            readOnlyFiles: await collectReadableSkillFiles(childActiveSkills),
-            sessionId: deps.sessionId,
-            runId: deps.runId,
-            isSubagent: true,
-            subagentId: childId,
-            currentActivityId: () => deps.status?.snapshot().activityId ?? null,
-            activity: undefined,
-            activityObservation: deps.activity
-              ? {
-                  observe: (event: ActivityObservation) => deps.activity!.observe(event),
-                  prefix: childId,
-                  getActivityId: () => deps.activity!.getCurrentActivityId(),
-                }
-              : undefined,
-            memory,
-            jobs,
-            goals,
-            actions,
-            actionTimeoutMs,
-            monitors,
-            web,
-            weather,
-            browser: isParallel ? undefined : browser,
-            layout,
-            skillsService: skills,
-            writableEnabled: deps.config.writable.enabled,
-            workspaceCommits: deps.workspaceCommits,
-            domainAgents: parentToolSet.has("domain_agent") ? domainAgentsForSession : undefined,
-            database: deps.database,
-          });
-
-          const childBuiltinAllowed = computeBuiltinAllowedToolNames(allChildTools, childEnabledNames);
-          const childAllowedToolNames = [...childBuiltinAllowed, ...childExtensionToolNames].filter(
-            (name) =>
-              !subagentBlockedTools.has(name) &&
-              !(isParallel && parallelExclusiveTools.has(name)) &&
-              parentToolSet.has(name) &&
-              (!role.tools || role.tools.includes(name)),
-          );
-          for (const ext of childExtensions.extensions) {
-            for (const name of ext.tools.keys()) {
-              if (!childAllowedToolNames.includes(name)) ext.tools.delete(name);
-            }
-            // 可信扩展可以执行任意服务端代码，但子会话不能借其生命周期钩子重新扩充模型工具。
-            ext.handlers.clear();
-            ext.commands.clear();
-          }
-
-          const childCustomTools = allChildTools.filter((tool) =>
-            childAllowedToolNames.includes(tool.name),
-          );
-          const childSystemPrompt =
-            (await buildSystemPrompt({
-              layout,
-              memory,
-              allowedToolNames: childAllowedToolNames,
-              recalledMemories,
-              domainAgents: childAllowedToolNames.includes("domain_agent")
-                ? domainAgentsForSession?.describeForPrompt()
-                : undefined,
-            })) +
-            `\n\n${renderPrompt("assistant/subagent-child.md", { ROLE_SYSTEM_PROMPT: role.systemPrompt })}`;
-
+          const childActivityObservation = deps.activity
+            ? {
+                observe: (event: ActivityObservation) => deps.activity!.observe(event),
+                prefix: childId,
+                getActivityId: () => deps.activity!.getCurrentActivityId(),
+              }
+            : undefined;
+          const writable = actions && deps.config.writable.enabled !== false
+            ? createWritableFileTools(
+                cwd,
+                actions,
+                actionTimeoutMs ?? 300_000,
+                {
+                  sessionId: deps.sessionId,
+                  runId: deps.runId,
+                  subagentId: childId,
+                  activityId: () => deps.status?.snapshot().activityId ?? null,
+                },
+                layout.workspaceDir,
+                childActivityObservation,
+                deps.workspaceCommits,
+                { allowManagedForSubagent: true },
+              )[0]
+            : undefined;
           const subscribers = [
             ...(deps.activity
               ? [createActivityObserver((event) => deps.activity!.observe(event), presentation, childId, childId)]
@@ -353,60 +287,35 @@ export async function openPi(deps: PiDeps) {
             ...(deps.status ? [createStatusObserver(deps.status, presentation, childId)] : []),
           ];
 
-          const run = await runSubagent(
-            { config, layout, modelRuntime },
-            {
-              cwd,
-              systemPrompt: childSystemPrompt,
-              prompt: `Task: ${task}`,
-              tools: childCustomTools,
-              allowedToolNames: childAllowedToolNames,
-              skills: childActiveSkills,
-              extensions: childExtensions,
-              compaction: true,
-              timeoutMs: null,
-              signal,
-              trace: {
-                sessionId: deps.sessionId,
-                kind: "subagent",
-                extra: { parentSessionId: deps.sessionId, role: role.name },
-              },
-              subscribers,
-              onEvent: (event) => {
-                if (event.type === "tool_execution_start" || event.type === "message_end") {
-                  update({ agent: role.name, task, output: "Subagent is working" });
+          const result = await registry.runChatTask(agent.id, task, {
+            sessionId: deps.sessionId,
+            runId: deps.runId,
+            subagentId: childId,
+            parentToolCallId,
+            signal,
+            onProgress: (text) => update({ agent: agent.id, task, output: text }),
+            writeWorkspaceFile: writable
+              ? async (path, content, toolCallId, writeSignal, toolContext) => {
+                  const res = await writable.execute(
+                    toolCallId,
+                    { path, content },
+                    writeSignal,
+                    undefined,
+                    toolContext as Parameters<typeof writable.execute>[4],
+                  );
+                  const text = res.content?.find((part) => part.type === "text")?.text;
+                  return { isError: Boolean(res.isError), text };
                 }
-              },
-            },
-          );
+              : undefined,
+            subscribers,
+          });
 
-          if (!run.ok && run.error === "CANCELLED") {
-            deps.status?.observe({
-              kind: "subagent",
-              phase: "end",
-              id: childId,
-              role: role.name,
-              outcome: "cancelled",
-            });
-            deps.activity?.observe({
-              id: childId,
-              parentId: parentStepId,
-              kind: "subagent",
-              phase: "end",
-              status: "cancelled",
-              title: "Subagent aborted or failed",
-              result: "Subagent execution failed",
-            });
-            signal?.throwIfAborted();
-            return { agent: role.name, task, output: "Subagent execution failed", isError: true };
-          }
-
-          const failed = !run.ok;
+          const failed = Boolean(result.isError);
           deps.status?.observe({
             kind: "subagent",
             phase: "end",
             id: childId,
-            role: role.name,
+            role: agent.id,
             outcome: failed ? "failed" : "succeeded",
           });
           deps.activity?.observe({
@@ -418,18 +327,13 @@ export async function openPi(deps: PiDeps) {
             title: failed ? "Subagent failed" : "Subagent completed",
             result: failed ? "Subagent execution failed" : "Subagent completed task",
           });
-          return {
-            agent: role.name,
-            task,
-            output: failed ? "Subagent execution failed" : run.text || "(no output)",
-            isError: failed,
-          };
+          return result;
         } catch {
           deps.status?.observe({
             kind: "subagent",
             phase: "end",
             id: childId,
-            role: role.name,
+            role: agent.id,
             outcome: signal?.aborted ? "cancelled" : "failed",
           });
           deps.activity?.observe({
@@ -442,10 +346,9 @@ export async function openPi(deps: PiDeps) {
             result: "Subagent execution failed",
           });
           signal?.throwIfAborted();
-          return { agent: role.name, task, output: "Subagent execution failed", isError: true };
+          return { agent: agent.id, task, output: "Subagent execution failed", isError: true };
         }
       },
-      () => activeParentTools(),
       (id, role) => deps.status?.observe({ kind: "subagent", phase: "queued", id, role }),
     );
     inlineExtensions.push({ name: "pi-muse-subagent", hidden: true, factory: extension });
@@ -469,14 +372,14 @@ export async function openPi(deps: PiDeps) {
   if (inline.errors.length) throw new Error("Inline session extensions could not be loaded");
   extensionResult.extensions.push(...inline.extensions);
 
-  // 4. 构建 System Prompt 并注入技能、全局助手指令与 Extension
+  // 4. 构建 System Prompt 并注入技能、全局助手指令与开放路由的 Subagent 清单
   const systemPrompt = await buildSystemPrompt({
     layout,
     memory,
     allowedToolNames,
     assistantInstructions,
     recalledMemories,
-    domainAgents: domainAgentsForSession?.describeForPrompt(),
+    chatSubagents,
   });
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);
 
@@ -502,7 +405,6 @@ export async function openPi(deps: PiDeps) {
       retry: { enabled: false },
     }),
   });
-  activeParentTools = () => session.getActiveToolNames();
   if (deps.activity) {
     session.subscribe(createActivityObserver((event) => deps.activity!.observe(event), presentation, "main"));
   }

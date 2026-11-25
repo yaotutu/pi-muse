@@ -1,5 +1,5 @@
-import { buildDomainAgentsSystemPrompt } from "./domain-notification-context.js";
-import type { DomainAgentPromptSummary } from "../../features/domain-agents/types.js";
+import { buildSubagentsSystemPrompt } from "./domain-notification-context.js";
+import type { SubagentChatDescriptor } from "../../features/subagents/types.js";
 import { ACTIVITY_TOOL_INSTRUCTIONS } from "./tools/activity.js";
 import type { DataLayout } from "../storage/data-layout.js";
 import { readResolvedProfileFile } from "../storage/workspace-document-includes.js";
@@ -13,11 +13,11 @@ const section = (heading: string, text: string): string =>
 export type SystemPromptOptions = {
   layout: Pick<DataLayout, "soulFile" | "userFile" | "workspaceDir">;
   memory: Pick<MemoryService, "renderForPrompt">;
-  /** 最终模型工具名单：已经包含会话技能与 child 角色过滤。 */
+  /** 最终模型工具名单：已经包含会话技能与可用能力过滤。 */
   allowedToolNames: readonly string[];
   assistantInstructions?: string;
   recalledMemories?: readonly MemoryItem[];
-  domainAgents?: readonly DomainAgentPromptSummary[];
+  chatSubagents?: readonly SubagentChatDescriptor[];
 };
 
 const toolSections: ReadonlyArray<{ tools: readonly string[]; promptPath: string }> = [
@@ -46,7 +46,7 @@ export const buildSystemPrompt = async ({
   allowedToolNames,
   assistantInstructions,
   recalledMemories,
-  domainAgents,
+  chatSubagents,
 }: SystemPromptOptions): Promise<string> => {
   const tools = new Set(allowedToolNames);
   const has = (...names: readonly string[]) => names.every((name) => tools.has(name));
@@ -55,8 +55,8 @@ export const buildSystemPrompt = async ({
     loadPrompt("assistant/base.md"),
     ...toolSections.filter((entry) => has(...entry.tools)).map((entry) => loadPrompt(entry.promptPath)),
   ];
-  if (has("domain_agent") && domainAgents?.length) {
-    capabilitySegments.push(buildDomainAgentsSystemPrompt(domainAgents).replace(/^\n/, ""));
+  if (has("subagent") && chatSubagents?.length) {
+    capabilitySegments.push(buildSubagentsSystemPrompt(chatSubagents).replace(/^\n/, ""));
   }
   if (has("activity")) {
     capabilitySegments.push(`\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}`);

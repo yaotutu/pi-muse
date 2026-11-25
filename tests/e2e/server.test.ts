@@ -24,13 +24,14 @@ const fixture = async (t: TestContext) => {
   assert.equal(response.status, 200);
   const { token } = await response.json();
   const client = createTestClient(() => service!.baseUrl, token, 45_000, t.signal);
-  await client.enableSkills(["memory", "task", "write", "web"]);
+  await client.enableSkills(["memory", "write", "web"]);
+  await client.json("/api/information/settings", { enabled: true, batchWindowSeconds: 3600 }, "PUT");
   return { service, model, token: token as string, client };
 };
 const terminalSuccess = (events: { type: string }[]) => assert.equal(events.at(-1)?.type, "RUN_FINISHED");
 const userText = (value: unknown) => typeof value === "string" ? value : Array.isArray(value) ? value.map((item) => item.text ?? "").join("") : "";
 const childRequest = (request: { messages: { role: string; content: unknown }[] }) =>
-  request.messages.some((message) => message.role === "system" && userText(message.content).includes("## Subagent role"));
+  request.messages.some((message) => message.role === "system" && userText(message.content).includes("专职子代理"));
 
 test("e2e: built entry authenticates, streams tools, persists state and restarts with the same token/history", { timeout: 90_000 }, async (t) => {
   const { service, client, token } = await fixture(t);
@@ -84,10 +85,8 @@ test("e2e: parent dispatches single, concurrent and chained subagents without a 
   }
   assert.ok((await readdir(join(service.dataDir, "sessions"))).every((name) => !name.startsWith("subagent-")));
   await assert.rejects(stat(join(service.dataDir, "tasks.json")), { code: "ENOENT" });
-  await client.json("/api/assistant/skills", { overrides: { "builtin/task": false } }, "PUT");
-  const disabledStart = model.requests.length;
-  terminalSuccess(await client.run("plain check", "main"));
-  assert.ok(!(model.requests[disabledStart].tools as { function: { name: string } }[]).some((tool) => tool.function.name === "subagent"));
+  const listed = (await client.json("/api/subagents")) as { subagents: Array<{ id: string }> };
+  assert.deepEqual(listed.subagents.map((s) => s.id), ["sms", "news", "browser", "habits", "dream"]);
 });
 
 for (const decision of ["approve", "deny", "cancel"] as const) {
@@ -98,13 +97,13 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval");
     assert.equal(action.sessionId, running.sessionId);
     assert.equal(action.revision, 1);
-    assert.match(action.preview.after, /DRAFT-CONTENT/);
-    assert.equal(action.preview.path, "draft.md");
+    assert.match(action.preview.after, /短信审批写入测试/);
+    assert.equal(action.preview.path, "domains/sms/INSTRUCTIONS.md");
     assert.equal(action.preview.before, "");
-    assert.equal(action.preview.beforeExists, false);
+    assert.equal(action.preview.beforeExists, true);
     assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "domains", "files"]);
-    const target=join(service.dataDir,"workspace","draft.md");
-    await assert.rejects(stat(target), { code: "ENOENT" });
+    const target = join(service.dataDir, "workspace", "domains", "sms", "INSTRUCTIONS.md");
+    assert.equal(await readFile(target, "utf8"), "");
     if (decision === "cancel") {
       assert.equal((await client.json("/api/conversation/stop", { sessionId: running.sessionId, runId: running.runId })).stopped, true);
       const events = await running.done;
@@ -121,7 +120,7 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     assert.ok(settled.resolvedAt);
     assert.equal(settled.decidedAt === null, decision === "cancel");
     if (decision === "approve") assert.equal(await readFile(target, "utf8"), action.preview.after);
-    else await assert.rejects(stat(target), { code: "ENOENT" });
+    else assert.equal(await readFile(target, "utf8"), "");
     // 终态审批只出现在历史列表，pending 集合由 ready 给出且已为空。
     assert.deepEqual(await client.pending(), []);
     const page = await client.approvalPage(`?limit=1`);
@@ -154,8 +153,8 @@ test("e2e: Stop interrupts the child model and real slow HTTP socket, then the s
   t.after(async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); });
   server.listen(0, "127.0.0.1"); await once(server, "listening");
   const address = server.address(); assert.ok(address && typeof address !== "string");
-  const web = await client.startRun(`E2E child-web http://127.0.0.1:${address.port}/slow`, child.sessionId);
-  await waitForTest(() => entered, "child real HTTP socket");
+  const web = await client.startRun(`E2E web http://127.0.0.1:${address.port}/slow`, child.sessionId);
+  await waitForTest(() => entered, "real HTTP socket");
   const stopStart = Date.now();
   assert.equal((await client.json("/api/conversation/stop", { sessionId: web.sessionId, runId: web.runId })).stopped, true);
   assert.equal((await web.done).at(-1)?.type, "RUN_ERROR");

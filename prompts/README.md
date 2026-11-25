@@ -17,9 +17,11 @@
 | 文件 | 所属 Agent / 模块 | 作用与关键机制 |
 | --- | --- | --- |
 | [assistant/base.md](assistant/base.md) | 主对话助手 | 基础人设骨架、工作区文件边界、能力与安全总约束 |
-| [assistant/domain-agents.md](assistant/domain-agents.md) | 主对话助手 | 后台领域 Agent 列表、通知卡片隔离说明、`get_instructions` / `update_instructions` 路由规约 |
-| [assistant/subagent-child.md](assistant/subagent-child.md) | 通用子代理（Subagent） | 派生子代理时的角色指令包装段 |
+| [assistant/subagents.md](assistant/subagents.md) | 主对话助手 | 开放聊天路由的专职 Subagent 清单、领域通知卡片隔离说明与路由规约 |
 | `assistant/tools/*.md` | 主对话各能力工具 | 随当轮实际可用工具动态拼装（`files` / `current-time` / `write` / `database` / `instructions` / `skills` / `activity` / `memory` / `schedule` / `monitor` / `goal` / `weather` / `web` / `browser`） |
+| [subagents/sms-chat.md](subagents/sms-chat.md) | 短信专职 Subagent（聊天态） | 负责主聊天路由过来的短信查询与 `domains/sms/INSTRUCTIONS.md` 合并审批更新 |
+| [subagents/news-chat.md](subagents/news-chat.md) | 新闻专职 Subagent（聊天态） | 负责主聊天路由过来的新闻查询与 `domains/news/INSTRUCTIONS.md` 合并审批更新 |
+| [subagents/browser.md](subagents/browser.md) | 浏览器专职 Subagent（聊天态） | 在独立内存上下文中操作共享真实 GUI Chrome，遇登录/验证码发起人工接管 |
 | [habits/consolidate.md](habits/consolidate.md) | 通用习惯归纳 Worker | 基于消费游标从各领域未消化反馈热缓冲中定期提炼 `add/edit/delete` 行为习惯，不覆盖显式指令、不记录一次性验证码/链接 |
 | [sms/realtime.md](sms/realtime.md) | 短信实时单周期 Worker | **默认静默（Default-Silent）基线 + 四级优先级**（用户指令 > 近期未消化反馈 > 已归纳长期习惯 > 默认静默），默认输出简体中文通知与理由 |
 | [sms/archive.md](sms/archive.md) | 短信历史归档 Worker | 批量历史分类并可选向习惯库增量提交 `habitOperations`，严禁单批直接发通知 |

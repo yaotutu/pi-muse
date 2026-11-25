@@ -422,7 +422,7 @@ test("runStructuredSubagent composes read-only extraTools with single structured
   assert.equal(server.requests.length, beforeRequests);
 });
 
-test("chat subagent excludes exclusive browser tools in parallel mode while preserving them in single mode", async (t) => {
+test("chat subagent isolates exclusive browser agent from parallel mode while allowing single mode", async (t) => {
   const model = await createFakeModel();
   t.after(() => model.close());
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-subagent-browser-"));
@@ -436,16 +436,6 @@ test("chat subagent excludes exclusive browser tools in parallel mode while pres
     await service.close();
     await rm(dataDir, { recursive: true, force: true });
   });
-
-  // 显式覆写 scout / reviewer 为不限角色 tools 的配置，单独验证 parallel 模式对独占浏览器工具的屏蔽。
-  await mkdir(service.layout.subagentsDir, { recursive: true });
-  for (const role of ["scout", "reviewer"]) {
-    await writeFile(
-      join(service.layout.subagentsDir, `${role}.md`),
-      `---\nname: ${role}\ndescription: Unconstrained role for parallel exclusivity test.\n---\nComplete the task cleanly.\n`,
-    );
-  }
-  await enableBuiltinSkills(service, ["task", "browser"]);
 
   const token = service.auth.login()!;
   const headers = {
@@ -466,22 +456,33 @@ test("chat subagent excludes exclusive browser tools in parallel mode while pres
       }),
     });
     assert.equal(res.status, 200);
-    assert.match(await res.text(), /RUN_FINISHED/);
+    const body = await res.text();
+    assert.match(body, /RUN_FINISHED/);
+    return body;
   };
 
-  await runTurn("E2E single");
+  await runTurn("E2E browser single");
   const singleChildReq = model.requests.find((req) =>
     JSON.stringify(req.messages).includes("Task: E2E clock single"),
   );
-  assert.ok(singleChildReq, "single subagent child request must exist");
+  assert.ok(singleChildReq, "single browser subagent child request must exist");
   const singleTools = new Set(
     (singleChildReq.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name),
   );
-  // 串行模式包含 browser 工具，并行模式自动剥离，阻止子代理在共享浏览器标签页互相踩踏。
-  for (const browserTool of ["browser"]) {
-    assert.equal(singleTools.has(browserTool), true, `single mode should inherit ${browserTool}`);
-  }
+  assert.equal(singleTools.has("browser"), true, "browser subagent in single mode must have browser tool");
   assert.equal(singleTools.has("currentTime"), true);
+  assert.equal(singleTools.has("read"), true);
+  assert.equal(singleTools.has("grep"), true);
+  assert.equal(singleTools.has("write"), false);
+
+  const parallelBefore = model.requests.length;
+  const parallelBody = await runTurn("E2E browser parallel");
+  assert.match(parallelBody, /cannot run in parallel mode/);
+  // 独占 browser 在 parallel 模式下被直接拒绝，不会启动 browser 子会话
+  const browserParallelChild = model.requests.slice(parallelBefore).find((req) =>
+    JSON.stringify(req.messages).includes("Task: E2E clock A"),
+  );
+  assert.equal(browserParallelChild, undefined);
 
   await runTurn("E2E parallel");
   const parallelChildA = model.requests.find((req) =>
@@ -490,16 +491,11 @@ test("chat subagent excludes exclusive browser tools in parallel mode while pres
   const parallelChildB = model.requests.find((req) =>
     JSON.stringify(req.messages).includes("Task: E2E clock B"),
   );
-  assert.ok(parallelChildA && parallelChildB, "both parallel subagent child requests must exist");
-  for (const req of [parallelChildA, parallelChildB]) {
-    const parallelTools = new Set(
-      (req.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name),
-    );
-    for (const browserTool of ["browser"]) {
-      assert.equal(parallelTools.has(browserTool), false, `parallel mode must exclude ${browserTool}`);
-    }
-    for (const statelessTool of ["read", "currentTime", "domain_agent"]) {
-      assert.equal(parallelTools.has(statelessTool), true, `parallel mode should keep ${statelessTool}`);
-    }
-  }
+  assert.ok(parallelChildA && parallelChildB, "parallel sms/news subagent child requests must exist");
+  const smsTools = new Set((parallelChildA.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name));
+  const newsTools = new Set((parallelChildB.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name));
+  assert.equal(smsTools.has("sms_query"), true);
+  assert.equal(smsTools.has("browser"), false);
+  assert.equal(newsTools.has("news_query"), true);
+  assert.equal(newsTools.has("browser"), false);
 });
