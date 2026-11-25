@@ -70,6 +70,7 @@ pnpm test:live --config <protected-config-path> --allow-live
 | 范围 | 指南 |
 | --- | --- |
 | 业务、权限、存储、pi、生命周期 | [架构](docs/architecture.md)、[pi 复用](docs/pi-reuse.md) |
+| 新增或维护专职 Subagent | [Subagent 开发规范](docs/subagent-development.md) |
 | 代码变更、真实模型或故障验证 | [测试](docs/testing.md) |
 | HTTP/SSE、工具报文、接入端协作 | [API 开发](docs/api-development.md)、[客户端接入指南](docs/client-integration-guide.md)、[接入须知记录](docs/client-notes.md)；核对对应 contracts、自动生成 `/docs` 与 `web/` 调用方；有需要外部接入端注意的变更顺手记入 `docs/client-notes.md` |
 | 启动、联调、配置 | [开发](docs/development.md)、[配置手册](docs/manual/configuration.md)、[指令手册](docs/manual/instructions.md) |
