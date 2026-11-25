@@ -120,19 +120,19 @@ Public session IDs and internal pi IDs are distinct. `main` is permanent, topic 
 ```text
 DATA_DIR/
   workspace/
-    assistant/                    USER.md, SOUL.md, INSTRUCTIONS.md
-    domains/news/INSTRUCTIONS.md  News recommendation instructions
-    domains/sms/INSTRUCTIONS.md   SMS alert instructions
-    files/                        Ordinary files
+    assistant/                      USER.md, SOUL.md, INSTRUCTIONS.md
+    subagents/news/INSTRUCTIONS.md  News recommendation instructions
+    subagents/sms/INSTRUCTIONS.md   SMS alert instructions
+    files/                          Ordinary files
   sessions/
     index.json
-    <sessionId>/                  history/
+    <sessionId>/                    history/
   state/
-    assistant/                    memory.md, identity.json, skill-overrides.json
-    main.sqlite                   Jobs, goals, approvals, SMS state, Dream state, message feedback, shared user habits
-    news.sqlite                   News data (articles, feeds, article feedback)
-    monitors.json                 Webpage monitors
-  assets/                         companions/, skills/, subagents/
+    assistant/                      memory.md, identity.json, skill-overrides.json
+    main.sqlite                     Jobs, goals, approvals, SMS state, Dream state, message feedback, shared user habits
+    news.sqlite                     News data (articles, feeds, article feedback)
+    monitors.json                   Webpage monitors
+  assets/                           companions/, skills/
   runtime/                        auth/, pi/, browser/, traces/, android-updates/
 ```
 

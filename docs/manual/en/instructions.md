@@ -19,10 +19,10 @@ All persistent persona and instruction files live under the single instance work
 | `assistant/INSTRUCTIONS.md` | Shared assistant rules across all chat sessions | Settings → Assistant instructions; Workspace files; chat `instructions` tool (approval required) | Next chat turn; 20,000 chars per file; empty string clears |
 | `assistant/SOUL.md` | Assistant persona, tone, and working style | Settings → Identity & Profile; Workspace files; model `write` / `edit` (approval required) | Next chat turn; 20,000 chars per file; empty string clears |
 | `assistant/USER.md` | Your background, naming preference, and context | Settings → Identity & Profile; Workspace files; model `write` / `edit` (approval required) | Next chat turn; 20,000 chars per file; empty string clears |
-| `domains/sms/INSTRUCTIONS.md` | SMS/information filtering and notification rules | Settings → SMS preferences; Workspace files; chat `domain_agent` tool (approval required) | Next SMS analysis batch; 20,000 chars per file |
-| `domains/news/INSTRUCTIONS.md` | News RSS recommendation and filter rules | Settings → News preferences; Workspace files; chat `domain_agent` tool (approval required) | Next news screening batch; 20,000 chars per file |
+| `subagents/sms/INSTRUCTIONS.md` | SMS/information filtering and notification rules | Settings → SMS preferences; Workspace files; chat `subagent` tool (approval required) | Next SMS analysis batch; 20,000 chars per file |
+| `subagents/news/INSTRUCTIONS.md` | News RSS recommendation and filter rules | Settings → News preferences; Workspace files; chat `subagent` tool (approval required) | Next news screening batch; 20,000 chars per file |
 
-Every document follows **last successful save wins**. News and SMS background pipelines never load chat skills, `assistant/INSTRUCTIONS.md`, or global `memory.md`; the main chat collaborates with them explicitly via the `domain_agent` tool.
+Every document follows **last successful save wins**. News and SMS background pipelines never load chat skills, `assistant/INSTRUCTIONS.md`, or global `memory.md`; the main chat collaborates with them explicitly via the unified `subagent` tool.
 
 ## Splitting Files with Top-of-File Frontmatter {#frontmatter-include}
 
@@ -75,7 +75,7 @@ include: [./bank.md, ./delivery-rules.md]
 
 SMS processing is disabled by default. Its system prompt uses a **Default-Silent** baseline: uncertain messages without an explicit directive default to `silent` (promotions, carrier marketing, routine completed login OTPs, ordinary mid-transit shipping updates), while actionable alerts default to `notify` (pickup codes/delivery exceptions, unusual financial alerts, account security warnings, itinerary changes). Decisions follow strict precedence from highest to lowest:
 
-1. **Your explicit instructions**: `workspace/domains/sms/INSTRUCTIONS.md` (highest authority).
+1. **Your explicit instructions**: `workspace/subagents/sms/INSTRUCTIONS.md` (highest authority).
 2. **Recent unconsolidated feedback**: likes, dislikes, saves, and comments you left on recent SMS notifications in `main` chat (held in a hot buffer until consolidated into long-term habits).
 3. **Consolidated user habits**: durable rules distilled incrementally by the cursor-driven habit engine (or added/edited manually by you) in `main.sqlite`, preserving early preferences even beyond the buffer window.
 4. **Default-Silent baseline**: conservative fallback filter when higher tiers give no directive.
@@ -84,12 +84,12 @@ The SMS pipeline keeps two isolated channels sharing these preferences: daily re
 
 ### News Independent Screening and Feedback {#news-screening}
 
-News collection uses `news.sqlite` independently and screens articles using `domains/news/INSTRUCTIONS.md`, consolidated habits, and unconsolidated per-article likes, dislikes, saves, and comments. Recommendations and reasons appear only inside News and never post chat notifications; see [News reading](news.md).
+News collection uses `news.sqlite` independently and screens articles using `subagents/news/INSTRUCTIONS.md`, consolidated habits, and unconsolidated per-article likes, dislikes, saves, and comments. Recommendations and reasons appear only inside News and never post chat notifications; see [News reading](news.md).
 
 ## Editing Methods and Security Boundaries {#editing-and-boundaries}
 
 1. **Edit in Settings or Workspace Files**: update root files directly in Settings, or edit split child files in Workspace Files (see [Attachments, files, and approvals](files-and-approvals.md#manage-workspace-files), reviewing the full before/after preview before saving).
-2. **Ask the assistant in chat**: ask the main assistant to inspect or propose updates via `instructions` or `domain_agent` (all model file writes still require version-bound human approval).
+2. **Ask the assistant in chat**: ask the main assistant to inspect or propose updates via `instructions` or `subagent` (all model file writes still require version-bound human approval).
 
 ::: warning Security and privacy boundaries
 - Custom instructions, profiles, skill switches, and expanded `include:` files never grant additional tools, loosen the `workspace/` path boundary, or bypass human `write` / `edit` approval (see [Attachments, files, and approvals](files-and-approvals.md)).
