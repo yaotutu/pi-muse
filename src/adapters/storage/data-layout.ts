@@ -16,7 +16,7 @@ export type DataLayout = {
   monitorsFile: string;
   mainDatabaseFile: string; newsDatabaseFile: string;
   soulFile: string; userFile: string; authKeyFile: string;
-  androidUpdatesDir: string; browserProfileDir: string; browserDownloadsDir: string; skillsDir: string; subagentsDir: string; tracesDir: string;
+  androidUpdatesDir: string; browserProfileDir: string; browserDownloadsDir: string; skillsDir: string; tracesDir: string;
 };
 export const createDataLayout = (dataDir: string): DataLayout => {
   const root = resolve(dataDir);
@@ -44,7 +44,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     androidUpdatesDir: join(runtime, "android-updates"),
     browserProfileDir: join(runtime, "browser", "profile"),
     browserDownloadsDir: join(runtime, "browser", "downloads"),
-    skillsDir: join(assets, "skills"), subagentsDir: join(assets, "subagents"), tracesDir: join(runtime, "traces"),
+    skillsDir: join(assets, "skills"), tracesDir: join(runtime, "traces"),
   };
 };
 export const companionPackDir = (layout: DataLayout, packId: string): string => {
@@ -66,7 +66,7 @@ export const ensureLayout = async (layout: DataLayout): Promise<void> => {
     workspaceDir, join(workspaceDir, "assistant"), join(workspaceDir, "domains"),
     join(workspaceDir, "domains", "news"), join(workspaceDir, "domains", "sms"), join(workspaceDir, "files"),
     layout.sessionsDir, layout.stateDir, layout.profileDir,
-    join(root, "assets"), layout.companionsDir, layout.skillsDir, layout.subagentsDir,
+    join(root, "assets"), layout.companionsDir, layout.skillsDir,
     join(root, "runtime"), join(root, "runtime", "auth"), layout.agentDir,
     join(root, "runtime", "browser"), layout.browserProfileDir, layout.browserDownloadsDir,
   ]) {
