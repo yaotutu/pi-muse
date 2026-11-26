@@ -1,18 +1,14 @@
-import type { ActivityOverview } from "../activities/types.js";
 import type { PendingAction } from "../actions/types.js";
 import type { BrowserHandoff, BrowserUpdateScope } from "../browser/types.js";
-import type { SessionPhase, SessionStatus, StatusRun } from "./session-status.js";
-import { MAX_CURRENT_RUNS, MAX_TRACKED_ACTIVITIES, MAX_STATUS_TOOLS, MAX_STATUS_SUBAGENTS } from "./session-status.js";
+import type { RunStep, RunStepStatus, SessionPhase, SessionStatus, StatusRun } from "./session-status.js";
+import { MAX_CURRENT_RUNS, MAX_STATUS_STEPS, MAX_STATUS_SUBAGENTS, MAX_STATUS_TOOLS, MAX_STEP_TEXT_LENGTH } from "./session-status.js";
 import { createSessionPresence, type SessionPresence } from "./session-presence.js";
 
-/** 活动进入终态的集合：这些状态不再出现在 ready.activities，变化只通过 activity_updated 通知一次。 */
-const ACTIVITY_TERMINAL: ReadonlySet<ActivityOverview["status"]> = new Set(["completed", "failed", "stopped", "interrupted"]);
 export type SubagentUpdateScope = "items" | "runs" | "habits" | "preferences" | "settings";
 export type WorkspaceUpdate =
   | { event: "session_presence_updated"; presence: SessionPresence }
   | { event: "session_status_updated"; status: SessionStatus }
   | { event: "approval_pending" | "approval_updated"; approval: PendingAction }
-  | { event: "activity_updated"; activity: ActivityOverview }
   | { event: "session_directory_updated" }
   | { event: "conversation_updated"; conversation: { sessionId: string; piSessionId: string } }
   | { event: "subagent_updated"; subagentId: string; scope: SubagentUpdateScope }
@@ -28,14 +24,20 @@ const labelFor: Record<SessionPhase, string> = {
   executing_tool: "正在执行工具", waiting_subagents: "正在等待子代理", waiting_approval: "等待人工审批", finalizing: "正在保存结果",
 };
 const toolLabel = (name: string | null) => ({ search_web: "正在搜索资料", web_fetch: "正在读取网页", browser: "正在操作浏览器", read: "正在读取文件", write: "正在写入文件", edit: "正在编辑文件", subagent: "正在委派子代理" }[name ?? ""] ?? "正在执行工具");
+const clipStepText = (value: string | null | undefined, max = MAX_STEP_TEXT_LENGTH): string | null => {
+  if (typeof value !== "string") return null;
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) return null;
+  return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
+};
+const activeStepStatuses = new Set<RunStepStatus>(["queued", "running", "waiting_approval"]);
 
-/** 只保留当前运行的展示投影，不拥有执行锁，不写活动历史或事件重放日志。 */
+/** 只保留当前运行的展示投影，不拥有执行锁，不写事件重放日志。 */
 export const createWorkspaceEvents = (recency?: { initial: Record<string, string>; save: (value: Record<string, string>) => void }) => {
   const instanceId = crypto.randomUUID();
   const subscribers = new Set<Subscriber>();
   const active = new Map<string, SessionStatus>();
   const approvals = new Map<string, PendingAction>();
-  const activities = new Map<string, ActivityOverview>();
   let closed = false;
   const disconnect = (subscriber: Subscriber) => {
     subscribers.delete(subscriber);
@@ -54,7 +56,6 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
     presence,
     current: (): SessionStatus[] => [...active.values()].map(copy),
     pending: (): PendingAction[] => [...approvals.values()].filter((item) => Date.parse(item.expiresAt) > Date.now()).map(copy),
-    activities: (): (ActivityOverview & { instanceId: string })[] => [...activities.values()].map((act) => ({ ...copy(act), instanceId })),
     subscribe: (subscriber: Subscriber): (() => void) => {
       if (closed) { disconnect(subscriber); return () => {}; }
       subscribers.add(subscriber);
@@ -95,24 +96,6 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
       if (closed) return;
       publish({ event: "browser_updated", scope, ...(handoff !== undefined ? { handoff } : {}) });
     },
-    /**
-     * 活动概览投影推送：由会话服务在活动状态变化时调用。
-     * 非终态活动保留在内存集合中供 ready 同步；终态只发布一次变化并从集合移除，
-     * 不做历史重放或第二份活动存储（权威记录仍是各会话 JSONL 的 custom entries）。
-     */
-    activityChanged: (overview: ActivityOverview) => {
-      if (closed) return;
-      const previousStatus = activities.get(overview.id)?.status;
-      if (ACTIVITY_TERMINAL.has(overview.status)) activities.delete(overview.id);
-      else {
-        // 容量防御：集合只服务展示同步，超限宁可断流让客户端重连 ready，也不无限增长。
-        if (!activities.has(overview.id) && activities.size >= MAX_TRACKED_ACTIVITIES) return;
-        activities.set(overview.id, copy(overview));
-      }
-      publish({ event: "activity_updated", activity: overview });
-      const waiting = ["waiting_user", "waiting_approval", "awaiting_continuation"].includes(overview.status);
-      presence.set(overview.sessionId, `activity:${overview.id}`, waiting ? { state: "waiting", label: "有待你处理的事项" } : null, waiting && previousStatus !== overview.status);
-    },
     beginRun: (input: { sessionId?: string; runId: string; source: "chat" | "job"; jobId?: string | null; title?: string; initialRevision?: number; onChange?: (status: SessionStatus) => void }): StatusRun => {
       if (closed) throw new Error("Service is closing");
       if (active.size >= MAX_CURRENT_RUNS) throw new ExecutionCapacityError();
@@ -125,9 +108,9 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
       let ended = false;
       let parentPhase: SessionPhase = "preparing";
       let state: SessionStatus = {
-        activityId: null, sessionId, runId: input.runId, source: input.source, jobId: input.jobId ?? null,
+        sessionId, runId: input.runId, source: input.source, jobId: input.jobId ?? null,
         revision: input.initialRevision ?? 1, title: (input.title || "正在处理请求").slice(0, 500), status: "running", phase: "preparing", label: labelFor.preparing,
-        tools: [], subagents: [], pendingApprovalIds: [], startedAt: now, updatedAt: now, endedAt: null,
+        tools: [], subagents: [], pendingApprovalIds: [], steps: [], startedAt: now, updatedAt: now, endedAt: null,
       };
       const notify = (increment = true) => {
         if (increment) state.revision++;
@@ -137,14 +120,67 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
         try { input.onChange?.(copy(state)); } catch { /* 观察出口不拥有运行生命周期。 */ }
         publish({ event: "session_status_updated", status: state });
         presence.set(sessionId, presenceKey, ended
-          ? state.status === "failed" ? { state: "error", label: "执行失败，请查看动态与审批" } : null
+          ? state.status === "failed" ? { state: "error", label: "执行失败，请查看执行记录与审批" } : null
           : { state: state.phase === "waiting_approval" ? "waiting" : "working", label: state.label }, (ended && state.status === "succeeded") || (!increment && input.source === "chat"));
+      };
+      const upsertStep = (draft: {
+        id: string;
+        parentId: string | null;
+        kind: RunStep["kind"];
+        title: string;
+        detail?: string | null;
+        status: RunStepStatus;
+        result?: string | null;
+        toolName?: string | null;
+        approvalId?: string | null;
+        startedAt?: string;
+        endedAt?: string | null;
+      }) => {
+        const existing = state.steps.find((item) => item.id === draft.id);
+        const title = clipStepText(draft.title) ?? "执行步骤";
+        const detail = clipStepText(draft.detail);
+        const result = clipStepText(draft.result);
+        if (existing) {
+          existing.parentId = draft.parentId ?? existing.parentId;
+          existing.title = title;
+          if (draft.detail !== undefined) existing.detail = detail;
+          existing.status = draft.status;
+          if (draft.result !== undefined) existing.result = result;
+          if (draft.toolName !== undefined) existing.toolName = draft.toolName;
+          if (draft.approvalId !== undefined) existing.approvalId = draft.approvalId;
+          if (draft.endedAt !== undefined) existing.endedAt = draft.endedAt;
+          return;
+        }
+        if (state.steps.length >= MAX_STATUS_STEPS) {
+          const dropIdx = state.steps.findIndex((item) => item.endedAt !== null);
+          if (dropIdx >= 0) state.steps.splice(dropIdx, 1);
+          else return;
+        }
+        state.steps.push({
+          id: draft.id.slice(0, 200),
+          parentId: draft.parentId ? draft.parentId.slice(0, 200) : null,
+          kind: draft.kind,
+          title,
+          detail,
+          status: draft.status,
+          result,
+          toolName: draft.toolName ?? null,
+          approvalId: draft.approvalId ?? null,
+          startedAt: draft.startedAt ?? new Date().toISOString(),
+          endedAt: draft.endedAt ?? null,
+        });
       };
       const refresh = () => {
         if (ended) return;
         const waiting = [...approvals.values()].filter((item) => item.sessionId === state.sessionId && item.runId === state.runId && Date.parse(item.expiresAt) > Date.now());
         state.pendingApprovalIds = waiting.map((item) => item.id);
-        for (const tool of state.tools) tool.status = waiting.some((item) => item.toolCallId === tool.toolCallId && item.subagentId === tool.subagentId) ? "waiting_approval" : "running";
+        for (const tool of state.tools) {
+          const isWaiting = waiting.some((item) => item.toolCallId === tool.toolCallId && item.subagentId === tool.subagentId);
+          tool.status = isWaiting ? "waiting_approval" : "running";
+          const stepId = `${tool.subagentId ?? "main"}:tool:${tool.toolCallId}`;
+          const step = state.steps.find((entry) => entry.id === stepId && entry.endedAt === null);
+          if (step) step.status = isWaiting ? "waiting_approval" : "running";
+        }
         for (const child of state.subagents) if (child.status === "running" && waiting.some((item) => item.subagentId === child.id)) { child.phase = "waiting_approval"; child.label = labelFor.waiting_approval; }
         state.phase = waiting.length ? "waiting_approval"
           : state.subagents.some((item) => item.status === "running" || item.status === "queued") ? "waiting_subagents"
@@ -157,12 +193,6 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
       notify(false);
       return {
         snapshot: () => copy(state),
-        activity: (overview) => {
-          if (ended || overview.currentRunId !== state.runId) return;
-          state.activityId = overview.id;
-          state.title = overview.title.slice(0, 500);
-          refresh();
-        },
         observe: (event) => {
           if (ended) return;
           const stamp = new Date().toISOString();
@@ -176,18 +206,46 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
               parentPhase = phase;
             }
           } else if (event.kind === "tool") {
+            const stepId = event.stepId ?? `${event.subagentId ?? "main"}:tool:${event.toolCallId}`;
+            const label = clipStepText(event.title, 120) ?? toolLabel(event.name);
             const index = state.tools.findIndex((item) => item.toolCallId === event.toolCallId && item.subagentId === event.subagentId);
             if (event.phase === "start") {
               if (index < 0) {
                 if (state.tools.length >= MAX_STATUS_TOOLS) throw new ExecutionCapacityError();
-                state.tools.push({ toolCallId: event.toolCallId, subagentId: event.subagentId, name: event.name, label: toolLabel(event.name), status: "running" });
+                state.tools.push({ toolCallId: event.toolCallId, subagentId: event.subagentId, name: event.name, label, status: "running" });
               }
-            } else if (index >= 0) state.tools.splice(index, 1);
+              upsertStep({
+                id: stepId,
+                parentId: event.parentId ?? event.subagentId ?? null,
+                kind: "tool",
+                title: event.title ?? label,
+                detail: event.detail ?? null,
+                status: "running",
+                result: null,
+                toolName: event.name,
+                startedAt: stamp,
+                endedAt: null,
+              });
+            } else {
+              if (index >= 0) state.tools.splice(index, 1);
+              upsertStep({
+                id: stepId,
+                parentId: event.parentId ?? event.subagentId ?? null,
+                kind: "tool",
+                title: event.title ?? label,
+                detail: event.detail,
+                status: event.status ?? "succeeded",
+                result: event.result ?? "已完成",
+                toolName: event.name,
+                startedAt: stamp,
+                endedAt: stamp,
+              });
+            }
             if (event.subagentId) {
               const child = state.subagents.find((item) => item.id === event.subagentId);
-              if (child && child.status === "running") { child.phase = event.phase === "start" ? "executing_tool" : "waiting_model"; child.label = event.phase === "start" ? toolLabel(event.name) : labelFor.waiting_model; child.updatedAt = stamp; }
+              if (child && child.status === "running") { child.phase = event.phase === "start" ? "executing_tool" : "waiting_model"; child.label = event.phase === "start" ? label : labelFor.waiting_model; child.updatedAt = stamp; }
             }
-          } else {
+          } else if (event.kind === "subagent") {
             let child = state.subagents.find((item) => item.id === event.id);
             if (!child) {
               if (state.subagents.length >= MAX_STATUS_SUBAGENTS) throw new ExecutionCapacityError();
@@ -197,6 +255,42 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
             if (event.phase === "start") { child.status = "running"; child.phase = "preparing"; child.label = labelFor.preparing; child.startedAt = stamp; }
             if (event.phase === "end") { child.status = event.outcome ?? "failed"; child.phase = null; child.endedAt = stamp; child.label = child.status === "succeeded" ? "子代理已完成" : child.status === "cancelled" ? "子代理已停止" : "子代理失败"; }
             child.updatedAt = stamp;
+            upsertStep({
+              id: event.id,
+              parentId: event.parentId ?? null,
+              kind: "subagent",
+              title: event.phase === "queued" ? "等待委派子代理" : event.phase === "start" ? "委派子代理" : child.label,
+              detail: event.role,
+              status: event.phase === "queued" ? "queued" : event.phase === "start" ? "running" : (event.outcome ?? "failed"),
+              result: event.phase === "end" ? (event.result ?? child.label) : null,
+              startedAt: stamp,
+              endedAt: event.phase === "end" ? stamp : null,
+            });
+          } else if (event.kind === "approval") {
+            upsertStep({
+              id: event.id,
+              parentId: event.parentId ?? null,
+              kind: "approval",
+              title: event.title,
+              detail: event.detail ?? null,
+              status: event.phase === "start" ? "waiting_approval" : (event.status ?? "cancelled"),
+              result: event.result ?? null,
+              approvalId: event.approvalId,
+              startedAt: stamp,
+              endedAt: event.phase === "end" ? stamp : null,
+            });
+          } else if (event.kind === "file_commit") {
+            upsertStep({
+              id: event.id,
+              parentId: event.parentId ?? null,
+              kind: "file_commit",
+              title: event.title,
+              detail: event.detail ?? null,
+              status: event.status,
+              result: event.result,
+              startedAt: stamp,
+              endedAt: stamp,
+            });
           }
           refresh();
         },
@@ -209,6 +303,13 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
           const stamp = new Date().toISOString();
           for (const child of state.subagents) if (child.status === "queued" || child.status === "running") {
             child.status = outcome === "cancelled" ? "cancelled" : "failed"; child.phase = null; child.updatedAt = stamp; child.endedAt = stamp; child.label = "子代理执行结束";
+          }
+          for (const step of state.steps) {
+            if (step.endedAt === null || activeStepStatuses.has(step.status)) {
+              step.endedAt ??= stamp;
+              step.status = outcome === "cancelled" ? "cancelled" : "failed";
+              step.result ??= outcome === "cancelled" ? "运行已停止" : "运行未完成";
+            }
           }
           state.endedAt = stamp;
           active.delete(key); liveRuns.delete(key);

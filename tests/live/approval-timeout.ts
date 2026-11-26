@@ -78,7 +78,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean; ex
     // 真实 key 驻留在透明代理内存中，不写入临时配置或持久化日志
     proxy = await createLiveModel({ baseUrl: model.baseUrl!, apiKey: model.apiKey });
 
-    // 默认真实口径：runTimeoutMs=120_000, actionTimeoutMs=300_000
+    // 服务端默认审批超时已调整为 24 小时（86_400_000ms）；本测试显式设为 300_000ms 以在 450s 内验证自动过期行为
     const config = createConfig({
       server: { host: "127.0.0.1", accessKey: "live-approval-timeout-key" },
       model: {
@@ -95,6 +95,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean; ex
         monitorScanIntervalMs: 60_000,
       },
       tools: {
+        writable: { actionTimeoutMs: 300_000 },
         presentation: { default: "summary" },
       },
     });

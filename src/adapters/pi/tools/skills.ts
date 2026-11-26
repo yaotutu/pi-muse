@@ -14,9 +14,9 @@ import {
   deniedResult,
   MAX_TEXT_FILE_BYTES,
   readFileSnapshot,
-  type ActivityApprovalObservation,
   type ApprovalActions,
   type ApprovalContext,
+  type RunApprovalObserver,
 } from "./file-approval.js";
 
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -33,7 +33,7 @@ export type SkillsToolDependencies = {
   runId?: string;
   /** 子调用沿用父会话/运行，仅用临时 id 关联真实工具步骤。 */
   subagentId?: string;
-  observation?: ActivityApprovalObservation;
+  observation?: RunApprovalObserver;
 };
 
 const validUnicodeText = (content: string) => {

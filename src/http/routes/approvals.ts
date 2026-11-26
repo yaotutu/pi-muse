@@ -32,17 +32,15 @@ export const createApprovalsRoutes = (
   const { actions } = dependencies;
   const app = new Hono();
 
-  // 历史只含终态；pending 从 /pending 读取。游标绑定三个过滤条件，改变过滤必须重新从第一页开始。
+  // 历史只含终态；pending 从 /pending 读取。游标绑定过滤条件，改变过滤必须重新从第一页开始。
   app.get("/api/approvals", async (c) => {
     const raw = parseQueryObject(new URL(c.req.url));
     if (!raw) return c.json({ error: "Invalid approval query", code: "INVALID_REQUEST" }, 400);
     const parsed = approvalListQuery.safeParse(raw);
     if (!parsed.success) return c.json({ error: "Invalid approval query", code: "INVALID_REQUEST" }, 400);
-    const { limit, cursor: encodedCursor, sessionId, activityId, status } = parsed.data;
-    const effectiveSessionId = sessionId;
+    const { limit, cursor: encodedCursor, sessionId, status } = parsed.data;
     const filter: ApprovalFilter = {
-      ...(effectiveSessionId !== undefined ? { sessionId: effectiveSessionId } : {}),
-      ...(activityId !== undefined ? { activityId } : {}),
+      ...(sessionId !== undefined ? { sessionId } : {}),
       ...(status !== undefined ? { status } : {}),
     };
     let cursor: { resolvedAt: string; id: string } | undefined;

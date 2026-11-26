@@ -98,7 +98,7 @@ const openServiceWithActions = async (
 
 const decodeCursor = (token: string) =>
   JSON.parse(Buffer.from(token, "base64url").toString("utf8")) as {
-    resolvedAt: string; id: string; sessionId?: string; activityId?: string; status?: string;
+    resolvedAt: string; id: string; sessionId?: string; status?: string;
   };
 
 /**
@@ -108,7 +108,7 @@ const decodeCursor = (token: string) =>
 const settled = (overrides: {
   id?: string; status?: PendingAction["status"]; title?: string; kind?: PendingAction["kind"];
   decidedAt: string; createdAt?: string; expiresAt?: string;
-  sessionId?: string; activityId?: string; execution?: PendingAction["execution"];
+  sessionId?: string; execution?: PendingAction["execution"];
 }): PendingAction => {
   const id = overrides.id ?? randomUUID();
   return {
@@ -127,7 +127,6 @@ const settled = (overrides: {
     runId: null,
     toolCallId: null,
     subagentId: null,
-    activityId: overrides.activityId ?? null,
     ...(overrides.execution ? { execution: overrides.execution } : {}),
   };
 };
@@ -301,7 +300,7 @@ test("approvals: detail returns full preview with execution appearing only after
   const action = await service.actions.submit(
     "file_write", "Detail preview",
     { path: "detail.md", content: "DETAIL-CONTENT " + "x".repeat(5000), originalContent: "" },
-    { sessionId: "main", runId: "run-detail", activityId: "act-detail" },
+    { sessionId: "main", runId: "run-detail" },
   );
   await service.actions.decide(action.id, "approve");
 
@@ -314,7 +313,6 @@ test("approvals: detail returns full preview with execution appearing only after
   assert.equal(preExec.preview.path, "detail.md");
   assert.equal(preExec.preview.after, "DETAIL-CONTENT " + "x".repeat(5000));
   assert.equal(preExec.runId, "run-detail");
-  assert.equal(preExec.activityId, "act-detail");
   assert.equal(Object.hasOwn(preExec, "payload"), false, "detail must not expose payload");
 
   await service.actions.markExecuting(action.id);
@@ -390,7 +388,6 @@ test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep cov
       id: `id-${String(i).padStart(2, "0")}`,
       decidedAt: new Date(base + i * 1000).toISOString(),
       sessionId: i % 2 === 0 ? "00000000-0000-4000-8000-000000000001" : "00000000-0000-4000-8000-000000000002",
-      activityId: i % 3 === 0 ? "act-X" : "act-Y",
       status: i % 4 === 0 ? "denied" : "approved",
     }));
   }
@@ -433,7 +430,7 @@ test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep cov
   assert.equal(decoded.resolvedAt, last.resolvedAt);
   assert.equal(decoded.id, "id-06");
 
-  // 过滤在分页前应用；status 过滤、sessionId 过滤、activityId 过滤必须保持顺序与时间不变。
+  // 过滤在分页前应用；status 过滤、sessionId 过滤必须保持顺序与时间不变。
   const denied = approvalPage.parse(
     await (await service.app.request("/api/approvals?status=denied", { headers })).json(),
   );
@@ -444,11 +441,6 @@ test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep cov
     await (await service.app.request("/api/approvals?sessionId=00000000-0000-4000-8000-000000000003", { headers })).json(),
   );
   assert.deepEqual(byAgent.approvals.map((it) => it.id), ["id-tie-B", "id-tie-A"]);
-
-  const byActivity = approvalPage.parse(
-    await (await service.app.request("/api/approvals?activityId=act-X", { headers })).json(),
-  );
-  for (const it of byActivity.approvals) assert.equal(it.activityId, "act-X");
 
   // pending 不是合法 status 过滤值：必须 400。
   assert.equal((await service.app.request("/api/approvals?status=pending", { headers })).status, 400);
@@ -597,7 +589,7 @@ test("approvals: buildOpenApiDocument registers the four routes with parameters,
   const list = paths["/api/approvals"]!.get!;
   assert.deepEqual(
     (list.parameters ?? []).map((p) => p.name).sort(),
-    ["activityId", "sessionId", "cursor", "limit", "status"].sort(),
+    ["sessionId", "cursor", "limit", "status"].sort(),
   );
   const limitSchema = list.parameters!.find((p) => p.name === "limit")!.schema;
   assert.equal(limitSchema.type, "integer");
@@ -695,7 +687,6 @@ test("approvals: contracts - approvalListQuery and approvalDecisionRequest rejec
   assert.equal(approvalListQuery.safeParse({ sessionId: "-bad" }).success, false);
   assert.equal(approvalListQuery.safeParse({ status: "pending" }).success, false);
   assert.equal(approvalListQuery.safeParse({ status: "approved" }).success, true);
-  assert.equal(approvalListQuery.safeParse({ activityId: "" }).success, false);
 
   assert.equal(approvalDecisionRequest.safeParse({ decision: "approve" }).success, true);
   for (const bad of [
@@ -718,7 +709,6 @@ test("approvals: zod schemas confirm wire shapes", () => {
     runId: null,
     toolCallId: null,
     subagentId: null,
-    activityId: null,
     kind: "file_write" as const,
     title: "t",
     status: "pending" as const,

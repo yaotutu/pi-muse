@@ -83,7 +83,7 @@ test("config defaults allow an unconfigured LAN-accessible instance", async (t) 
         userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36",
       },
       weather: { enabled: true, defaultCity: undefined },
-      writable: { enabled: true, actionTimeoutMs: 300000 },
+      writable: { enabled: true, actionTimeoutMs: 86400000 },
       browser: { enabled: true, executablePath: undefined, cdpUrl: undefined, allowPrivateTargets: false, timeoutMs: 30000 },
       presentation: { default: "hidden", overrides: {} },
     },

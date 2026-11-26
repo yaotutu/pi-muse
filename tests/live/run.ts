@@ -215,96 +215,23 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.equal((await client.request("/api/agent/tasks", { prompt: "must not execute" })).status, 501);
     assert.equal(Object.hasOwn(await client.json("/api/identity"), "worker"), false); record(scenario);
 
-    // Activity 工具协议验收；显式指定调用的场景不冒充模型自主分类准确率证明。
-    scenario = "activity-tool-protocol";
-    const actRun = await begin("activity-auto", "这是隔离真实验收。我交办你一项调研工作：请根据你的系统指令，判断这是一项交办工作，自主调用 activity 工具登记 start（title='调研测试', goal='验证活动链路', deliverable='验收结论'），然后调用 currentTime 一次，再调用 activity 工具声明 complete（result='完成调研'），最后输出简短结论。不要写文件。");
-    rows = await finish(actRun);
-    const actCalls = rows.filter((row) => !row.child).flatMap((row) => row.calls).filter((call) => call.name === "activity");
-    assert.ok(actCalls.length >= 2, "Agent should call activity start and complete");
-    const actList = await client.json("/api/activities?sessionId=" + actRun.sessionId);
-    assert.equal(actList.activities.length, 1);
-    const actItem = actList.activities[0];
-    assert.equal(actItem.status, "completed");
-    assert.ok(actItem.result);
-    const actDetail = await client.json("/api/activities/" + actItem.id);
-    assert.ok(actDetail.steps.some((s: { kind: string }) => s.kind === "execution"));
-    assert.ok(actDetail.steps.some((s: { kind: string }) => s.kind === "model"));
-    record(scenario, { activityId: actItem.id, status: actItem.status, steps: actDetail.steps.length });
+    scenario = "run-steps";
+    const stepsRun = await begin("run-steps-tool", "这是隔离真实验收。请调用 currentTime 一次并简短回复当前时间，不要写文件。", "main");
+    await finish(stepsRun);
+    const runsPage = await client.json(`/api/runs?sessionId=${stepsRun.sessionId}`);
+    const matchedRun = runsPage.runs.find((item: { runId: string }) => item.runId === stepsRun.runId);
+    assert.ok(matchedRun, "GET /api/runs must include finished tool run");
+    assert.equal(matchedRun.status, "succeeded");
+    assert.ok(matchedRun.steps.some((step: { kind: string; toolName: string | null; status: string }) =>
+      step.kind === "tool" && step.toolName === "currentTime" && step.status === "succeeded"));
 
-    for (const decision of ["approve", "deny", "cancel"] as const) {
-      const name = "activity-approval-" + decision;
-      const path = `shared/live-activity-${decision}.txt`;
-      const content = `LIVE-ACTIVITY-${decision.toUpperCase()}`;
-      const prompt = `隔离验收：请先调用 activity start，登记目标“创建验收文档”、交付“${path}”。随后只调用一次 write，path=${path}，content 精确为 ${content}。等真实审批与工具结果，不重试，不改路径。批准并真正写成后才可调用 activity complete；拒绝或取消不能宣称完成。最后简短如实报告。`;
-      const running = await begin(name, prompt);
-      const action = await wait(async () => (await client.pending()).find((item) => item.runId === running.runId), "activity write approval");
-      assert.equal(action.sessionId, running.sessionId);
-      assert.equal(action.preview.path, path); assert.equal(action.preview.after, content); assert.equal(action.revision, 1);
-      const page = await client.json(`/api/activities?sessionId=${running.sessionId}`);
-      assert.equal(page.activities.length, 1);
-      const id = page.activities[0].id;
-      const before = await client.json(`/api/activities/${id}`);
-      assert.equal(before.activity.status, "waiting_approval");
-      const approval = before.steps.find((step: { kind: string }) => step.kind === "approval");
-      assert.ok(approval);
-      assert.ok(before.steps.some((step: { id: string; kind: string }) => step.id === approval.parentId && step.kind === "tool"));
-      assert.ok(!JSON.stringify(before.steps).includes(path) && !JSON.stringify(before.steps).includes(content));
-      await absent(join(dataDir, "workspace", path));
-      if (decision === "cancel") {
-        await client.json("/api/conversation/stop", { sessionId: running.sessionId, runId: running.runId });
-        await finish(running, "RUN_ERROR");
-      } else {
-        await client.decideApproval(action.id, decision);
-        await finish(running);
-      }
-      const after = await client.json(`/api/activities/${id}`);
-      assert.equal(after.steps.find((step: { kind: string }) => step.kind === "approval").status, decision === "approve" ? "succeeded" : decision === "deny" ? "denied" : "cancelled");
-      if (decision === "approve") {
-        assert.equal(await readFile(join(dataDir, "workspace", path), "utf8"), content);
-        assert.equal(after.activity.status, "completed");
-        assert.ok(after.steps.some((step: { kind: string; status: string }) => step.kind === "file_commit" && step.status === "succeeded"));
-      } else {
-        await absent(join(dataDir, "workspace", path));
-        assert.notEqual(after.activity.status, "completed");
-        if (decision === "cancel") assert.equal(after.activity.status, "stopped");
-      }
-      record(name, { approvalLinked: true, written: decision === "approve", finalStatus: after.activity.status });
-    }
-
-    scenario = "activity-ordinary";
-    const chatRun = await begin("activity-chat", "你好，请用一句话告诉我 1 + 1 等于几。不要调用任何工具，这不是交办工作。");
-    rows = await finish(chatRun);
-    const chatActCalls = rows.filter((row) => !row.child).flatMap((row) => row.calls).filter((call) => call.name === "activity");
-    assert.equal(chatActCalls.length, 0, "Ordinary chat must not call activity tool");
-    const chatActList = await client.json("/api/activities?sessionId=" + chatRun.sessionId);
-    assert.equal(chatActList.activities.length, 0);
-    record(scenario, { activityCount: 0 });
-
-    scenario = "activity-stop-resume";
-    const stopPrompt = "这是隔离真实验收。交办工作：请先调用 activity start（title='中断恢复测试', goal='验证中断后恢复', deliverable='恢复报告'），然后不要写文件，连续输出3000条编号清单。";
-    const actStopRun = await begin("activity-stop", stopPrompt);
-    await wait(() => proxy!.traces.find((row) => row.index >= actStopRun.baseline && !row.child && row.calls.some((c) => c.name === "activity")), "activity start called");
-    start = Date.now();
-    assert.equal((await client.json("/api/conversation/stop", { sessionId: actStopRun.sessionId, runId: actStopRun.runId })).stopped, true);
-    await finish(actStopRun, "RUN_ERROR");
-    const stoppedActList = await client.json("/api/activities?sessionId=" + actStopRun.sessionId);
-    assert.equal(stoppedActList.activities.length, 1);
-    const stoppedAct = stoppedActList.activities[0];
-    assert.equal(stoppedAct.status, "stopped");
-    assert.ok(stoppedAct.finishedAt);
-
-    // 恢复原活动
-    const resumePrompt = `这是隔离真实验收。请继续刚才的工作，调用 activity resume（activityId='${stoppedAct.id}'），再调用 activity complete（result='恢复并完成报告'），最后简短回复。`;
-    const actResumeRun = await begin("activity-resume", resumePrompt, actStopRun.sessionId);
-    rows = await finish(actResumeRun);
-    const resumeCalls = rows.filter((row) => !row.child).flatMap((row) => row.calls).filter((call) => call.name === "activity");
-    assert.ok(resumeCalls.some((c) => c.name === "activity" && c.arguments.includes("resume")));
-    const resumedActList = await client.json("/api/activities?sessionId=" + actStopRun.sessionId);
-    assert.equal(resumedActList.activities.length, 1);
-    const resumedAct = resumedActList.activities[0];
-    assert.equal(resumedAct.id, stoppedAct.id);
-    assert.equal(resumedAct.status, "completed");
-    record(scenario, { resumedSameActivity: true, finalStatus: "completed" });
+    const plainRun = await begin("run-steps-plain", "你好，请用一句话告诉我 1 + 1 等于几。不要调用任何工具。", stepsRun.sessionId);
+    await finish(plainRun);
+    const plainRunsPage = await client.json(`/api/runs?sessionId=${plainRun.sessionId}`);
+    const matchedPlain = plainRunsPage.runs.find((item: { runId: string }) => item.runId === plainRun.runId);
+    assert.ok(matchedPlain);
+    assert.equal(matchedPlain.steps.length, 0);
+    record(scenario, { toolSteps: matchedRun.steps.length, plainSteps: matchedPlain.steps.length });
 
     scenario = "restart-seed";
     const seedRun = await begin("restart-seed", "这是隔离真实验收。请实际调用currentTime一次，只回复LIVE-RESTART-SEED与工具中的ISO时间。不要调用其他工具，不要写文件。", "main");

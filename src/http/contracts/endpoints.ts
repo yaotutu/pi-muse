@@ -3,7 +3,6 @@ import { z } from "zod";
 import * as req from "./rest.js";
 import * as resp from "./responses.js";
 import * as trace from "./traces.js";
-import * as activity from "./activities.js";
 import * as approval from "./approvals.js";
 import * as status from "./session-status.js";
 import * as files from "./workspace-files.js";
@@ -765,33 +764,6 @@ export const endpoints: EndpointSpec[] = [
       "审批横幅由 GET /api/events 的 ready.pendingApprovals 与 approval_pending 事件同步，不在此快照中；旧审批列表接口已下线。",
     auth: true, response: resp.identitySnapshot,
   },
-  // ---- 执行活动（只读；登记与推进由对话工具完成）----
-  {
-    operationId: "listActivities",
-    method: "get", path: "/api/activities", tag: "活动", summary: "列出执行活动（按创建时间倒序分页）",
-    hint:
-      "执行活动是主模型在决定开始推进用户交办的工作时通过对话工具显式登记的记录，不是每轮消息自动生成，" +
-      "也不是后端解析回复或按关键词/工具次数机械分类；普通交流、解释、澄清和简单查询通常没有记录。" +
-      "本接口只读：没有创建/更新/完成活动的 HTTP 写入口，活动的登记、进展、等待与完成只能由对话工具在真实执行中产生；" +
-      "步骤是工具、模型、子代理、审批与文件提交等真实执行事件的安全投影，不含模型内部思维、凭据、原始工具参数或未脱敏日志。" +
-      "排序为 createdAt 降序、同一时间按 id 降序；limit 默认 20、范围 1–100。" +
-      "cursor 是上一页返回的不透明 base64url，原样回传即可；它绑定生成时的 sessionId/status 过滤条件，改变过滤后必须从第一页重新开始。" +
-      "严格校验：未声明参数、重复参数、非法 limit、非法游标（结构/时间/过滤不匹配）一律 400。" +
-      "分页不冻结：每次请求读取当前投影，执行中的状态与步骤会更新，期间新增活动只可能出现在第一页，已读页不保证与首次读取一致。" +
-      "completed 表示主模型已明确声明完成且结果已交付；单次工具结束、子代理返回或一轮回复结束都不会自动完成。" +
-      "awaiting_continuation 表示本轮结束但工作未完成，需用户明确要求继续；继续同一工作时更新原活动（runIds 追加新 run），不新建活动。" +
-      "活动随来源会话删除而删除；本接口不新增 SSE 事件，状态变化由客户端重新读取本接口获取。",
-    auth: true, query: activity.activitiesQuerySchema, response: activity.activitiesResponse,
-  },
-  {
-    operationId: "getActivity",
-    method: "get", path: "/api/activities/:id", tag: "活动", summary: "读取活动详情（概览＋逐步明细）",
-    hint:
-      "返回 activity 概览与 steps 逐步明细；steps 按真实执行顺序，失败、拒绝、取消、过期与中断如实保留，" +
-      "是安全投影而非原始工具载荷或模型思维。只读，不提供修改/完成入口；活动不存在或来源会话已删除返回 404。" +
-      "本接口不新增 SSE 事件，客户端在收到工作区通知或用户操作后重新读取。",
-    auth: true, response: activity.activityDetailResponse,
-  },
   // ---- 定时任务（Jobs）----
   {
     operationId: "listJobs",
@@ -959,10 +931,10 @@ export const endpoints: EndpointSpec[] = [
     hint:
       "只返回已处理/失效审批的摘要，不含 preview 正文；当前 pending 不在此列表，由 GET /api/events 的 ready.pendingApprovals 与 approval_pending 事件同步。" +
       "按最近处理时间（resolvedAt）降序、同一时间按 id 降序；limit 默认 20、范围 1–100。" +
-      "cursor 是上一页返回的不透明 base64url，原样回传即可；它绑定 status/sessionId/activityId 过滤，改变过滤后必须从第一页重新开始。结构非法、非规范编码或过滤不匹配返回 400。" +
+      "cursor 是上一页返回的不透明 base64url，原样回传即可；它绑定 status/sessionId 过滤，改变过滤后必须从第一页重新开始。结构非法、非规范编码或过滤不匹配返回 400。" +
       "严格校验：未声明参数、重复参数、非法 limit、非法游标一律 400。" +
       "分页不冻结：每次请求读取当前审批记录；历史与预览在登记后不可变，已处理/失效审批长期保留，不按时间或数量静默裁剪。" +
-      "可按 status（approved/denied/expired/cancelled）、sessionId、activityId 过滤；pending 非法。execution=null 表示尚未观察到执行，不能当作成功。历史记录存在不代表授权仍有效；需要完整预览时读取 GET /api/approvals/:id。",
+      "可按 status（approved/denied/expired/cancelled）、sessionId 过滤；pending 非法。execution=null 表示尚未观察到执行，不能当作成功。历史记录存在不代表授权仍有效；需要完整预览时读取 GET /api/approvals/:id。",
     auth: true, query: approval.approvalListQuery, response: approval.approvalPage,
     errorResponses: {
       400: { description: "查询参数或游标非法", schema: resp.errorResponse },
@@ -991,12 +963,12 @@ export const endpoints: EndpointSpec[] = [
     operationId: "decideApproval",
     method: "post", path: "/api/approvals/:id/decision", tag: "审批", summary: "审批写操作（approve/deny）",
     hint:
-      "模型调用 write/edit 时工具挂起等此决定：approve 才落盘，deny 返回受控拒绝。" +
-      "批准只代表授权执行预览中绑定的这一次操作，不代表执行成功；实际结果以 execution 与真实工具、Activity 步骤为准。execution=null 表示尚未观察到执行。" +
+      "模型调用 write/edit/skills save 时工具挂起等此决定：approve 才落盘，deny 返回受控拒绝。" +
+      "批准只代表授权执行预览中绑定的这一次操作，不代表执行成功；实际结果以 execution 与运行步骤为准。execution=null 表示尚未观察到执行。" +
       "只有 pending 状态可决定。相同决定的重复提交幂等返回 200 与原审批，revision 不变，不再次执行；" +
       "相反决定、已 expired 或 cancelled 返回 409，响应为 {error, approval: 当前完整审批视图}。" +
       "未知 id 返回 404，请求体非法返回 400，未鉴权由中间件返回 401。" +
-      "expired 不是人的决定：status=expired、decidedAt=null，resolvedAt 记录失效时间；有效期由 expiresAt 决定（默认5分钟），后台每秒对齐过期状态，不清理历史。" +
+      "expired 不是人的决定：status=expired、decidedAt=null，resolvedAt 记录失效时间；有效期由 expiresAt 决定（默认 24 小时），后台每秒对齐过期状态，不清理历史。" +
       "执行开始与回执各推进 revision 并推送 approval_updated，但不改 decidedAt/resolvedAt；running 遗留在重启后标记 unknown，不重跑。",
     auth: true, request: approval.approvalDecisionRequest, response: approval.approvalView,
     errorResponses: {
@@ -1011,14 +983,24 @@ export const endpoints: EndpointSpec[] = [
       },
     },
   },
-  // ---- 运行状态（只读单 run 查询）----
+  // ---- 执行记录与运行状态（只读查询）----
+  {
+    operationId: "listSessionRuns",
+    method: "get", path: "/api/runs", tag: "执行记录", summary: "分页查询指定会话的运行记录及步骤时间线",
+    hint:
+      "只读分页查询指定 sessionId 的执行记录列表（按 startedAt 倒序，包含当前运行中与已持久化历史记录），" +
+      "每条记录均带步骤时间线 steps（普通无工具问答为空数组）。合法但不存在的会话返回空数组，不建立会话或目录；" +
+      "未声明、重复、非法参数或跨会话游标返回 400。",
+    auth: true, query: status.runListQuery, response: status.runListResponse,
+    errorResponses: {
+      400: { description: "查询参数或游标非法", schema: resp.errorResponse },
+    },
+  },
   {
     operationId: "getAgentStatus",
-    method: "get", path: "/api/runs/status", tag: "活动", summary: "查询单个运行的最新状态",
+    method: "get", path: "/api/runs/status", tag: "执行记录", summary: "查询单个运行的最新状态与步骤",
     hint:
-      "只读查询指定 (sessionId, runId) 的最新运行状态，包含运行结束后的最终终态；不调用模型、不建立会话、不创建目录、不写 Activity 历史。" +
-      "普通 chat 可能没有登记 Activity，此时 status.activityId 为 null，不是错误。" +
-      "活动列表与详情查询保持不变，仍使用 GET /api/activities 与 GET /api/activities/:id。" +
+      "只读查询指定 (sessionId, runId) 的最新运行状态及步骤时间线 steps，包含运行结束后的最终终态；不调用模型、不建立会话、不创建目录。" +
       "响应为 {instanceId, status}：instanceId 标识产生该状态的服务实例，运行 revision 只在该实例内存内有效；" +
       "该 revision 与 GET /api/events 的 ready.sessionStatuses / session_status_updated 共用同一运行状态版本，" +
       "客户端按 revision 合并同一运行的状态，instanceId 变化后清空运行版本缓存。" +

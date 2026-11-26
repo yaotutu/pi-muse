@@ -34,8 +34,6 @@ import { createTools, skillToToolsMap, registeredToolNames } from "./tools/index
 import { createWritableFileTools } from "./tools/files-writable.js";
 import type { ReadOnlyFile } from "./tools/path-guard.js";
 import { createSubagentExtension, SUBAGENT_TOOL_NAME } from "./subagent/extension.js";
-import type { ActivityRun, ActivityObservation } from "../../features/activities/types.js";
-import { createActivityObserver } from "./activity-observer.js";
 import { createToolPresentation, type ToolPresentation } from "../ag-ui/tool-presentation.js";
 import type { WorkspaceCommitQueue } from "../workspace/file-commit-queue.js";
 import type { StatusRun } from "../../features/workspace/session-status.js";
@@ -65,7 +63,6 @@ export type PiDeps = {
   weather?: WeatherService;
   browser?: BrowserService;
   status?: StatusRun;
-  activity?: ActivityRun;
   skills?: SkillsService;
   presentation?: ToolPresentation;
   /** 与手动 HTTP 文件入口共用，保证最终版本检查与提交按物理路径串行。 */
@@ -216,13 +213,10 @@ export async function openPi(deps: PiDeps) {
     sessionId: deps.sessionId,
     runId: deps.runId,
     isSubagent: false,
-    currentActivityId: () => deps.status?.snapshot().activityId ?? null,
-    activity: deps.activity,
-    activityObservation: deps.activity
+    approvalObserver: deps.status
       ? {
-          observe: (event: ActivityObservation) => deps.activity!.observe(event),
+          observe: (event) => deps.status!.observe(event),
           prefix: "main",
-          getActivityId: () => deps.activity!.getCurrentActivityId(),
         }
       : undefined,
     memory,
@@ -258,46 +252,34 @@ export async function openPi(deps: PiDeps) {
       async (agent, task, signal, update, parentToolCallId, queuedChildId) => {
         signal?.throwIfAborted();
         const childId = queuedChildId ?? `subagent-${randomUUID()}`;
-        deps.status?.observe({ kind: "subagent", phase: "start", id: childId, role: agent.id });
-        const parentStepId = `main:tool:${parentToolCallId}`;
-        deps.activity?.observe({
-          id: childId,
-          parentId: parentStepId,
-          kind: "subagent",
-          phase: "start",
-          title: "Subagent executing",
-        });
+        const parentStepId = parentToolCallId ? `main:tool:${parentToolCallId}` : null;
+        deps.status?.observe({ kind: "subagent", phase: "start", id: childId, role: agent.id, parentId: parentStepId });
         try {
           signal?.throwIfAborted();
-          const childActivityObservation = deps.activity
+          const childApprovalObserver = deps.status
             ? {
-                observe: (event: ActivityObservation) => deps.activity!.observe(event),
+                observe: (event: Parameters<NonNullable<Parameters<typeof createWritableFileTools>[5]>["observe"]>[0]) => deps.status!.observe(event),
                 prefix: childId,
-                getActivityId: () => deps.activity!.getCurrentActivityId(),
               }
             : undefined;
           const writable = actions && deps.config.writable.enabled !== false
             ? createWritableFileTools(
                 cwd,
                 actions,
-                actionTimeoutMs ?? 300_000,
+                actionTimeoutMs ?? 86_400_000,
                 {
                   sessionId: deps.sessionId,
                   runId: deps.runId,
                   subagentId: childId,
-                  activityId: () => deps.status?.snapshot().activityId ?? null,
                 },
                 layout.workspaceDir,
-                childActivityObservation,
+                childApprovalObserver,
                 deps.workspaceCommits,
                 { allowManagedForSubagent: true },
               )[0]
             : undefined;
           const subscribers = [
-            ...(deps.activity
-              ? [createActivityObserver((event) => deps.activity!.observe(event), presentation, childId, childId)]
-              : []),
-            ...(deps.status ? [createStatusObserver(deps.status, presentation, childId)] : []),
+            ...(deps.status ? [createStatusObserver(deps.status, presentation, childId, childId)] : []),
           ];
 
           const result = await registry.runChatTask(agent.id, task, {
@@ -329,34 +311,21 @@ export async function openPi(deps: PiDeps) {
             phase: "end",
             id: childId,
             role: agent.id,
-            outcome: failed ? "failed" : "succeeded",
-          });
-          deps.activity?.observe({
-            id: childId,
             parentId: parentStepId,
-            kind: "subagent",
-            phase: "end",
-            status: failed ? "failed" : "succeeded",
-            title: failed ? "Subagent failed" : "Subagent completed",
-            result: failed ? "Subagent execution failed" : "Subagent completed task",
+            outcome: failed ? "failed" : "succeeded",
+            result: failed ? "子代理执行失败" : "子代理已完成",
           });
           return result;
         } catch {
+          const cancelled = Boolean(signal?.aborted);
           deps.status?.observe({
             kind: "subagent",
             phase: "end",
             id: childId,
             role: agent.id,
-            outcome: signal?.aborted ? "cancelled" : "failed",
-          });
-          deps.activity?.observe({
-            id: childId,
             parentId: parentStepId,
-            kind: "subagent",
-            phase: "end",
-            status: signal?.aborted ? "cancelled" : "failed",
-            title: "Subagent aborted or failed",
-            result: "Subagent execution failed",
+            outcome: cancelled ? "cancelled" : "failed",
+            result: cancelled ? "子代理已停止" : "子代理执行失败",
           });
           signal?.throwIfAborted();
           return { agent: agent.id, task, output: "Subagent execution failed", isError: true };
@@ -414,9 +383,6 @@ export async function openPi(deps: PiDeps) {
       retry: { enabled: false },
     }),
   });
-  if (deps.activity) {
-    session.subscribe(createActivityObserver((event) => deps.activity!.observe(event), presentation, "main"));
-  }
-  if (deps.status) session.subscribe(createStatusObserver(deps.status, presentation, null));
+  if (deps.status) session.subscribe(createStatusObserver(deps.status, presentation, null, null));
   return session;
 }

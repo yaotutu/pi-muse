@@ -8,7 +8,6 @@ import { createDreamRoutes } from "./routes/dream.js";
 import { createIdentityRoutes } from "./routes/identity.js";
 import { createMonitorsRoutes } from "./routes/monitors.js";
 import { createApprovalsRoutes } from "./routes/approvals.js";
-import { createActivitiesRoutes } from "./routes/activities.js";
 import { createConversationRoutes } from "./routes/conversation.js";
 import { createSessionStatusRoutes } from "./routes/session-status.js";
 import { createProfileRoutes } from "./routes/profile.js";
@@ -29,7 +28,6 @@ export const createWorkspaceRoutes = (dependencies: HttpDependencies) => {
   app.route("/", createIdentityRoutes(dependencies));
   app.route("/", createMonitorsRoutes(dependencies));
   app.route("/", createApprovalsRoutes(dependencies));
-  app.route("/", createActivitiesRoutes(dependencies));
   app.route("/", createConversationRoutes(dependencies));
   app.route("/", createProfileRoutes(dependencies));
   app.route("/", createWorkspaceFileRoutes(dependencies));

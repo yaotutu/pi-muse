@@ -45,7 +45,6 @@ export const presentApprovalResolution = (action: PendingAction) => {
     runId: action.runId,
     toolCallId: action.toolCallId,
     subagentId: action.subagentId,
-    activityId: action.activityId,
     status: action.status,
     createdAt: action.createdAt,
     expiresAt: action.expiresAt,

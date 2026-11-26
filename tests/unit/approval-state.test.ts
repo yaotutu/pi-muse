@@ -54,7 +54,6 @@ const baseAction = (overrides: Record<string, unknown> = {}): PendingAction => (
   runId: null,
   toolCallId: null,
   subagentId: null,
-  activityId: null,
   ...overrides,
 });
 
@@ -417,7 +416,7 @@ test("actions reader accepts only current records with required revision and con
 
   // 旧格式缺少新增字段：整体拒绝，不补默认值。
   const legacy = { ...pending } as Record<string, unknown>;
-  for (const field of ["activityId", "sessionId", "decidedAt", "resolvedAt", "revision", "runId", "subagentId", "toolCallId"]) {
+  for (const field of ["sessionId", "decidedAt", "resolvedAt", "revision", "runId", "subagentId", "toolCallId"]) {
     const missing = { ...legacy };
     delete missing[field];
     assert.throws(() => parseActions([missing]), InvalidDocumentError, `missing ${field}`);

@@ -41,7 +41,6 @@ const record = (changes: Partial<PendingAction> = {}): PendingAction => ({
   runId: null,
   toolCallId: null,
   subagentId: null,
-  activityId: null,
   ...changes,
 });
 
@@ -97,7 +96,6 @@ test("新增审批后可读回且字段完全一致", async (t) => {
     runId: "run-1",
     toolCallId: "call-1",
     subagentId: "sub-1",
-    activityId: "act-1",
   });
 
   await opened.repository.update((items) => ({ items: [...items, action], result: undefined }));

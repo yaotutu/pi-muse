@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { MAX_CURRENT_RUNS, MAX_TRACKED_ACTIVITIES } from "../../features/workspace/session-status.js";
-import { activityOverview } from "./activities.js";
+import { MAX_CURRENT_RUNS } from "../../features/workspace/session-status.js";
 import { browserHandoffSchema } from "./browser.js";
 import { sessionStatus } from "./session-status.js";
 import {
@@ -12,19 +11,17 @@ import {
 /**
  * 工作区实时状态推送流契约（zod v4）：GET /api/events 的状态与历史失效事件。
  *
- * 与旧版“空对象失效通知”不同，本流直接承载可展示的最新状态：
- * - ready：连接建立时的完整当前集合（进行中的运行 + 待审批项 + 进行中的活动）；
- * - session_status_updated：单个运行的最新状态快照；
+ * 承载可展示的最新状态：
+ * - ready：连接建立时的完整当前集合（进行中的运行 + 待审批项）；
+ * - session_status_updated：单个运行的最新状态与步骤时间线快照；
  * - session_presence_updated：按会话汇总的头像状态与最近有效活动；
  * - approval_pending：新增待审批项的完整不可变内容；
- * - approval_updated：审批进入终态与执行回执变化时的轻量投影。
- * - activity_updated：活动状态变化时的概览快照（仅状态变化时推送，progress 过程更新不推）。
+ * - approval_updated：审批进入终态与执行回执变化时的轻量投影；
  * - conversation_updated：权威会话历史提交后的瞬时失效信号。
  *
  * 协议边界：
  * - 单向推送，不接收批准/拒绝/停止等操作；用户操作走独立 HTTP 接口。
  * - 不发送事件 id、不支持历史重放、忽略 Last-Event-ID；重连以新的 ready 为同步边界。
- * - 每条 data 是单行 JSON；按 (id, revision) 合并，不按时间排序。
  * - 通知连接断开不取消聊天、任务或子代理；不提供锁屏系统推送。
  */
 
@@ -55,13 +52,13 @@ export const workspaceEvents = {
       serverTime: isoTime.describe(
         "服务端生成该快照的时间。仅用于展示和诊断，不作为事件排序或版本比较依据。",
       ),
-      sessionPresences: z.array(sessionPresence).describe("会话头像状态完整替换集合，含后台信息处理、RSS、记忆整理与独立讨论；不含全部聚合状态。未出现的会话为空闲。"),
+      sessionPresences: z.array(sessionPresence).describe("会话头像状态完整替换集合，含后台信息处理、RSS、记忆整理与独立讨论；未出现的会话为空闲。"),
       sessionStatuses: z
         .array(sessionStatus)
         .max(MAX_CURRENT_RUNS)
         .describe(
           `当前仍在执行的运行快照，最多 ${MAX_CURRENT_RUNS} 个。这是当前集合的完整替换值：` +
-            "不在数组中的运行应从本地进行中列表移除；已结束运行的最终状态通过 GET /api/runs/status 查询。",
+            "不在数组中的运行应从本地进行中列表移除；已结束运行的最终状态与步骤通过 GET /api/runs 或 GET /api/runs/status 查询。",
         ),
       pendingApprovals: z
         .array(approvalView)
@@ -70,18 +67,10 @@ export const workspaceEvents = {
           `当前待审批项的完整视图（含不可变预览全文），最多 ${MAX_PENDING_APPROVALS} 个。` +
             "这是当前待审批集合的完整替换值，不是增量；不在数组中的审批不再处于 pending。",
         ),
-      activities: z
-        .array(activityOverview.extend({ instanceId: instanceIdSchema }))
-        .max(MAX_TRACKED_ACTIVITIES)
-        .describe(
-          `当前未进入终态（running/waiting_approval/waiting_user/awaiting_continuation）的活动概览，` +
-            `最多 ${MAX_TRACKED_ACTIVITIES} 个。这是当前进行中活动集合的完整替换值；` +
-            "已进入终态的活动不在其中，其最终状态通过 activity_updated 事件或 GET /api/activities 查询。",
-        ),
     })
     .describe(
       "每条连接恰好一次的首帧，先于后续增量事件。data 为完整当前集合；客户端应整体替换" +
-        "进行中运行、待审批集合与进行中活动集合，而不是与旧缓存做并集。单帧不超过 12MiB。",
+        "进行中运行与待审批集合，而不是与旧缓存做并集。单帧不超过 12MiB。",
     ),
   session_presence_updated: sessionPresence.extend({ instanceId: instanceIdSchema }).describe("单个会话的最新头像状态，按同一连接接收顺序覆盖。等待用户优先于错误、工作中；错误五分钟后清除或同来源新工作替换，重启不恢复错误。仅真实开始/完成及新结果更新 lastActiveAt。"),
   session_status_updated: sessionStatus
@@ -89,7 +78,7 @@ export const workspaceEvents = {
       instanceId: instanceIdSchema,
     })
     .describe(
-      "单个运行的最新状态快照（顶层额外带 instanceId）。同一 (sessionId, runId) 只应用更高 revision；" +
+      "单个运行的最新状态与步骤快照（顶层额外带 instanceId）。同一 (sessionId, runId) 只应用更高 revision；" +
         "相同或更低 revision 忽略。运行终态也会推送一次，endedAt 非 null；不要求再查询快照。",
     ),
   approval_pending: approvalView
@@ -107,16 +96,6 @@ export const workspaceEvents = {
     .describe(
       "审批进入终态与执行回执变化时的轻量投影（顶层额外带 instanceId），不含 title、kind 与预览正文。" +
         "保留身份关联、revision、终态与时间；按 (id, revision) 更新，需要完整内容时读取 GET /api/approvals/:id。",
-    ),
-  activity_updated: activityOverview
-    .extend({
-      instanceId: instanceIdSchema,
-    })
-    .describe(
-      "活动状态变化时的概览快照（顶层额外带 instanceId）。仅在 status 变化时推送：" +
-        "登记开始、等待审批、等待用户、等待继续、完成、失败、停止或中断各推一次；" +
-        "progress 文本的过程性更新不推送，查看最新进展读取 GET /api/activities/:id。" +
-        "completed 时 result 为结果摘要；按 id 更新本地活动，逐步明细仍读取详情接口。",
     ),
   session_directory_updated: z.strictObject({ instanceId: instanceIdSchema })
     .describe("会话创建、改名或删除成功后发布。客户端重读 GET /api/sessions 恢复权威目录；ready 后同样核对目录以恢复漏帧。"),
@@ -167,32 +146,28 @@ export const WORKSPACE_SSE_DESCRIPTION = [
       .map(([name, schema]) => `| \`${name}\` | ${schema.description} |`)
       .join("\n"),
   "### 首帧 ready 与完整集合\n\n" +
-    "服务端先注册订阅，再在同一同步步骤内取得当前运行、待审批集合与进行中活动集合、生成 ready 并放入发送缓冲；从订阅到快照之间没有 await，因此不会出现“先读快照、后订阅”的漏通知窗口。订阅后、ready 发出前到达的增量先进入同一有界队列缓冲，ready 作为首帧先发送，随后再按 revision 合并发送增量，保证不漏掉快照窗口内的变化，也不会让旧帧覆盖新状态。ready 是每条连接恰好一次的首帧，先于后续增量事件。" +
-    "ready.sessionStatuses、ready.pendingApprovals 与 ready.activities 是各自集合的完整替换值：以 ready 整体覆盖本地进行中运行、待审批集合与进行中活动集合，移除不在其中的旧项，不能只做并集或保留断线前缓存。ready 不含已结束运行的历史；某个运行结束后如需最终状态，使用 GET /api/runs/status 查询。ready.activities 只含未进入终态的活动；活动的完整历史与逐步明细使用 GET /api/activities 与 GET /api/activities/:id 查询。ready 也不重放通知历史；重连成功后客户端应重读当前打开会话的权威历史，以恢复断线期间落盘的通知。" +
+    "服务端先注册订阅，再在同一同步步骤内取得当前运行与待审批集合、生成 ready 并放入发送缓冲；从订阅到快照之间没有 await，因此不会出现“先读快照、后订阅”的漏通知窗口。订阅后、ready 发出前到达的增量先进入同一有界队列缓冲，ready 作为首帧先发送，随后再按 revision 合并发送增量，保证不漏掉快照窗口内的变化，也不会让旧帧覆盖新状态。ready 是每条连接恰好一次的首帧，先于后续增量事件。" +
+    "ready.sessionStatuses 与 ready.pendingApprovals 是各自集合的完整替换值：以 ready 整体覆盖本地进行中运行与待审批集合，移除不在其中的旧项，不能只做并集或保留断线前缓存。ready 不含已结束运行的历史；已结束运行的列表与最终状态通过 GET /api/runs 或 GET /api/runs/status 查询。ready 也不重放通知历史；重连成功后客户端应重读当前打开会话的权威历史，以恢复断线期间落盘的通知。" +
     "ready.serverTime 是服务端快照时间，仅用于展示/诊断。时间字段不用于事件版本判定；仅 sessionPresences.lastActiveAt 用于头像最近活跃排序。",
   "### 版本合并与 instanceId\n\n" +
     "运行以 (sessionId, runId) 为身份、以 revision 为版本；审批以 id 为身份、以 revision 为版本。客户端只应用 revision 更高的帧，相同或更低 revision 直接忽略，因此乱序、重复或合并后的帧不会让界面倒退。revision 从 1 开始，状态变化时递增；审批进入终态或收到执行回执时 +1，重复决定不推进版本。" +
     "instanceId 标识产生事件的进程实例。instanceId 变化表示服务重启或切换实例：必须清空内存中的运行状态与运行 revision 缓存，并以新的 ready 重建；审批记录及其 revision 跨进程持久，不能因 instanceId 变化而重置或丢弃。运行 revision 只在该实例内存内有效；审批 revision 则跨进程持续有效。" +
     "事件之间没有跨领域的固定顺序，可能合并、重复或冗余；不要用事件数量计数业务操作，也不要用 serverTime/updatedAt/createdAt 排序。",
-  "### 运行状态\n\n" +
-    "session_status_updated 直接携带该运行的最新展示状态，包含来源（chat/job）、所属会话与运行、当前阶段、整体文案、进行中的工具与子代理、待审批 ID 引用和时间。普通聊天可能没有登记 Activity，此时 activityId 为 null，不是错误；source=job 时 jobId 指向定时任务，source=chat 时为 null。" +
-    "受控或隐藏工具的真实名称不得暴露，name 为 null；展示必须使用 label，不能根据 null 推断工具，也不能把受控工具当成执行失败。单个运行最多保留 64 个进行中工具、64 个子代理；服务端最多同时跟踪 32 个运行，超出时拒绝新运行，不静默丢弃已有运行。" +
-    "运行结束后会收到一次终态帧（status 为 succeeded/failed/cancelled，phase 为 null，endedAt 非 null），该运行随后不再出现在 ready 的进行中集合。要查询某个运行（包括已结束运行）的最终状态，使用 GET /api/runs/status?sessionId=<sessionId>&runId=<runId>；响应包装含 instanceId 与 status，运行不存在返回 404。Activity 的查询接口与语义保持不变，仍使用 GET /api/activities 与 GET /api/activities/:id。",
+  "### 运行状态与步骤\n\n" +
+    "session_status_updated 直接携带该运行的最新展示状态与步骤时间线，包含来源（chat/job）、所属会话与运行、当前阶段、整体文案、进行中的工具与子代理、待审批 ID 引用、步骤数组 steps 和时间；source=job 时 jobId 指向定时任务，source=chat 时为 null。" +
+    "受控或隐藏工具的真实名称不得暴露，name/toolName 为 null；展示应优先使用脱敏后的 label/title/detail，不能根据 null 推断工具。单个运行最多保留 64 个进行中工具、64 个子代理、128 条步骤；服务端最多同时跟踪 32 个运行。" +
+    "运行结束后会收到一次终态帧（status 为 succeeded/failed/cancelled，phase 为 null，endedAt 非 null），该运行随后不再出现在 ready 的进行中集合。查询历史运行列表使用 GET /api/runs?sessionId=<sessionId>，查询单个运行（包括已结束运行）的最终状态使用 GET /api/runs/status?sessionId=<sessionId>&runId=<runId>，运行不存在返回 404。",
   "### 审批内容、版本与决定\n\n" +
     "approval_pending 直接推送完整审批视图：title、kind 与 preview 全文，preview 包含作用域、归属会话、路径、完整 before/after 文本和 beforeExists。内容在登记时固定，之后不读取当前文件替换，也不截断；用户不需要先查询详情就能作决定。单个审批按 UTF-8 JSON 最大 1.5MB；所有 pending 累计最大 6MB 且最多 32 项；超限时服务端拒绝登记，不会截断预览或静默丢弃。" +
     "preview.scope=workspace 表示唯一工作区，scope=skill 表示实例技能文本；无文件归属选择器。审批来源绑定 sessionId/runId，子代理沿用父运行授权归属。HTTP 审批对象不带 instanceId：审批记录与 revision 跨进程持久。" +
-    "审批以 (id, revision) 做版本校验。只有 pending 可以决定，决定通过 POST /api/approvals/:id/decision 提交，请求体只接受 {\"decision\":\"approve\"|\"deny\"}；未知 id 返回 404，已处于其他终态返回 409，相同决定的重复提交幂等返回原审批，不再次执行。批准只代表授权执行预览中绑定的这一次操作，不代表执行成功，也不代表整项 Activity 完成；批准后仍可能因文件版本变化、过期、运行取消或提交失败而没有落盘，实际结果以 execution、真实工具执行和 Activity 步骤为准；execution=null 表示尚未观察到执行，运行中断遗留提交为 unknown，不重跑。每次执行回执也推送 approval_updated 并递增 revision，不修改 decidedAt/resolvedAt。" +
-    "审批进入终态后推送 approval_updated：保留 id、revision、会话/运行/工具/子代理/工作区/活动关联、终态与时间，省略 title、kind 和预览正文，避免重复推送大内容。收到未知 id、需要重新查看完整预览或历史详情时，读取 GET /api/approvals/:id；历史列表使用 GET /api/approvals，只包含已处理/失效审批的摘要，不混入 pending，也不返回正文。审批历史和完整预览长期保留，不按时间或数量静默裁剪；历史记录存在不代表授权仍有效。",
+    "审批以 (id, revision) 做版本校验。只有 pending 可以决定，决定通过 POST /api/approvals/:id/decision 提交，请求体只接受 {\"decision\":\"approve\"|\"deny\"}；未知 id 返回 404，已处于其他终态返回 409，相同决定的重复提交幂等返回原审批，不再次执行。批准只代表授权执行预览中绑定的这一次操作，不代表执行成功；批准后仍可能因文件版本变化、过期、运行取消或提交失败而没有落盘，实际结果以 execution 与运行步骤为准；execution=null 表示尚未观察到执行，运行中断遗留提交为 unknown，不重跑。每次执行回执也推送 approval_updated 并递增 revision，不修改 decidedAt/resolvedAt。" +
+    "审批进入终态后推送 approval_updated：保留 id、revision、会话/运行/工具/子代理关联、终态与时间，省略 title、kind 和预览正文，避免重复推送大内容。收到未知 id、需要重新查看完整预览或历史详情时，读取 GET /api/approvals/:id；历史列表使用 GET /api/approvals，只包含已处理/失效审批的摘要，不混入 pending，也不返回正文。审批历史和完整预览长期保留，不按时间或数量静默裁剪；历史记录存在不代表授权仍有效。",
   "### 心跳、背压与容量\n\n" +
     "每 30 秒发送注释心跳，完整帧为 `: keep-alive\\n\\n`。心跳不是业务事件，不按 JSON 解析，也不触发界面更新；慢连接时心跳可能延后。" +
     "服务端为每条连接维护有界队列：同一运行的多个待发状态帧可合并为最新 revision；审批新增与终态帧不会被静默丢弃。单个事件编码后最大 8MiB，ready 最大 12MiB；单帧超限或排队字节/事件数超过上限时，服务端直接断流，而不是发送半截 JSON 或无限积压。" +
     "断流后客户端应退避重连；重连会收到新的 ready，按完整集合重建即可恢复，不依赖丢失的增量。服务端也可能因连接数达到上限而在握手阶段返回 429。",
-  "### 活动状态\n\n" +
-    "activity_updated 直接携带活动概览：title、goal、status、progress、result 与来源会话。仅在 status 变化时推送一次（登记开始、等待审批/用户、等待继续、完成、失败、停止、中断）；progress 文本的过程性更新不推送，同一活动的连续待发帧在服务端缓冲中可合并为最新一条。" +
-    "completed 时 result 为最终结果摘要，客户端可直接展示通知；需要逐步明细时读取 GET /api/activities/:id，需要历史列表时读取 GET /api/activities。活动状态以 id 为身份，用最新收到的帧整体替换本地对应活动；ready.activities 只含未进入终态的活动，终态活动的最终内容以 activity_updated 帧或查询接口为准。" +
-    "活动没有独立 revision：同一运行的活动状态由服务端单调推进，后到帧覆盖先到帧；断线重连后以新的 ready 为准。",
   "### 会话历史失效\n\n" +
-    "conversation_updated 表示指定 (sessionId, piSessionId) 的权威历史需要刷新，重置时携带新的 piSessionId。不要从事件推断 会话状态，也不要把 payload 当作消息内容；正确处理是把该会话历史标脏并读取 GET /api/conversation。事件没有重放日志，若刷新期间又收到新事件，应再次读取；ready 后的重读同样用于恢复断线漏帧。流式聊天正在占用当前视图时可延后刷新，但流结束后必须完成一次权威历史读取，不能丢失已收到的失效信号。" +
+    "conversation_updated 表示指定 (sessionId, piSessionId) 的权威历史需要刷新，重置时携带新的 piSessionId。不要从事件推断会话状态，也不要把 payload 当作消息内容；正确处理是把该会话历史标脏并读取 GET /api/conversation。事件没有重放日志，若刷新期间又收到新事件，应再次读取；ready 后的重读同样用于恢复断线漏帧。流式聊天正在占用当前视图时可延后刷新，但流结束后必须完成一次权威历史读取，不能丢失已收到的失效信号。" +
     "该事件按服务端进程 instanceId 过滤旧实例迟到帧；piSessionId 与当前视图不一致时不得把旧会话数据应用到新会话。非当前会话可保留轻量失效标记，或依赖切换会话时的首次权威读取，不需要轮询。会话列表共用本连接，在 ready 和 session_directory_updated 后重读 GET /api/sessions；不新建通知连接，读取中再次失效则补读。正文以对应会话 pi 历史为准。",
   "### 断线、重连与结束\n\n" +
     "不发送事件 id，不支持历史重放，忽略 Last-Event-ID。网络断线、App 回到前台或切换网络后重连时，一律以新的 ready 为同步边界：整体替换进行中运行与待审批集合，不能从断线前的缓存继续叠加增量。" +
@@ -205,7 +180,6 @@ export type ReadyEventDto = z.infer<typeof workspaceEvents.ready>;
 export type SessionStatusUpdatedEventDto = z.infer<typeof workspaceEvents.session_status_updated>;
 export type ApprovalPendingEventDto = z.infer<typeof workspaceEvents.approval_pending>;
 export type ApprovalUpdatedEventDto = z.infer<typeof workspaceEvents.approval_updated>;
-export type ActivityUpdatedEventDto = z.infer<typeof workspaceEvents.activity_updated>;
 export type ConversationUpdatedEventDto = z.infer<typeof workspaceEvents.conversation_updated>;
 export type SubagentUpdatedEventDto = z.infer<typeof workspaceEvents.subagent_updated>;
 export type BrowserUpdatedEventDto = z.infer<typeof workspaceEvents.browser_updated>;

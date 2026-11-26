@@ -44,7 +44,7 @@ test("approval client uses the new routes and validates the pending envelope ins
     id: "approval-1", kind: "file_write", title: "Write draft",
     sessionId: "main",
     preview: { scope: "workspace", path: "draft.md", before: "", after: "complete preview", beforeExists: false }, status: "pending",
-    revision: 1, runId: null, activityId: null, toolCallId: null, subagentId: null, resolvedAt: null, decidedAt: null,
+    revision: 1, runId: null, toolCallId: null, subagentId: null, resolvedAt: null, decidedAt: null,
     createdAt: "2026-10-19T00:00:00.000Z", expiresAt: "2026-10-19T00:05:00.000Z", execution: null,
   };
   const requests: Array<{ path: string; init?: RequestInit }> = [];

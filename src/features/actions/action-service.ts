@@ -25,7 +25,7 @@ export {
   MAX_PENDING_APPROVAL_BYTES,
 } from "./types.js";
 
-const DEFAULT_TIMEOUT_MS = 300_000;
+const DEFAULT_TIMEOUT_MS = 86_400_000;
 const utf8Bytes = (value: string): number => new TextEncoder().encode(value).byteLength;
 const cloneAction = (action: PendingAction): PendingAction => structuredClone(action);
 
@@ -53,7 +53,7 @@ export const createActionService = (
   const deepEquals = (left: unknown, right: unknown): boolean =>
     JSON.stringify(left) === JSON.stringify(right);
   const sameRequest = (left: PendingAction, right: PendingAction) =>
-    ["id", "kind", "title", "payload", "createdAt", "expiresAt", "sessionId", "runId", "toolCallId", "subagentId", "activityId"]
+    ["id", "kind", "title", "payload", "createdAt", "expiresAt", "sessionId", "runId", "toolCallId", "subagentId"]
       .every((key) => deepEquals(left[key as keyof PendingAction], right[key as keyof PendingAction]));
   const readVerified = async () => {
     const items = await repository.read();
@@ -169,7 +169,6 @@ export const createActionService = (
           runId: options.runId ?? null,
           toolCallId: options.toolCallId ?? null,
           subagentId: options.subagentId ?? null,
-          activityId: options.activityId ?? null,
         };
         const bytes = utf8Bytes(JSON.stringify(next));
         if (bytes > MAX_APPROVAL_BYTES) throw new ApprovalCapacityError();
@@ -313,8 +312,7 @@ export const createActionService = (
       });
       const sorted = records.filter((action) =>
         (!query.status || action.status === query.status) &&
-        (!query.sessionId || action.sessionId === query.sessionId) &&
-        (!query.activityId || action.activityId === query.activityId))
+        (!query.sessionId || action.sessionId === query.sessionId))
         .sort((a, b) => b.resolvedAt.localeCompare(a.resolvedAt) || b.id.localeCompare(a.id));
       const { cursor } = query;
       const candidates = cursor ? sorted.filter((action) => action.resolvedAt < cursor.resolvedAt ||

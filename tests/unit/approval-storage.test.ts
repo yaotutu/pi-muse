@@ -2,7 +2,7 @@
  * 审批存储 schema 与 repository 测试：只覆盖 storage 域自身（reader 与存储边界）。
  *
  * 不触碰 HTTP/服务/pi；不 mock 算法。验证事项：
- * - 必填关联字段（sessionId/runId/toolCallId/subagentId/activityId）
+ * - 必填关联字段（sessionId/runId/toolCallId/subagentId）
  *   必须是 string|null，缺省视为损坏；pending 必须 resolvedAt/decidedAt 全为 null；
  *   终态必须 resolvedAt 是合法日期；只有 approved/denied 才允许 decidedAt；
  * - execution 字段只在 status==='approved' 上合法；status 枚举合法；
@@ -36,7 +36,6 @@ const record = (changes: Partial<PendingAction> = {}): PendingAction => ({
   runId: null,
   toolCallId: null,
   subagentId: null,
-  activityId: null,
   ...changes,
 });
 
@@ -103,7 +102,6 @@ test("action document rejects records missing mandatory nullable context fields 
     [record({ runId: 42 as unknown as string | null })],
     [record({ toolCallId: 42 as unknown as string | null })],
     [record({ subagentId: 42 as unknown as string | null })],
-    [record({ activityId: 42 as unknown as string | null })],
   ];
 
   for (const value of invalid) {

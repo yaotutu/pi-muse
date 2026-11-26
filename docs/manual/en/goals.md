@@ -6,7 +6,7 @@ This guide explains the concept of long-term goals, how goals enter model contex
 
 Long-term goals are global records and do not belong to any session. Active goals are not preloaded into the prompt; when the `goal` skill is enabled, the model queries global goals on demand through the `goal` tool when planning or answering goal-related questions.
 
-A goal itself does not execute a plan, create scheduled jobs, monitor pages, or call tools automatically. To perform work, explicitly delegate it in chat or create jobs and monitors separately as described in [Scheduled jobs, web monitors, and activity history](tasks-and-monitors.md).
+A goal itself does not execute a plan, create scheduled jobs, monitor pages, or call tools automatically. To perform work, explicitly delegate it in chat or create jobs and monitors separately as described in [Scheduled jobs, web monitors, and execution records](tasks-and-monitors.md).
 
 ## Prerequisites {#prerequisites}
 

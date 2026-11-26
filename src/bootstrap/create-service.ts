@@ -78,7 +78,6 @@ import { loadSessionRecency } from "../adapters/storage/session-recency.js";
 import { createWorkspaceFileService } from "../features/workspace/files-service.js";
 import { workspaceFileCommits } from "../adapters/workspace/file-commit-queue.js";
 import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
-import { createActivityService } from "../features/activities/service.js";
 import { createDreamRepository } from "../adapters/storage/dream-repository.js";
 import { readAssistantInstructions, writeAssistantInstructions } from "../adapters/storage/assistant-instructions.js";
 import { createDreamService } from "../features/dream/service.js";
@@ -278,7 +277,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
   }));
   const conversationHub = createSessionHub(
     async (sessionId, initialPiSessionId) => {
-      const { manager, history, activities } = await createSessionHistory(layout, sessionId, presentation, initialPiSessionId);
+      const { manager, history } = await createSessionHistory(layout, sessionId, presentation, initialPiSessionId);
       const messages = createMessageFeedbackSession({
         sessionId,
         piSessionId: () => history.piSessionId(),
@@ -295,10 +294,8 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
       return createConversation(config, {
         sessionId,
         history,
-        activities,
         messages,
         beginStatus: (input) => workspaceEvents.beginRun(input),
-        publishActivity: (overview) => workspaceEvents.activityChanged(overview),
         publishHistoryChange: (identity) => {
           workspaceEvents.conversationHistoryChanged(identity);
           void touchSession(identity.sessionId).catch(() => undefined);
@@ -311,7 +308,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
             listener({ id: approval.id, pending: approval.status === "pending" });
           }
         }),
-        openSession: async ({ runId, activity, status, userText }) => {
+        openSession: async ({ runId, status, userText }) => {
           await touchSession(sessionId);
           const execution = createPiExecution(
             await openPi({
@@ -319,7 +316,6 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
               sessionId,
               runId,
               userText,
-              activity,
               status,
               presentation,
               modelRuntime,
@@ -529,7 +525,6 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
       return () => { requests.delete(pending); release(); };
     },
   };
-  const activities = createActivityService(conversationHub);
   const dream = createDreamService({
     observeWork: workspaceEvents.presence.observe,
     waitingChanged: (sessionId, waiting) => workspaceEvents.presence.set(sessionId, "dream-pending", waiting ? { state: "waiting", label: "记忆整理有待确认建议，请查看 Dream" } : null),
@@ -568,7 +563,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
   // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
   const traces = createModelTraceReader(layout.tracesDir);
   const androidUpdates = createAndroidReleaseMirror(layout.androidUpdatesDir);
-  const dependencies = { androidUpdates, companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, habits, habitsScheduler, information, informationScheduler, news, subagents, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, messageFeedbackRepository };
+  const dependencies = { androidUpdates, companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, dream, dreamScheduler, habits, habitsScheduler, information, informationScheduler, news, subagents, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。

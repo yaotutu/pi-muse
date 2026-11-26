@@ -44,7 +44,7 @@ Then edit it:
   "tools": {
     "writable": {
       "enabled": true,
-      "actionTimeoutMs": 300000
+      "actionTimeoutMs": 86400000
     },
     "web": {
       "enabled": true
@@ -91,7 +91,7 @@ Every section and field may be omitted as needed; omitted values use built-in de
 | `runtime.monitorScanIntervalMs` | `60000` | Webpage-monitor scan interval. |
 | `runtime.dataDir` | Directory containing the configuration file | Relative paths are resolved against the configuration file's directory. An absolute path is recommended but not required. |
 | `tools.writable.enabled` | `true` | Whether to register `write` / `edit` and allow `skills.save`; when enabled, every operation still requires individual manual approval. `skills.list/read` remains available when this is disabled. |
-| `tools.writable.actionTimeoutMs` | `300000` | Validity period for file-operation approval, in milliseconds; an expired approval cannot commit a modification. |
+| `tools.writable.actionTimeoutMs` | `86400000` | Validity period for file-operation approval, in milliseconds (default 24 hours, max 7 days); an expired approval cannot commit a modification. |
 | `tools.web.enabled` | `true` | Whether to declare `search_web` / `web_fetch` to the model. |
 | `tools.web.timeoutMs` | `30000` | Total timeout budget for one web fetch, in milliseconds. It includes up to 6 redirects, with each hop consuming the remaining time. |
 | `tools.web.maxResponseBytes` | `2000000` | Maximum size of one response. |

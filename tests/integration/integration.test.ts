@@ -44,7 +44,6 @@ const declaredTools = (request: ModelRequest) =>
     .filter(Boolean)
     .sort();
 const expectedTools = [
-  "activity",
   "browser",
   "currentTime",
   "database",
@@ -1384,7 +1383,6 @@ test("assistant skills: tool trimming in model call", {
   assert.ok(tools2.includes("search_web"), "search_web tool should be present when web is enabled");
   assert.match(system2, /Use schedule to create, list, or cancel/);
   assert.match(system2, /search_web and web_fetch/);
-  assert.match(system2, /## Work activity management/);
 });
 
 test("assistant skills: user custom skill with extension.ts and conflict rejection", {
@@ -1604,7 +1602,7 @@ test("subagent: parent delegates to an isolated child and receives its result wi
   const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: Reply SUBAGENT-MARKER")));
   assert.equal(children.length, 1);
   const childTools = (children[0].tools as { function: { name: string } }[]).map((tool) => tool.function.name);
-  for (const name of ["subagent", "delegate_task", "bash", "schedule", "monitor", "activity", "instructions", "write", "edit", "skills"])
+  for (const name of ["subagent", "delegate_task", "bash", "schedule", "monitor", "instructions", "write", "edit", "skills"])
     assert.ok(!childTools.includes(name), `child must not expose ${name}`);
   for (const name of ["sms_query", "sms_get_instructions", "sms_update_instructions", "currentTime"])
     assert.ok(childTools.includes(name), `sms subagent binds ${name}`);
@@ -1613,7 +1611,6 @@ test("subagent: parent delegates to an isolated child and receives its result wi
     "Use schedule to create",
     "Use monitor to create",
     "instructions reads or replaces",
-    "## Work activity management",
   ]) assert.ok(!childSystem.includes(unavailableGuidance), `child prompt must not describe ${unavailableGuidance}`);
   assert.match(childSystem, /specialized SMS subagent/);
   assert.ok(children[0].messages.every((message) => !JSON.stringify(message.content).includes("请用子代理完成一次测试")), "parent message history must not leak into child context");

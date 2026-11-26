@@ -7,8 +7,14 @@ import type { SessionStatus } from "../../features/workspace/session-status.js";
 import { createNotificationMessage, notificationIdOf } from "./notification-message.js";
 import { collectConversationRecords, projectConversationHistory, projectDreamTranscript, projectMessageFacts } from "./history-projection.js";
 import type { ToolPresentation } from "../ag-ui/tool-presentation.js";
-import { createActivityHistory } from "./activity-history.js";
-import { createActivitySession } from "../../features/activities/activity-session.js";
+
+const normalizeSessionStatus = (raw: SessionStatus & { activityId?: unknown }): SessionStatus => {
+  const { activityId: _legacyActivityId, steps, ...rest } = raw as SessionStatus & { activityId?: unknown; steps?: unknown };
+  return {
+    ...rest,
+    steps: Array.isArray(steps) ? steps : [],
+  };
+};
 
 const turnIndex = (branch: readonly SessionEntry[], runId: string) =>
   branch.findLastIndex((entry) =>
@@ -57,7 +63,7 @@ export const createSessionHistory = async (
     records: () => collectConversationRecords(manager.getBranch()),
     appendAgentStatus: (status) => { manager.appendCustomEntry(AGENT_STATUS_ENTRY_TYPE, status); },
     sessionStatuses: () => manager.getBranch().filter((entry) => entry.type === "custom" && entry.customType === AGENT_STATUS_ENTRY_TYPE)
-      .map((entry) => (entry as { data: SessionStatus }).data),
+      .map((entry) => normalizeSessionStatus((entry as { data: SessionStatus }).data)),
     checkpoint: () => manager.getLeafId(),
     appendTurn: (turn) => { manager.appendCustomEntry(TURN_ENTRY_TYPE, turn); },
     appendNotification: (notification) => {
@@ -92,10 +98,8 @@ export const createSessionHistory = async (
       else manager.resetLeaf();
     },
   };
-  const activityHistory = createActivityHistory(manager);
-  const activities = createActivitySession(sessionId, activityHistory);
   // manager 只提供给同一 pi adapter 的执行装配，不暴露到 feature 或协议层。
-  return { manager, history, activities };
+  return { manager, history };
 };
 
 /**

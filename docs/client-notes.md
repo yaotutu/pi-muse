@@ -36,6 +36,24 @@
 
 ## 变更与须知记录
 
+### 2026-11-26 — 统一执行记录与步骤时间线（移除 `activity` 概念，新增 `GET /api/runs`，审批默认 24 小时过期）
+
+- **影响端形态**：`all`（重点影响 `rich-ui`）
+- **类型**：`breaking`、`feature`、`behavior`
+- **契约入口**：`/docs`「执行记录」「工作区实时状态推送（SSE）」「审批」与「会话」（`GET /api/runs`、`GET /api/runs/status`、`GET /api/events`、`GET /api/approvals*`）
+- **破坏性变更与新能力**：
+  1. **移除 `activity` 概念**：
+     - 下线 `GET /api/activities` 与 `GET /api/activities/:id` 端点；
+     - `GET /api/events` 移除 `ready.activities` 字段与 `activity_updated` 事件；
+     - `SessionStatus`（`session_status_updated` / `ready.sessionStatuses` / `/api/runs/status` / `conversation.lastRun`）移除 `activityId`；
+     - 审批视图与查询（`ApprovalView`、`ApprovalResolution`、`GET /api/approvals` query）移除 `activityId` 字段与过滤参数。
+  2. **每次运行自动记录与持久化步骤时间线（`steps`）**：
+     - 每次对话与定时任务 run 的 `SessionStatus` 现均携带有序 `steps: RunStep[]`（包含 `tool`、`subagent`、`approval`、`file_commit` 客观步骤与脱敏摘要如搜索词/URL 路径/文件名/状态/简洁结果，普通无工具问答为空数组）；
+     - 进行中由 `session_status_updated` 实时推送，完成后随会话 JSONL 永久保留；
+     - **新增只读分页接口 `GET /api/runs?sessionId=...&limit=...&cursor=...`**：按 `startedAt` 倒序返回指定会话的进行中与历史运行记录（含 `steps`）。
+  3. **写文件审批默认超时延长至 24 小时**：
+     - `tools.writable.actionTimeoutMs` 默认由 `300000`（5 分钟）调整为 `86400000`（24 小时，配置上限 7 天）；等待审批期间继续保持不消耗 `runTimeoutMs`（10 分钟模型执行预算）。
+
 ### 2026-11-26 — 聊天断流改为后台续跑，新增重挂流 `GET /api/conversation/stream` 与 `lastRun`
 
 - **影响端形态**：`all`（重点影响 `rich-ui`、`embedded-voice`）
@@ -184,7 +202,7 @@
 - **契约入口**：`/docs`「基础」「会话」「通知」「审批」「工作区文件」「信息后台」「任务」
 - **要点与接入端注意**：
   - **双 SSE 帧格式完全不同（`all` 对话/状态端）**：`GET /api/events` 发送标准 `event: <name>` + `data: <JSON>` 以及每 30 秒 `: keep-alive` 注释心跳，断连不取消后台运行；`POST /api/conversation/run` **不发送 `event:` 行**，只发送 `data: <JSON>` 需按 `data.type` 分派，且断开 HTTP 连接会立即取消服务端本轮运行。
-  - **受限/无屏端触及文件写入仍须人工审批（`embedded-voice`）**：服务端模型永不绕过写文件审批，也不会根据端形态放行；若语音/单片机端发起的对话触发了 `write`/`edit`，服务端会挂起等待人工决定（默认 5 分钟过期不落盘）。无屏端应明确提示用户前往富交互端审批，或等待超时/停止后告知未写入。
+  - **受限/无屏端触及文件写入仍须人工审批（`embedded-voice`）**：服务端模型永不绕过写文件审批，也不会根据端形态放行；若语音/单片机端发起的对话触发了 `write`/`edit`，服务端会挂起等待人工决定（默认 24 小时过期不落盘）。无屏端应明确提示用户前往富交互端审批，或等待超时/停止后告知未写入。
   - **无头投喂接口为全局路径（`webhook`）**：原始信息接入 `POST /api/information/items` 不带 `:sessionId`（当前实时上限、归档独立入口及 Clean Break 字段变更见上方 `2026-11-22` 条目）。
   - **轻量对话端最小闭环无需接 `/api/events`（`embedded-voice`）**：ESP32、智能音箱或 CLI 只做对话时，只需 `POST /api/session` + `GET /api/conversation`（读取 `revision`）+ `POST /api/conversation/run`（提取 `TEXT_MESSAGE_CONTENT` 文本增量）+ `POST /api/conversation/stop`；语音识别（ASR）与合成（TTS）留在接入端自行处理。
   - **每日定时任务时区由服务端解释（`all`）**：创建或修改 `daily: true` 任务时，`at` 传严格两位 `HH:mm`，服务端按 `GET /api/health` 返回的 `timeZone` 解释；`nextRunAt` 统一返回带 `Z` 的 UTC ISO 8601。

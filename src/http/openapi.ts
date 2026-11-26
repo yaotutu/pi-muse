@@ -55,7 +55,6 @@ const describePathParam = (path: string, name: string): string => {
     return "记忆条目唯一标识（如 m_001）";
   }
   if (name === "id") {
-    if (path.includes("/activities/")) return "执行活动唯一标识（如 act_...）";
     if (path.includes("/jobs/")) return "定时任务唯一标识（如 job_...）";
     if (path.includes("/monitors/")) return "网页监控唯一标识（如 mon_...）";
     if (path.includes("/memories/")) return "记忆条目唯一标识（如 m_...）";

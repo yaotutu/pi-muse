@@ -147,7 +147,6 @@ test("approval contract preserves complete text, cancellation and optional execu
     runId: "run-1",
     toolCallId: "tc-1",
     subagentId: null,
-    activityId: null,
     kind: "file_write" as const,
     title: "Write notes",
     status: "pending" as const,
@@ -199,7 +198,6 @@ test("HTTP snapshot matches contract with job-only tasks and no worker projectio
   const approval = {
     id: "approval", revision: 2, kind: "file_write" as const, title: "Write notes",
     sessionId: "main", runId: "run-1", toolCallId: null, subagentId: null,
-    activityId: null,
     preview: { scope: "workspace" as const, path: "notes.md",
       before: "", after: "完整待审批文本\n".repeat(2000), beforeExists: false },
     status: "cancelled" as const, createdAt: "2026-01-01T00:00:00.000Z",

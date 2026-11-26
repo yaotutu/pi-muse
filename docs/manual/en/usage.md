@@ -13,7 +13,7 @@ Message attachments enter model context with chat history; workspace files are p
 ## Tasks, Goals, and Memory {#tasks-goals-and-memory}
 
 - [News reading](news.md): RSS source management, recommended and all timelines, per-article feedback, and saves.
-- [Tasks and webpage monitors](tasks-and-monitors.md): create jobs and monitors through chat and manage them in Settings; main-chat actions provide activity history.
+- [Tasks and webpage monitors](tasks-and-monitors.md): create jobs and monitors through chat and manage them in Settings; session details provide execution records and approvals.
 - [Goals and milestones](goals.md): manage long-term goals and milestones in Settings → Goals or through chat, separately from scheduled task execution.
 - [Memory and Dream](memory-and-dream.md): long-term memory search and management, plus separately configured consolidation.
 

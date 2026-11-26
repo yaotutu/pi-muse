@@ -35,7 +35,6 @@ import {
 } from "../../../src/http/contracts/browser.js";
 import {
   workspaceEvents,
-  type ActivityUpdatedEventDto,
   type BrowserUpdatedEventDto,
   type SessionStatusUpdatedEventDto,
   type ApprovalPendingEventDto,
@@ -48,7 +47,6 @@ export type { SseEvent };
 export type {
   SessionStatusDto,
   ApprovalViewDto,
-  ActivityUpdatedEventDto,
   BrowserUpdatedEventDto,
   BrowserHandoffDto,
   BrowserStatusDto,
@@ -658,7 +656,6 @@ export type WorkspaceEvent =
   | { type: "session_status_updated"; data: SessionStatusUpdatedEventDto }
   | { type: "approval_pending"; data: ApprovalPendingEventDto }
   | { type: "approval_updated"; data: ApprovalUpdatedEventDto }
-  | { type: "activity_updated"; data: ActivityUpdatedEventDto }
   | { type: "session_directory_updated"; data: { instanceId: string } }
   | { type: "conversation_updated"; data: ConversationUpdatedEventDto }
   | { type: "subagent_updated"; data: SubagentUpdatedEventDto }
@@ -740,12 +737,6 @@ export const subscribeWorkspaceEvents = async (
             const parsed = workspaceEvents.approval_updated.safeParse(payload);
             if (!parsed.success) throw invalid();
             event = { type: "approval_updated", data: parsed.data };
-            break;
-          }
-          case "activity_updated": {
-            const parsed = workspaceEvents.activity_updated.safeParse(payload);
-            if (!parsed.success) throw invalid();
-            event = { type: "activity_updated", data: parsed.data };
             break;
           }
           case "session_directory_updated": {

@@ -15,7 +15,6 @@ export const encodeApprovalCursor = (
       resolvedAt: cursor.resolvedAt,
       id: cursor.id,
       ...(filter.sessionId !== undefined ? { sessionId: filter.sessionId } : {}),
-      ...(filter.activityId !== undefined ? { activityId: filter.activityId } : {}),
       ...(filter.status !== undefined ? { status: filter.status } : {}),
     }),
     "utf8",
@@ -42,14 +41,13 @@ export const decodeApprovalCursor = (
   }
 };
 
-/** 游标必须与本次查询的三个过滤条件完全一致，避免跨条件静默翻页。 */
+/** 游标必须与本次查询的过滤条件完全一致，避免跨条件静默翻页。 */
 export const approvalCursorMatchesFilter = (
   cursor: ApprovalCursorPayloadDto,
   filter: ApprovalFilter,
 ): boolean => {
   return (
     cursor.sessionId === filter.sessionId &&
-    cursor.activityId === filter.activityId &&
     cursor.status === filter.status
   );
 };

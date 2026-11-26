@@ -1,12 +1,12 @@
-# Scheduled jobs, web monitors, and activity history
+# Scheduled jobs, web monitors, and execution records
 
-This guide explains the current mobile client entries for scheduled jobs, web monitors, and activity history. The primary tabs are Messages, News, and Settings: create a job or monitor in main chat, then open Scheduled jobs or Web monitors under Settings → Records and tasks to manage it. Activity history is in the main-chat actions panel. This page is checked against current server and mobile source; it is not a test of a released APK.
+This guide explains the current mobile client entries for scheduled jobs, web monitors, and execution records. The primary tabs are Messages, News, and Settings: create a job or monitor in main chat, then open Scheduled jobs or Web monitors under Settings → Records and tasks to manage it. Current-session execution timelines appear both as a compact collapsible bar above tool-using replies and inside the session details panel. This page is checked against current server and mobile source; it is not a test of a released APK.
 
 ## Purpose and Scope {#purpose-and-scope}
 
 - **Scheduled job**: At the scheduled time, Pi Muse submits the job text as a user message to the origin session's current conversation and starts a real model run.
 - **Web monitor**: The server periodically fetches one public HTTP(S) page and notifies the origin session when content changes or a keyword changes from not matched to matched.
-- **Activity history**: A timeline of composite work explicitly registered by the model during real execution. It is not a collection of every chat, every tool call, or every background notification.
+- **Execution records**: Each model run automatically records and persists a sanitized step timeline (tool calls, subagents, approvals, and file commits) without requiring explicit activity registration.
 
 The chat `schedule` and `monitor` tools list and control records only in the current session and do not accept a cross-session target. Management pages in Settings use server REST endpoints, so inspecting or managing each record does not require a model run. There is no bottom Tasks aggregate page or topic-session picker.
 
@@ -17,15 +17,15 @@ The chat `schedule` and `monitor` tools list and control records only in the cur
 - Creating a job requires the current session's `cron` skill; creating a monitor requires the `monitor` skill. Re-enable either in session settings if it was disabled.
 - Due jobs and monitor checks may access external networks and incur model costs. Monitors access only public HTTP(S), and fetched content is untrusted data.
 
-## View Activity History {#view-activity-history}
+## View Execution Records {#view-activity-history}
 
-1. In Messages, tap the assistant at the top to open the main-chat activity panel.
-2. Open 「历史」 (History) to see main's activities.
-3. If activities exist, filter by running, waiting for approval, waiting for input, awaiting continuation, completed, failed, stopped, or interrupted.
-4. Open an activity to inspect its goal, deliverable, progress, result, and safe step projection. Steps do not contain internal model reasoning or raw tool payloads.
-5. Load the next page when more records exist. The list is ordered newest first by creation time; reopening the page, changing a filter, returning the app to the foreground, or receiving a relevant state change triggers a fresh read.
+1. When a reply uses tools, a compact process bar appears above that reply in chat; tap it to expand or collapse its steps inline.
+2. In Messages, tap the assistant at the top to open the session details panel, which contains two tabs: 「执行记录」 (Execution records) and 「审批」 (Approvals).
+3. In 「执行记录」, inspect live and historical runs ordered newest first, and expand any run card to inspect sanitized steps (excluding internal model reasoning, raw SQL, and raw file contents).
+4. Tap any approval step to open its approval details (default 24-hour approval window; approving resumes execution in place).
+5. Load the next page automatically or manually when more runs exist.
 
-The current client provides activity history only for main in the main-chat actions panel, without an all-sessions scope switch. Ordinary answers, explanations, clarifications, and simple lookups usually do not create activities. `awaiting_continuation` means the previous run ended but the work is unfinished and requires an explicit request to continue in chat.
+Plain-text replies with zero steps do not display a process bar.
 
 ## Create and Control Scheduled Jobs {#scheduled-jobs}
 
@@ -51,7 +51,7 @@ For `change`, the first check only establishes a baseline and does not notify; l
 
 - After a job fires, the origin session's chat receives a user message beginning with 「⏰ [定时任务]」 and starts a real model run.
 - When a monitor matches, the origin session receives a notification beginning with 「📡 [监控]」.
-- Activity state and steps update from real execution. Failure, denial, cancellation, expiry, and interruption are preserved rather than disguised as success.
+- Run status and steps update from real execution. Failure, denial, cancellation, expiry, and interruption are preserved rather than disguised as success.
 
 The default scan period means execution may start slightly later. If a tool result says the outcome is unknown, reread the current state before deciding whether to retry; do not automatically resend a write.
 
@@ -65,7 +65,7 @@ The default scan period means execution may start slightly later. If a tool resu
 | A daily time behaves unexpectedly | Server timezone returned by `/api/health` | Enter `HH:mm` in server time; do not convert using the phone timezone. |
 | A monitor does not notify | Condition, latest check, fetch error, and server state | `change` does not notify on the baseline or unchanged content; `contains` does not repeat while a match continues. |
 | Monitor fetching fails | Whether the URL is public HTTP(S), reachable, and web tools are enabled | Fix the link or retry later. The error remains until the next successful check. |
-| The old task aggregate page is missing | The primary tabs are Messages, News, and Settings | Manage jobs and monitors under Settings → Records and tasks; activity history is in the main-chat actions panel's History page. |
+| The old task aggregate page is missing | The primary tabs are Messages, News, and Settings | Manage jobs and monitors under Settings → Records and tasks; execution history is in the session details panel under Execution records. |
 | An operation result is unknown | Tool result and current-session state | Verify whether the record still exists and its state before retrying. Do not resend automatically. |
 
 When you delete a topic session, review its jobs and monitors before confirming. Delete them with the session or keep them and move them to the main chat. Kept schedules retain their timing, control state, latest result, and pending monitor notifications. If a job is running in the topic, wait for it to finish before choosing to keep the schedules. Resetting the main chat clears its history and keeps its schedules.

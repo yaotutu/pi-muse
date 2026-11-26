@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ApprovalCapacityError, type ActionService } from "../../../features/actions/action-service.js";
-import type { ActivityObservation } from "../../../features/activities/types.js";
+import type { ExecutionObservation } from "../../../features/workspace/session-status.js";
 import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
 import { createWorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
 
@@ -16,14 +16,13 @@ export type ApprovalContext = {
   runId?: string;
   toolCallId?: string;
   subagentId?: string;
-  activityId?: (() => string | null) | string;
 };
 export type ApprovalActions = Pick<ActionService, "submit" | "poll" | "cancel" | "markExecuting" | "finishExecution">;
 export type FileSnapshot = { content: string; version: string };
-export type ActivityApprovalObservation = {
-  observe: (event: ActivityObservation) => void;
+export type ApprovalObservation = Extract<ExecutionObservation, { kind: "approval" }>;
+export type RunApprovalObserver = {
+  observe: (event: ApprovalObservation) => void;
   prefix: string;
-  getActivityId?: () => string | undefined;
 };
 
 /** 独立工具测试使用隔离提交队列；生产组合层注入与手动 HTTP 共用的队列。 */
@@ -77,7 +76,7 @@ export const awaitFileApproval = async (
   timeoutMs: number,
   signal?: AbortSignal,
   context?: ApprovalContext,
-  observe?: (event: ActivityObservation) => void,
+  observe?: (event: ApprovalObservation) => void,
 ): Promise<{ id: string; expiresAt: number } | undefined> => {
   if (signal?.aborted) return undefined;
   let wakeAbort!: () => void;
@@ -88,33 +87,36 @@ export const awaitFileApproval = async (
     const action = await actions.submit(kind, title, payload, {
       ...context,
       timeoutMs,
-      activityId: typeof context?.activityId === "function" ? context.activityId() : context?.activityId,
     });
     observe?.({
       id: `approval:${action.id}`,
+      approvalId: action.id,
       kind: "approval",
       phase: "start",
-      title: "Approval requested",
+      title: "等待人工审批",
+      detail: title,
+      status: "waiting_approval",
     });
     for (;;) {
       if (signal?.aborted) {
         await actions.cancel(action.id);
-        observe?.({ id: `approval:${action.id}`, kind: "approval", phase: "end", status: "cancelled", title: "Approval cancelled", result: "Operation aborted by user" });
+        observe?.({ id: `approval:${action.id}`, approvalId: action.id, kind: "approval", phase: "end", status: "cancelled", title: "人工审批", detail: title, result: "审批已取消" });
         return undefined;
       }
       const decision = await Promise.race([actions.poll(action.id), interrupted]);
       if (signal?.aborted) {
         await actions.cancel(action.id);
-        observe?.({ id: `approval:${action.id}`, kind: "approval", phase: "end", status: "cancelled", title: "Approval cancelled", result: "Operation aborted by user" });
+        observe?.({ id: `approval:${action.id}`, approvalId: action.id, kind: "approval", phase: "end", status: "cancelled", title: "人工审批", detail: title, result: "审批已取消" });
         return undefined;
       }
       if (decision?.status === "approved") {
-        observe?.({ id: `approval:${action.id}`, kind: "approval", phase: "end", status: "succeeded", title: "Approval granted", result: "Action was approved" });
+        observe?.({ id: `approval:${action.id}`, approvalId: action.id, kind: "approval", phase: "end", status: "succeeded", title: "人工审批", detail: title, result: "已批准" });
         return { id: action.id, expiresAt: Date.parse(action.expiresAt) };
       }
       if (decision?.status !== "pending") {
         const status = decision?.status === "denied" ? "denied" : decision?.status === "expired" ? "expired" : "cancelled";
-        observe?.({ id: `approval:${action.id}`, kind: "approval", phase: "end", status, title: `Approval ${decision?.status ?? "refused"}`, result: `Approval was ${decision?.status ?? "refused"}` });
+        const result = status === "denied" ? "已拒绝" : status === "expired" ? "审批已过期，未写入" : "审批已取消";
+        observe?.({ id: `approval:${action.id}`, approvalId: action.id, kind: "approval", phase: "end", status, title: "人工审批", detail: title, result });
         return undefined;
       }
       await Promise.race([

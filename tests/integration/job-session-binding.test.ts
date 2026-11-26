@@ -175,7 +175,7 @@ test("retaining schedules waits for the source job, while delete cancels it", as
   const h = await fixture(t, 10);
   const { id } = await h.service().sessions.create("running-job");
   const job = await h.service().jobs.add(
-    'wait\n\nE2E activity {"calls":[],"end":"hold"}',
+    "freeze",
     false, new Date(Date.now() - 1000).toISOString(), id,
   );
   await until(async () => h.model.requests.length > 0 && h.service().scheduler.isRunningFor(id));

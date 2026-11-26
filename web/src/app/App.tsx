@@ -20,7 +20,6 @@ import {
   listSessions,
   login,
   subscribeWorkspaceEvents,
-  type ActivityUpdatedEventDto,
   type BrowserHandoffDto,
   type SessionStatusDto,
   type ApprovalViewDto,
@@ -145,9 +144,6 @@ type WorkspaceState = {
   approvalTombstones: Record<string, number>;
   statuses: SessionStatusDto[];
   statusRevisions: Record<string, number>;
-  // 进行中的活动概览（含 waiting_* / awaiting_continuation）；终态活动进入 notices 供通知展示。
-  activities: ActivityUpdatedEventDto[];
-  notices: ActivityUpdatedEventDto[];
   // ready 是恢复漏通知的同步边界；瞬时失效只保存身份与顺序，不保存通知内容。
   conversationSyncVersion: number;
   conversationUpdates: Array<{ sequence: number; data: ConversationUpdatedEventDto }>;
@@ -158,7 +154,6 @@ type WorkspaceState = {
 type WorkspaceAction =
   | WorkspaceEvent
   | { type: "decided"; data: ApprovalViewDto }
-  | { type: "dismiss_notice"; id: string }
   | { type: "reset" };
 
 const initialWorkspaceState: WorkspaceState = {
@@ -168,8 +163,6 @@ const initialWorkspaceState: WorkspaceState = {
   approvalTombstones: {},
   statuses: [],
   statusRevisions: {},
-  activities: [],
-  notices: [],
   conversationSyncVersion: 0,
   conversationUpdates: [],
   browserSyncVersion: 0,
@@ -183,7 +176,7 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
     case "reset":
       return initialWorkspaceState;
     case "ready": {
-      const { instanceId, sessionStatuses, pendingApprovals, activities } = action.data;
+      const { instanceId, sessionStatuses, pendingApprovals } = action.data;
       // ready 是进行中集合的完整替换值：运行版本缓存也随之重建，不保留已结束运行的旧版本。
       // 运行 revision 只在同一实例内有效；新实例本来就必须清空缓存。
       const statusRevisions: Record<string, number> = {};
@@ -218,7 +211,6 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
           approvalRevisions[approval.id] ?? 0,
         );
       }
-      // ready.activities 是进行中活动集合的完整替换值；终态活动的历史通知不随重连复活。
       return {
         ...state,
         instanceId,
@@ -227,8 +219,6 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
         approvalTombstones,
         statuses,
         statusRevisions,
-        activities,
-        notices: [],
         conversationSyncVersion: state.conversationSyncVersion + 1,
         conversationUpdates: [],
         browserSyncVersion: state.browserSyncVersion + 1,
@@ -283,20 +273,6 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
         },
       };
     }
-    case "activity_updated": {
-      const activity = action.data;
-      if (state.instanceId !== activity.instanceId) return state;
-      const terminal = activity.status === "completed" || activity.status === "failed"
-        || activity.status === "stopped" || activity.status === "interrupted";
-      const activities = terminal
-        ? state.activities.filter((item) => item.id !== activity.id)
-        : [...state.activities.filter((item) => item.id !== activity.id), activity];
-      // 终态活动转成一条通知：用户在别的会话时也能看到“调研 X 已完成/失败”。
-      const notices = terminal
-        ? [...state.notices.filter((item) => item.id !== activity.id), activity].slice(-8)
-        : state.notices;
-      return { ...state, activities, notices };
-    }
     case "session_directory_updated":
     case "subagent_updated":
       return state;
@@ -322,8 +298,6 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
         ].slice(-32),
       };
     }
-    case "dismiss_notice":
-      return { ...state, notices: state.notices.filter((item) => item.id !== action.id) };
     case "decided": {
       // 决定接口返回权威审批视图；只有服务端确认后才会走到这里。
       const approval = action.data;
@@ -608,32 +582,6 @@ export const App = () => {
             <span className="ml-auto shrink-0 text-stone-400">
               {currentStatus.source === "job" ? "定时任务" : currentStatus.sessionId}
             </span>
-          </div>
-        )}
-        {workspace.notices.length > 0 && (
-          <div className="shrink-0 space-y-1 border-b border-stone-200 bg-emerald-50 px-4 py-2">
-            {workspace.notices.map((notice) => (
-              <div key={notice.id} className="flex items-start gap-2 text-xs">
-                <span aria-hidden>{notice.status === "completed" ? "✅" : "⚠️"}</span>
-                <div className="min-w-0 flex-1">
-                  <span className="font-medium text-stone-700">{notice.title}</span>
-                  <span className="ml-1.5 text-stone-500">
-                    {notice.status === "completed" ? "已完成" : notice.status === "failed" ? "失败" : notice.status === "stopped" ? "已停止" : "已中断"}
-                  </span>
-                  {notice.result && (
-                    <p className="mt-0.5 truncate text-stone-500">{notice.result}</p>
-                  )}
-                  <span className="ml-1.5 text-stone-400">{notice.sessionId}</span>
-                </div>
-                <button
-                  onClick={() => dispatch({ type: "dismiss_notice", id: notice.id })}
-                  aria-label="关闭通知"
-                  className="shrink-0 rounded px-1 text-stone-400 hover:bg-stone-200 hover:text-stone-600"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
           </div>
         )}
         <header className="flex items-center gap-3 border-b border-stone-200 bg-white px-4 py-2.5 md:hidden">

@@ -51,7 +51,6 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
           if (ended) return;
           const data = event.event === "session_status_updated" ? event.status
             : event.event === "session_presence_updated" ? event.presence
-            : event.event === "activity_updated" ? event.activity
             : event.event === "conversation_updated" ? event.conversation
             : event.event === "session_directory_updated" ? {}
             : event.event === "subagent_updated" ? { subagentId: event.subagentId, scope: event.scope }
@@ -59,10 +58,9 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
             : event.event === "approval_pending" ? presentApproval(event.approval) : presentApprovalResolution(event.approval);
           const bytes = frame(event.event, { instanceId: events.instanceId, ...data });
           if (bytes.byteLength > MAX_EVENT_BYTES) { disconnect(); return; }
-          // 同一活动的连续状态帧可合并为最新一条；活动状态单调推进，旧帧无保留价值。
+          // 同一运行的连续状态帧可合并为最新一条；旧帧无保留价值。
           const key = event.event === "session_status_updated" ? `run:${event.status.sessionId}:${event.status.runId}`
             : event.event === "session_presence_updated" ? `presence:${event.presence.sessionId}`
-            : event.event === "activity_updated" ? `activity:${event.activity.id}`
             : event.event === "session_directory_updated" ? "session-directory"
             : event.event === "subagent_updated" ? `subagent:${event.subagentId}:${event.scope}`
             : event.event === "browser_updated" ? `browser:${event.scope}` : "";
@@ -81,7 +79,6 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
           instanceId: events.instanceId, serverTime: new Date().toISOString(),
           sessionStatuses: events.current(), pendingApprovals: events.pending().map(presentApproval),
           sessionPresences: events.presence.current(),
-          activities: events.activities().map((act) => ({ ...act, instanceId: events.instanceId })),
         });
         if (ready.byteLength > MAX_READY_BYTES) { disconnect(); return; }
         queue.unshift({ key: "ready", bytes: ready });

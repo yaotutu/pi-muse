@@ -53,7 +53,8 @@ export const parseActions = (value: unknown): PendingAction[] => {
       actionTime(item.createdAt) && actionTime(item.expiresAt) &&
       Object.hasOwn(item, "sessionId") && nullableContext(item.sessionId) &&
       nullableContext(item.runId) && nullableContext(item.toolCallId) &&
-      nullableContext(item.subagentId) && nullableContext(item.activityId) &&
+      nullableContext(item.subagentId) &&
+      (item.activityId === undefined || nullableContext(item.activityId)) &&
       isStateConsistent(item) && validExecution(item),
   );
   if (list.length !== value.length) throw new InvalidDocumentError("actions");
@@ -233,7 +234,6 @@ export const actionFromRow = (row: ActionRow): PendingAction => ({
   runId: row.run_id,
   toolCallId: row.tool_call_id,
   subagentId: row.subagent_id,
-  activityId: row.activity_id,
   ...(row.execution_status === null ? {} : {
     execution: {
       status: row.execution_status,
@@ -254,7 +254,7 @@ const projectColumns = (action: PendingAction, position: number): Record<string,
   run_id: action.runId ?? null,
   tool_call_id: action.toolCallId ?? null,
   subagent_id: action.subagentId ?? null,
-  activity_id: action.activityId ?? null,
+  activity_id: null,
   kind: action.kind,
   status: action.status,
   title: action.title,

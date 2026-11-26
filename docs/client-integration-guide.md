@@ -19,7 +19,7 @@
 | 端形态标签 | 典型形态 | 推荐最小接入集合 | 关键取舍与边界 |
 | --- | --- | --- | --- |
 | **`webhook`** | 无头服务、传感器上报、Webhook 转发、自动化脚本 | `GET /api/health` + `POST /api/session` + 目标写入/查询 REST（如 `POST /api/information/items`） | **不需要**连接 `GET /api/events` 或聊天 SSE；聚焦 Token 安全存储、幂等键设计与“写入超时先查不重发”。 |
-| **`embedded-voice`** | ESP32 等单片机、智能音箱、穿戴设备、CLI / IM 机器人 | `GET /api/health` + `POST /api/session` + `GET /api/conversation`（取 `revision`）+ `POST /api/conversation/run` + `POST /api/conversation/stop` | ASR/TTS 或设备事件转文字留在接入端侧；流式只提取 `TEXT_MESSAGE_CONTENT` 与终态即可，**不强求**接 `/api/events` 或本地缓存全量历史。若无屏端对话意外触发了模型文件写入，服务端仍挂起等人工审批（5 分钟过期不落盘），端侧不可绕过，应提示用户转往富交互端确认或告知未落盘。 |
+| **`embedded-voice`** | ESP32 等单片机、智能音箱、穿戴设备、CLI / IM 机器人 | `GET /api/health` + `POST /api/session` + `GET /api/conversation`（取 `revision`）+ `POST /api/conversation/run` + `POST /api/conversation/stop` | ASR/TTS 或设备事件转文字留在接入端侧；流式只提取 `TEXT_MESSAGE_CONTENT` 与终态即可，**不强求**接 `/api/events` 或本地缓存全量历史。若无屏端对话意外触发了模型文件写入，服务端仍挂起等人工审批（默认 24 小时过期不落盘），端侧不可绕过，应提示用户转往富交互端确认或告知未落盘。 |
 | **`rich-ui`** | 原生手机 App（RN / Flutter）、Web 工作台、桌面客户端 | 完整双流（连接级 1 条 `GET /api/events` + 会话级 `POST /api/conversation/run`）+ 会话管理 + 模型审批 + 按需扩展领域 | 建议实现多会话保活、完整前后文文件审批预览、手动工作区文件确认、后台领域引用及各类业务管理页。 |
 
 ---
@@ -29,7 +29,7 @@
 | 层级 | 含义 | 适用范围与具体内容 |
 | --- | --- | --- |
 | **Must（硬边界 / 协议不变量）** | 违反会导致鉴权失败、数据错乱、状态覆盖或破坏安全隔离 | 1. **凭据安全（全端）**：只持久化服务地址与 Bearer Session Token；**严禁**持久化明文 `accessKey`，**严禁**将 Bearer Token 放入任何 URL query（图片、SSE、WS 均不可）。<br>2. **契约唯一权威（全端）**：精确路径、请求/响应字段、校验边界与错误码以运行实例 `GET /docs`、`GET /openapi.json` 及 `src/http/contracts/` 为准，不猜测、不另建手写规范。<br>3. **写入未明不重发（全端）**：除明确声明幂等的操作外，写入超时/断网必须先回读服务端权威状态，禁止静默自动重发。<br>4. **聊天提交不变量（对话端）**：`POST /api/conversation/run` 不回传全量历史，必须提交 `expectedRevision` 并正确处理 `409` 版本/删除冲突。<br>5. **身份与版本合并（涉及对应实体时）**：严格区分 `sessionId`、`piSessionId` 与 `instanceId`；运行状态仅在同 `instanceId` 内按 `(sessionId, runId, revision)` 合并，审批按 `(id, revision)` 跨实例合并。<br>6. **文件审批与手动确认（富交互 / 文件端）**：模型文件审批必须向用户完整展示不可变 `before`/`after` 原文并由人决定；区分 `status: "approved"`（人的授权）与 `execution.status`（真实落盘结果）。手动文件写/建仅在向用户完整展示并确认后才传 `confirmed: true`，不得以此绕过模型审批。<br>7. **不可信内容隔离（全端）**：外部网页、RSS、短信、文本附件以及工作区 `kind: "text"` 中的 SVG/HTML 一律按不可信纯文本处理，禁止直接当 HTML/脚本执行。 |
-| **Should（推荐工作模式）** | 服务端围绕这些模式设计；采用后体验与状态一致性最佳 | 1. **连接级单通知流（`rich-ui`）**：每个服务器连接只维持一条 `GET /api/events` SSE 长连接，由连接级分发至各模块。<br>2. **按 `ready` 整集重建（`rich-ui`）**：每次收到 `ready` 首帧，整体替换本地进行中运行、待审批、进行中活动与在线状态集合，不做断线前后并集。<br>3. **聊天流与界面解耦（`rich-ui` / 多会话端）**：切换会话或界面时保持在途聊天流挂载、独立保留每会话草稿；若轻量端不保活后台流，切出前提醒用户或显式调用 Stop。<br>4. **失效信号防竞态（订阅 `/api/events` 时）**：收到 `conversation_updated` 后标脏并重读 `GET /api/conversation`；正在流式输出时可延后至流结束后再刷，刷新请求进行中又收新事件须补刷。<br>5. **领域通知结构化引用（`rich-ui`）**：对后台领域（如 `sms`、`news`）通知卡片与新闻文章，采用 `【领域引用:<domainId>】...【引用结束】` 格式追加到草稿由用户发送。<br>6. **渐进接入（全端）**：先跑通对应端形态的最小闭环，再按需逐步扩展。 |
+| **Should（推荐工作模式）** | 服务端围绕这些模式设计；采用后体验与状态一致性最佳 | 1. **连接级单通知流（`rich-ui`）**：每个服务器连接只维持一条 `GET /api/events` SSE 长连接，由连接级分发至各模块。<br>2. **按 `ready` 整集重建（`rich-ui`）**：每次收到 `ready` 首帧，整体替换本地进行中运行、待审批与在线状态集合，不做断线前后并集。<br>3. **聊天流与界面解耦（`rich-ui` / 多会话端）**：切换会话或界面时保持在途聊天流挂载、独立保留每会话草稿；若轻量端不保活后台流，切出前提醒用户或显式调用 Stop。<br>4. **失效信号防竞态（订阅 `/api/events` 时）**：收到 `conversation_updated` 后标脏并重读 `GET /api/conversation`；正在流式输出时可延后至流结束后再刷，刷新请求进行中又收新事件须补刷。<br>5. **领域通知结构化引用（`rich-ui`）**：对后台领域（如 `sms`、`news`）通知卡片与新闻文章，采用 `【领域引用:<domainId>】...【引用结束】` 格式追加到草稿由用户发送。<br>6. **渐进接入（全端）**：先跑通对应端形态的最小闭环，再按需逐步扩展。 |
 | **May（接入端完全自主空间）** | 完全由各端自行决策，服务端不做任何约束 | 1. 硬件形态、操作系统、语言、固件或跨端框架（RN、Flutter、Web、C/Rust/Python、脚本等）。<br>2. 信息架构、交互方式（触屏 UI、语音播报、命令行、纯后台无界面）。<br>3. 视觉主题、配色、动效、音频反馈与助手形象是否展示/如何展示。<br>4. 端侧状态管理方案、内存缓冲策略与本地草稿存储方式。<br>5. 纯端侧展示偏好（置顶分组、折叠、字号、播报语速等）。<br>6. 是否接入次级领域（目标、Dream、浏览器控制、形象包等）以及接入顺序。 |
 
 ---
@@ -75,14 +75,14 @@
 Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、唯一扁平工作区**的个人助手核心：
 
 - 只有一个助手身份，**没有**多智能体切换、群组路由或按接入端/会话隔离的私有工作区目录。
-- 专题会话（`sessionId` 为 UUID）只隔离**聊天历史、草稿、运行状态、以及定时任务/监控/审批/活动的来源归属**；助手设定、技能、记忆、文件工作区、短信、新闻与浏览器是实例全局共享的。多形态接入端既可以共用 `main` 主会话，也可以各自创建或绑定独立的专题 `sessionId`（语音/传感器内容由端侧转为文本或结构化请求提交）。
+- 专题会话（`sessionId` 为 UUID）只隔离**聊天历史、草稿、运行状态与步骤记录、以及定时任务/监控/审批的来源归属**；助手设定、技能、记忆、文件工作区、短信、新闻与浏览器是实例全局共享的。多形态接入端既可以共用 `main` 主会话，也可以各自创建或绑定独立的专题 `sessionId`（语音/传感器内容由端侧转为文本或结构化请求提交）。
 
 ### 4.1 状态所有权对照表
 
 | 归属层 | 数据与状态 | 接入端职责 |
 | --- | --- | --- |
 | **服务端实例全局** | 模型配置、`SOUL.md` / `USER.md` / `INSTRUCTIONS.md`、技能资产与开关、长期记忆、长期目标、Dream 状态与待决项、短信原始条/批处理、新闻源/文章/偏好、唯一 `workspace/` 文件、真实 Chrome 实例、自定义助手形象包 | 按需读取与调用对应写入 REST；**不保存**模型 Key，**不维护**第二份业务事实权威副本 |
-| **服务端公开会话级** | 会话元数据（标题/时间）、pi JSONL 聊天正文/附件/工具历史、消息反馈（点赞/评论）、定时任务/监控/活动/审批的归属 `sessionId` | 按 `sessionId` 读取权威历史与归属视图；不可擅自改写历史消息 |
+| **服务端公开会话级** | 会话元数据（标题/时间）、pi JSONL 聊天正文/附件/工具历史、运行步骤时间线、消息反馈（点赞/评论）、定时任务/监控/审批的归属 `sessionId` | 按 `sessionId` 读取权威历史与归属视图；不可擅自改写历史消息 |
 | **服务端单次运行级** | 运行互斥锁、取消信号、内存运行状态投影（`session_status_updated`）、当轮临时审批授权 | 按 `(sessionId, runId)` 展示状态或提交 `stop` / `decision` |
 | **接入端本地自有** | 服务器 Base URL、Bearer Session Token、端侧设备配置、未发送草稿与待发附件、本地 UI/硬件偏好（主题/音量/播报/缓存） | 按服务器连接（`baseUrl` 维度）隔离存储；换服时彻底销毁连接级缓存 |
 
@@ -139,13 +139,12 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
    - 握手阶段返回 `401` 停止重连并走重新鉴权；`429`（`TOO_MANY_CONNECTIONS`）清理多余连接后退避重试；`503` 退避重试。
 2. **首帧 `ready` 完整替换原则**：
    - 每条连接恰好发送一次 `ready` 作为首帧（`ready` 最大 12 MiB，单个增量事件最大 8 MiB；队列或单帧超限时服务端主动断流以促使接入端重连全量对齐）。
-   - `ready` 包含：`instanceId`、`serverTime`、`sessionPresences`、`sessionStatuses`、`pendingApprovals`、`activities`。
-   - **必须整体替换**当前进行中的运行集合、待审批集合、进行中活动集合和头像在线状态集合，绝不与断线前本地缓存合并。未出现在 `sessionPresences` 中的会话视为空闲；当通知流处于断开状态时，会话状态为**未知**，不要渲染成空闲。
+   - `ready` 包含：`instanceId`、`serverTime`、`sessionPresences`、`sessionStatuses`、`pendingApprovals`。
+   - **必须整体替换**当前进行中的运行集合、待审批集合和头像在线状态集合，绝不与断线前本地缓存合并。未出现在 `sessionPresences` 中的会话视为空闲；当通知流处于断开状态时，会话状态为**未知**，不要渲染成空闲。
    - **重连后补读**：收到 `ready` 后，主动重读一次 `GET /api/sessions` 和当前已打开会话的 `GET /api/conversation`，恢复断线窗口内新建/改名/删会话及已落盘的通知/任务回复。
 3. **版本合并与字段注意**：
-   - **运行状态（`session_status_updated`）**：按 `(sessionId, runId)` 合并，**只应用严格大于本地已知 `revision` 的帧**，相等或更小直接丢弃；若帧内 `instanceId` 与本地记录不同，说明服务端已重启，**先清空运行状态与运行 `revision` 缓存**再以新 `ready`/新帧重建。运行终态（`succeeded`/`failed`/`cancelled`，`phase: null`，`endedAt` 非空）会推送一次，也可通过 `GET /api/runs/status?sessionId=...&runId=...` 查询。
+   - **运行状态与步骤（`session_status_updated`）**：按 `(sessionId, runId)` 合并，**只应用严格大于本地已知 `revision` 的帧**，相等或更小直接丢弃；若帧内 `instanceId` 与本地记录不同，说明服务端已重启，**先清空运行状态与运行 `revision` 缓存**再以新 `ready`/新帧重建。每次运行自动在 `steps` 数组中累加与持久化工具/子代理/审批/文件提交步骤；运行终态（`succeeded`/`failed`/`cancelled`，`phase: null`，`endedAt` 非空）会推送一次，也可通过 `GET /api/runs?sessionId=...` 与 `GET /api/runs/status?sessionId=...&runId=...` 查询。
    - **待审批与终态（`approval_pending` / `approval_updated`）**：按 `id` 索引并按严格更高 `revision` 合并。审批 `revision` 跨进程持久，**不能**因 `instanceId` 变化清空。`approval_pending` 直接包含完整不可变 `preview`，收到即可展示并供用户决定；`approval_updated` 省略了 `title`、`kind`、`preview` 以避免重复推大正文，若本地没有完整预览或收到未知 `id`，按需回读 `GET /api/approvals/:id`。
-   - **活动（`activity_updated`）**：仅在 `status` 跳变时推送（过程性 `progress` 文本更新不推），按 `id` 整体覆盖本地概览；查看逐步明细或全部历史分别调用 `GET /api/activities/:id` 和 `GET /api/activities`。
    - **会话在线态（`session_presence_updated`）**：同一连接按到达顺序覆盖，优先级规则由服务端维护（等待用户 > 错误 > 工作中）；`lastActiveAt` 仅用于会话活跃排序，不用于版本比较。不要使用 `serverTime`/`updatedAt` 排序或用事件数量计数业务操作。
 4. **失效信号与防竞态刷新**：
    - `session_directory_updated`：重读 `GET /api/sessions`。
@@ -188,10 +187,10 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
   2. 让用户明确选择 `scheduleDisposition`（`"delete"` 一并删除，或 `"move-to-main"` 保留并迁移到 `main`），再携 `scheduleRevision` 调用 `DELETE /api/sessions/:sessionId`。
   3. 若返回 `409 SESSION_SCHEDULES_CHANGED`（预览期间清单变化）或 `409 SESSION_JOB_RUNNING`（选择保留但原会话任务仍在跑），刷新清单或等待运行结束后再确认。
 
-### 6.2 运行状态与受控工具展示（`/api/runs/status` & `session_status_updated`，适合 `rich-ui`）
+### 6.2 运行状态、步骤时间线与受控工具展示（`/api/runs*` & `session_status_updated`，适合 `rich-ui`）
 
-- `session_status_updated` 中的 `phase` 为 `preparing` / `waiting_model` / `responding` / `executing_tool` / `waiting_subagents` / `waiting_approval` / `finalizing`（终态为 `null`）。普通闲聊或简单问答没有关联 Activity（`activityId: null`）属于正常情况。
-- `tools[]` 中每项含 `{ toolCallId, name, label, status, subagentId }`。**受控或隐藏工具的 `name` 会显式输出 `null`**，此时界面必须展示服务端提供的 `label`，切勿把 `name === null` 判定为报错或缺失字段。
+- `session_status_updated` 中的 `phase` 为 `preparing` / `waiting_model` / `responding` / `executing_tool` / `waiting_subagents` / `waiting_approval` / `finalizing`（终态为 `null`）；`steps[]` 实时累积并在结束后持久化到会话历史，通过 `GET /api/runs?sessionId=...` 分页读取。
+- `tools[]` 中每项含 `{ toolCallId, name, label, status, subagentId }`。**受控或隐藏工具的 `name`/`toolName` 会显式输出 `null`**，此时界面应展示服务端提供的 `label`/`title`/`detail`，切勿把 `null` 判定为报错或缺失字段。
 
 ### 6.3 模型文件审批与手动工作区文件（强安全契约，适合 `rich-ui`，`embedded-voice` 需知边界）
 
@@ -200,7 +199,7 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
 1. **模型文件审批（`/api/approvals*` + `/api/events`）**：
    - 待审批项由 `ready.pendingApprovals` 和 `approval_pending` 推送完整视图（含 `title`、`kind`: `file_write` | `file_edit`、`expiresAt` 与不可变 `preview: { scope, path, before, after, beforeExists }`）。
    - **展示要求（`rich-ui`）**：必须把 `preview.before` 与 `preview.after` 全文完整展示给用户核对（不得截断、不得只显示片段摘要、也不得用读取当前磁盘文件来替代历史登记时的 `preview`）。`scope` 为 `"workspace"` 或 `"skill"`（实例技能文本）。
-   - **无屏/语音端边界（`embedded-voice`）**：无完整文本核对与明确人机交互确认条件的设备，**不要**擅自替用户调用审批决定接口；若对话触发文件写入导致挂起等待，提示用户前往富交互端处理（默认 5 分钟过期后安全放弃，不会落盘）。
+   - **无屏/语音端边界（`embedded-voice`）**：无完整文本核对与明确人机交互确认条件的设备，**不要**擅自替用户调用审批决定接口；若对话触发文件写入导致挂起等待，提示用户前往富交互端处理（默认 24 小时过期后安全放弃，不会落盘）。
    - **提交决定**：只能由用户显式操作后调用 `POST /api/approvals/:id/decision`（Body 仅 `{ decision: "approve" | "deny" }`）。如遇 `409`，用响应携带的 `approval` 更新本地视图。
    - **区分授权与落盘**：`status === "approved"` 仅代表“人已同意执行这一次绑定版本的预览操作”，**绝不代表文件已写入成功**！是否真正落盘必须观察 `execution` 字段（通过 `approval_updated` 或 `GET /api/approvals/:id` 获取）：
      - `execution === null`：尚未观察到执行；
@@ -238,7 +237,6 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
 
 ### 6.5 其他可选领域与通用规则
 
-- **执行活动（`/api/activities*`，`rich-ui`）**：完全只读。活动仅在主模型主动推进用户交办的工作时显式登记，普通对话没有活动是预期行为。`status === "awaiting_continuation"` 表示本轮停止但任务未完结，需由用户在对话中明确要求继续（模型会继续更新原活动）。
 - **定时任务与网页监控（`/api/jobs*`、`/api/monitors*`，`rich-ui` / `webhook`）**：
   - 绑定创建时的 `originSessionId`（省略默认 `main`），支持暂停/恢复/取消/重试/修改。
   - **时区规范**：当 `daily === true` 时，`at` 必须为严格 24 小时制两位 `HH:mm`（如 `"09:00"`），服务端按 `GET /api/health.timeZone` 解释，客户端在同地区使用可直接填本地时刻无需自行换算；当 `daily === false` 时，`at` 需为带时区偏移的 ISO 8601 时间戳（如 `"2026-10-22T09:00:00+08:00"`）。`nextRunAt` 统一返回带 `Z` 的 UTC ISO 8601。
@@ -248,7 +246,7 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
 - **长期目标、记忆与 Dream（`/api/goals*`、`/api/memories*`、`/api/dream*`，`rich-ui` / `webhook`）**：
   - 均为实例全局管理。激活态目标（`active`）会摘要注入每轮对话；长期记忆上限 500 条（满额返回 `409`）按需被模型检索；Dream 每两小时整理一次对话并产出待决建议（`pending`），调用 `POST /api/dream/pending/:pendingId` 应用（`apply`）或丢弃（`dismiss`）时即使建议来自已删专题会话，也只写入全局目标，绝不借此重建已删会话。
 - **游标分页通用规范（全端适用）**：
-  - 适用于审批历史（`/api/approvals`）、活动（`/api/activities`）、信息条目/run（`/api/information/items|runs`）、新闻文章（`/api/news/articles`）和模型追踪（`/api/traces`）。
+  - 适用于执行记录（`/api/runs`）、审批历史（`/api/approvals`）、信息条目/run（`/api/information/items|runs`）、新闻文章（`/api/news/articles`）和模型追踪（`/api/traces`）。
   - `cursor` / `nextCursor` 是绑定了当次过滤条件的不透明字符串，翻页时原样回传即可；**只要切换了任何过滤参数，必须清空旧 `cursor` 从第一页重新拉取**，否则会返回 `400`。此类分页不冻结快照，新增项出现在第一页。
 - **助手形象包（`/api/companions*`，`rich-ui`）**：
   - 纯客户端展示资源，不进入模型上下文。每个完整包固定包含 8 个状态 PNG，顺序与名称为：`idle`、`thinking`、`responding`、`working`、`waiting-approval`、`success`、`error`、`stopped`。

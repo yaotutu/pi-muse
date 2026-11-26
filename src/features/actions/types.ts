@@ -23,7 +23,6 @@ export type ApprovalHistoryQuery = {
   limit: number;
   cursor?: ApprovalCursor;
   sessionId?: string;
-  activityId?: string;
   status?: SettledActionStatus;
 };
 export type ApprovalHistoryPage = {
@@ -59,7 +58,6 @@ export type ActionSubmitOptions = {
   /** 以下字段只用于审计/展示关联；未提供时持久化为 null，不推断当前上下文。 */
   toolCallId?: string | null;
   subagentId?: string | null;
-  activityId?: string | null;
 };
 
 export type PendingAction = {
@@ -84,7 +82,6 @@ export type PendingAction = {
   runId: string | null;
   toolCallId: string | null;
   subagentId: string | null;
-  activityId: string | null;
   /** 执行事实独立于人的决定；未观察到执行时省略，不从 approved 推断成功。 */
   execution?: ApprovalExecution;
 };

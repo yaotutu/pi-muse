@@ -7,7 +7,7 @@
  * - 服务内部状态机、版本号、终态时间、幂等重放、容量限制与串行化写；
  * - execution 仅在 approved 上建立，每次变更 revision+1 并 onChange（防 SSE 去重丢回执）；
  * - cancelPending 把遗留在 running 的执行标为 unknown / finishedAt=null / result 不变；
- * - page({limit, cursor, sessionId, activityId, status}) 按 resolvedAt 降序、
+ * - page({limit, cursor, sessionId, status}) 按 resolvedAt 降序、
  *   同时间按 id 降序，过滤在分页前应用；
  * - 监听器深度克隆、抛错隔离、订阅/取消订阅。
  *
@@ -88,7 +88,6 @@ const record = (overrides: Partial<PendingAction> & Pick<PendingAction, "id">): 
   runId: null,
   toolCallId: null,
   subagentId: null,
-  activityId: null,
   ...overrides,
 });
 
@@ -104,7 +103,7 @@ test("submit writes revision 1 with full nullable context fields and notifies on
     "file_write",
     "write note",
     { path: "note.txt", content: "hello" },
-    { sessionId: "main", runId: "run-1", toolCallId: "tc-1", subagentId: null, activityId: "act-1" },
+    { sessionId: "main", runId: "run-1", toolCallId: "tc-1", subagentId: null },
   );
 
   assert.equal(action.status, "pending");
@@ -115,7 +114,6 @@ test("submit writes revision 1 with full nullable context fields and notifies on
   assert.equal(action.runId, "run-1");
   assert.equal(action.toolCallId, "tc-1");
   assert.equal(action.subagentId, null);
-  assert.equal(action.activityId, "act-1");
   assert.equal(action.execution, undefined);
   assert.equal(events.length, 1);
   assert.equal(events[0].approval.id, action.id);
@@ -324,9 +322,9 @@ test("execution claims an approved unexpired approval once; receipts advance rev
 
 test("page returns resolvedAt desc + id desc, applies filters before cursor; binding rules live in HTTP layer", async () => {
   const items: PendingAction[] = [
-    record({ id: "a1", status: "approved", resolvedAt: iso(3_000), decidedAt: iso(3_000), sessionId: "agent-a", activityId: "act-1" }),
-    record({ id: "a2", status: "denied", resolvedAt: iso(2_000), decidedAt: iso(2_000), sessionId: "agent-a", activityId: "act-1" }),
-    record({ id: "b1", status: "approved", resolvedAt: iso(1_000), decidedAt: iso(1_000), sessionId: "agent-b", activityId: "act-2" }),
+    record({ id: "a1", status: "approved", resolvedAt: iso(3_000), decidedAt: iso(3_000), sessionId: "agent-a" }),
+    record({ id: "a2", status: "denied", resolvedAt: iso(2_000), decidedAt: iso(2_000), sessionId: "agent-a" }),
+    record({ id: "b1", status: "approved", resolvedAt: iso(1_000), decidedAt: iso(1_000), sessionId: "agent-b" }),
   ];
   const actions = createActionService(memoryRepository(items).repository);
 
@@ -347,10 +345,6 @@ test("page returns resolvedAt desc + id desc, applies filters before cursor; bin
   assert.deepEqual(second.approvals.map((action) => action.id), ["a2"]);
   assert.equal(second.hasMore, false);
   assert.equal(second.nextCursor, null);
-
-  // activityId 过滤：act-2 只有 b1。
-  const byActivity = await actions.page({ limit: 10, activityId: "act-2" });
-  assert.deepEqual(byActivity.approvals.map((action) => action.id), ["b1"]);
 
   // status 过滤：approved 命中 a1/b1。
   const byStatus = await actions.page({ limit: 10, status: "approved" });

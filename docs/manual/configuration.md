@@ -44,7 +44,7 @@ chmod 600 .pi-muse/config.json
   "tools": {
     "writable": {
       "enabled": true,
-      "actionTimeoutMs": 300000
+      "actionTimeoutMs": 86400000
     },
     "web": {
       "enabled": true
@@ -91,7 +91,7 @@ chmod 600 .pi-muse/config.json
 | `runtime.monitorScanIntervalMs` | `60000` | 网页监控扫描间隔 |
 | `runtime.dataDir` | 配置文件所在目录 | 相对路径按配置文件所在目录解析；推荐绝对路径，但不强制 |
 | `tools.writable.enabled` | `true` | 是否注册 `write` / `edit`，并允许 `skills.save`；开启后仍需逐次人工审批，`skills.list/read` 不受该开关影响 |
-| `tools.writable.actionTimeoutMs` | `300000` | 文件操作审批有效期（毫秒）；过期不能提交修改 |
+| `tools.writable.actionTimeoutMs` | `86400000` | 文件操作审批有效期（毫秒，默认 24 小时，最大 7 天）；过期不能提交修改 |
 | `tools.web.enabled` | `true` | 是否向模型声明 `search_web` / `web_fetch` |
 | `tools.web.timeoutMs` | `30000` | 整个 Web 抓取总超时预算（毫秒，含最多 6 次重定向，每跳使用剩余时间） |
 | `tools.web.maxResponseBytes` | `2000000` | 单次响应大小上限 |

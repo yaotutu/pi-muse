@@ -15,7 +15,7 @@ export const approvalExecution = z.strictObject({
  *
  * 边界：
  * - 审批记录只表达“人是否授权这一次操作”，不执行写操作，也不代表执行成功；
- *   实际结果以真实工具执行与 Activity 步骤为准。
+ *   实际结果以真实工具执行与运行步骤为准。
  * - 预览内容在登记时固定，之后不读取当前文件替换；完整预览不截断。
  * - revision 用于版本校验：创建时为 1，进入终态与每次执行回执时 +1；重复决定不推进版本。
  * - 待审批集合通过 SSE 直接推送；历史列表只返回已处理/失效审批的摘要，不含正文。
@@ -110,7 +110,6 @@ export const approvalView = z
     runId: nullableRunId,
     toolCallId: nullableRef("发起审批的工具调用 ID"),
     subagentId: nullableRef("发起审批的子代理 ID"),
-    activityId: nullableRef("关联的 Activity ID"),
     kind: z
       .enum(approvalKinds)
       .describe("file_write=新建/覆盖文件；file_edit=替换文件中的一段精确文本"),
@@ -128,7 +127,7 @@ export const approvalView = z
     preview: approvalPreview,
     execution: approvalExecution.nullable().describe("未观察到执行时为 null；批准本身不是执行成功。每次执行回执推进 revision"),
     createdAt: isoTime.describe("审批登记时间"),
-    expiresAt: isoTime.describe("授权截止时间；登记时固定，不能由轮询或客户端延长"),
+    expiresAt: isoTime.describe("授权截止时间；登记时固定（默认 24 小时），不能由轮询或客户端延长"),
     resolvedAt: isoTime
       .nullable()
       .describe("进入终态的时间；pending 为 null。expired/cancelled 也以该时间作为结束时间"),
@@ -163,7 +162,7 @@ export const approvalResolution = approvalView
       .describe("终态：approved/denied/expired/cancelled；该事件不会携带 pending"),
   })
   .describe(
-    "审批进入终态时的轻量投影：保留 id、revision、会话/运行/工具/子代理/工作区/活动关联、" +
+    "审批进入终态时的轻量投影：保留 id、revision、会话/运行/工具/子代理关联、" +
       "终态与 createdAt/expiresAt/resolvedAt/decidedAt；不包含 title、kind 和预览全文。" +
       "收到后按 (id, revision) 更新本地状态；未知 id 或需要完整内容时读取 GET /api/approvals/:id。",
   );
@@ -176,8 +175,7 @@ export const approvalDecisionRequest = z
     decision: z
       .enum(["approve", "deny"])
       .describe(
-        "approve=授权执行预览中绑定的这一次操作，不代表执行成功；deny=不执行本次操作，" +
-          "由模型决定后续处理，不自动把整项 Activity 标为失败。",
+        "approve=授权执行预览中绑定的这一次操作，不代表执行成功；deny=不执行本次操作，由模型决定后续处理。",
       ),
   })
   .describe(
@@ -188,21 +186,19 @@ export const approvalDecisionRequest = z
 
 /** 历史只含终态；十进制 limit 与过滤绑定游标在 HTTP 边界严格校验。 */
 const historySessionId = z.string().min(1).max(64).regex(SESSION_ID_PATTERN);
-const historyActivityId = z.string().min(1).max(200);
 export const approvalListQuery = z.strictObject({
   limit: z.preprocess((value) => typeof value === "string" && /^[0-9]+$/.test(value) ? Number(value) : value,
     z.number().int().min(1).max(100).default(20)).describe("每页数量，默认 20，范围 1–100；非十进制整数、空值或越界返回 400"),
   cursor: z.string().min(1).max(1024).optional().describe(
-    "上一页 nextCursor，原样回传。不透明 base64url，绑定 resolvedAt/id 与 status/sessionId/activityId 过滤；结构非法、非规范编码或过滤不匹配返回 400，改变过滤后必须从第一页重新开始"),
+    "上一页 nextCursor，原样回传。不透明 base64url，绑定 resolvedAt/id 与 status/sessionId 过滤；结构非法、非规范编码或过滤不匹配返回 400，改变过滤后必须从第一页重新开始"),
   status: z.enum(terminalApprovalStatuses).optional().describe("只返回该终态，pending 非法；省略表示全部终态"),
   sessionId: historySessionId.optional().describe("只返回该来源会话的记录"),
-  activityId: historyActivityId.optional().describe("只返回该关联活动的记录"),
 }).describe("历史分页只包含终态；未声明、重复、非法参数或游标一律 400，按 resolvedAt 降序、同一时间按 id 降序");
 export const approvalCursorPayloadSchema = z.strictObject({
   resolvedAt: z.iso.datetime(), id: z.string().min(1).max(200),
-  status: z.enum(terminalApprovalStatuses).optional(), sessionId: historySessionId.optional(), activityId: historyActivityId.optional(),
+  status: z.enum(terminalApprovalStatuses).optional(), sessionId: historySessionId.optional(),
 });
-export type ApprovalFilter = { status?: SettledActionStatus; sessionId?: string; activityId?: string };
+export type ApprovalFilter = { status?: SettledActionStatus; sessionId?: string };
 export type ApprovalCursorPayloadDto = z.infer<typeof approvalCursorPayloadSchema>;
 export const pendingApprovalsResponse = z.strictObject({ approvals: z.array(approvalView) })
   .describe("仅未过期 pending 的完整预览补充读取；主要同步来源仍是 SSE ready.pendingApprovals 与 approval_pending，查询不执行写入或恢复授权");
@@ -211,7 +207,7 @@ export const approvalPage = z
   .strictObject({
     approvals: z
       .array(approvalSummary)
-      .describe("本页审批摘要，按最近处理时间倒序；同一时间按 id 倒序"),
+      .describe("本页审批摘要，按最近处理时间倒序；同一时间按 id 降序"),
     hasMore: z.boolean().describe("是否还有下一页；true 时 nextCursor 非 null"),
     nextCursor: z
       .string()

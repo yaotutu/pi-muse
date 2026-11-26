@@ -17,7 +17,6 @@ const newPending = (overrides: Partial<PendingAction> = {}): PendingAction => ({
   status: "pending", revision: 1,
   createdAt: "2026-01-01T00:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", resolvedAt: null, decidedAt: null,
   sessionId: "main", runId: "run-1", toolCallId: "tc-1", subagentId: null,
-  activityId: null,
   ...overrides,
 });
 
@@ -134,9 +133,14 @@ test("unit: a finished run stays terminal and stops publishing", () => {
   events.subscribe({ notify: (event) => seen.push(event), close: () => {} });
   const run = events.beginRun({ sessionId: "main", runId: "run-done", source: "chat" });
   run.observe({ kind: "tool", phase: "start", toolCallId: "tc-1", name: "write", subagentId: null });
+  run.observe({ kind: "tool", phase: "end", toolCallId: "tc-1", name: "write", subagentId: null, status: "succeeded" });
   const terminal = run.finish("succeeded");
   assert.deepEqual([terminal.status, terminal.phase, terminal.tools.length, terminal.endedAt !== null, events.current().length],
     ["succeeded", null, 0, true, 0]);
+  assert.deepEqual(
+    terminal.steps.map((step) => [step.kind, step.toolName, step.status]),
+    [["tool", "write", "succeeded"]],
+  );
 
   const count = seen.length;
   run.observe({ kind: "tool", phase: "start", toolCallId: "late", name: "write", subagentId: null });

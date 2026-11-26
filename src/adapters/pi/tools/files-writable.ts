@@ -2,7 +2,6 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { isWorkspaceText } from "../../../shared/workspace-text.js";
 import { ASSISTANT_TEXT_LIMIT } from "../../../features/identity/types.js";
-import type { ActivityObservation } from "../../../features/activities/types.js";
 import { resolveWorkspacePath, safeWorkspacePath } from "./workspace-path.js";
 import { managedWorkspaceTarget } from "../../workspace/managed-text.js";
 import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
@@ -12,13 +11,14 @@ import {
   deniedResult,
   MAX_TEXT_FILE_BYTES,
   readFileSnapshot,
-  type ActivityApprovalObservation,
   type ApprovalActions,
   type ApprovalContext,
+  type ApprovalObservation,
   type FileSnapshot,
+  type RunApprovalObserver,
 } from "./file-approval.js";
 
-export type ActivityToolObservation = ActivityApprovalObservation;
+export type { RunApprovalObserver };
 
 const aborted = () => deniedResult("Operation aborted; nothing was written.");
 
@@ -48,7 +48,7 @@ export const createWritableFileTools = (
   timeoutMs: number,
   context?: ApprovalContext,
   boundaryDir?: string,
-  observation?: ActivityToolObservation,
+  observation?: RunApprovalObserver,
   commitQueue?: WorkspaceCommitQueue,
   options?: { allowManagedForSubagent?: boolean },
 ) => [
@@ -89,7 +89,7 @@ export const createWritableFileTools = (
         timeoutMs,
         signal,
         { ...context, toolCallId: _id },
-        observation ? (event: ActivityObservation) => observation.observe({
+        observation ? (event: ApprovalObservation) => observation.observe({
           ...event,
           id: `${observation.prefix}:${event.id}`,
           parentId: `${observation.prefix}:tool:${_id}`,
@@ -154,7 +154,7 @@ export const createWritableFileTools = (
         timeoutMs,
         signal,
         { ...context, toolCallId: _id },
-        observation ? (event: ActivityObservation) => observation.observe({
+        observation ? (event: ApprovalObservation) => observation.observe({
           ...event,
           id: `${observation.prefix}:${event.id}`,
           parentId: `${observation.prefix}:tool:${_id}`,

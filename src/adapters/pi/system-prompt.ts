@@ -1,5 +1,4 @@
 import type { SubagentChatDescriptor } from "../../features/subagents/types.js";
-import { ACTIVITY_TOOL_INSTRUCTIONS } from "./tools/activity.js";
 import type { DataLayout } from "../storage/data-layout.js";
 import { readResolvedProfileFile } from "../storage/workspace-document-includes.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
@@ -71,9 +70,6 @@ export const buildSystemPrompt = async ({
   ];
   if (has("subagent") && chatSubagents?.length) {
     capabilitySegments.push(buildSubagentsSystemPrompt(chatSubagents).replace(/^\n/, ""));
-  }
-  if (has("activity")) {
-    capabilitySegments.push(`\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}`);
   }
   capabilitySegments.push(
     ...trailingToolSections.filter((entry) => has(...entry.tools)).map((entry) => loadPrompt(entry.promptPath)),

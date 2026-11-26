@@ -53,10 +53,10 @@ const weatherSchema = z.object({
   enabled: z.boolean().default(true),
   defaultCity: z.string().optional(),
 }).strict();
-// 写文件默认开启（每次执行都需人工审批）；审批等待默认 5 分钟超时。
+// 写文件默认开启（每次执行都需人工审批）；审批等待默认 24 小时超时（上限 7 天）。
 const writableSchema = z.object({
   enabled: z.boolean().default(true),
-  actionTimeoutMs: positiveInt(3_600_000, 300_000),
+  actionTimeoutMs: positiveInt(604_800_000, 86_400_000),
 }).strict();
 const browserSchema = z.object({
   enabled: z.boolean().default(true),
@@ -171,7 +171,7 @@ export const createConfig = (
     userAgent: text(file.tools.web.userAgent) || defaultUserAgent,
   };
 
-  // 写文件默认开启（每次执行都需人工审批）；审批等待默认 5 分钟超时。
+  // 写文件默认开启（每次执行都需人工审批）；审批等待默认 24 小时超时。
   const writable = file.tools.writable;
   const cdpUrl = text(file.tools.browser.cdpUrl) || undefined;
   if (cdpUrl) {

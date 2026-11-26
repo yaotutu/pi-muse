@@ -14,14 +14,12 @@ import { goalTool } from "./goal.js";
 import { monitorTool } from "./monitor.js";
 import { createFileTools } from "./files.js";
 import type { ReadOnlyFile } from "./path-guard.js";
-import { createWritableFileTools, type ActivityToolObservation } from "./files-writable.js";
+import { createWritableFileTools, type RunApprovalObserver } from "./files-writable.js";
 import { createSkillsTool } from "./skills.js";
 import { createWebTools } from "./web.js";
 import { weatherTool } from "./weather.js";
 import { createBrowserTools } from "./browser.js";
 import { instructionsTool } from "./instructions.js";
-import { createActivityTool, ACTIVITY_TOOL_NAME } from "./activity.js";
-import type { ActivityRun } from "../../../features/activities/types.js";
 import { SUBAGENT_TOOL_NAME } from "../subagent/extension.js";
 import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
 import type { DatabaseService } from "../../../features/database/database-service.js";
@@ -35,9 +33,7 @@ type ToolDependencies = {
   jobs: JobService;
   isSubagent?: boolean;
   subagentId?: string;
-  currentActivityId?: () => string | null;
-  activity?: ActivityRun;
-  activityObservation?: ActivityToolObservation;
+  approvalObserver?: RunApprovalObserver;
   skillsService?: import("../../../features/skills/service.js").SkillsService;
   writableEnabled?: boolean;
   goals?: GoalService;
@@ -76,16 +72,15 @@ export const skillToToolsMap: Record<string, string[]> = {
 const writableTools = (deps: ToolDependencies) =>
   deps.actions && deps.writableEnabled !== false
     ? createWritableFileTools(
-      deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000,
-      { sessionId: deps.sessionId, runId: deps.runId, subagentId: deps.subagentId, activityId: deps.currentActivityId },
-      deps.layout?.workspaceDir, deps.activityObservation, deps.workspaceCommits,
+      deps.root, deps.actions, deps.actionTimeoutMs ?? 86_400_000,
+      { sessionId: deps.sessionId, runId: deps.runId, subagentId: deps.subagentId },
+      deps.layout?.workspaceDir, deps.approvalObserver, deps.workspaceCommits,
     )
     : [];
 
 const registrations = [
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
   { names: ["database"], create: (deps: ToolDependencies) => deps.database ? [databaseTool(deps.database)] : [] },
-  { names: [ACTIVITY_TOOL_NAME], create: (deps: ToolDependencies) => deps.activity && !isSubagent(deps) ? [createActivityTool(deps.activity)] : [] },
   { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout
     ? [] : [instructionsTool(deps.layout, writableTools(deps)[0]?.execute)] },
   { names: ["memory", "memory_search"], create: (deps: ToolDependencies) => [memoryTool(deps.memory), memorySearchTool(deps.memory)] },
@@ -106,12 +101,12 @@ const registrations = [
         layout: deps.layout,
         skills: deps.skillsService,
         actions: deps.actions,
-        timeoutMs: deps.actionTimeoutMs ?? 300_000,
+        timeoutMs: deps.actionTimeoutMs ?? 86_400_000,
         saveEnabled: deps.writableEnabled !== false,
         sessionId: deps.sessionId,
         runId: deps.runId,
         subagentId: deps.subagentId,
-        observation: deps.activityObservation,
+        observation: deps.approvalObserver,
       })]
       : [],
   },

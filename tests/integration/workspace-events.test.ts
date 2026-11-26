@@ -235,38 +235,40 @@ test("model conversation run pushes session_status_updated events and disconnect
   assert.match(await frozenPromise, /RUN_ERROR/);
 });
 
-test("activity status changes push activity_updated with terminal result; ready carries in-flight activities", async (t) => {
+test("tool execution pushes session_status_updated with steps and persists via GET /api/runs; ready carries no activities", async (t) => {
   const { service, headers } = await fixture(t, true);
   const events = await connect(t, service, headers);
-  assert.deepEqual(events.ready.activities, []);
+  assert.equal(Object.hasOwn(events.ready, "activities"), false);
 
+  const runId = randomUUID();
   const run = post(service, headers, "/api/conversation/run", {
-    sessionId: "main", runId: randomUUID(), expectedRevision: "empty",
-    message: { id: randomUUID(), content: "活动交办调研 Pi 生态圈并生成报告" },
+    sessionId: "main", runId, expectedRevision: "empty",
+    message: { id: randomUUID(), content: "现在几点" },
   }).then(drain);
 
-  // 登记开始时推一次 running；complete 只是声明（status 不变）不推；收尾 completed 推一次并带结果摘要。
   const frames: Frame[] = [];
-  let completed: Frame | undefined;
-  while (!completed) {
+  let finished: Frame | undefined;
+  while (!finished) {
     const frame = await events.nextFrame();
-    if (frame.event === "activity_updated") frames.push(frame);
-    if (frame.event === "activity_updated" && frame.data.status === "completed") completed = frame;
+    if (frame.event === "session_status_updated" && frame.data.runId === runId) {
+      frames.push(frame);
+      if (frame.data.status === "succeeded") finished = frame;
+    }
   }
-  const statuses = frames.map((frame) => frame.data.status);
-  assert.deepEqual(statuses, ["running", "completed"]);
-  assert.equal(frames[0]!.data.title, "调研 Pi 生态圈");
-  assert.equal(frames[0]!.data.sessionId, "main");
-  assert.ok(frames[0]!.data.instanceId);
-  assert.equal(completed!.data.id, frames[0]!.data.id);
-  assert.equal(completed!.data.result, "交付成果：已完成调研总结报告");
-  assert.ok(completed!.data.finishedAt);
+  assert.ok(frames.length >= 2);
+  assert.ok(finished!.data.steps.some((step: { kind: string; toolName: string | null; title: string; status: string }) =>
+    step.kind === "tool" && step.toolName === null && step.title === "查询当前时间" && step.status === "succeeded"));
 
-  assert.match(await run, /已为您完成交办工作/);
+  await run;
 
-  // 终态活动不进入 ready：新连接的 ready.activities 应为空集合，历史走 GET /api/activities。
-  const second = await connect(t, service, headers);
-  assert.deepEqual(second.ready.activities, []);
+  const runsRes = await service.app.request("/api/runs?sessionId=main", { headers });
+  assert.equal(runsRes.status, 200);
+  const runsBody = await runsRes.json();
+  assert.equal(runsBody.runs.length, 1);
+  assert.equal(runsBody.runs[0].runId, runId);
+  assert.equal(runsBody.runs[0].status, "succeeded");
+  assert.ok(runsBody.runs[0].steps.some((step: { kind: string; toolName: string | null; title: string; status: string }) =>
+    step.kind === "tool" && step.toolName === null && step.title === "查询当前时间" && step.status === "succeeded"));
 });
 
 test("live HTTP event connections end on service close and reject new subscriptions", async (t) => {
