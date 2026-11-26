@@ -97,6 +97,7 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval");
     assert.equal(action.sessionId, running.sessionId);
     assert.equal(action.revision, 1);
+    assert.equal(action.preview.type, "file_diff");
     assert.match(action.preview.after, /短信审批写入测试/);
     assert.equal(action.preview.path, "subagents/sms/AGENTS.md");
     assert.equal(action.preview.before, "");
@@ -281,6 +282,7 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   }
   assert.equal(pending.revision, 1);
   assert.equal(pending.status, "pending");
+  assert.equal(pending.preview.type, "file_diff");
   assert.equal(pending.preview.path, "draft.md");
   assert.equal(pending.preview.scope, "workspace");
   assert.match(pending.preview.after, /DRAFT-CONTENT/);

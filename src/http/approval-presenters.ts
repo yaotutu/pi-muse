@@ -1,37 +1,70 @@
 import type { PendingAction } from "../features/actions/types.js";
 
-/** 预览只投影当次绑定的完整文本，不读当前文件替代，不返回物理路径/版本指纹。 */
+const FILE_SCOPES = ["workspace", "skill", "profile", "memory", "custom"] as const;
+type FileDiffScope = (typeof FILE_SCOPES)[number];
+
+const resolveFileScope = (raw: string | undefined): FileDiffScope =>
+  (FILE_SCOPES as readonly string[]).includes(raw ?? "") ? (raw as FileDiffScope) : "workspace";
+
+const parseProposalItems = (raw: string | undefined): Array<{ label: string; value: string }> => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const items: Array<{ label: string; value: string }> = [];
+    for (const entry of parsed) {
+      if (
+        entry !== null &&
+        typeof entry === "object" &&
+        !Array.isArray(entry) &&
+        typeof entry.label === "string" &&
+        entry.label.length > 0 &&
+        typeof entry.value === "string"
+      ) {
+        items.push({ label: entry.label, value: entry.value });
+        if (items.length >= 20) break;
+      }
+    }
+    return items;
+  } catch {
+    return [];
+  }
+};
+
+/** 预览投影：file_diff 保留当次完整前后对比，proposal 投影结构化建议/操作要点。 */
 export const presentApproval = (action: PendingAction) => {
-  const path = action.payload.path;
-  const resourceScope = action.payload.resourceScope;
-  if (resourceScope === "skill") {
-    const { payload: _payload, ...summary } = action;
-    const sessionId = action.sessionId ?? null;
+  const { payload, ...summary } = action;
+  const sessionId = action.sessionId ?? null;
+  const execution = action.execution ?? null;
+
+  if (action.kind === "file_write" || action.kind === "file_edit" || payload.previewType === "file_diff") {
     return {
       ...summary,
       sessionId,
-      execution: action.execution ?? null,
+      execution,
       preview: {
-        scope: "skill" as const,
-        path,
-        before: action.payload.originalContent,
-        after: action.payload.content,
-        beforeExists: action.payload.beforeExists === "true",
+        type: "file_diff" as const,
+        scope: resolveFileScope(payload.resourceScope),
+        path: payload.path,
+        before: payload.originalContent ?? "",
+        after: payload.content ?? "",
+        beforeExists: payload.beforeExists === "true",
       },
     };
   }
-  const { payload: _payload, ...summary } = action;
-  const sessionId = action.sessionId ?? null;
+
   return {
     ...summary,
     sessionId,
-    execution: action.execution ?? null,
+    execution,
     preview: {
-      scope: "workspace" as const,
-      path,
-      before: action.payload.originalContent,
-      after: action.payload.content,
-      beforeExists: action.payload.beforeExists === "true",
+      type: "proposal" as const,
+      category: payload.category || "general",
+      summary: payload.summary || action.title,
+      target: payload.target || null,
+      items: parseProposalItems(payload.itemsJson),
+      confirmLabel: payload.confirmLabel || null,
+      denyLabel: payload.denyLabel || null,
     },
   };
 };

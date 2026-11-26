@@ -23,6 +23,8 @@ export type SqliteModule = {
   tables: readonly string[];
   /** 建表语句；只允许 CREATE TABLE/INDEX，语句必须可重复执行。 */
   ddl: readonly string[];
+  /** 可选增量结构迁移（仅在 version < module.version 时于事务内显式执行）。 */
+  migrate?: (database: ManagedSqliteDatabase["database"], fromVersion: number) => void;
 };
 
 export const SQLITE_MODULE_LEDGER_TABLE = "app_schema_migrations";
@@ -69,7 +71,13 @@ export const ensureSqliteModules = (
       const version = registered.get(module.id);
       if (version === undefined) continue;
       if (version !== module.version) {
-        throw new Error(`Invalid main database: module ${module.id} has version ${version}, expected ${module.version}`);
+        if (module.migrate && version < module.version) {
+          module.migrate(database, version);
+          database.prepare(`UPDATE ${SQLITE_MODULE_LEDGER_TABLE} SET version = ?, applied_at = ? WHERE module = ?`)
+            .run(module.version, new Date().toISOString(), module.id);
+        } else {
+          throw new Error(`Invalid main database: module ${module.id} has version ${version}, expected ${module.version}`);
+        }
       }
       for (const table of module.tables) {
         if (!tableExists(database, table)) {

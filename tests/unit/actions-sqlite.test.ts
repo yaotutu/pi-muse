@@ -327,3 +327,69 @@ test("onCommitted 在提交后调用，通知失败不回滚已提交的数据",
   await repository.update(() => ({ result: undefined }));
   assert.equal(calls, 1);
 });
+
+test("actions module migrates v1 actions table cleanly to v2 and persists proposal/action kinds", async (t) => {
+  const { openSqliteDatabase } = await import("../../src/adapters/storage/sqlite-database.js");
+  const { MAIN_SQLITE_APPLICATION_ID, SQLITE_MODULE_LEDGER_TABLE } = await import("../../src/adapters/storage/sqlite-modules.js");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "pi-muse-actions-v1-migrate-"));
+  const dbPath = join(dir, "main.sqlite");
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  const legacy = await openSqliteDatabase(dbPath);
+  legacy.transaction(() => {
+    legacy.database.exec(`PRAGMA application_id = ${MAIN_SQLITE_APPLICATION_ID}`);
+    legacy.database.exec(`CREATE TABLE ${SQLITE_MODULE_LEDGER_TABLE} (module TEXT PRIMARY KEY, version INTEGER NOT NULL, applied_at TEXT NOT NULL)`);
+    legacy.database.exec(`CREATE TABLE actions (
+      id TEXT PRIMARY KEY NOT NULL,
+      session_id TEXT,
+      run_id TEXT,
+      tool_call_id TEXT,
+      subagent_id TEXT,
+      activity_id TEXT,
+      kind TEXT NOT NULL CHECK (kind IN ('file_write', 'file_edit')),
+      status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'expired', 'cancelled')),
+      title TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      revision INTEGER NOT NULL CHECK (revision > 0),
+      position INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      decided_at TEXT,
+      resolved_at TEXT,
+      execution_status TEXT,
+      execution_started_at TEXT,
+      execution_finished_at TEXT,
+      execution_result TEXT
+    )`);
+    legacy.database.prepare(`INSERT INTO ${SQLITE_MODULE_LEDGER_TABLE} (module, version, applied_at) VALUES (?, ?, ?)`)
+      .run("actions", 1, at);
+    legacy.database.prepare(`INSERT INTO actions (id, session_id, run_id, tool_call_id, subagent_id, activity_id, kind, status, title, payload_json, revision, position, created_at, expires_at, decided_at, resolved_at, execution_status, execution_started_at, execution_finished_at, execution_result)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run("legacy-1", "main", null, null, null, null, "file_write", "approved", "legacy row", '{"path":"a.md","content":"x"}', 2, 0, at, expires, at, at, null, null, null, null);
+  });
+  await legacy.close();
+
+  const migrated = await openSqliteDatabase(dbPath);
+  t.after(() => migrated.close());
+  await migrated.serialize(() => ensureSqliteModules(migrated, [actionsModule]));
+  const ledger = migrated.database.prepare(`SELECT version FROM ${SQLITE_MODULE_LEDGER_TABLE} WHERE module = 'actions'`).get() as { version: number };
+  assert.equal(ledger.version, 2);
+
+  const repository = createActionRepository(migrated);
+  const existing = await repository.read();
+  assert.equal(existing.length, 1);
+  assert.equal(existing[0].id, "legacy-1");
+
+  const proposal = record({
+    id: "prop-1",
+    kind: "proposal",
+    title: "采纳学习到的偏好",
+    payload: { previewType: "proposal", category: "habit_learning", summary: "简洁回答" },
+  });
+  await repository.update((items) => ({ items: [...items, proposal], result: undefined }));
+  const after = await repository.read();
+  assert.deepEqual(after.map((item) => [item.id, item.kind]), [["legacy-1", "file_write"], ["prop-1", "proposal"]]);
+});

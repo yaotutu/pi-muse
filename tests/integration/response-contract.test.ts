@@ -134,6 +134,7 @@ test("response contracts cover job presenter and wrapped detail without dropping
 
 test("approval contract preserves complete text, cancellation and optional execution context", () => {
   const preview = {
+    type: "file_diff" as const,
     scope: "workspace" as const,
     path: "notes.md",
     before: "旧内容",
@@ -174,6 +175,21 @@ test("approval contract preserves complete text, cancellation and optional execu
   assert.equal(approvalView.safeParse({ ...legacy, status: "unknown" }).success, false);
   const skill = { ...legacy, preview: { ...preview, scope:"skill" as const, path:"notes/SKILL.md" } };
   assert.deepEqual(approvalView.strict().parse(skill),skill);
+  const proposal = {
+    ...legacy,
+    kind: "proposal" as const,
+    title: "采纳一条新习惯",
+    preview: {
+      type: "proposal" as const,
+      category: "habit_learning",
+      summary: "每日早报保持三条要点",
+      target: "USER.md",
+      items: [{ label: "习惯", value: "精简摘要" }],
+      confirmLabel: "采纳",
+      denyLabel: "暂不",
+    },
+  };
+  assert.deepEqual(approvalView.strict().parse(proposal), proposal);
   assert.equal(approvalView.safeParse({...legacy,preview:{...preview,scope:"invalid"}}).success,false);
   assert.equal(approvalView.safeParse({...legacy,preview:{...preview,owner:"obsolete"}}).success,false);
   assert.equal(approvalView.safeParse({...legacy,revision:0}).success,false);
@@ -198,7 +214,7 @@ test("HTTP snapshot matches contract with job-only tasks and no worker projectio
   const approval = {
     id: "approval", revision: 2, kind: "file_write" as const, title: "Write notes",
     sessionId: "main", runId: "run-1", toolCallId: null, subagentId: null,
-    preview: { scope: "workspace" as const, path: "notes.md",
+    preview: { type: "file_diff" as const, scope: "workspace" as const, path: "notes.md",
       before: "", after: "完整待审批文本\n".repeat(2000), beforeExists: false },
     status: "cancelled" as const, createdAt: "2026-01-01T00:00:00.000Z",
     expiresAt: "2026-01-01T00:05:00.000Z",

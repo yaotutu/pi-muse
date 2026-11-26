@@ -190,6 +190,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean; ex
     assert.equal(actionPendingDetail.kind, "file_write");
     assert.equal(actionPendingDetail.runId, runResult.runId);
     assert.equal(actionPendingDetail.sessionId, sessionId);
+    assert.equal(actionPendingDetail.preview.type, "file_diff");
     assert.equal(actionPendingDetail.preview.beforeExists, false);
     assert.equal(actionPendingDetail.preview.before, "");
     assert.equal(

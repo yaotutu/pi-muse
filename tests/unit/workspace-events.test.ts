@@ -26,7 +26,7 @@ const resolvePending = (pending: PendingAction, status: "approved" | "denied" | 
 });
 
 const expectedPreview = {
-  scope: "workspace", path: "notes.md", before: "", after: "hello", beforeExists: true,
+  type: "file_diff", scope: "workspace", path: "notes.md", before: "", after: "hello", beforeExists: true,
 };
 
 type Frame = { event: string | null; data: any; raw: string };

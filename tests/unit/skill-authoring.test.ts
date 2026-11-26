@@ -108,8 +108,10 @@ test("skills save validates with pi, creates default-off instance skill, and pre
   });
   const [action] = await actions.list();
   assert.equal(action.kind, "file_write");
-  assert.equal(presentApproval(action).preview.scope, "skill");
-  assert.equal(presentApproval(action).preview.path, "recipe-helper/SKILL.md");
+  const firstPreview = presentApproval(action).preview;
+  assert.equal(firstPreview.type, "file_diff");
+  assert.equal(firstPreview.scope, "skill");
+  assert.equal(firstPreview.path, "recipe-helper/SKILL.md");
   assert.match(text(result), /defaultEnabled=false/);
 });
 
@@ -152,6 +154,7 @@ test("built-in overwrite lands only in the instance copy and remains disabled by
   assert.notEqual(await readFile(builtin, "utf8"), content);
   const [action] = await actions.list();
   const view = presentApproval(action);
+  assert.equal(view.preview.type, "file_diff");
   assert.equal(view.preview.scope, "skill");
 });
 

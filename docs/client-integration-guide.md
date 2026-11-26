@@ -197,7 +197,7 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
 这两条链路共享服务端写提交队列，但**权限语义绝不能混用或互绕**：
 
 1. **模型文件审批（`/api/approvals*` + `/api/events`）**：
-   - 待审批项由 `ready.pendingApprovals` 和 `approval_pending` 推送完整视图（含 `title`、`kind`: `file_write` | `file_edit`、`expiresAt` 与不可变 `preview: { scope, path, before, after, beforeExists }`）。
+   - 待审批项由 `ready.pendingApprovals` 和 `approval_pending` 推送完整视图（含 `title`、`kind`: `file_write` | `file_edit` | `proposal` | `action`、`expiresAt` 与不可变 `preview`，支持 `type: "file_diff"` 文件对比与 `type: "proposal"` 通用建议/操作要点）。
    - **展示要求（`rich-ui`）**：必须把 `preview.before` 与 `preview.after` 全文完整展示给用户核对（不得截断、不得只显示片段摘要、也不得用读取当前磁盘文件来替代历史登记时的 `preview`）。`scope` 为 `"workspace"` 或 `"skill"`（实例技能文本）。
    - **无屏/语音端边界（`embedded-voice`）**：无完整文本核对与明确人机交互确认条件的设备，**不要**擅自替用户调用审批决定接口；若对话触发文件写入导致挂起等待，提示用户前往富交互端处理（默认 24 小时过期后安全放弃，不会落盘）。
    - **提交决定**：只能由用户显式操作后调用 `POST /api/approvals/:id/decision`（Body 仅 `{ decision: "approve" | "deny" }`）。如遇 `409`，用响应携带的 `approval` 更新本地视图。

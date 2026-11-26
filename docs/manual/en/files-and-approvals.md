@@ -6,7 +6,7 @@ This page distinguishes three easily confused concepts: attachments sent with a 
 
 - The phone is connected to the real server as described in [Quick Start](getting-started.md#connect-mobile-client).
 - Attachment selection depends on the Android system file picker. Current mobile source does not support selecting attachments in the Web preview.
-- Open workspace files from Settings → 工作区文件. To review approvals, tap the assistant at the top of Messages and select 审批 (Approvals).
+- Open workspace files from Settings → 工作区文件. When an approval is pending, an actionable approval card appears directly inside the active chat stream, and you can also review all approvals from the session details 「审批」 (Approvals) tab.
 
 ## What Belongs Where {#what-belongs-where}
 
@@ -75,7 +75,7 @@ Deleting a regular workspace file immediately removes it and cannot be recovered
 
 For ordinary workspace files, `write` creates or completely overwrites a text file, and `edit` replaces one uniquely matched section of existing text; both require approval. The skill library's `skills.save` also requires per-file approval; see [skill maintenance in Configuration](configuration.md#skill-directories) for creating, editing, enabling, and reading skills. Model file reads do not require approval, and ordinary model replies do not have a generic human-approval gate. The following steps describe approvals for ordinary workspace files.
 
-1. When the model requests `write` or `edit`, session state shows a waiting approval. Tap the session information area and open the 「审批」 page.
+1. When the model requests a file write or another action requiring confirmation, an approval card appears directly in the current conversation (and the session details 「审批」 tab also lists pending approvals).
 2. Tap the pending item to view details. A decision is possible only after the complete preview is loaded; buttons remain unavailable while details are synchronizing.
 3. Check:
    - Scope: single workspace file or skill resource.

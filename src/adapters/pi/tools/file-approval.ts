@@ -2,28 +2,21 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { ApprovalCapacityError, type ActionService } from "../../../features/actions/action-service.js";
-import type { ExecutionObservation } from "../../../features/workspace/session-status.js";
+import {
+  awaitApproval,
+  type ApprovalActions,
+  type ApprovalContext,
+  type ApprovalObservation,
+  type RunApprovalObserver,
+} from "../../../features/actions/approval-gate.js";
 import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
 import { createWorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
 
 export const MAX_TEXT_FILE_BYTES = 100_000;
-const POLL_INTERVAL_MS = 2_000;
 const strictUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
-export type ApprovalContext = {
-  sessionId?: string;
-  runId?: string;
-  toolCallId?: string;
-  subagentId?: string;
-};
-export type ApprovalActions = Pick<ActionService, "submit" | "poll" | "cancel" | "markExecuting" | "finishExecution">;
+export type { ApprovalContext, ApprovalActions, ApprovalObservation, RunApprovalObserver };
 export type FileSnapshot = { content: string; version: string };
-export type ApprovalObservation = Extract<ExecutionObservation, { kind: "approval" }>;
-export type RunApprovalObserver = {
-  observe: (event: ApprovalObservation) => void;
-  prefix: string;
-};
 
 /** 独立工具测试使用隔离提交队列；生产组合层注入与手动 HTTP 共用的队列。 */
 const fallbackCommits = createWorkspaceCommitQueue();
@@ -78,60 +71,19 @@ export const awaitFileApproval = async (
   context?: ApprovalContext,
   observe?: (event: ApprovalObservation) => void,
 ): Promise<{ id: string; expiresAt: number } | undefined> => {
-  if (signal?.aborted) return undefined;
-  let wakeAbort!: () => void;
-  const interrupted = new Promise<undefined>((resolve) => { wakeAbort = () => resolve(undefined); });
-  signal?.addEventListener("abort", wakeAbort, { once: true });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const action = await actions.submit(kind, title, payload, {
-      ...context,
-      timeoutMs,
-    });
-    observe?.({
-      id: `approval:${action.id}`,
-      approvalId: action.id,
-      kind: "approval",
-      phase: "start",
-      title: "等待人工审批",
-      detail: title,
-      status: "waiting_approval",
-    });
-    for (;;) {
-      if (signal?.aborted) {
-        await actions.cancel(action.id);
-        observe?.({ id: `approval:${action.id}`, approvalId: action.id, kind: "approval", phase: "end", status: "cancelled", title: "人工审批", detail: title, result: "审批已取消" });
-        return undefined;
-      }
-      const decision = await Promise.race([actions.poll(action.id), interrupted]);
-      if (signal?.aborted) {
-        await actions.cancel(action.id);
-        observe?.({ id: `approval:${action.id}`, approvalId: action.id, kind: "approval", phase: "end", status: "cancelled", title: "人工审批", detail: title, result: "审批已取消" });
-        return undefined;
-      }
-      if (decision?.status === "approved") {
-        observe?.({ id: `approval:${action.id}`, approvalId: action.id, kind: "approval", phase: "end", status: "succeeded", title: "人工审批", detail: title, result: "已批准" });
-        return { id: action.id, expiresAt: Date.parse(action.expiresAt) };
-      }
-      if (decision?.status !== "pending") {
-        const status = decision?.status === "denied" ? "denied" : decision?.status === "expired" ? "expired" : "cancelled";
-        const result = status === "denied" ? "已拒绝" : status === "expired" ? "审批已过期，未写入" : "审批已取消";
-        observe?.({ id: `approval:${action.id}`, approvalId: action.id, kind: "approval", phase: "end", status, title: "人工审批", detail: title, result });
-        return undefined;
-      }
-      await Promise.race([
-        new Promise<void>((resolve) => { timer = setTimeout(resolve, POLL_INTERVAL_MS); }),
-        interrupted,
-      ]);
-      clearTimeout(timer);
-    }
-  } catch (error) {
-    if (error instanceof ApprovalCapacityError) return undefined;
-    throw error;
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", wakeAbort);
-  }
+  const result = await awaitApproval({
+    actions,
+    kind,
+    title,
+    payload,
+    timeoutMs,
+    signal,
+    context,
+    observe,
+  });
+  return result.status === "approved"
+    ? { id: result.id, expiresAt: result.expiresAt }
+    : undefined;
 };
 
 export type CommitApprovedFileOptions = {

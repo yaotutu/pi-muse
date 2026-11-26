@@ -112,6 +112,7 @@ test("workspace events require Bearer auth and reconnect yields fresh ready snap
   const second = await connect(t, service, { ...headers, "Last-Event-ID": "not-a-replay-cursor" });
   assert.equal(second.ready.pendingApprovals.length, 1);
   assert.equal(second.ready.pendingApprovals[0].id, action.id);
+  assert.equal(second.ready.pendingApprovals[0].preview.type, "file_diff");
   assert.equal(second.ready.pendingApprovals[0].preview.after, "offline hello");
 });
 
@@ -130,6 +131,7 @@ test("approval notifications push approval_pending with full preview and approva
     assert.equal(pendingFrame.data.id, action.id);
     assert.equal(pendingFrame.data.status, "pending");
     assert.equal(pendingFrame.data.revision, 1);
+    assert.equal(pendingFrame.data.preview.type, "file_diff");
     assert.equal(pendingFrame.data.preview.after, `content-${decision}`);
 
     const updatedPromise = stream.nextFrame();

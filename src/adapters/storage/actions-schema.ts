@@ -1,11 +1,12 @@
 import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 import type { SqliteModule } from "./sqlite-modules.js";
 import { InvalidDocumentError } from "./document-schemas.js";
-import type {
-  ActionKind,
-  ActionStatus,
-  ApprovalExecutionStatus,
-  PendingAction,
+import {
+  ACTION_KINDS,
+  type ActionKind,
+  type ActionStatus,
+  type ApprovalExecutionStatus,
+  type PendingAction,
 } from "../../features/actions/types.js";
 
 /**
@@ -16,7 +17,7 @@ import type {
 export const parseActions = (value: unknown): PendingAction[] => {
   if (!Array.isArray(value)) throw new InvalidDocumentError("actions");
   const statuses = ["pending", "approved", "denied", "expired", "cancelled"];
-  const kinds = ["file_write", "file_edit"];
+  const kinds: readonly string[] = ACTION_KINDS;
   const isObject = (entry: unknown): entry is Record<string, unknown> =>
     entry !== null && typeof entry === "object" && !Array.isArray(entry);
   const actionTime = (time: unknown): time is string =>
@@ -83,9 +84,16 @@ export const parseActions = (value: unknown): PendingAction[] => {
  * payload_json 是合法 JSON 对象，取值类型在写入前就被拒绝。
  */
 
-/** 审批记录的模块标识与结构版本；版本变化必须显式提供新 DDL，不做自动迁移。 */
+/** 审批记录的模块标识与结构版本；版本变化必须显式提供迁移逻辑，不静默丢数据。 */
 export const ACTIONS_MODULE_ID = "actions";
-export const ACTIONS_MODULE_VERSION = 1;
+export const ACTIONS_MODULE_VERSION = 2;
+
+const PERSISTED_COLUMNS = [
+  "id", "session_id", "run_id", "tool_call_id", "subagent_id", "activity_id",
+  "kind", "status", "title", "payload_json", "revision", "position",
+  "created_at", "expires_at", "decided_at", "resolved_at",
+  "execution_status", "execution_started_at", "execution_finished_at", "execution_result",
+] as const;
 
 /**
  * 规范 ISO 8601 时刻（UTC、毫秒、Z）判定：列值必须与自身回写结果逐字节相同。
@@ -95,14 +103,14 @@ export const ACTIONS_MODULE_VERSION = 1;
 const isCanonicalInstant = (column: string): string =>
   `strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) = ${column}`;
 
-const ACTIONS_TABLE_DDL = `CREATE TABLE IF NOT EXISTS actions (
+const actionsTableDdl = (tableName: string, ifNotExists = true): string => `CREATE TABLE ${ifNotExists ? "IF NOT EXISTS " : ""}${tableName} (
   id TEXT PRIMARY KEY NOT NULL,
   session_id TEXT,
   run_id TEXT,
   tool_call_id TEXT,
   subagent_id TEXT,
   activity_id TEXT,
-  kind TEXT NOT NULL CHECK (kind IN ('file_write', 'file_edit')),
+  kind TEXT NOT NULL CHECK (kind IN (${ACTION_KINDS.map((kind) => `'${kind}'`).join(", ")})),
   status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'expired', 'cancelled')),
   title TEXT NOT NULL,
   payload_json TEXT NOT NULL,
@@ -155,7 +163,18 @@ export const actionsModule: SqliteModule = {
   id: ACTIONS_MODULE_ID,
   version: ACTIONS_MODULE_VERSION,
   tables: ["actions"],
-  ddl: [ACTIONS_TABLE_DDL],
+  ddl: [actionsTableDdl("actions")],
+  migrate: (database, fromVersion) => {
+    if (fromVersion !== 1) {
+      throw new Error(`Unsupported actions module migration from version ${fromVersion}`);
+    }
+    const cols = PERSISTED_COLUMNS.join(", ");
+    database.exec("DROP TABLE IF EXISTS actions_v2");
+    database.exec(actionsTableDdl("actions_v2", false));
+    database.exec(`INSERT INTO actions_v2 (${cols}) SELECT ${cols} FROM actions`);
+    database.exec("DROP TABLE actions");
+    database.exec("ALTER TABLE actions_v2 RENAME TO actions");
+  },
 };
 
 /** 表内持久列；id 是主键，position 只在顺序变化时写入。 */
@@ -181,13 +200,6 @@ export type ActionRow = {
   execution_finished_at: string | null;
   execution_result: string | null;
 };
-
-const PERSISTED_COLUMNS = [
-  "id", "session_id", "run_id", "tool_call_id", "subagent_id", "activity_id",
-  "kind", "status", "title", "payload_json", "revision", "position",
-  "created_at", "expires_at", "decided_at", "resolved_at",
-  "execution_status", "execution_started_at", "execution_finished_at", "execution_result",
-] as const;
 
 const INSERT_STATEMENT = `INSERT INTO actions (${PERSISTED_COLUMNS.join(", ")}) VALUES (${PERSISTED_COLUMNS.map(() => "?").join(", ")})`;
 

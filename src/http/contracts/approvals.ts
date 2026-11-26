@@ -1,22 +1,23 @@
 import { SESSION_ID_PATTERN } from "../../features/conversation/session-id.js";
 import { z } from "zod";
-import type { SettledActionStatus } from "../../features/actions/types.js";
+import { ACTION_KINDS, type SettledActionStatus } from "../../features/actions/types.js";
 
 export const approvalExecution = z.strictObject({
   status: z.enum(["running", "succeeded", "failed", "cancelled", "unknown"])
-    .describe("真实提交结果：running=提交中；succeeded=写入成功；failed=失败；cancelled=取消；unknown=中断后无法确认，需核对文件"),
-  startedAt: z.iso.datetime().describe("工具认领授权并准备提交的时间"),
+    .describe("真实执行结果：running=执行中；succeeded=执行成功；failed=失败；cancelled=取消；unknown=中断后无法确认，需核对结果"),
+  startedAt: z.iso.datetime().describe("认领授权并准备执行的时间"),
   finishedAt: z.iso.datetime().nullable().describe("真实结束时间；仍执行中或崩溃无法确定时为 null"),
   result: z.string().nullable().describe("脱敏执行摘要；无结果时为 null，不包含凭据或原始诊断"),
-}).describe("工具回报的执行事实，与人的决定独立；approved 不代表写入成功");
+}).describe("调用方回报的执行事实，与人的决定独立；approved 不代表执行成功");
 
 /**
- * 审批（Approval）HTTP/SSE 契约：完整审批视图、历史摘要、终态投影、决定请求与分页。
+ * 审批（Approval）HTTP/SSE 契约：通用人工确认视图、历史摘要、终态投影、决定请求与分页。
  *
  * 边界：
- * - 审批记录只表达“人是否授权这一次操作”，不执行写操作，也不代表执行成功；
- *   实际结果以真实工具执行与运行步骤为准。
- * - 预览内容在登记时固定，之后不读取当前文件替换；完整预览不截断。
+ * - 审批记录只表达“人是否授权这一次操作”，不直接执行业务副作用；
+ *   实际结果以调用方提交的执行回执与运行步骤为准。
+ * - 预览内容在登记时固定，支持 file_diff（文件/设定前后对比）与 proposal（建议/操作要点列表）；
+ *   完整预览不截断。
  * - revision 用于版本校验：创建时为 1，进入终态与每次执行回执时 +1；重复决定不推进版本。
  * - 待审批集合通过 SSE 直接推送；历史列表只返回已处理/失效审批的摘要，不含正文。
  * - HTTP 审批对象不带 instanceId：审批记录与 revision 跨进程持久，不随实例重启重置。
@@ -68,31 +69,55 @@ export const terminalApprovalStatuses = [
   "cancelled",
 ] as const;
 
-export const approvalKinds = ["file_write", "file_edit"] as const;
+export const approvalKinds = ACTION_KINDS;
 
 // ---------------------------------------------------------------------------
-// 完整审批视图
+// 通用审批预览（支持文件对比与建议/操作要点）
 // ---------------------------------------------------------------------------
-export const approvalPreview = z
+export const fileDiffApprovalPreview = z
   .strictObject({
-    scope: z.enum(["workspace", "skill"]).describe("workspace=唯一扁平工作区；skill=实例技能文本，不按会话隔离"),
+    type: z.literal("file_diff").describe("文件/文本前后对比预览"),
+    scope: z
+      .enum(["workspace", "skill", "profile", "memory", "custom"])
+      .describe("作用域：workspace=工作区；skill=技能；profile=个人设置；memory=记忆；custom=其他文本目标"),
     path: z
       .string()
       .min(1)
-      .describe("相对工作区路径；不返回服务端绝对路径，也不包含父目录穿越"),
+      .describe("相对逻辑路径；不返回服务端绝对路径，也不包含父目录穿越"),
     before: z
       .string()
-      .describe("审批登记时的完整原文；新建文件为空串。内容固定，不随后续文件变化替换，不截断"),
+      .describe("审批登记时的完整原文；新建目标为空串。内容固定，不随后续变化替换，不截断"),
     after: z
       .string()
       .describe("审批通过后计划写入的完整内容；不截断，不能只展示摘要或差异片段"),
     beforeExists: z
       .boolean()
-      .describe("登记时目标文件是否已存在；false 表示新建，不能据此推断最终落盘结果"),
+      .describe("登记时目标是否已存在；false 表示新建，不能据此推断最终落盘结果"),
   })
+  .describe("文件/设定变更的完整不可变前后对比。");
+
+export const proposalApprovalItem = z.strictObject({
+  label: z.string().min(1).describe("条目名称"),
+  value: z.string().describe("条目内容"),
+});
+
+export const proposalApprovalPreview = z
+  .strictObject({
+    type: z.literal("proposal").describe("通用建议或敏感操作确认预览"),
+    category: z.string().min(1).max(64).describe("来源分类标识，如 habit_learning / profile / general"),
+    summary: z.string().min(1).describe("清晰说明待确认的建议或操作内容"),
+    target: z.string().nullable().describe("影响的目标对象说明，无特定目标时为 null"),
+    items: z.array(proposalApprovalItem).max(20).describe("结构化要点列表，最多 20 项"),
+    confirmLabel: z.string().min(1).max(32).nullable().describe("建议的确认按钮文案；默认使用通用文案时为 null"),
+    denyLabel: z.string().min(1).max(32).nullable().describe("建议的拒绝按钮文案；默认使用通用文案时为 null"),
+  })
+  .describe("通用建议/操作确认的不可变结构化预览。");
+
+export const approvalPreview = z
+  .discriminatedUnion("type", [fileDiffApprovalPreview, proposalApprovalPreview])
   .describe(
-    "审批的完整、不可变预览。用于让用户看到本次将写入/替换的全部文本；" +
-      "不读取当前文件内容替代历史预览，也不做截断。",
+    "审批的完整、不可变预览（按 type 区分 file_diff 文件对比与 proposal 通用建议/操作确认）。" +
+      "不读取当前目标替代历史预览，也不做截断。",
   );
 
 export const approvalView = z
@@ -112,11 +137,11 @@ export const approvalView = z
     subagentId: nullableRef("发起审批的子代理 ID"),
     kind: z
       .enum(approvalKinds)
-      .describe("file_write=新建/覆盖文件；file_edit=替换文件中的一段精确文本"),
+      .describe("file_write=新建/覆盖文件；file_edit=编辑替换内容；proposal=建议/学习采纳确认；action=其他操作确认"),
     title: z
       .string()
       .min(1)
-      .describe("人类可读的一句话摘要，如“写入 notes.md”；不包含凭据或原始工具参数"),
+      .describe("人类可读的一句话摘要；不包含凭据或原始工具参数"),
     status: z
       .enum(approvalStatuses)
       .describe(

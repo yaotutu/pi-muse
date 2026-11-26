@@ -167,6 +167,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       const running = await begin(name, delegate({ mode: "single", tasks: [{ agent: "worker", task: `只调用一次write，path=${path}，content精确为${content}。等待人工审批，不假设批准，不改路径，不重试；如实返回工具结果。` }] }));
       // 待审批由 SSE ready 的完整集合给出；同时校验不可变预览与初始 revision。
       const action = await wait(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval");
+      assert.equal(action.preview.type, "file_diff");
       assert.equal(action.sessionId, running.sessionId); assert.equal(action.preview.path, path); assert.equal(action.preview.after, content);
       assert.equal(action.preview.beforeExists, false); assert.equal(action.revision, 1);
       await absent(join(dataDir, "workspace", path));

@@ -46,12 +46,19 @@ const ActionApproval = ({
 
   const { preview } = action;
   const expired = Date.parse(action.expiresAt) <= Date.now();
-  // 技能库是实例共享内容；发起会话不是文件归属，未知作用域不能显示成技能库。
-  const scopeText = preview.scope === "skill" ? "技能库" : "工作区";
-  const beforeLabel = action.kind === "file_edit"
-    ? "替换前内容"
-    : preview.beforeExists ? "写入前内容" : "写入前内容（文件不存在）";
+  const isFileDiff = preview.type === "file_diff";
+  const scopeText = isFileDiff
+    ? { workspace: "工作区", skill: "技能库", profile: "个人设定", memory: "记忆", custom: "自定义目标" }[preview.scope]
+    : preview.category;
+  const beforeLabel = isFileDiff
+    ? action.kind === "file_edit"
+      ? "替换前内容"
+      : preview.beforeExists ? "写入前内容" : "写入前内容（文件不存在）"
+    : "";
   const afterLabel = action.kind === "file_write" ? "写入后内容" : "替换后内容";
+  const kindLabel = ({ file_write: "写入文件", file_edit: "编辑文件", proposal: "建议确认", action: "操作确认" }[action.kind] ?? action.kind);
+  const confirmLabel = preview.type === "proposal" && preview.confirmLabel ? preview.confirmLabel : "批准";
+  const denyLabel = preview.type === "proposal" && preview.denyLabel ? preview.denyLabel : "拒绝";
 
   const decide = async (decision: "approve" | "deny") => {
     if (requestRef.current || expired) return;
@@ -80,32 +87,53 @@ const ActionApproval = ({
         <span className="text-xs text-amber-700">{expired ? "已过期，等待同步" : "等待批准"}</span>
       </div>
       <div className="mt-1 space-y-0.5 break-all text-xs text-amber-800">
-        <p>操作：{action.kind === "file_write" ? "写入文件" : "编辑文件"} · 审批 ID：{action.id} · 版本：r{action.revision}</p>
-        <p>作用域：{scopeText}</p>
+        <p>操作：{kindLabel} · 审批 ID：{action.id} · 版本：r{action.revision}</p>
+        <p>分类/作用域：{scopeText}</p>
         {action.sessionId && <p>发起会话：{action.sessionId}</p>}
         {action.runId && <p>运行：{action.runId}</p>}
         <p>过期时间：{action.expiresAt}</p>
       </div>
-      <div className="mt-2 space-y-2">
-        <div>
-          <h3 className="mb-1 break-all text-xs font-medium text-amber-900">文件路径</h3>
-          <pre tabIndex={0} aria-label="文件路径" className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md border border-amber-200 bg-white p-2 text-xs text-stone-700">
-            {preview.path}
-          </pre>
+      {preview.type === "file_diff" ? (
+        <div className="mt-2 space-y-2">
+          <div>
+            <h3 className="mb-1 break-all text-xs font-medium text-amber-900">文件路径</h3>
+            <pre tabIndex={0} aria-label="文件路径" className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md border border-amber-200 bg-white p-2 text-xs text-stone-700">
+              {preview.path}
+            </pre>
+          </div>
+          <div>
+            <h3 className="mb-1 break-all text-xs font-medium text-amber-900">{beforeLabel}</h3>
+            <pre tabIndex={0} aria-label={beforeLabel} className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md border border-amber-200 bg-white p-2 text-xs text-stone-700">
+              {preview.before === "" ? "（空文本）" : preview.before}
+            </pre>
+          </div>
+          <div>
+            <h3 className="mb-1 break-all text-xs font-medium text-amber-900">{afterLabel}</h3>
+            <pre tabIndex={0} aria-label={afterLabel} className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md border border-amber-200 bg-white p-2 text-xs text-stone-700">
+              {preview.after === "" ? "（空文本）" : preview.after}
+            </pre>
+          </div>
         </div>
-        <div>
-          <h3 className="mb-1 break-all text-xs font-medium text-amber-900">{beforeLabel}</h3>
-          <pre tabIndex={0} aria-label={beforeLabel} className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md border border-amber-200 bg-white p-2 text-xs text-stone-700">
-            {preview.before === "" ? "（空文本）" : preview.before}
-          </pre>
+      ) : (
+        <div className="mt-2 space-y-2">
+          <div className="rounded-md border border-amber-200 bg-white p-2 text-xs text-stone-700 whitespace-pre-wrap break-all">
+            {preview.summary}
+          </div>
+          {preview.target && (
+            <p className="break-all text-xs text-amber-900">影响目标：{preview.target}</p>
+          )}
+          {preview.items.length > 0 && (
+            <div className="space-y-1 rounded-md border border-amber-200 bg-white p-2 text-xs text-stone-700">
+              {preview.items.map((item, idx) => (
+                <div key={idx} className="flex gap-2">
+                  <span className="font-medium text-amber-900">{item.label}：</span>
+                  <span className="break-all">{item.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div>
-          <h3 className="mb-1 break-all text-xs font-medium text-amber-900">{afterLabel}</h3>
-          <pre tabIndex={0} aria-label={afterLabel} className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md border border-amber-200 bg-white p-2 text-xs text-stone-700">
-            {preview.after === "" ? "（空文本）" : preview.after}
-          </pre>
-        </div>
-      </div>
+      )}
       {error && <p role="alert" className="mt-2 text-xs text-red-600">{error}</p>}
       <div className="mt-2 flex gap-2">
         <button
@@ -113,14 +141,14 @@ const ActionApproval = ({
           disabled={busy || expired}
           className="rounded-md bg-amber-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-800 disabled:opacity-40"
         >
-          批准
+          {confirmLabel}
         </button>
         <button
           onClick={() => void decide("deny")}
           disabled={busy || expired}
           className="rounded-md border border-amber-300 px-2.5 py-1 text-xs text-amber-800 hover:bg-amber-100 disabled:opacity-40"
         >
-          拒绝
+          {denyLabel}
         </button>
         {busy && <span className="text-xs text-amber-700">提交中…</span>}
       </div>

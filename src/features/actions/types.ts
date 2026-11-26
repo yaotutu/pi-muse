@@ -7,7 +7,8 @@
  * repository 的串行 update 完成，终态迁移与执行回执都递增 revision。这样 SSE 消费者
  * 可以用 (id, revision) 判断自己看到的是否仍是同一份内容。
  */
-export type ActionKind = "file_write" | "file_edit";
+export const ACTION_KINDS = ["file_write", "file_edit", "proposal", "action"] as const;
+export type ActionKind = (typeof ACTION_KINDS)[number];
 export type ActionStatus = "pending" | "approved" | "denied" | "expired" | "cancelled";
 export type SettledActionStatus = Exclude<ActionStatus, "pending">;
 export type ApprovalExecutionStatus = "running" | "succeeded" | "failed" | "cancelled" | "unknown";

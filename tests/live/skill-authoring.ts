@@ -27,6 +27,7 @@ const humanDecision = async (
   const readline = createInterface({ input, output });
   try {
     for (;;) {
+      assert.equal(action.preview.type, "file_diff");
       const answer = (await readline.question(
         `人工审批 ${action.id}: scope=${action.preview.scope} path=${action.preview.path} beforeExists=${action.preview.beforeExists}\n` +
         `--- before ---\n${action.preview.before}\n--- after ---\n${action.preview.after}\n--- end preview ---\n` +
@@ -126,6 +127,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       "first skill approval",
       120_000,
     );
+    assert.equal(firstAction.preview.type, "file_diff");
     assert.equal(firstAction.preview.scope, "skill");
     assert.equal(firstAction.preview.path, `${skillName}/SKILL.md`);
     assert.equal(firstAction.preview.after, firstSkill);
@@ -136,6 +138,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       "skill resource approval",
       120_000,
     );
+    assert.equal(secondAction.preview.type, "file_diff");
     assert.equal(secondAction.preview.path, `${skillName}/references/seasoning.md`);
     assert.equal(secondAction.preview.after, resource);
     assert.equal((await humanDecision(secondAction)), "approve");
@@ -181,6 +184,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       "modify approval",
       120_000,
     );
+    assert.equal(modifyAction.preview.type, "file_diff");
     assert.equal(modifyAction.preview.before, firstSkill);
     assert.equal(modifyAction.preview.after, revisedSkill);
     assert.equal(await humanDecision(modifyAction, "approve"), "approve");
@@ -210,6 +214,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       "denied modification approval",
       120_000,
     );
+    assert.equal(denyAction.preview.type, "file_diff");
     assert.equal(denyAction.preview.after, deniedSkill);
     assert.equal(await humanDecision(denyAction, "deny"), "deny");
     assert.equal((await client.decideApproval(denyAction.id, "deny")).status, 200);
@@ -226,6 +231,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       "stopped modification approval",
       120_000,
     );
+    assert.equal(stopAction.preview.type, "file_diff");
     assert.equal(stopAction.preview.after, stoppedSkill);
     assert.equal(await humanDecision(stopAction, "cancel"), "cancel");
     await client.json("/api/conversation/stop", { sessionId, runId: stopRun.runId });

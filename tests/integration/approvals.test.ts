@@ -176,6 +176,7 @@ test("approvals: /pending returns full preview shape, not raw payload, and disap
   // HTTP 用 main 的 preview 形状：before/after/path/beforeExists/scope
   // 内部 payload 不可见。
   assert.equal(typeof record.preview, "object");
+  assert.equal(record.preview.type, "file_diff");
   assert.equal(record.preview.path, "notes.md");
   assert.equal(record.preview.before, "OLD-CONTENT");
   assert.equal(record.preview.after, fullContent);
@@ -236,6 +237,7 @@ test("approvals: decision same returns 200, preserves decidedAt, no duplicate ac
   assert.equal(detail.id, action.id);
   assert.equal(detail.status, "approved");
   assert.equal(detail.decidedAt, decidedAt1);
+  assert.equal(detail.preview.type, "file_diff");
   assert.equal(detail.preview.path, "idem.md");
   assert.equal(detail.preview.after, "IDEM-CONTENT");
 });
@@ -310,6 +312,7 @@ test("approvals: detail returns full preview with execution appearing only after
   );
   assert.equal(preExec.status, "approved");
   assert.equal(preExec.execution, null, "execution only after markExecuting");
+  assert.equal(preExec.preview.type, "file_diff");
   assert.equal(preExec.preview.path, "detail.md");
   assert.equal(preExec.preview.after, "DETAIL-CONTENT " + "x".repeat(5000));
   assert.equal(preExec.runId, "run-detail");
@@ -713,6 +716,7 @@ test("approvals: zod schemas confirm wire shapes", () => {
     title: "t",
     status: "pending" as const,
     preview: {
+      type: "file_diff" as const,
       scope: "workspace" as const,
 
       path: "p",
@@ -745,4 +749,59 @@ test("approvals: zod schemas confirm wire shapes", () => {
 
   // append 不允许（strict 模式）。
   assert.equal(approvalView.safeParse({ ...pendingItem, leak: true }).success, false);
+});
+
+test("approvals: generic proposal approvals flow cleanly through /pending, detail, decision and SSE", async (t) => {
+  const { service, headers } = await openService(t);
+  const events: unknown[] = [];
+  const unsubscribe = service.workspaceEvents.subscribe({
+    notify: (event) => {
+      if (event.event === "approval_pending") events.push(event);
+    },
+    close: () => {},
+  });
+  t.after(unsubscribe);
+
+  const action = await service.actions.submit(
+    "proposal",
+    "采纳新偏好：偏好精简列表",
+    {
+      previewType: "proposal",
+      category: "habit_learning",
+      summary: "观察到您多次要求分点精简，是否写入个人设置？",
+      target: "USER.md",
+      itemsJson: JSON.stringify([
+        { label: "来源", value: "近 5 次对话习惯总结" },
+        { label: "效果", value: "默认采用三点摘要" },
+      ]),
+      confirmLabel: "采纳",
+      denyLabel: "忽略",
+    },
+    { sessionId: "main", runId: "run-prop" },
+  );
+
+  assert.equal(events.length, 1);
+  const pendingRes = await service.app.request("/api/approvals/pending", { headers });
+  const pendingBody = pendingApprovalsResponse.parse(await pendingRes.json());
+  assert.equal(pendingBody.approvals.length, 1);
+  const view = pendingBody.approvals[0];
+  assert.equal(view.kind, "proposal");
+  assert.equal(view.preview.type, "proposal");
+  assert.equal(view.preview.category, "habit_learning");
+  assert.equal(view.preview.target, "USER.md");
+  assert.equal(view.preview.items.length, 2);
+  assert.equal(view.preview.confirmLabel, "采纳");
+
+  const detailRes = await service.app.request(`/api/approvals/${action.id}`, { headers });
+  const detail = approvalView.parse(await detailRes.json());
+  assert.deepEqual(detail, view);
+
+  const decideRes = await service.app.request(`/api/approvals/${action.id}/decision`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ decision: "approve" }),
+  });
+  assert.equal(decideRes.status, 200);
+  const decided = approvalView.parse(await decideRes.json());
+  assert.equal(decided.status, "approved");
 });
