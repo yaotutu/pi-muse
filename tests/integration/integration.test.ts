@@ -495,24 +495,65 @@ test("stop waits for pi idle, rejects concurrent run, preserves partial text and
   );
 });
 
-test("HTTP SSE disconnect aborts provider and releases session", {
+test("HTTP SSE disconnect detaches without cancelling run; stream reattaches and completes into history", {
   timeout: 30000,
 }, async (t) => {
-  const h = await harness();
+  const h = await harness(15000);
   t.after(h.close);
+  const runId = "disconnect-run";
   const response = await h.request(
     "/api/conversation/run",
-    input([user("disconnect")], "disconnect-run"),
+    input([user("disconnect")], runId),
   );
   const reader = response.body!.getReader();
   await reader.read();
   await until(() => h.model.requests.length > 0);
-  await sleep(100);
+  await sleep(120);
   await reader.cancel();
-  const released = await h.service().conversationHub.forSession("main");
-  await until(() => !released.isRunning());
-  await until(() => h.model.slowClosed() > 0);
+  const active = await h.service().conversationHub.forSession("main");
+  assert.equal(active.isRunning(), true, "disconnecting chat SSE must not cancel the running turn");
+  assert.equal(h.model.slowClosed(), 0, "provider stream must stay open after client disconnect");
+
+  // 重挂流：先断开一次确认重挂流的断连同样不取消运行，再重挂读到终态
+  const probe = await h.request(`/api/conversation/stream?sessionId=main&runId=${runId}`);
+  assert.equal(probe.status, 200);
+  const probeReader = probe.body!.getReader();
+  const firstChunk = new TextDecoder().decode((await probeReader.read()).value);
+  assert.match(firstChunk, /RUN_STARTED/);
+  await probeReader.cancel();
+  assert.equal(active.isRunning(), true);
+
+  const reattached = await h.request(`/api/conversation/stream?sessionId=main&runId=${runId}`);
+  assert.equal(reattached.status, 200);
+  let sseText = "";
+  const reattachReader = reattached.body!.getReader();
+  const decoder = new TextDecoder();
+  while (true) {
+    const { value, done } = await reattachReader.read();
+    if (done) { sseText += decoder.decode(); break; }
+    sseText += decoder.decode(value, { stream: true });
+  }
+  const streamedEvents = sseText
+    .split("\n")
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => JSON.parse(line.slice(6)) as { type: string; delta?: string });
+  assert.equal(streamedEvents[0]?.type, "RUN_STARTED");
+  assert.equal(streamedEvents.at(-1)?.type, "RUN_FINISHED");
+  const streamedContent = streamedEvents
+    .filter((event) => event.type === "TEXT_MESSAGE_CONTENT")
+    .map((event) => event.delta ?? "")
+    .join("");
+  assert.equal(streamedContent, "partial ".repeat(200));
+
+  await until(() => !active.isRunning());
+  const finishedAttach = await h.request(`/api/conversation/stream?sessionId=main&runId=${runId}`);
+  assert.equal(finishedAttach.status, 404);
+
+  const snapshot = await h.request("/api/conversation?sessionId=main").then((r) => r.json());
+  assert.equal(snapshot.lastRun?.runId, runId);
+  assert.equal(snapshot.lastRun?.status, "succeeded");
   const messages = await h.getHistory();
+  assert.equal(messages.at(-1)?.content, "partial ".repeat(200));
   assert.equal(
     (await h.events(input([...messages, user("after-disconnect")]))).at(-1)
       ?.type,

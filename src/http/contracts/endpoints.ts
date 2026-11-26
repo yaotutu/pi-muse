@@ -168,7 +168,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getConversation",
     method: "get", path: "/api/conversation", tag: "会话", summary: "读取会话权威历史",
-    hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。合法但不存在、已删除或正在删除的 ID 返回 200 {piSessionId:null, messages:[], revision:'empty'}，不创建会话或工作区，不使其出现在列表；非法 ID 返回 400。空历史不代表会话存在，存在性以 GET /api/sessions 为准。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）；user/assistant 消息必带 metadata（PI entry 时间、chat/job/notification 可靠来源、run/job/notification 关联与 feedbackAvailable）和当前 feedback。role=user 还可有 attachments；每项为 id/name/kind/mimeType/size/sha256，kind=image 还可带 image:{mimeType,dataBase64} 并按本条 SDK user 的 image blocks 顺序关联，文本正文不自动展开。文件/模型原始错误在进入模型上下文与历史前脱敏，文件缺失使用受控提示，不返回服务端绝对路径。",
+    hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。合法但不存在、已删除或正在删除的 ID 返回 200 {piSessionId:null, messages:[], revision:'empty', lastRun:null}，不创建会话或工作区，不使其出现在列表；非法 ID 返回 400。空历史不代表会话存在，存在性以 GET /api/sessions 为准。lastRun 返回当前进行中或最近一次已结束运行的展示状态快照，便于客户端冷启动后区分仍在跑/已完成/已失败/已停止。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）；user/assistant 消息必带 metadata（PI entry 时间、chat/job/notification 可靠来源、run/job/notification 关联与 feedbackAvailable）和当前 feedback。role=user 还可有 attachments；每项为 id/name/kind/mimeType/size/sha256，kind=image 还可带 image:{mimeType,dataBase64} 并按本条 SDK user 的 image blocks 顺序关联，文本正文不自动展开。文件/模型原始错误在进入模型上下文与历史前脱敏，文件缺失使用受控提示，不返回服务端绝对路径。",
     auth: true, query: req.conversationQuerySchema, response: resp.conversationResponse,
   },
   // ---- 消息反馈（独立业务层，持久化于 main.sqlite；不触发模型，不修改 PI 历史）----
@@ -651,7 +651,7 @@ export const endpoints: EndpointSpec[] = [
       "主模型可在本轮调用 subagent 工具将专职任务路由至服务端已注册且开放 chat 触发的专职 Subagent（如 sms、news、browser），子会话返回结果后主模型继续；这不是独立后台任务队列，不提供创建子任务的 HTTP 接口（可通过 GET /api/subagents 检视全部 Subagent 配置）。" +
       "工具参数统一为 {mode: 'single'|'parallel'|'chain', tasks: [{agent, task}]}；最多 8 项，最多 4 个子会话并发，链式用 {previous} 引用上一步结果，失败即停止；独占资源类 Subagent（如 browser）在 parallel 模式下会被拒绝。" +
       "subagent 的客户端卡片按 tools.presentation 的 hidden/summary 策略显示，参数正文不透出；父 SSE 不直接嵌套子会话聊天流或暴露原始工具详情。" +
-      "所有 Subagent 均遵循纯函数语义（无跨次聊天上下文），仅在单次执行周期内拥有独立内存会话记录，所有会话共用同一个扁平工作区，不创建任何子目录；写工作区规则仍走版本绑定人工审批，审批 sessionId/runId 绑定父运行。Stop、父超时、删除会话和聊天流断开会同时取消并等待子会话清理；不会在服务重启后自动续跑。",
+      "所有 Subagent 均遵循纯函数语义（无跨次聊天上下文），仅在单次执行周期内拥有独立内存会话记录，所有会话共用同一个扁平工作区，不创建任何子目录；写工作区规则仍走版本绑定人工审批，审批 sessionId/runId 绑定父运行。客户端断开 HTTP 流仅解除本次流订阅，不会取消服务端运行（含子代理与审批），服务端会在后台继续完成并持久化历史；仅显式 POST /api/conversation/stop、单轮超时、会话重置/删除或服务关闭会同时取消并等待子会话清理；不会在服务重启后自动续跑。断线重连后可调用 GET /api/conversation/stream 重挂正在运行的聊天流。",
     auth: true, request: req.runRequestSchema, response: z.object({}).describe("SSE 流"),
     errorResponses: {
       400: { description: "非法消息、附件或会话 ID；未创建可见用户轮", schema: resp.errorResponse },
@@ -660,7 +660,22 @@ export const endpoints: EndpointSpec[] = [
       503: { description: "模型未配置或服务正关闭；本次消息未接纳", schema: resp.errorResponse },
     },
     sse: {
-      description: "AG-UI 事件流（text/event-stream，每帧 data: <JSON>）",
+      description: "AG-UI 事件流（text/event-stream，每帧 data: <JSON>）；断开连接不影响服务端继续完成本轮执行",
+      events: sseEvents,
+    },
+  },
+  {
+    operationId: "streamConversationRun",
+    method: "get", path: "/api/conversation/stream", tag: "会话", summary: "重挂进行中的聊天运行流（SSE）",
+    hint: "断线重连、切换页面或 App 回到前台后，按 (sessionId, runId) 重新订阅仍在运行的聊天流。连接成功时先补发 RUN_STARTED 与当前轮已累积的助手文本快照，再实时转发后续增量直到 RUN_FINISHED 或 RUN_ERROR。断开本连接同样不会取消服务端运行。若运行已结束或不存在则返回 404，客户端改读 GET /api/conversation 权威历史。",
+    auth: true, query: status.sessionStatusQuery, response: z.object({}).describe("SSE 流"),
+    errorResponses: {
+      400: { description: "非法 sessionId 或 runId 查询参数", schema: resp.errorResponse },
+      404: { description: "指定运行未在进行中或会话不存在", schema: resp.errorResponse },
+      503: { description: "服务正关闭", schema: resp.errorResponse },
+    },
+    sse: {
+      description: "AG-UI 事件流（text/event-stream，每帧 data: <JSON>）；先发已缓冲文本快照，再推实时增量",
       events: sseEvents,
     },
   },

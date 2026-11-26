@@ -5,6 +5,7 @@ import type {
   ConversationAttachmentView,
 } from "./attachments.js";
 import type { MessageFeedback, ProjectedMessageMetadata } from "../messages/types.js";
+import type { SessionStatus } from "../workspace/session-status.js";
 
 /** 会话控制条目与模型消息共同存放在 pi 权威历史中。 */
 export const TURN_ENTRY_TYPE = "personal-bot.turn";
@@ -83,11 +84,13 @@ export type ConversationSnapshot = {
   piSessionId: string;
   messages: ProjectedConversationHistory;
   revision: string;
+  lastRun: SessionStatus | null;
 };
-export type CancelReason = "STOPPED" | "DISCONNECTED" | "TIMEOUT" | "SHUTDOWN";
+export type CancelReason = "STOPPED" | "TIMEOUT" | "SHUTDOWN";
 
 /** pi adapter 清洗并归一化的事件，不复制 SDK 的完整事件/消息接口。 */
 export type ExecutionEvent =
+  | { type: "turn_start" }
   | { type: "text_delta"; delta: string }
   | { type: "tool_start"; id: string; name: string }
   | { type: "tool_delta"; id: string; name: string; delta: string }

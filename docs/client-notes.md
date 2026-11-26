@@ -36,15 +36,61 @@
 
 ## 变更与须知记录
 
-### 2026-11-25 — 统一专职 Subagent 注册与新增只读检视接口 `/api/subagents`
+### 2026-11-26 — 聊天断流改为后台续跑，新增重挂流 `GET /api/conversation/stream` 与 `lastRun`
+
+- **影响端形态**：`all`（重点影响 `rich-ui`、`embedded-voice`）
+- **类型**：`behavior`、`feature`
+- **契约入口**：`/docs`「会话」（`POST /api/conversation/run`、`GET /api/conversation/stream`、`GET /api/conversation`）
+- **要点与接入端注意**：
+  - **聊天 SSE 断流不再取消服务端运行**：客户端调用 `POST /api/conversation/run` 提交消息并开始执行后，主动或被动断开该 HTTP 连接（切后台、锁屏、杀进程、网络切换）仅解除本次流订阅，服务端会继续在后台完成推理、工具与子代理调用并持久化历史。仅显式 `POST /api/conversation/stop`、单轮超时、会话重置/删除或服务关闭会取消运行。
+  - **新增断线重挂流端点 `GET /api/conversation/stream?sessionId=...&runId=...`**：重连或回到前台时可按运行身份重新订阅正在执行的 AG-UI 聊天流；连接成功会先补发 `RUN_STARTED` 与当前轮已累积文本快照，再实时推送后续增量直到 `RUN_FINISHED` 或 `RUN_ERROR`。若运行已结束或不存在则返回 `404`，客户端改读 `GET /api/conversation`。
+  - **`GET /api/conversation` 新增 `lastRun` 字段**：返回当前进行中或最近一次已结束运行的展示状态快照（`SessionStatus | null`），便于客户端冷启动后立即区分「仍在运行 / 已完成 / 已失败 / 已取消」。
+  - **用户消息落盘即发 `conversation_updated`**：本轮用户消息写入后即触发一次 `conversation_updated`，冷启动或另一端中途拉取历史可立即看到用户消息。
+
+### 2026-11-25 — 彻底移除 `domain` 概念，统一收口为 `subagent` 并新增只读检视接口 `/api/subagents`
+
+- **影响端形态**：`all`（重点影响 `rich-ui`）
+- **类型**：`breaking`、`feature`
+- **契约入口**：`/docs`「Subagents」「习惯」「工作区通知流（SSE）」「消息反馈」与「工作区文件」
+- **破坏性变更对照表（前端按表替换即可）**：
+  1. **SSE 事件重命名（`GET /api/events`）**：
+     - 旧：`event: domain_updated`，载荷 `{ instanceId, domain, scope }`
+     - 新：`event: subagent_updated`，载荷 `{ instanceId, subagentId, scope }`
+  2. **习惯接口字段与路径参数重命名（`/api/habits/*`）**：
+     - 路径参数：`/api/habits/:domain` → `/api/habits/:subagentId`（实际 URL 仍为 `/api/habits/sms`、`/api/habits/news`）
+     - `GET /api/habits` 响应：`{ domains: [...] }` → `{ subagents: [...] }`，每项字段 `domain` → `subagentId`
+     - `GET /api/habits/:subagentId` 与 `POST /api/habits/:subagentId/consolidate` 响应：顶层字段 `domain` → `subagentId`，`habits[].domain` → `habits[].subagentId`
+     - `POST/PATCH /api/habits/:subagentId` 响应：`habit.domain` → `habit.subagentId`
+  3. **消息元数据与通知可见性**：
+     - 消息元数据字段（`GET /api/conversation`、`GET /api/sessions/:sessionId/messages/feedback` 等）：`metadata.domainId` → `metadata.subagentId`
+     - 推入主聊天窗口的通知消息已取消对主模型的隐藏过滤，主模型直接可见，不再依赖强制引用格式才能参与对话。
+  4. **工作区指令文件路径变更**：
+     - `domains/sms/INSTRUCTIONS.md` → `subagents/sms/INSTRUCTIONS.md`
+     - `domains/news/INSTRUCTIONS.md` → `subagents/news/INSTRUCTIONS.md`
+     - （注：`GET/PUT /api/information/preferences` 与 `GET/PUT /api/news/preferences` 端点路径与字段名均不变，服务端内部已指向新路径；仅工作区文件页与审批预览 `path` 变为 `subagents/...`。）
+- **新增能力与清理**：
+  - **新增只读检视接口**：开放 `GET /api/subagents` 与 `GET /api/subagents/:id`，完整展示 5 个专职 Subagent（`sms`、`news`、`browser`、`habits`、`dream`）的触发入口（`chat`/`background`）、启用状态、纯函数策略、各自维护的 `routingHint`、内置系统提示词原文、关联用户指令/习惯快照，以及静态绑定的 `tools`、`skills`、`mcp`（预留槽位）和可编辑性元信息。
+  - **内置技能清理**：移除过时的内置 `task` 技能（以及旧编程风角色 `scout/planner/reviewer/worker`）与旧 `domain_agent` 工具；主聊天默认通过统一 `subagent` 工具向 `sms`、`news`、`browser` 路由任务。
+
+### 2026-11-24 — 真实浏览器操控页视觉重做：手机端不再自动切换共享视口
 
 - **影响端形态**：`rich-ui`
-- **类型**：`feature`
-- **契约入口**：`/docs`「Subagents」（`GET /api/subagents`、`GET /api/subagents/:id`）
+- **类型**：`behavior`
+- **契约入口**：`/docs`「浏览器」（`GET /browser` 返回的响应式操控页；协议本身未变）
 - **要点与接入端注意**：
-  - **新增只读检视接口**：服务端将所有专职子代理收口为统一静态注册的 5 个 `Subagent`（`sms`、`news`、`browser`、`habits`、`dream`），并开放 `GET /api/subagents` 与 `GET /api/subagents/:id`。富交互客户端可直接展示每个 Subagent 的身份、触发入口（`chat`/`background`）、启用状态、纯函数策略、内置系统提示词全文、关联用户指令/习惯快照，以及静态绑定的 `tools`、`skills`、`mcp`（预留槽位）和各维度可编辑性元信息。
-  - **现有业务接口保持不变**：`/api/information/*`、`/api/news/*`、`/api/habits/*`、`/api/dream/*`、`/api/conversation/run` 等既有接口均无破坏性变更。
-  - **内置技能清理**：移除过时的内置 `task` 技能（以及旧编程风角色 `scout/planner/reviewer/worker`）；主聊天默认通过统一 `subagent` 工具向开放的专职 Subagent（`sms`、`news`、`browser`）路由任务。
+  - **共享视口不再被手机端自动劫持**：此前手机窄屏打开 `/browser` 会自动把**全局共享**视口切成手机尺寸，导致同期的电脑端画面突然变小（看起来像“地址栏消失”）。现在窄屏打开只显示一条提示条说明当前共享视口尺寸，**只有用户主动点击提示条或视口切换按钮**才会真正改变视口。接入端若自行实现了“窄屏自动切视口”，请一并移除该行为，保持与服务端操控页一致。
+  - **操控页视觉与文案重做**：浅色产品风格、地址栏独占整行并带协议安全标记、状态胶囊改为「已连接 · 桌面 1280×800」这类人类可读文案（帧号降级为次要文案），加载态改为旋转指示 + 文案。协议、字段与端点均未变化，仅页面呈现与默认交互行为改变。
+  - **视口切换仍是全局副作用**：任何一端切换视口，所有连接端与助手工具看到的画面尺寸都会同步变化（既有语义不变）。
+
+### 2026-11-24 — 真实浏览器新客户端接入与视口切换后不再出现空白画布
+
+- **影响端形态**：`rich-ui`
+- **类型**：`bugfix`
+- **契约入口**：`/docs`「浏览器」（WebSocket 帧流协议见 `x-websocket-contracts.browser`）
+- **要点与接入端注意**：
+  - **空白画布根因已修复**：静态页面不会持续触发 CDP screencast 重绘，此前存在两种“打开后一片空白”的场景——①新客户端接入时服务端没有可复用的缓存帧；②视口切换清空缓存后，客户端先收到旧尺寸帧再被清空，而新尺寸帧不一定到达。
+  - **服务端行为变化**：新客户端接入且无缓存帧时，服务端会主动抓取一帧当前画面并广播；视口切换期间会丢弃旧尺寸帧，切换完成后立刻补发一帧新尺寸画面。**接入端不需要再自行实现“空白时重试/轮询”兜底**，但仍应按 `frame_ack` 协议回执以保持流控。
+  - **二进制帧元数据不变**：`uint32be metadataLength + UTF-8 JSON metadata + JPEG bytes` 与 `{ type: "frame_ack", frameId, sessionId }` 交互方式均未变化。
 
 ### 2026-11-24 — 真实浏览器 Clean Break 重构（移除 noVNC 网关，统一 `/browser` 操控与新增视口/接管协议）
 

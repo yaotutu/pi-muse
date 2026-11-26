@@ -174,7 +174,7 @@ test("e2e: chat contexts are isolated, files are global and deleted sessions nev
   assert.doesNotMatch(JSON.stringify(await client.history(other.id)),/hello owner/);
   const removed=await client.deleteSession(owner.id);
   assert.deepEqual(removed,{ok:true,removed:{sessions:1,jobs:0,monitors:0},moved:{jobs:0,monitors:0}});
-  assert.deepEqual(await client.history(owner.id),{sessionId:owner.id,piSessionId:null,messages:[],revision:"empty"});
+  assert.deepEqual(await client.history(owner.id),{sessionId:owner.id,piSessionId:null,messages:[],revision:"empty",lastRun:null});
   assert.deepEqual(await client.json("/api/conversation/stop",{sessionId:owner.id,runId:"late"}),{stopped:false});
   assert.ok(!(await client.json("/api/sessions")).sessions.some((s:{id:string})=>s.id===owner.id));
   await assert.rejects(stat(join(service.dataDir,"sessions",owner.id)),{code:"ENOENT"});
@@ -202,7 +202,7 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
     for (;;) {
       const frame = await stream.next();
       assert.ok(frame, "event stream ended before the run terminal status");
-      assert.ok(["session_status_updated", "session_presence_updated", "approval_pending", "approval_updated"].includes(frame.event), `unexpected event ${frame.event}`);
+      assert.ok(["session_status_updated", "session_presence_updated", "approval_pending", "approval_updated", "conversation_updated"].includes(frame.event), `unexpected event ${frame.event}`);
       if (frame.event === "session_presence_updated") workspaceEvents.session_presence_updated.parse(frame.data);
       if (frame.event === "session_status_updated") {
         const status = workspaceEvents.session_status_updated.parse(frame.data);

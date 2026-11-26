@@ -23,8 +23,7 @@ test("centralized prompts directory loads all system prompts and README index", 
 
   const files = walkMarkdown(root, root);
   assert.ok(files.includes("assistant/base.md"));
-  assert.ok(files.includes("assistant/domain-agents.md"));
-  assert.ok(files.includes("assistant/subagent-child.md"));
+  assert.ok(files.includes("assistant/subagents.md"));
   assert.ok(files.includes("sms/realtime.md"));
   assert.ok(files.includes("sms/archive.md"));
   assert.ok(files.includes("sms/briefing.md"));
@@ -66,8 +65,8 @@ test("sms realtime prompt enforces Default-Silent baseline, 4-tier priority, and
 });
 
 test("prompt loader substitutes placeholders safely and rejects path escape", () => {
-  const rendered = renderPrompt("assistant/subagent-child.md", {
-    ROLE_SYSTEM_PROMPT: "Role price is $100 & {{kept}}",
+  const rendered = renderPrompt("assistant/subagents.md", {
+    SUBAGENTS: "Role price is $100 & {{kept}}",
   });
   assert.match(rendered, /Role price is \$100 & \{\{kept\}\}/);
   assert.throws(() => loadPrompt("../package.json"));

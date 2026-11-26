@@ -77,7 +77,7 @@ pnpm start
 
 The server also handles periodic reminder scanning, Dream memory consolidation, and webpage monitoring. Deploy it on an always-on host and use a process manager such as tmux, pm2, or systemd as appropriate.
 
-Restarting the service does not rerun expired one-off reminders, and failed jobs do not automatically call the model or tools again. If a chat stream disconnects, its run is canceled, but tool operations that already completed are not rolled back.
+Restarting the service does not rerun expired one-off reminders, and failed jobs do not automatically call the model or tools again. Disconnecting a chat stream (such as switching to the background or closing the app) does not cancel the active run—the server continues running in the background and saves the result; only explicit Stop, timeout, session reset/delete, or server shutdown cancels it, and tool operations that already completed are not rolled back.
 
 ## Connect the Mobile Client {#connect-mobile-client}
 

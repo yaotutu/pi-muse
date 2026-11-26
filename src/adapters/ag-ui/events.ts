@@ -86,6 +86,7 @@ export const createEventProjector = (
         });
         break;
       }
+      case "turn_start":
       case "assistant_end":
         // pi 的消息终止并非 run 终态；协调器等待 idle/持久化后才发送完成事件。
         break;

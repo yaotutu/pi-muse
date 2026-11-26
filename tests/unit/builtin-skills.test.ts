@@ -66,12 +66,12 @@ test("copy-assets 脚本连跑两次不会产生 assets/assets 嵌套", () => {
   }
 });
 
-test("隔离 dist 拷贝后，从任意 cwd 通过编译产物解析并枚举出全部 9 项内置技能", () => {
+test("隔离 dist 拷贝后，从任意 cwd 通过编译产物解析并枚举出全部 8 项内置技能", () => {
   // 在临时项目布局里：<stage>/fake-project/dist/{adapters/storage,assets/skills}/…
   // 编译单一文件 builtin-skills.ts 到 fake-project/dist/adapters/storage/；
   // 再用 copy-assets.mjs 把源码 assets/ 复制到 fake-project/dist/assets/。
   // 然后切到无关 cwd 加载编译产物，断言它返回 fake-project/dist/assets/skills
-  // 且能从该目录枚举出与真实内置技能完全一致的 9 项。
+  // 且能从该目录枚举出与真实内置技能完全一致的 8 项。
   const stageRoot = mkdtempSync(resolve(tmpdir(), "builtin-skills-prod-"));
   const distRoot = resolve(stageRoot, "fake-project", "dist");
   const foreignCwd = mkdtempSync(resolve(tmpdir(), "builtin-skills-prod-run-"));
@@ -133,7 +133,7 @@ test("隔离 dist 拷贝后，从任意 cwd 通过编译产物解析并枚举出
 
     // 用 realpath 对比，规避 macOS 上 /var/folders → /private/var/folders 软链的字面差异
     assert.equal(realpathSync.native(dir), realpathSync.native(resolve(distRoot, "assets", "skills")));
-  assert.equal(entries.length, 9, `预期 9 项内置技能, 实际 ${entries.length}: ${entries.join(",")}`);
+    assert.equal(entries.length, 8, `预期 8 项内置技能, 实际 ${entries.length}: ${entries.join(",")}`);
     assert.deepEqual(entries, realBuiltinSkills);
   } finally {
     rmSync(stageRoot, { recursive: true, force: true });

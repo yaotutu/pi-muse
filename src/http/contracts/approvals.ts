@@ -122,7 +122,7 @@ export const approvalView = z
       .enum(approvalStatuses)
       .describe(
         "pending=等待人的决定；approved=人已授权（不代表执行成功）；denied=人拒绝执行；" +
-          "expired=超过 expiresAt 自动失效；cancelled=运行取消、断流或服务停止导致撤销。" +
+          "expired=超过 expiresAt 自动失效；cancelled=运行取消、超时或服务停止导致撤销。" +
           "expired/cancelled 不是人的决定，decidedAt 保持 null。",
       ),
     preview: approvalPreview,

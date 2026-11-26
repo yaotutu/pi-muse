@@ -30,9 +30,9 @@ Copies are isolated by server and session. Changing servers clears old local bus
 
 Enter text directly in Messages, or attach images/text with that message as explained in [Attachments](files-and-approvals.md#send-attachments). Responses stream; tool and approval views show actual execution facts.
 
-Each session has at most one active run. Stop targets that run, not later turns. Disconnecting the chat stream, stopping, timeout or server shutdown cancels the run and child calls and revokes pending approvals; completed side effects are not rolled back. Disconnecting the notification stream does not stop chat.
+Each session has at most one active run. Stop targets that run, not later turns. Explicit Stop, timeout, session reset/delete, or server shutdown cancels the run and child calls and revokes pending approvals; completed side effects are not rolled back. Backgrounding the client, terminating the app, or dropping the network only detaches the current stream subscription—the server finishes the run in the background and persists the result, and returning to the foreground automatically resumes progress or shows the reply. Disconnecting the notification stream does not stop chat either.
 
-When sending or writing has an unknown outcome, synchronize authoritative history/state before acting again. Page changes do not automatically resend messages. Execution after application process termination is not promised.
+When sending or writing has an unknown outcome, synchronize authoritative history/state before acting again. Page changes do not automatically resend messages.
 
 ## Message feedback {#message-feedback}
 

@@ -16,12 +16,26 @@ type PendingNotification = {
   cancelQueued?: () => void;
 };
 
+const MAX_STREAM_TEXT_BUFFER = 512 * 1024;
+
+export type ConversationStreamHandle = {
+  done: Promise<void>;
+  detach: () => void;
+};
+
 type ActiveRun = {
   runId: string;
+  sessionId: string;
+  assistantId: string;
+  isReplay: boolean;
   done: Promise<void>;
   session?: ConversationExecution;
   reason?: CancelReason;
   status?: StatusRun;
+  subscribers: Set<(event: ConversationEvent) => void>;
+  textBuffer: string;
+  started: boolean;
+  historyNotified: boolean;
 };
 // 会话只管理唯一的运行锁和生命周期；执行与历史由组合入口注入，不持有 SDK/store。
 export function createConversation(
@@ -139,6 +153,11 @@ export function createConversation(
     if (!config.configured) rejectConversation("MODEL_NOT_CONFIGURED", "Configure the server model before sending");
     return validated;
   };
+  const latestStatus = (): SessionStatus | null => {
+    if (active?.status) return active.status.snapshot();
+    const saved = historyPort.sessionStatuses?.().at(-1);
+    return saved ? structuredClone(saved) : null;
+  };
   const snapshot = async (): Promise<ConversationSnapshot> => {
     // 反馈文件读取前先原子捕获 PI 事实，避免旧消息被配到新 revision。
     const piSessionId = historyPort.piSessionId();
@@ -149,6 +168,7 @@ export function createConversation(
       piSessionId,
       messages: await dependencies.messages.project(messages),
       revision,
+      lastRun: latestStatus(),
     };
   };
   const executionStatus = (runId: string): SessionStatus | undefined => {
@@ -196,31 +216,42 @@ export function createConversation(
     await dependencies.cancelApprovals?.(sessionId, running.runId);
     if (running.status) historyPort.appendAgentStatus?.(running.status.finish(outcome));
   };
-  const run = async (
+  const broadcast = (running: ActiveRun, event: ConversationEvent) => {
+    if (event.type === "run_started") running.started = true;
+    if (event.type === "text_delta" && event.delta && running.textBuffer.length < MAX_STREAM_TEXT_BUFFER) {
+      const remaining = MAX_STREAM_TEXT_BUFFER - running.textBuffer.length;
+      running.textBuffer += event.delta.length <= remaining ? event.delta : event.delta.slice(0, remaining);
+    }
+    for (const subscriber of [...running.subscribers]) {
+      try { subscriber(event); } catch { /* 单个订阅者异常不影响运行与其它订阅者。 */ }
+    }
+  };
+  const startRun = (
     input: ConversationInput,
     emit: (event: ConversationEvent) => void,
-    signal?: AbortSignal,
-  ) => {
+  ): ConversationStreamHandle => {
     const currentSessionId = input.sessionId || dependencies.sessionId || "main";
     input.sessionId = currentSessionId;
     const { user, previous, replay } = validate(input);
-    if (signal?.aborted)
-      rejectConversation("DISCONNECTED", "Client disconnected before the run started");
     let release!: () => void;
     const running: ActiveRun = {
       runId: input.runId,
+      sessionId: currentSessionId,
+      assistantId: "assistant-" + input.runId,
+      isReplay: replay,
       done: new Promise<void>((resolve) => {
         release = resolve;
       }),
+      subscribers: new Set([emit]),
+      textBuffer: "",
+      started: false,
+      historyNotified: false,
     };
     active = running;
     dependencies.messages.setActiveRun(replay ? null : input.runId);
-    const disconnected = () => {
-      void cancel("DISCONNECTED").catch(() => undefined);
-    };
-    signal?.addEventListener("abort", disconnected, { once: true });
+    const emitEvent = (event: ConversationEvent) => broadcast(running, event);
     // 只扣除非审批等待时间；多个审批重叠时，直到最后一个结束才恢复剩余预算。
-    // 使用单调时钟计时，不重置预算；Stop/断流仍直接 cancel，不依赖此 timer。
+    // 使用单调时钟计时，不重置预算；Stop/超时/关闭仍直接 cancel，不依赖此 timer。
     let remainingMs = config.runTimeoutMs;
     let countingSince = performance.now();
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -238,7 +269,7 @@ export function createConversation(
       userId: user.id,
       text: user.content as string,
       runId: input.runId,
-      assistantId: "assistant-" + input.runId,
+      assistantId: running.assistantId,
       source: "chat",
       ...(user.attachments?.length ? { attachments: user.attachments.map(attachmentIdentity) } : {}),
     };
@@ -252,137 +283,180 @@ export function createConversation(
     let toolReturned = false;
     const checkpoint = historyPort.checkpoint();
     let turnRecorded = false;
-    const endText = () => emit({ type: "text_end", assistantId: turn.assistantId });
-    try {
-      // 在打开模型执行前订阅，避免漏掉本轮（含子代理）刚登记的审批。
-      unsubscribeApprovals = dependencies.subscribeApprovals?.(currentSessionId, running.runId, ({ id, pending }) => {
-        if (pending) {
-          if (pendingApprovals.size === 0) {
-            clearTimeout(timeout);
-            timeout = undefined;
-            remainingMs = Math.max(0, remainingMs - (performance.now() - countingSince));
-          }
-          pendingApprovals.add(id);
-        } else if (pendingApprovals.delete(id) && pendingApprovals.size === 0 && !running.reason) {
-          resumeTimeout();
-        }
-      });
-      emit({
-        type: "run_started",
-        assistantId: turn.assistantId,
-        sessionId: currentSessionId,
-        runId: input.runId,
-      });
-      if (replay) {
-        emit({ type: "history_snapshot", messages: await dependencies.messages.project(history()) });
-        status = "completed";
-      } else {
-        // 初始化或刚开始就停止时，不应先隐藏待重试的旧消息。先打开宿主，
-        // 再提交 context edit，并同步宿主内存中的模型上下文。
-        running.status = beginStatus(currentSessionId, running.runId, "chat");
-        activity = statusActivity(dependencies.activities?.beginRun(running.runId), running.status);
-        running.session = await openSession({ runId: running.runId, activity, status: running.status, userText: turn.text });
-        if (running.reason)
-          throw new ConversationError(running.reason, "Response cancelled");
-        // 只在宿主初始化成功且尚未取消时隐藏待重试轮，保持早停时旧历史可见。
-        if (previous) historyPort.omitTurn(previous.runId);
-        historyPort.appendTurn(turn);
-        turnRecorded = true;
-        running.session.syncContext();
-        await running.session.compactIfNeeded?.("Focus on retaining key user facts, ongoing tasks, and decisions.");
-        unsubscribe = running.session.subscribe((event) => {
-          if (event.type === "assistant_end") {
-            finalReason = event.reason;
-            delivered = Boolean(event.text.trim());
-          }
-          else {
-            if (event.type === "tool_result") toolReturned = true;
-            emit(event);
+    const endText = () => emitEvent({ type: "text_end", assistantId: turn.assistantId });
+    const notifyHistoryRecorded = () => {
+      if (running.historyNotified || historyPort.checkpoint() === checkpoint) return;
+      running.historyNotified = true;
+      publishHistoryChange();
+    };
+    void (async () => {
+      try {
+        // 在打开模型执行前订阅，避免漏掉本轮（含子代理）刚登记的审批。
+        unsubscribeApprovals = dependencies.subscribeApprovals?.(currentSessionId, running.runId, ({ id, pending }) => {
+          if (pending) {
+            if (pendingApprovals.size === 0) {
+              clearTimeout(timeout);
+              timeout = undefined;
+              remainingMs = Math.max(0, remainingMs - (performance.now() - countingSince));
+            }
+            pendingApprovals.add(id);
+          } else if (pendingApprovals.delete(id) && pendingApprovals.size === 0 && !running.reason) {
+            resumeTimeout();
           }
         });
-        const prompt = buildConversationPrompt(turn.text, user.attachments);
-        // 当前 turn 已落盘；排除本轮，只为实际新执行补充中断边界，幂等重放不提交 prompt。
-        const boundary = buildExecutionBoundary(records(), running.runId);
-        if (boundary) prompt.prompt = `${boundary}\n\n${prompt.prompt}`;
-        await running.session.prompt(prompt.prompt, prompt.images);
-        // prompt 完成 + waitForIdle 才允许提交终态；message_end 的 public listener
-        // 早于 pi 内部 appendMessage，不能在 listener 内发 RUN_FINISHED。
-        await running.session.waitForIdle();
-        running.status?.finalizing();
-        if (running.reason)
-          throw new ConversationError(running.reason, "Response cancelled");
-        if (
-          finalReason === "error" ||
-          finalReason === "aborted" ||
-          !finalReason
-        )
-          throw new ConversationError(
-            "MODEL_ERROR",
-            "Model request failed. Check the server endpoint, model and API key; then retry.",
-          );
-        status = "completed";
+        emitEvent({
+          type: "run_started",
+          assistantId: turn.assistantId,
+          sessionId: currentSessionId,
+          runId: input.runId,
+        });
+        if (replay) {
+          emitEvent({ type: "history_snapshot", messages: await dependencies.messages.project(history()) });
+          status = "completed";
+        } else {
+          // 初始化或刚开始就停止时，不应先隐藏待重试的旧消息。先打开宿主，
+          // 再提交 context edit，并同步宿主内存中的模型上下文。
+          running.status = beginStatus(currentSessionId, running.runId, "chat");
+          activity = statusActivity(dependencies.activities?.beginRun(running.runId), running.status);
+          running.session = await openSession({ runId: running.runId, activity, status: running.status, userText: turn.text });
+          if (running.reason)
+            throw new ConversationError(running.reason, "Response cancelled");
+          // 只在宿主初始化成功且尚未取消时隐藏待重试轮，保持早停时旧历史可见。
+          if (previous) historyPort.omitTurn(previous.runId);
+          historyPort.appendTurn(turn);
+          turnRecorded = true;
+          running.session.syncContext();
+          await running.session.compactIfNeeded?.("Focus on retaining key user facts, ongoing tasks, and decisions.");
+          unsubscribe = running.session.subscribe((event) => {
+            if (event.type === "turn_start") {
+              notifyHistoryRecorded();
+              return;
+            }
+            notifyHistoryRecorded();
+            if (event.type === "assistant_end") {
+              finalReason = event.reason;
+              delivered = Boolean(event.text.trim());
+            }
+            else {
+              if (event.type === "tool_result") toolReturned = true;
+              emitEvent(event);
+            }
+          });
+          const prompt = buildConversationPrompt(turn.text, user.attachments);
+          // 当前 turn 已落盘；排除本轮，只为实际新执行补充中断边界，幂等重放不提交 prompt。
+          const boundary = buildExecutionBoundary(records(), running.runId);
+          if (boundary) prompt.prompt = `${boundary}\n\n${prompt.prompt}`;
+          await running.session.prompt(prompt.prompt, prompt.images);
+          // prompt 完成 + waitForIdle 才允许提交终态；message_end 的 public listener
+          // 早于 pi 内部 appendMessage，不能在 listener 内发 RUN_FINISHED。
+          await running.session.waitForIdle();
+          running.status?.finalizing();
+          if (running.reason)
+            throw new ConversationError(running.reason, "Response cancelled");
+          if (
+            finalReason === "error" ||
+            finalReason === "aborted" ||
+            !finalReason
+          )
+            throw new ConversationError(
+              "MODEL_ERROR",
+              "Model request failed. Check the server endpoint, model and API key; then retry.",
+            );
+          status = "completed";
+          endText();
+          historyPort.appendResult({
+            runId: input.runId,
+            status,
+          } satisfies ConversationResult);
+          activity?.finish("completed", delivered);
+          await finishStatus(running, currentSessionId, "succeeded");
+        }
+        emitEvent({
+          type: "run_finished",
+          sessionId: currentSessionId,
+          runId: input.runId,
+        });
+      } catch (error) {
+        if (running.session) {
+          await running.session.abort();
+          await running.session.waitForIdle();
+        }
+        // prompt 的前置校验可能早于 user 持久化失败。没有新 user 时恢复旧叶子，
+        // 保留追加条目用于审计，但不能让一次失败的重试抹掉原有聊天历史。
+        if (turnRecorded) historyPort.restoreIfNoUser(input.runId, checkpoint);
         endText();
+        status = running.reason ? "aborted" : "failed";
         historyPort.appendResult({
           runId: input.runId,
           status,
         } satisfies ConversationResult);
-        activity?.finish("completed", delivered);
-        await finishStatus(running, currentSessionId, "succeeded");
-      }
-      emit({
-        type: "run_finished",
-        sessionId: currentSessionId,
-        runId: input.runId,
-      });
-    } catch (error) {
-      if (running.session) {
-        await running.session.abort();
-        await running.session.waitForIdle();
-      }
-      // prompt 的前置校验可能早于 user 持久化失败。没有新 user 时恢复旧叶子，
-      // 保留追加条目用于审计，但不能让一次失败的重试抹掉原有聊天历史。
-      if (turnRecorded) historyPort.restoreIfNoUser(input.runId, checkpoint);
-      endText();
-      status = running.reason ? "aborted" : "failed";
-      historyPort.appendResult({
-        runId: input.runId,
-        status,
-      } satisfies ConversationResult);
-      activity?.finish(running.reason === "STOPPED" || running.reason === "DISCONNECTED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
-      await finishStatus(running, currentSessionId, running.reason ? "cancelled" : "failed");
-      const code =
-        running.reason ||
-        (error instanceof ConversationError ? error.code : "MODEL_ERROR");
-      // 不把供应商响应/URL/凭据直接发给客户端或写入日志，避免 endpoint 错误反射密钥。
-      const failureMessage =
-        code === "STOPPED"
-          ? "Run stopped by user"
-          : code === "TIMEOUT"
-            ? "Model response timed out; retry when the endpoint is available"
-            : code === "DISCONNECTED" || code === "SHUTDOWN"
-              ? "Response cancelled"
-              : "Model request failed. Check server configuration and endpoint availability; then retry.";
-      const message = toolReturned
-        ? `${failureMessage} Any changes already made by tools were not rolled back. Check the current state before repeating the request.`
-        : failureMessage;
-      emit({ type: "run_error", code, message });
-    } finally {
-      clearTimeout(timeout);
-      unsubscribeApprovals?.();
-      signal?.removeEventListener("abort", disconnected);
-      unsubscribe?.();
-      try {
-        running.session?.dispose();
+        activity?.finish(running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
+        await finishStatus(running, currentSessionId, running.reason ? "cancelled" : "failed");
+        const code =
+          running.reason ||
+          (error instanceof ConversationError ? error.code : "MODEL_ERROR");
+        // 不把供应商响应/URL/凭据直接发给客户端或写入日志，避免 endpoint 错误反射密钥。
+        const failureMessage =
+          code === "STOPPED"
+            ? "Run stopped by user"
+            : code === "TIMEOUT"
+              ? "Model response timed out; retry when the endpoint is available"
+              : code === "SHUTDOWN"
+                ? "Response cancelled"
+                : "Model request failed. Check server configuration and endpoint availability; then retry.";
+        const message = toolReturned
+          ? `${failureMessage} Any changes already made by tools were not rolled back. Check the current state before repeating the request.`
+          : failureMessage;
+        emitEvent({ type: "run_error", code, message });
       } finally {
-        // SDK 清理异常也不能悬挂已排队通知，否则 monitor.close 会永远等待投递。
-        activity?.close();
-        if (historyPort.checkpoint() !== checkpoint) publishHistoryChange();
-        flushNotifications();
-        active = undefined;
-        dependencies.messages.setActiveRun(null);
-        release();
+        clearTimeout(timeout);
+        unsubscribeApprovals?.();
+        unsubscribe?.();
+        try {
+          running.session?.dispose();
+        } finally {
+          // SDK 清理异常也不能悬挂已排队通知，否则 monitor.close 会永远等待投递。
+          activity?.close();
+          if (historyPort.checkpoint() !== checkpoint) publishHistoryChange();
+          flushNotifications();
+          running.subscribers.clear();
+          active = undefined;
+          dependencies.messages.setActiveRun(null);
+          release();
+        }
       }
+    })();
+    return {
+      done: running.done,
+      detach: () => { running.subscribers.delete(emit); },
+    };
+  };
+  const run = async (
+    input: ConversationInput,
+    emit: (event: ConversationEvent) => void,
+  ) => startRun(input, emit).done;
+  const attachStream = (
+    runId: string,
+    emit: (event: ConversationEvent) => void,
+  ): ConversationStreamHandle | null => {
+    const running = active;
+    if (!running || running.runId !== runId || running.isReplay) return null;
+    if (running.started) {
+      emit({
+        type: "run_started",
+        assistantId: running.assistantId,
+        sessionId: running.sessionId,
+        runId: running.runId,
+      });
     }
+    if (running.textBuffer.length > 0) {
+      emit({ type: "text_delta", delta: running.textBuffer });
+    }
+    running.subscribers.add(emit);
+    return {
+      done: running.done,
+      detach: () => { running.subscribers.delete(emit); },
+    };
   };
   // P4 定时任务触发的服务端轮次：与客户端 run 互斥共用一把锁，但不走 AG-UI
   // emit、不做客户端校验；turn 与结果照常落 pi 历史，并通知客户端读取。
@@ -394,12 +468,20 @@ export function createConversation(
   ) => {
     if (closed || options.signal?.aborted) return { status: "failed" as const, text: "cancelled" };
     if (active) return { status: "failed" as const, text: "busy" };
+    const sourceSessionId = dependencies.sessionId ?? options.sessionId ?? "main";
     let release!: () => void;
     const running: ActiveRun = {
       runId,
+      sessionId: sourceSessionId,
+      assistantId: "assistant-" + runId,
+      isReplay: false,
       done: new Promise<void>((resolve) => {
         release = resolve;
       }),
+      subscribers: new Set(),
+      textBuffer: "",
+      started: false,
+      historyNotified: false,
     };
     active = running;
     dependencies.messages.setActiveRun(runId);
@@ -421,7 +503,6 @@ export function createConversation(
       source: "job",
       ...(options.jobId ? { jobId: options.jobId } : {}),
     };
-    const sourceSessionId = dependencies.sessionId ?? options.sessionId ?? "main";
     const checkpoint = historyPort.checkpoint();
     try {
       running.status = beginStatus(sourceSessionId, running.runId, "job", options.jobId);
@@ -485,7 +566,9 @@ export function createConversation(
     history,
     snapshot: () => snapshot(),
     validate,
+    startRun,
     run,
+    attachStream,
     trigger,
     notify,
     cancel,

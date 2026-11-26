@@ -80,10 +80,10 @@ test("shared skills HTTP: source-tagged catalog with shipped builtin defaults an
   const response = await h.request("/api/assistant/skills");
   assert.equal(response.status, 200);
   const catalog = skillsResponse.parse(await response.json());
-  assert.ok(catalog.skills.length >= 10);
+  assert.ok(catalog.skills.length >= 9);
   assert.ok(catalog.skills.every((skill) => skill.defaultEnabled === (skill.source === "builtin")), "仅内置清单默认开启");
   assert.ok(catalog.skills.every((skill) => skill.enabled === skill.defaultEnabled), "无手动选择时按默认值生效");
-  assert.ok(catalog.skills.filter((skill) => skill.source === "builtin").length >= 9);
+  assert.ok(catalog.skills.filter((skill) => skill.source === "builtin").length >= 8);
   assert.equal(catalog.skills.find((skill) => skill.name === "same-name")?.source, "user");
   assert.equal(catalog.skills.find((skill) => skill.name === "web")?.source, "builtin");
   assert.equal(catalog.skills.find((skill) => skill.name === "general-note")?.id, "shared/general-note");

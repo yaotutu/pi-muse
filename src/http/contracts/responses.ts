@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { messageFeedbackResponse, messageMetadataResponse } from "./messages.js";
+import { sessionStatus } from "./session-status.js";
 import { workspaceIncludeDiagnosticSchema } from "./workspace-includes.js";
 
 /**
@@ -105,6 +106,7 @@ export const conversationResponse = z.object({
   piSessionId: z.string().nullable().describe("当前会话绑定的 PI 会话 ID；合法但不存在/已删除会话为 null"),
   revision: z.string().describe("pi 当前叶子版本；空会话为 empty，发送时作为 expectedRevision"),
   messages: z.array(chatMessage).describe("服务端权威历史（含工具投影）；客户端不得回写"),
+  lastRun: sessionStatus.nullable().describe("当前进行中或最近一次已结束运行的展示状态快照；无记录或不存在会话时为 null"),
 });
 export const profileResponse = z.object({
   soul: z.string().describe("SOUL.md 内容；空串表示未设置"),

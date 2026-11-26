@@ -29,9 +29,9 @@ If the chat page shows「重新同步」, tap it to restore authoritative histor
 
 ## Stop or Disconnect State Is Unknown {#stop-or-disconnect-state-unknown}
 
-Stopping cancels the current chat run and unresolved approvals, but completed tool operations are not rolled back. After stopping, leaving the chat view, or disconnecting, the client may show「执行结果待同步」or「消息保存状态待确认」.
+Stopping cancels the current chat run and unresolved approvals, but completed tool operations are not rolled back. Dropping the network or switching to the background does not cancel an in-flight server run; when you return to the foreground or reconnect, the client automatically reconciles status and reattaches the live stream or refreshes history.
 
-For an ordinary chat stop, disconnect, or unknown message-save state, tap 「重新同步」 and wait for history and status synchronization before sending again. 「核对重置结果」 appears only when a reset is awaiting confirmation; do not treat it as the ordinary synchronization entry point. If the state remains unclear, see [Conversations and sessions](conversations-and-agents.md#send-and-stop-conversations). For possible file writes, read the target file first.
+If automatic synchronization fails because the device stayed offline, tap 「立即同步」 and wait for history and status synchronization before sending again. 「核对重置结果」 appears only when a reset is awaiting confirmation; do not treat it as the ordinary synchronization entry point. If the state remains unclear, see [Conversations and sessions](conversations-and-agents.md#send-and-stop-conversations). For possible file writes, read the target file first.
 
 ## Attachment Rejected {#attachment-rejected}
 

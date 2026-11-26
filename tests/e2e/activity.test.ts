@@ -201,12 +201,16 @@ for (const reason of ["timeout", "disconnect", "shutdown", "crash"] as const) {
       failed(events);
       if (reason === "timeout") assert.ok(events.some((event) => event.type === "RUN_ERROR" && event.code === "TIMEOUT"));
     }
+    if (reason === "disconnect") {
+      // 客户端断开 SSE 后服务端 run/activity 必须继续运行，直到显式停止或服务端停机才 settle。
+      assert.equal((await one(running.sessionId)).activity.status, "running");
+    }
     const count = model.requests.length;
     if (reason === "shutdown" || reason === "crash") await service.start();
     else await service.restart();
     const after = await one(running.sessionId);
     assert.equal(after.activity.id, runningState.activity.id);
-    assert.equal(after.activity.status, reason === "timeout" ? "failed" : reason === "disconnect" ? "stopped" : "interrupted");
+    assert.equal(after.activity.status, reason === "timeout" ? "failed" : "interrupted");
     assert.equal(after.activity.result, null);
     assert.equal(after.activity.currentRunId, null);
     if (reason === "crash") {

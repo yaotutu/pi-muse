@@ -69,7 +69,7 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
   - `browser`（`chat`，`parallelAllowed: false`）：独占共享真实 GUI Chrome，执行多步网页浏览、交互与信息提取，遇登录或验证码发起人工接管；在 `parallel` 模式下直接拒绝以防抢占同一桌面窗口。
   - `habits`（`background`）：后台定期归纳各领域未消化用户反馈样本为长期行为习惯。
   - `dream`（`background`）：后台定期整理主会话增量消息并提出笔记变更提案。
-- **主聊天统一路由**：主聊天默认开放 `subagent` 工具（支持 `single` / `parallel` / `chain`、`{previous}` 占位、最多 8 项 / 4 并发），按已启用 `chat` Subagent 清单直接路由专职任务，不再维护旧编程风角色（`scout / planner / reviewer / worker`）或独立 `domain_agent` 工具。父 Stop、断流、超时和关闭传播取消并等待子执行收尾，失败不自动重试。
+- **主聊天统一路由**：主聊天默认开放 `subagent` 工具（支持 `single` / `parallel` / `chain`、`{previous}` 占位、最多 8 项 / 4 并发），按已启用 `chat` Subagent 清单直接路由专职任务，不再维护旧编程风角色（`scout / planner / reviewer / worker`）或独立 `domain_agent` 工具。父 Stop、超时、会话重置/删除和关闭传播取消并等待子执行收尾，失败不自动重试；客户端断开聊天 SSE 仅解除流订阅，不会取消父运行或子执行。
 - **前端只读检视契约**：提供鉴权只读端点 `GET /api/subagents` 与 `GET /api/subagents/:id`，完整暴露全部已注册 Subagent 的触发模式、启用状态、纯函数执行策略、内置提示词原文、关联用户指令/习惯快照、静态绑定的工具/技能/MCP 槽位以及各维度可编辑性元信息。
 
 ## 消息与反馈
@@ -97,7 +97,7 @@ Dream 是实例全局服务：系统整理提示词与不可覆盖安全规则�
 
 jobs 和 monitors 的来源是公开会话；省略来源使用 main。只绑定已有会话，删除中的来源拒绝接纳。任务在所属会话运行真实 pi 轮，与其聊天共锁；状态保存失败仅补存同一次结果，不重跑工具。监控复用安全网络请求；返回的抓取只有仍匹配当前检测配置才可更新基线。待投递通知持久化后按当前归属投递，成功才确认。用户在任务运行中设置的新排期保留，上一轮只更新自身结果。
 
-Activity 与真实步骤保存在对应会话 JSONL custom entries，不建立第二份活动历史。完成声明须本轮工具/子代理/审批结束且最终回复实际交付后才生效；Stop、错误、断流和崩溃如实保留终态。观察器不输出原始工具参数、思维、凭据或内部诊断。
+Activity 与真实步骤保存在对应会话 JSONL custom entries，不建立第二份活动历史。完成声明须本轮工具/子代理/审批结束且最终回复实际交付后才生效；Stop、错误、超时和崩溃如实保留终态。观察器不输出原始工具参数、思维、凭据或内部诊断。
 
 ## 文件工具与审批
 

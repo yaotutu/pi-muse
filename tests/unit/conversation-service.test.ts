@@ -135,3 +135,39 @@ test("client early cancellation after opening never records a replacement turn",
   assert.equal(calls.includes("sync"), false);
   assert.deepEqual(events.at(-1), { type: "run_error", code: "STOPPED", message: "Run stopped by user" });
 });
+
+test("attachStream replays buffered text and detaching does not abort the active run", async (t) => {
+  const { dependencies, session } = await fixture(t);
+  let listener: (event: ExecutionEvent) => void = () => {};
+  let finishPrompt!: () => void;
+  const promptDone = new Promise<void>((resolve) => { finishPrompt = resolve; });
+  dependencies.openSession = async () => ({
+    ...session,
+    subscribe: (next) => { listener = next; return () => {}; },
+    prompt: async () => {
+      listener({ type: "turn_start" });
+      listener({ type: "text_delta", delta: "first " });
+      await promptDone;
+      listener({ type: "text_delta", delta: "second" });
+      listener({ type: "assistant_end", reason: "stop", text: "first second" });
+    },
+  });
+  const conversation = createConversation({ configured: true, runTimeoutMs: 5000 }, dependencies);
+  const initialEvents: ConversationEvent[] = [];
+  const handle = conversation.startRun(input, (event) => initialEvents.push(event));
+  await new Promise((resolve) => setImmediate(resolve));
+  handle.detach();
+  const attachedEvents: ConversationEvent[] = [];
+  const attached = conversation.attachStream(input.runId, (event) => attachedEvents.push(event));
+  assert.ok(attached);
+  finishPrompt();
+  await attached.done;
+  assert.equal(conversation.isRunning(), false);
+  assert.equal(attachedEvents[0]?.type, "run_started");
+  assert.deepEqual(
+    attachedEvents.filter((event) => event.type === "text_delta").map((event) => event.delta),
+    ["first ", "second"],
+  );
+  assert.equal(attachedEvents.at(-1)?.type, "run_finished");
+  assert.equal(conversation.attachStream(input.runId, () => {}), null);
+});

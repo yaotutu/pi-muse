@@ -46,7 +46,7 @@ SSE 端点声明 `text/event-stream`，通过每端点 `x-sse-events` 提供机�
 
 当前两类流的语义不同，修改时必须分别核对契约和真实行为：
 
-- **聊天流**：只提交 `{sessionId, runId, expectedRevision, message:{id,content,attachments?}}`，不回传全量历史；附件最多 4 项且随消息一次提交，revision 冲突在 SSE 前返回 HTTP 409，同一成功 run 的原消息与附件身份可幂等重放。非法 sessionId/附件在宿主预校验即 HTTP 400，请求超过 12MiB 返回 413，均不进入聊天 SSE。流断开会取消所属 run。
+- **聊天流**：只提交 `{sessionId, runId, expectedRevision, message:{id,content,attachments?}}`，不回传全量历史；附件最多 4 项且随消息一次提交，revision 冲突在 SSE 前返回 HTTP 409，同一成功 run 的原消息与附件身份可幂等重放。非法 sessionId/附件在宿主预校验即 HTTP 400，请求超过 12MiB 返回 413，均不进入聊天 SSE。断开 HTTP 流只解除本次订阅，不会取消服务端 run；重连可通过 `GET /api/conversation/stream` 重挂仍在进行的运行。
 - **聊天同步与 Stop**：历史返回 `{messages, revision}`；user 消息保留原文本与附件元数据，图片预览仅从该条 pi user message 的 image blocks 投影。Stop 同时绑定 sessionId/runId，Web 等待取消完成后刷新权威历史。版本冲突恢复未接纳草稿，切换会话取消原流；这些正确性步骤必须在生成契约中完整表达，不能只依赖本文。
 - **工作区通知**：单向通知客户端重读状态，断连不取消聊天；ready 后读取相应快照，刷新中收到新通知要补刷，重连重新同步。准确事件、心跳与重放能力以本端点契约为准，不复制聊天取消语义。
 

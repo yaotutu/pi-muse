@@ -18,7 +18,7 @@ export const createConversationRoutes = (
       return c.json(
         conversation
           ? await conversation.snapshot()
-          : { sessionId, piSessionId: null, messages: [], revision: "empty" },
+          : { sessionId, piSessionId: null, messages: [], revision: "empty", lastRun: null },
       );
     } catch (error) {
       if (error instanceof ConversationError && error.code === "UNSUPPORTED_SESSION")

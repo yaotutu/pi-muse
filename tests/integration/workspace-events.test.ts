@@ -301,11 +301,14 @@ test("remote chat, scheduled output, and reset invalidate their persisted sessio
     assert.equal(response.status, 200);
     return response.json();
   };
-  const invalidation = async () => {
-    let frame;
-    do { frame = await stream.nextFrame(); } while (frame.event !== "conversation_updated");
-    assert.equal(frame.data.sessionId, id);
-    return frame.data.piSessionId;
+  const invalidation = async (predicate?: (piSessionId: string) => boolean) => {
+    while (true) {
+      const frame = await stream.nextFrame();
+      if (frame.event !== "conversation_updated") continue;
+      assert.equal(frame.data.sessionId, id);
+      const piSessionId = frame.data.piSessionId as string;
+      if (!predicate || predicate(piSessionId)) return piSessionId;
+    }
   };
 
   await post(service, headers, "/api/conversation/run", {
@@ -323,7 +326,7 @@ test("remote chat, scheduled output, and reset invalidate their persisted sessio
   assert.ok((await readHistory()).messages.some((message: { content: string }) => message.content === "scheduled chat history"));
 
   assert.equal((await post(service, headers, `/api/sessions/${id}/reset`, {})).status, 200);
-  const newPiSessionId = await invalidation();
+  const newPiSessionId = await invalidation((piSessionId) => piSessionId !== oldPiSessionId);
   assert.notEqual(newPiSessionId, oldPiSessionId);
   const resetHistory = await readHistory();
   assert.equal(resetHistory.piSessionId, newPiSessionId);

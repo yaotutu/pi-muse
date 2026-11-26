@@ -269,7 +269,7 @@ test("docs: activity GET endpoints are authenticated read-only JSON operations w
     "approval_updated",
     "conversation_updated",
     "session_directory_updated",
-    "domain_updated",
+    "subagent_updated",
     "ready",
   ].sort());
 });
@@ -734,13 +734,22 @@ test("docs: notification stream documents the client sync protocol and keeps eve
     "approval_updated",
     "conversation_updated",
     "session_directory_updated",
-    "domain_updated",
+    "subagent_updated",
     "ready",
   ].sort());
   const chat = document.paths["/api/conversation/run"].post as Operation;
+  assert.match(chat.description, /不会取消服务端运行/);
+  assert.match(chat.description, /GET \/api\/conversation\/stream/);
   assert.ok(Object.hasOwn(chat.responses["200"]["x-sse-events"], "RUN_FINISHED"));
   for (const name of ["ready", "session_status_updated", "approval_pending", "approval_updated"])
     assert.ok(!Object.hasOwn(chat.responses["200"]["x-sse-events"], name), `聊天 SSE 不应混入通知事件 ${name}`);
+  const stream = document.paths["/api/conversation/stream"]?.get as Operation | undefined;
+  assert.ok(stream, "generated doc must include GET /api/conversation/stream");
+  assert.ok(Object.hasOwn(stream.responses["200"]["x-sse-events"], "RUN_FINISHED"));
+  const conv = document.paths["/api/conversation"]?.get as {
+    responses: { 200: { content: { "application/json": { schema: { properties: Record<string, unknown> } } } } };
+  };
+  assert.ok(Object.hasOwn(conv.responses["200"].content["application/json"].schema.properties, "lastRun"));
 });
 
 test("docs: /api/events SSE schema carries bounded runtime, presence and invalidation events", () => {
@@ -763,7 +772,7 @@ test("docs: /api/events SSE schema carries bounded runtime, presence and invalid
     "approval_updated",
     "conversation_updated",
     "session_directory_updated",
-    "domain_updated",
+    "subagent_updated",
     "ready",
   ].sort());
   for (const [name, entry] of Object.entries(table)) {
@@ -1069,7 +1078,7 @@ test("docs: /openapi.json and /docs are served without auth", async (t) => {
   assert.match(liveDesc, /Authorization[\s\S]*Bearer/i, "live description 应说明 Authorization: Bearer");
   assert.match(liveDesc, /event:[\s\S]*?data:/i, "live description 应说明 event:/data: 帧格式");
   assert.match(liveDesc, /session_status_updated[\s\S]*approval_pending[\s\S]*approval_updated[\s\S]*activity_updated[\s\S]*conversation_updated/i, "live description 应说明通知事件");
-  assert.match(liveDesc, /domain_updated/i, "live description 应包含 domain_updated");
+  assert.match(liveDesc, /subagent_updated/i, "live description 应包含 subagent_updated");
   assert.match(liveDesc, /keep-alive/i, "live description 应说明 : keep-alive 心跳");
   assert.match(liveDesc, /Last-Event-ID/, "live description 应说明无 Last-Event-ID / 不重放");
   assert.doesNotMatch(liveDesc, /workspace_updated|actions_updated/, "旧失效通知事件不得保留");
@@ -1231,9 +1240,9 @@ test("docs: information endpoints expose a bounded authenticated agent-scoped AP
   assert.match(paths["/api/information/preferences"]!.get!.description ?? "", /habits/);
   assert.match(paths["/api/information/settings"]!.put!.description ?? "", /取消在途轮/);
   assert.ok(paths["/api/habits"]?.get);
-  assert.ok(paths["/api/habits/{domain}"]?.get && paths["/api/habits/{domain}"]?.post);
-  assert.ok(paths["/api/habits/{domain}/{habitId}"]?.patch && paths["/api/habits/{domain}/{habitId}"]?.delete);
-  assert.ok(paths["/api/habits/{domain}/consolidate"]?.post);
+  assert.ok(paths["/api/habits/{subagentId}"]?.get && paths["/api/habits/{subagentId}"]?.post);
+  assert.ok(paths["/api/habits/{subagentId}/{habitId}"]?.patch && paths["/api/habits/{subagentId}/{habitId}"]?.delete);
+  assert.ok(paths["/api/habits/{subagentId}/consolidate"]?.post);
 });
 
 test("docs: browser status, viewer ticket, launch cookie, viewport, handoff and WS contract", () => {

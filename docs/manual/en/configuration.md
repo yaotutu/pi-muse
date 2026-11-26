@@ -86,7 +86,7 @@ Every section and field may be omitted as needed; omitted values use built-in de
 | `model.apiKey` | Empty | Model API key, written directly in the configuration file. |
 | `model.contextWindow` | `32768` | Must be greater than `model.maxTokens`. |
 | `model.maxTokens` | `4096` | Maximum model output. |
-| `runtime.runTimeoutMs` | `120000` | Execution budget for one chat turn, in milliseconds. Timing pauses while manual approval is pending and resumes with the remaining budget after all pending approvals finish; it does not receive a fresh full budget. Approvals still expire according to their own TTL, and Stop/disconnection still cancels immediately. This does not change jobs-trigger timeout semantics. |
+| `runtime.runTimeoutMs` | `120000` | Execution budget for one chat turn, in milliseconds. Timing pauses while manual approval is pending and resumes with the remaining budget after all pending approvals finish; it does not receive a fresh full budget. Approvals still expire according to their own TTL, explicit Stop cancels immediately, and client disconnection does not cancel server execution. This does not change jobs-trigger timeout semantics. |
 | `runtime.schedulerIntervalMs` | `30000` | Scheduled-task scan interval. |
 | `runtime.monitorScanIntervalMs` | `60000` | Webpage-monitor scan interval. |
 | `runtime.dataDir` | Directory containing the configuration file | Relative paths are resolved against the configuration file's directory. An absolute path is recommended but not required. |

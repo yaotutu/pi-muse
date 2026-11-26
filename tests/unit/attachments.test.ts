@@ -166,6 +166,7 @@ test("conversation identity binds ordered attachment metadata and wire schemas m
     sessionId: "main",
     piSessionId: "session-id",
     revision: "leaf",
+    lastRun: null,
     messages: [{
       id: "user-id", role: "user", content: "hello",
       metadata: messageMetadata, feedback: emptyFeedback,
@@ -173,16 +174,20 @@ test("conversation identity binds ordered attachment metadata and wire schemas m
     }],
   });
   assert.equal(conversationResponse.safeParse({
+    sessionId: "main",
     piSessionId: "session-id",
     revision: "leaf",
+    lastRun: null,
     messages: [{
       id: "assistant", role: "assistant", content: "answer", metadata: messageMetadata, feedback: emptyFeedback,
       attachments: [{ ...metadataOf(validated.user.attachments![0]!) }],
     }],
   }).success, false);
   assert.equal(conversationResponse.safeParse({
+    sessionId: "main",
     piSessionId: "session-id",
     revision: "leaf",
+    lastRun: null,
     messages: [{
       id: "user", role: "user", content: "", metadata: messageMetadata, feedback: emptyFeedback,
       attachments: [{ ...metadataOf(validated.user.attachments![0]!), image: { mimeType: "image/png", dataBase64: "aGk=" } }],

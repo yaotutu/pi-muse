@@ -75,6 +75,10 @@ export const createPiExecution = (session: AgentSession, manager: SessionManager
     return false;
   },
   subscribe: (listener) => session.subscribe((event) => {
+    if (event.type === "turn_start") {
+      listener({ type: "turn_start" });
+      return;
+    }
     const projected = projectExecutionEvent(event);
     if (projected) listener(projected);
   }),
