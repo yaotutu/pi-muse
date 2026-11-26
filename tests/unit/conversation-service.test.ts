@@ -218,3 +218,32 @@ test("run timeout records lastRun as failed with explicit timeout label instead 
   assert.equal(snap.lastRun?.status, "failed");
   assert.equal(snap.lastRun?.label, "处理超时，未生成完整回复");
 });
+
+test("plain chat turns stay out of persisted executionRuns while executionStatus still resolves from cache and records fallback", async (t) => {
+  const { dependencies } = await fixture(t);
+  const events = createWorkspaceEvents();
+  const persistedStatuses: SessionStatus[] = [];
+  const records: ConversationRecords = { turns: [], results: new Map() };
+  dependencies.history.records = () => records;
+  dependencies.history.appendTurn = (turn) => { records.turns.push(turn); };
+  dependencies.history.appendResult = (result) => { records.results.set(result.runId, result); };
+  dependencies.history.appendAgentStatus = (status) => { persistedStatuses.push(status); };
+  dependencies.history.sessionStatuses = () => persistedStatuses;
+  dependencies.beginStatus = (init) => events.beginRun(init);
+
+  const conversation = createConversation({ configured: true, runTimeoutMs: 5000 }, dependencies);
+  await conversation.run({ ...input, runId: "plain-run-1" }, () => {});
+
+  assert.equal(persistedStatuses.length, 0);
+  assert.equal(conversation.executionRuns().length, 0);
+  assert.equal(conversation.executionStatus("plain-run-1")?.status, "succeeded");
+  assert.equal((await conversation.snapshot()).lastRun?.runId, "plain-run-1");
+
+  // Re-opening after restart (empty in-memory cache) still resolves single-run status from turn+result records,
+  // while keeping executionRuns clean of plain-text Q&A entries.
+  const reopened = createConversation({ configured: true, runTimeoutMs: 5000 }, dependencies);
+  assert.equal(reopened.executionRuns().length, 0);
+  const fallback = reopened.executionStatus("plain-run-1");
+  assert.equal(fallback?.status, "succeeded");
+  assert.equal(fallback?.title, "hello");
+});

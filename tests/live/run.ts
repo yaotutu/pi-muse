@@ -230,9 +230,11 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     await finish(plainRun);
     const plainRunsPage = await client.json(`/api/runs?sessionId=${plainRun.sessionId}`);
     const matchedPlain = plainRunsPage.runs.find((item: { runId: string }) => item.runId === plainRun.runId);
-    assert.ok(matchedPlain);
-    assert.equal(matchedPlain.steps.length, 0);
-    record(scenario, { toolSteps: matchedRun.steps.length, plainSteps: matchedPlain.steps.length });
+    assert.equal(matchedPlain, undefined, "Plain-text chat turn must not pollute GET /api/runs");
+    const plainSingleStatus = await client.json(`/api/runs/status?sessionId=${plainRun.sessionId}&runId=${plainRun.runId}`);
+    assert.equal(plainSingleStatus.status.status, "succeeded");
+    assert.equal(plainSingleStatus.status.steps.length, 0);
+    record(scenario, { toolSteps: matchedRun.steps.length, plainExcludedFromRuns: true });
 
     scenario = "restart-seed";
     const seedRun = await begin("restart-seed", "这是隔离真实验收。请实际调用currentTime一次，只回复LIVE-RESTART-SEED与工具中的ISO时间。不要调用其他工具，不要写文件。", "main");

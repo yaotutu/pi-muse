@@ -1,4 +1,4 @@
-import type { SessionStatus, StatusRun, RunOutcome } from "../workspace/session-status.js";
+import { isMeaningfulExecutionRun, type SessionStatus, type StatusRun, type RunOutcome } from "../workspace/session-status.js";
 import { ConversationError, rejectConversation } from "./errors.js";
 import { validateConversationInput } from "./validate-input.js";
 import type { ConversationDependencies, ConversationExecution } from "./ports.js";
@@ -16,6 +16,7 @@ type PendingNotification = {
 };
 
 const MAX_STREAM_TEXT_BUFFER = 512 * 1024;
+const MAX_RECENT_STATUSES = 32;
 
 export type ConversationStreamHandle = {
   done: Promise<void>;
@@ -46,6 +47,15 @@ export function createConversation(
   let active: ActiveRun | undefined;
   let closed = false;
   let closing: Promise<boolean> | undefined;
+  const recentStatuses = new Map<string, SessionStatus>();
+  const recordRecentStatus = (status: SessionStatus) => {
+    recentStatuses.delete(status.runId);
+    recentStatuses.set(status.runId, structuredClone(status));
+    if (recentStatuses.size > MAX_RECENT_STATUSES) {
+      const oldest = recentStatuses.keys().next().value;
+      if (oldest) recentStatuses.delete(oldest);
+    }
+  };
   const notifications = new Map<string, PendingNotification>();
   const receiptOf = (id: string): ConversationNotificationReceipt => ({
     notificationId: id,
@@ -154,7 +164,15 @@ export function createConversation(
   };
   const latestStatus = (): SessionStatus | null => {
     if (active?.status) return active.status.snapshot();
+    let newestRecent: SessionStatus | undefined;
+    for (const entry of recentStatuses.values()) newestRecent = entry;
     const saved = historyPort.sessionStatuses?.().at(-1);
+    if (newestRecent && saved) {
+      const recentKey = newestRecent.endedAt ?? newestRecent.startedAt;
+      const savedKey = saved.endedAt ?? saved.startedAt;
+      return recentKey >= savedKey ? structuredClone(newestRecent) : structuredClone(saved);
+    }
+    if (newestRecent) return structuredClone(newestRecent);
     return saved ? structuredClone(saved) : null;
   };
   const snapshot = async (): Promise<ConversationSnapshot> => {
@@ -175,9 +193,12 @@ export function createConversation(
     if (!compact) return source === "job" ? "定时任务" : "聊天执行";
     return compact.length > 60 ? `${compact.slice(0, 59)}…` : compact;
   };
+  const isLegacyPlaceholder = (status: SessionStatus) =>
+    status.title === "正在处理请求" && status.steps.length === 0;
   const executionRuns = (): SessionStatus[] => {
     const byId = new Map<string, SessionStatus>();
     for (const saved of historyPort.sessionStatuses?.() ?? []) {
+      if (isLegacyPlaceholder(saved) || !isMeaningfulExecutionRun(saved)) continue;
       const existing = byId.get(saved.runId);
       if (!existing || saved.revision >= existing.revision) byId.set(saved.runId, structuredClone(saved));
     }
@@ -189,10 +210,41 @@ export function createConversation(
       (a, b) => b.startedAt.localeCompare(a.startedAt) || b.runId.localeCompare(a.runId),
     );
   };
+  const synthesizeRunStatus = (runId: string): SessionStatus | undefined => {
+    const { turns, results } = historyPort.records();
+    const turn = turns.findLast((item) => item.runId === runId);
+    const result = results.get(runId);
+    if (!turn || !result) return undefined;
+    const status: RunOutcome =
+      result.status === "completed" ? "succeeded" : result.status === "aborted" ? "cancelled" : "failed";
+    const stamp = new Date(0).toISOString();
+    const source = turn.source ?? "chat";
+    return {
+      sessionId: dependencies.sessionId ?? "main",
+      runId,
+      revision: 2,
+      source,
+      jobId: turn.jobId ?? null,
+      title: runTitle(turn.text, source),
+      status,
+      phase: null,
+      label: status === "succeeded" ? "执行完成" : status === "cancelled" ? "执行已停止" : "执行失败",
+      tools: [],
+      subagents: [],
+      pendingApprovalIds: [],
+      steps: [],
+      startedAt: stamp,
+      updatedAt: stamp,
+      endedAt: stamp,
+    };
+  };
   const executionStatus = (runId: string): SessionStatus | undefined => {
     if (active?.runId === runId && active.status) return active.status.snapshot();
+    const recent = recentStatuses.get(runId);
+    if (recent) return structuredClone(recent);
     const saved = historyPort.sessionStatuses?.().findLast((status) => status.runId === runId);
-    return saved ? structuredClone(saved) : undefined;
+    if (saved) return structuredClone(saved);
+    return synthesizeRunStatus(runId);
   };
   const beginStatus = (sessionId: string, runId: string, source: "chat" | "job", title: string, jobId?: string) => {
     const previous = executionStatus(runId);
@@ -200,7 +252,12 @@ export function createConversation(
   };
   const finishStatus = async (running: ActiveRun, sessionId: string, outcome: RunOutcome, label?: string) => {
     await dependencies.cancelApprovals?.(sessionId, running.runId);
-    if (running.status) historyPort.appendAgentStatus?.(running.status.finish(outcome, label));
+    if (!running.status) return;
+    const final = running.status.finish(outcome, label);
+    recordRecentStatus(final);
+    if (isMeaningfulExecutionRun(final)) {
+      historyPort.appendAgentStatus?.(final);
+    }
   };
   const settleFailureStatus = (running: ActiveRun, sessionId: string) => {
     if (running.reason === "STOPPED" || running.reason === "SHUTDOWN") {

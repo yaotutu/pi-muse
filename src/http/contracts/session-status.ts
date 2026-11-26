@@ -241,7 +241,7 @@ export const runListQuery = z
       .optional()
       .describe("上一页返回的 nextCursor；绑定 sessionId，跨会话或格式非法返回 400"),
   })
-  .describe("GET /api/runs 分页查询指定会话的执行记录。");
+  .describe("GET /api/runs 分页查询指定会话的有效执行记录（普通纯文字问答不记入）。");
 
 export const runCursorPayloadSchema = z.strictObject({
   startedAt: isoTime,
@@ -252,11 +252,11 @@ export const runCursorPayloadSchema = z.strictObject({
 export const runListResponse = z
   .strictObject({
     instanceId: z.uuid().describe("产生该响应的服务实例 UUID"),
-    runs: z.array(sessionStatus).describe("按 startedAt 倒序、同时间按 runId 倒序排列的运行记录（包含进行中与已完成）"),
+    runs: z.array(sessionStatus).describe("按 startedAt 倒序、同时间按 runId 倒序排列的有效运行记录（包含进行中与含实际动作/子代理/审批/定时任务/失败中断的已完成运行；普通纯文字问答不返回）"),
     hasMore: z.boolean().describe("是否还有下一页"),
     nextCursor: z.string().nullable().describe("下一页不透明游标，无更多时为 null"),
   })
-  .describe("GET /api/runs 的响应：指定会话的运行记录分页列表。");
+  .describe("GET /api/runs 的响应：指定会话的有效运行记录分页列表。");
 
 export type RunStepDto = z.infer<typeof runStep>;
 export type AgentToolStateDto = z.infer<typeof agentToolState>;

@@ -5,11 +5,12 @@ import { join } from "node:path";
 import test from "node:test";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { createToolPresentation } from "../../src/adapters/ag-ui/tool-presentation.js";
-import { createSessionHistory } from "../../src/adapters/pi/session-history.js";
+import { createSessionHistory, pruneJunkAgentStatusFromJsonlFile } from "../../src/adapters/pi/session-history.js";
 import { createStatusObserver } from "../../src/adapters/pi/status-observer.js";
 import { createDataLayout } from "../../src/adapters/storage/data-layout.js";
 import { loadConfig } from "../../src/config/load-config.js";
 import { AGENT_STATUS_ENTRY_TYPE } from "../../src/features/conversation/types.js";
+import { isMeaningfulExecutionRun, summarizeRunSteps, type SessionStatus } from "../../src/features/workspace/session-status.js";
 import { createWorkspaceEvents } from "../../src/features/workspace/workspace-events.js";
 
 test("createStatusObserver records sanitized allowlisted step details, hides hidden tool names, and closes open steps on cancel", () => {
@@ -176,4 +177,79 @@ test("loadConfig defaults tools.writable.actionTimeoutMs to 24h and supports up 
   const eightDaysPath = join(dir, "eight-days.json");
   await writeFile(eightDaysPath, JSON.stringify({ tools: { writable: { actionTimeoutMs: 691_200_000 } } }), { mode: 0o600 });
   assert.throws(() => loadConfig(eightDaysPath));
+});
+
+test("summarizeRunSteps and isMeaningfulExecutionRun format action trails and filter plain chat runs", () => {
+  const base: SessionStatus = {
+    sessionId: "main",
+    runId: "r-1",
+    revision: 2,
+    source: "chat",
+    jobId: null,
+    title: "帮我查天气并写草稿",
+    status: "succeeded",
+    phase: null,
+    label: "执行完成",
+    tools: [],
+    subagents: [],
+    pendingApprovalIds: [],
+    steps: [],
+    startedAt: "2026-11-26T00:00:00.000Z",
+    updatedAt: "2026-11-26T00:00:01.000Z",
+    endedAt: "2026-11-26T00:00:01.000Z",
+  };
+  assert.equal(isMeaningfulExecutionRun(base), false);
+  assert.equal(isMeaningfulExecutionRun({ ...base, status: "cancelled" }), true);
+  assert.equal(isMeaningfulExecutionRun({ ...base, source: "job" }), true);
+
+  const summary = summarizeRunSteps([
+    { id: "1", parentId: null, kind: "tool", title: "搜索网页", detail: "北京天气", status: "succeeded", result: "已完成", toolName: "search_web", approvalId: null, startedAt: "2026-11-26T00:00:00.000Z", endedAt: "2026-11-26T00:00:01.000Z" },
+    { id: "2", parentId: null, kind: "tool", title: "写入文件", detail: "shared/weather.md", status: "denied", result: "操作被拒绝", toolName: "write", approvalId: null, startedAt: "2026-11-26T00:00:01.000Z", endedAt: "2026-11-26T00:00:02.000Z" },
+    { id: "3", parentId: "2", kind: "file_commit", title: "文件提交", detail: "shared/weather.md", status: "denied", result: "未批准，未写入文件", toolName: null, approvalId: null, startedAt: "2026-11-26T00:00:02.000Z", endedAt: "2026-11-26T00:00:02.000Z" },
+  ]);
+  assert.equal(summary, "搜索网页（北京天气） → 写入文件（shared/weather.md）·已拒绝");
+});
+
+test("pruneJunkAgentStatusFromJsonlFile physically deletes legacy junk while keeping tree parent chain and meaningful runs intact", async (t) => {
+  const { readdir, readFile } = await import("node:fs/promises");
+  const dir = await mkdtemp(join(tmpdir(), "pi-muse-prune-jsonl-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const layout = createDataLayout(dir);
+  const { manager, history } = await createSessionHistory(layout, "main");
+  history.appendNotification({ id: "msg-before", text: "first message" });
+  manager.appendCustomEntry(AGENT_STATUS_ENTRY_TYPE, {
+    sessionId: "main", runId: "junk-legacy", source: "chat", jobId: null,
+    status: "cancelled", phase: null, label: "执行已停止", title: "正在处理请求",
+    tools: [], subagents: [], pendingApprovalIds: [], steps: [],
+    startedAt: "2026-11-24T00:00:00.000Z", updatedAt: "2026-11-24T00:00:05.000Z", endedAt: "2026-11-24T00:00:05.000Z", revision: 2,
+  });
+  manager.appendCustomEntry(AGENT_STATUS_ENTRY_TYPE, {
+    sessionId: "main", runId: "junk-plain", source: "chat", jobId: null,
+    status: "succeeded", phase: null, label: "执行完成", title: "1+1等于几",
+    tools: [], subagents: [], pendingApprovalIds: [], steps: [],
+    startedAt: "2026-11-25T00:00:00.000Z", updatedAt: "2026-11-25T00:00:02.000Z", endedAt: "2026-11-25T00:00:02.000Z", revision: 2,
+  });
+  history.appendNotification({ id: "msg-after", text: "second message" });
+  manager.appendCustomEntry(AGENT_STATUS_ENTRY_TYPE, {
+    sessionId: "main", runId: "keep-tool", source: "chat", jobId: null,
+    status: "succeeded", phase: null, label: "查询当前时间", title: "现在几点",
+    tools: [], subagents: [], pendingApprovalIds: [],
+    steps: [{ id: "s1", parentId: null, kind: "tool", title: "查询当前时间", detail: null, status: "succeeded", result: "已完成", toolName: null, approvalId: null, startedAt: "2026-11-26T00:00:00.000Z", endedAt: "2026-11-26T00:00:01.000Z" }],
+    startedAt: "2026-11-26T00:00:00.000Z", updatedAt: "2026-11-26T00:00:01.000Z", endedAt: "2026-11-26T00:00:01.000Z", revision: 3,
+  });
+
+  const histDir = join(dir, "sessions/main/history");
+  const jsonlFile = join(histDir, (await readdir(histDir)).find((f) => f.endsWith(".jsonl"))!);
+  const result = await pruneJunkAgentStatusFromJsonlFile(jsonlFile);
+  assert.equal(result.removed, 2);
+
+  const content = await readFile(jsonlFile, "utf8");
+  assert.doesNotMatch(content, /junk-legacy|junk-plain/);
+  assert.match(content, /keep-tool/);
+
+  const reopened = await createSessionHistory(layout, "main");
+  assert.equal(reopened.history.history().length, 2);
+  const statuses = reopened.history.sessionStatuses?.() ?? [];
+  assert.equal(statuses.length, 1);
+  assert.equal(statuses[0]!.runId, "keep-tool");
 });

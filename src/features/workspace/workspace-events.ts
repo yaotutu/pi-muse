@@ -1,7 +1,7 @@
 import type { PendingAction } from "../actions/types.js";
 import type { BrowserHandoff, BrowserUpdateScope } from "../browser/types.js";
 import type { RunStep, RunStepStatus, SessionPhase, SessionStatus, StatusRun } from "./session-status.js";
-import { MAX_CURRENT_RUNS, MAX_STATUS_STEPS, MAX_STATUS_SUBAGENTS, MAX_STATUS_TOOLS, MAX_STEP_TEXT_LENGTH } from "./session-status.js";
+import { MAX_CURRENT_RUNS, MAX_STATUS_STEPS, MAX_STATUS_SUBAGENTS, MAX_STATUS_TOOLS, MAX_STEP_TEXT_LENGTH, summarizeRunSteps } from "./session-status.js";
 import { createSessionPresence, type SessionPresence } from "./session-presence.js";
 
 export type SubagentUpdateScope = "items" | "runs" | "habits" | "preferences" | "settings";
@@ -109,7 +109,7 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
       let parentPhase: SessionPhase = "preparing";
       let state: SessionStatus = {
         sessionId, runId: input.runId, source: input.source, jobId: input.jobId ?? null,
-        revision: input.initialRevision ?? 1, title: (input.title || "正在处理请求").slice(0, 500), status: "running", phase: "preparing", label: labelFor.preparing,
+        revision: input.initialRevision ?? 1, title: (input.title || (input.source === "job" ? "定时任务" : "聊天执行")).slice(0, 500), status: "running", phase: "preparing", label: labelFor.preparing,
         tools: [], subagents: [], pendingApprovalIds: [], steps: [], startedAt: now, updatedAt: now, endedAt: null,
       };
       const notify = (increment = true) => {
@@ -298,7 +298,8 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
         finish: (outcome, label) => {
           if (ended) return copy(state);
           ended = true;
-          state.status = outcome; state.phase = null; state.label = label ?? (outcome === "succeeded" ? "执行完成" : outcome === "cancelled" ? "执行已停止" : "执行失败");
+          const stepSummary = outcome === "succeeded" ? summarizeRunSteps(state.steps) : null;
+          state.status = outcome; state.phase = null; state.label = label ?? (outcome === "succeeded" ? (stepSummary ?? "执行完成") : outcome === "cancelled" ? "执行已停止" : "执行失败");
           state.tools = []; state.pendingApprovalIds = [];
           const stamp = new Date().toISOString();
           for (const child of state.subagents) if (child.status === "queued" || child.status === "running") {

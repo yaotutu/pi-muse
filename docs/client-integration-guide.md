@@ -143,7 +143,7 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
    - **必须整体替换**当前进行中的运行集合、待审批集合和头像在线状态集合，绝不与断线前本地缓存合并。未出现在 `sessionPresences` 中的会话视为空闲；当通知流处于断开状态时，会话状态为**未知**，不要渲染成空闲。
    - **重连后补读**：收到 `ready` 后，主动重读一次 `GET /api/sessions` 和当前已打开会话的 `GET /api/conversation`，恢复断线窗口内新建/改名/删会话及已落盘的通知/任务回复。
 3. **版本合并与字段注意**：
-   - **运行状态与步骤（`session_status_updated`）**：按 `(sessionId, runId)` 合并，**只应用严格大于本地已知 `revision` 的帧**，相等或更小直接丢弃；若帧内 `instanceId` 与本地记录不同，说明服务端已重启，**先清空运行状态与运行 `revision` 缓存**再以新 `ready`/新帧重建。每次运行自动在 `steps` 数组中累加与持久化工具/子代理/审批/文件提交步骤；运行终态（`succeeded`/`failed`/`cancelled`，`phase: null`，`endedAt` 非空）会推送一次，也可通过 `GET /api/runs?sessionId=...` 与 `GET /api/runs/status?sessionId=...&runId=...` 查询。
+   - **运行状态与步骤（`session_status_updated`）**：按 `(sessionId, runId)` 合并，**只应用严格大于本地已知 `revision` 的帧**，相等或更小直接丢弃；若帧内 `instanceId` 与本地记录不同，说明服务端已重启，**先清空运行状态与运行 `revision` 缓存**再以新 `ready`/新帧重建。每次运行自动在 `steps` 数组中累加工具/子代理/审批/文件提交步骤；运行终态（`succeeded`/`failed`/`cancelled`，`phase: null`，`endedAt` 非空）会推送一次，且包含实际动作、定时任务或异常中断的运行会随会话持久化并汇总动作摘要。`GET /api/runs?sessionId=...` 只返回这些有效执行记录（普通纯文字问答不记入），单次运行终态与断线恢复通过 `GET /api/runs/status?sessionId=...&runId=...` 查询。
    - **待审批与终态（`approval_pending` / `approval_updated`）**：按 `id` 索引并按严格更高 `revision` 合并。审批 `revision` 跨进程持久，**不能**因 `instanceId` 变化清空。`approval_pending` 直接包含完整不可变 `preview`，收到即可展示并供用户决定；`approval_updated` 省略了 `title`、`kind`、`preview` 以避免重复推大正文，若本地没有完整预览或收到未知 `id`，按需回读 `GET /api/approvals/:id`。
    - **会话在线态（`session_presence_updated`）**：同一连接按到达顺序覆盖，优先级规则由服务端维护（等待用户 > 错误 > 工作中）；`lastActiveAt` 仅用于会话活跃排序，不用于版本比较。不要使用 `serverTime`/`updatedAt` 排序或用事件数量计数业务操作。
 4. **失效信号与防竞态刷新**：

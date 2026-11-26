@@ -1,9 +1,10 @@
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { ensureLayout, sessionHistoryDir, type DataLayout } from "../storage/data-layout.js";
 import type { ConversationHistoryPort } from "../../features/conversation/ports.js";
 import { AGENT_STATUS_ENTRY_TYPE, RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../../features/conversation/types.js";
-import type { SessionStatus } from "../../features/workspace/session-status.js";
+import { isMeaningfulExecutionRun, type SessionStatus } from "../../features/workspace/session-status.js";
 import { createNotificationMessage, notificationIdOf } from "./notification-message.js";
 import { collectConversationRecords, projectConversationHistory, projectDreamTranscript, projectMessageFacts } from "./history-projection.js";
 import type { ToolPresentation } from "../ag-ui/tool-presentation.js";
@@ -126,4 +127,92 @@ export const readDreamTranscript = async (
     sessionsDir,
   );
   return projectDreamTranscript(manager.getBranch());
+};
+
+const isJunkAgentStatusEntry = (entry: Record<string, unknown>): boolean => {
+  if (entry.type !== "custom" || entry.customType !== AGENT_STATUS_ENTRY_TYPE) return false;
+  const raw = entry.data;
+  if (!raw || typeof raw !== "object") return true;
+  const normalized = normalizeSessionStatus(raw as SessionStatus & { activityId?: unknown });
+  if (normalized.title === "正在处理请求" && normalized.steps.length === 0) return true;
+  return !isMeaningfulExecutionRun(normalized);
+};
+
+/**
+ * 物理删除单个会话 JSONL 中无意义的旧占位/纯文字问答运行记录，
+ * 并把原本挂在其后的子条目 parentId 安全重接到上游有效父节点，保证会话树不断裂。
+ */
+export const pruneJunkAgentStatusFromJsonlFile = async (
+  filePath: string,
+): Promise<{ removed: number; kept: number }> => {
+  const raw = await readFile(filePath, "utf8");
+  const lines = raw.split("\n").filter((line) => line.length > 0);
+  const parsed = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+  const removedParent = new Map<string, string | null>();
+  const keptEntries: Record<string, unknown>[] = [];
+  for (const entry of parsed) {
+    if (isJunkAgentStatusEntry(entry) && typeof entry.id === "string") {
+      removedParent.set(entry.id, typeof entry.parentId === "string" ? entry.parentId : null);
+    } else {
+      keptEntries.push(entry);
+    }
+  }
+  if (!removedParent.size) return { removed: 0, kept: keptEntries.length };
+
+  for (const entry of keptEntries) {
+    for (const [key, value] of Object.entries(entry)) {
+      if (key !== "parentId" && typeof value === "string" && removedParent.has(value)) {
+        throw new Error(`Refusing to prune ${value} in ${filePath}: referenced by ${key}`);
+      }
+    }
+    let parentId = typeof entry.parentId === "string" ? entry.parentId : null;
+    while (parentId && removedParent.has(parentId)) {
+      parentId = removedParent.get(parentId) ?? null;
+    }
+    if ("parentId" in entry) entry.parentId = parentId;
+  }
+
+  const nextContent = `${keptEntries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
+  const tmpPath = `${filePath}.prune-${process.pid}.tmp`;
+  const info = await stat(filePath).catch(() => null);
+  await writeFile(tmpPath, nextContent, { encoding: "utf8", mode: info ? info.mode & 0o777 : 0o600 });
+  await rename(tmpPath, filePath);
+  return { removed: removedParent.size, kept: keptEntries.length };
+};
+
+/** 扫描指定数据目录下的全部会话 JSONL，物理清理无意义旧运行记录。 */
+export const pruneJunkAgentStatusInDataDir = async (
+  dataDir: string,
+): Promise<{ filesProcessed: number; filesModified: number; totalRemoved: number }> => {
+  const sessionsRoot = join(dataDir, "sessions");
+  let sessionDirs: string[] = [];
+  try {
+    sessionDirs = await readdir(sessionsRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { filesProcessed: 0, filesModified: 0, totalRemoved: 0 };
+    }
+    throw error;
+  }
+  let filesProcessed = 0;
+  let filesModified = 0;
+  let totalRemoved = 0;
+  for (const sessionDir of sessionDirs) {
+    const historyDir = join(sessionsRoot, sessionDir, "history");
+    let names: string[];
+    try {
+      names = (await readdir(historyDir)).filter((name) => name.endsWith(".jsonl"));
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      filesProcessed++;
+      const result = await pruneJunkAgentStatusFromJsonlFile(join(historyDir, name));
+      if (result.removed > 0) {
+        filesModified++;
+        totalRemoved += result.removed;
+      }
+    }
+  }
+  return { filesProcessed, filesModified, totalRemoved };
 };

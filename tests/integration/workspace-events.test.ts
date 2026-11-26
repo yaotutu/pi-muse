@@ -269,8 +269,26 @@ test("tool execution pushes session_status_updated with steps and persists via G
   assert.equal(runsBody.runs.length, 1);
   assert.equal(runsBody.runs[0].runId, runId);
   assert.equal(runsBody.runs[0].status, "succeeded");
+  assert.equal(runsBody.runs[0].label, "查询当前时间");
   assert.ok(runsBody.runs[0].steps.some((step: { kind: string; toolName: string | null; title: string; status: string }) =>
     step.kind === "tool" && step.toolName === null && step.title === "查询当前时间" && step.status === "succeeded"));
+
+  // Plain-text follow-up without tool calls must not pollute GET /api/runs,
+  // while GET /api/runs/status still resolves its completed status.
+  const convRes = await service.app.request("/api/conversation?sessionId=main", { headers });
+  const convBody = await convRes.json();
+  const plainRunId = randomUUID();
+  await post(service, headers, "/api/conversation/run", {
+    sessionId: "main", runId: plainRunId, expectedRevision: convBody.revision,
+    message: { id: randomUUID(), content: "你好" },
+  }).then(drain);
+
+  const runsAfterPlain = await (await service.app.request("/api/runs?sessionId=main", { headers })).json();
+  assert.equal(runsAfterPlain.runs.length, 1);
+  assert.equal(runsAfterPlain.runs[0].runId, runId);
+  const plainStatusRes = await service.app.request(`/api/runs/status?sessionId=main&runId=${plainRunId}`, { headers });
+  assert.equal(plainStatusRes.status, 200);
+  assert.equal((await plainStatusRes.json()).status.status, "succeeded");
 });
 
 test("live HTTP event connections end on service close and reject new subscriptions", async (t) => {

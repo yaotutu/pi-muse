@@ -92,3 +92,55 @@ export type StatusRun = {
   finish: (outcome: RunOutcome, label?: string) => SessionStatus;
   snapshot: () => SessionStatus;
 };
+
+const clipSummary = (value: string, max = MAX_STEP_TEXT_LENGTH): string =>
+  value.length > max ? `${value.slice(0, max - 1)}…` : value;
+
+/**
+ * 判断一次运行是否包含值得持久化到“执行记录”的真实动作或异常：
+ * - 普通纯文字问答（聊天来源且正常完成、未调用工具/子代理/审批）不写入执行账本；
+ * - 任何进行中运行、定时任务、包含步骤/子代理/工具调用、或失败/中断的运行均保留。
+ */
+export const isMeaningfulExecutionRun = (status: SessionStatus): boolean => {
+  if (status.status === "running" || status.source === "job") return true;
+  if (status.steps.length > 0 || status.subagents.length > 0 || status.tools.length > 0) return true;
+  return status.status === "failed" || status.status === "cancelled";
+};
+
+/** 从真实步骤提炼一句可直接展示的操作摘要（如“搜索网页（天气） → 写入文件（draft.md）”）。 */
+export const summarizeRunSteps = (steps: readonly RunStep[]): string | null => {
+  if (!steps.length) return null;
+  type Entry = { kind: RunStepKind; toolName: string | null; title: string; detail: string | null; outcomeSuffix?: string };
+  const entries: Entry[] = [];
+  for (const step of steps) {
+    const title = step.title.replace(/\s+/g, " ").trim() || "执行步骤";
+    const detail = step.detail?.replace(/\s+/g, " ").trim() || null;
+    if (step.kind === "file_commit" && entries.length > 0) {
+      const prev = entries[entries.length - 1]!;
+      const isMatchingFileTool =
+        prev.kind === "tool" &&
+        (prev.toolName === "write" || prev.toolName === "edit" || prev.title === "写入文件" || prev.title === "编辑文件") &&
+        prev.detail === detail;
+      if (isMatchingFileTool) {
+        if (step.status === "denied") prev.outcomeSuffix = "已拒绝";
+        else if (step.status === "failed") prev.outcomeSuffix = "写入失败";
+        continue;
+      }
+    }
+    const suffix =
+      step.status === "denied" ? "已拒绝"
+      : step.status === "expired" ? "已过期"
+      : step.status === "failed" ? "失败"
+      : step.status === "cancelled" ? "已取消"
+      : undefined;
+    entries.push({ kind: step.kind, toolName: step.toolName, title, detail, outcomeSuffix: suffix });
+  }
+  if (!entries.length) return null;
+  const labels = entries.slice(0, 3).map((entry) => {
+    const base = entry.detail ? `${entry.title}（${entry.detail}）` : entry.title;
+    return entry.outcomeSuffix ? `${base}·${entry.outcomeSuffix}` : base;
+  });
+  const joined = labels.join(" → ");
+  const text = entries.length > 3 ? `${joined} 等 ${entries.length} 步` : joined;
+  return clipSummary(text.replace(/\s+/g, " ").trim());
+};
