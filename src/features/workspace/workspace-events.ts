@@ -201,10 +201,10 @@ export const createWorkspaceEvents = (recency?: { initial: Record<string, string
           refresh();
         },
         finalizing: () => { if (!ended) { parentPhase = "finalizing"; refresh(); } },
-        finish: (outcome) => {
+        finish: (outcome, label) => {
           if (ended) return copy(state);
           ended = true;
-          state.status = outcome; state.phase = null; state.label = outcome === "succeeded" ? "执行完成" : outcome === "cancelled" ? "执行已停止" : "执行失败";
+          state.status = outcome; state.phase = null; state.label = label ?? (outcome === "succeeded" ? "执行完成" : outcome === "cancelled" ? "执行已停止" : "执行失败");
           state.tools = []; state.pendingApprovalIds = [];
           const stamp = new Date().toISOString();
           for (const child of state.subagents) if (child.status === "queued" || child.status === "running") {

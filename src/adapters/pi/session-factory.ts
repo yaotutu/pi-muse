@@ -174,6 +174,26 @@ const collectReadableSkillFiles = async (skills: readonly Skill[]): Promise<Read
   return files;
 };
 
+/** 按模型窗口比例计算压缩参数：约 85% 触发压缩，不再按写代码场景砍半预留。 */
+export const buildCompactionSettings = (contextWindow: number, maxTokens: number) => {
+  const maxReserve = Math.max(1024, Math.floor(contextWindow * 0.25));
+  const reserveTokens = Math.min(
+    maxReserve,
+    Math.max(Math.min(maxTokens, maxReserve), Math.floor(contextWindow * 0.15)),
+    32768,
+  );
+  const keepRecentTokens = Math.min(
+    16384,
+    Math.max(2048, Math.floor(contextWindow * 0.12)),
+    Math.max(1024, Math.floor((contextWindow - reserveTokens) * 0.5)),
+  );
+  return {
+    enabled: true as const,
+    reserveTokens,
+    keepRecentTokens,
+  };
+};
+
 /** 装配持久化聊天会话；专职子代理路由统一委托给已注册的 SubagentRegistry。 */
 export async function openPi(deps: PiDeps) {
   const { config, layout, sessionManager, memory, jobs, modelRuntime } = deps;
@@ -390,11 +410,7 @@ export async function openPi(deps: PiDeps) {
     customTools,
     tools: allowedToolNames,
     settingsManager: SettingsManager.inMemory({
-      compaction: {
-        enabled: true,
-        reserveTokens: Math.min(16384, Math.floor(config.contextWindow / 2)),
-        keepRecentTokens: Math.min(20000, Math.floor(config.contextWindow / 4)),
-      },
+      compaction: buildCompactionSettings(config.contextWindow, config.maxTokens),
       retry: { enabled: false },
     }),
   });

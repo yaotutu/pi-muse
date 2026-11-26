@@ -30,6 +30,6 @@ export type StatusRun = {
   observe: (event: ExecutionObservation) => void;
   activity: (overview: ActivityOverview) => void;
   finalizing: () => void;
-  finish: (outcome: RunOutcome) => SessionStatus;
+  finish: (outcome: RunOutcome, label?: string) => SessionStatus;
   snapshot: () => SessionStatus;
 };

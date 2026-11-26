@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { TestContext } from "node:test";
 import { createConversation } from "../../src/features/conversation/conversation-service.js";
+import { buildCompactionSettings } from "../../src/adapters/pi/session-factory.js";
+import { createWorkspaceEvents } from "../../src/features/workspace/workspace-events.js";
 import type { ConversationDependencies, ConversationExecution, ConversationHistoryPort } from "../../src/features/conversation/ports.js";
 import type { ConversationEvent, ConversationRecords, ExecutionEvent } from "../../src/features/conversation/types.js";
+import type { SessionStatus } from "../../src/features/workspace/session-status.js";
 import { createMessageFeedbackFixture } from "../support/message-session.js";
 
 /** 这里只替换 port 测生命周期，不模拟 agent loop；真实 pi/HTTP 仍由集成套件保护。 */
@@ -170,4 +173,48 @@ test("attachStream replays buffered text and detaching does not abort the active
   );
   assert.equal(attachedEvents.at(-1)?.type, "run_finished");
   assert.equal(conversation.attachStream(input.runId, () => {}), null);
+});
+
+test("compaction settings scale with model context window without reserving half of smaller windows", () => {
+  const s32k = buildCompactionSettings(32768, 4096);
+  assert.equal(s32k.enabled, true);
+  assert.equal(s32k.reserveTokens, 4915);
+  assert.equal(s32k.keepRecentTokens, 3932);
+
+  const s128k = buildCompactionSettings(128000, 16384);
+  assert.equal(s128k.reserveTokens, 19200);
+  assert.equal(s128k.keepRecentTokens, 15360);
+
+  const s256k = buildCompactionSettings(262144, 16384);
+  assert.equal(s256k.reserveTokens, 32768);
+  assert.equal(s256k.keepRecentTokens, 16384);
+});
+
+test("run timeout records lastRun as failed with explicit timeout label instead of cancelled", async (t) => {
+  const { dependencies, session } = await fixture(t);
+  const events = createWorkspaceEvents();
+  const persistedStatuses: SessionStatus[] = [];
+  dependencies.history.appendAgentStatus = (status) => { persistedStatuses.push(status); };
+  dependencies.history.sessionStatuses = () => persistedStatuses;
+  let rejectPrompt: ((error: Error) => void) | undefined;
+  dependencies.beginStatus = (init) => events.beginRun(init);
+  dependencies.openSession = async () => ({
+    ...session,
+    prompt: () => new Promise<void>((_resolve, reject) => { rejectPrompt = reject; }),
+    abort: async () => { rejectPrompt?.(new Error("aborted")); },
+    waitForIdle: async () => {},
+  });
+  const conversation = createConversation({ configured: true, runTimeoutMs: 40 }, dependencies);
+  const runEvents: ConversationEvent[] = [];
+  const handle = conversation.startRun(
+    { ...input, runId: "timeout-run" },
+    (event) => runEvents.push(event),
+  );
+  await handle.done;
+  const terminal = runEvents.at(-1);
+  assert.equal(terminal?.type, "run_error");
+  if (terminal?.type === "run_error") assert.equal(terminal.code, "TIMEOUT");
+  const snap = await conversation.snapshot();
+  assert.equal(snap.lastRun?.status, "failed");
+  assert.equal(snap.lastRun?.label, "处理超时，未生成完整回复");
 });

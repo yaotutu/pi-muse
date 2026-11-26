@@ -34,11 +34,11 @@ chmod 600 .pi-muse/config.json
     "baseUrl": "http://127.0.0.1:8000/v1",
     "id": "my-model",
     "apiKey": "paste-model-api-key-here",
-    "contextWindow": 32768,
-    "maxTokens": 4096
+    "contextWindow": 128000,
+    "maxTokens": 16384
   },
   "runtime": {
-    "runTimeoutMs": 120000,
+    "runTimeoutMs": 600000,
     "schedulerIntervalMs": 30000
   },
   "tools": {
@@ -84,9 +84,9 @@ chmod 600 .pi-muse/config.json
 | `model.baseUrl` | 空 | OpenAI-compatible API 根地址，例如 `/v1`；必须与 `model.id` 同时配置 |
 | `model.id` | 空 | 唯一业务模型 ID；图片附件要求该模型支持视觉输入，不自动切换或降级 |
 | `model.apiKey` | 空 | 模型 API key，直接写在配置文件中 |
-| `model.contextWindow` | `32768` | 必须大于 `model.maxTokens` |
-| `model.maxTokens` | `4096` | 模型输出上限 |
-| `runtime.runTimeoutMs` | `120000` | 聊天轮运行预算（毫秒）；等待人工审批期间暂停计时，所有待审批结束后按剩余预算继续，不重新获得完整预算。审批仍按自身 TTL 到期，显式 Stop 仍立即取消，客户端断线不取消服务端运行；不改变 jobs trigger 的超时语义 |
+| `model.contextWindow` | `128000` | 必须大于 `model.maxTokens`；保持默认值时启动会尝试从 `/models` 匹配模型真实窗口，显式填写则以配置为准 |
+| `model.maxTokens` | `16384` | 模型输出上限 |
+| `runtime.runTimeoutMs` | `600000` | 聊天轮运行预算（毫秒，默认 10 分钟）；等待人工审批期间暂停计时，所有待审批结束后按剩余预算继续，不重新获得完整预算；超时终态在状态快照中记为 `failed`。审批仍按自身 TTL 到期，显式 Stop 仍立即取消，客户端断线不取消服务端运行；不改变 jobs trigger 的超时语义 |
 | `runtime.schedulerIntervalMs` | `30000` | 定时任务扫描间隔 |
 | `runtime.monitorScanIntervalMs` | `60000` | 网页监控扫描间隔 |
 | `runtime.dataDir` | 配置文件所在目录 | 相对路径按配置文件所在目录解析；推荐绝对路径，但不强制 |

@@ -89,16 +89,56 @@ import { createModelTraceReader } from "../adapters/model-trace/reader.js";
 import { createModelTraceProxy } from "../adapters/model-trace/proxy.js";
 import { withModelTraceExecution } from "../adapters/model-trace/context.js";
 
+/** 未显式覆盖默认窗口时，启动期尝试向 OpenAI 兼容网关的 /models 查询真实 contextWindow。 */
+const probeUpstreamContextWindow = async (config: Config): Promise<number> => {
+  if (!config.configured || !config.baseUrl || !config.modelId || config.contextWindow !== 128_000) {
+    return config.contextWindow;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1_000);
+  timer.unref?.();
+  try {
+    const response = await fetch(`${config.baseUrl.replace(/\/+$/, "")}/models`, {
+      headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
+      signal: controller.signal,
+    });
+    if (!response.ok) return config.contextWindow;
+    const payload = await response.json() as { data?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>;
+    const list = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+    const matched = list.find((item) => item?.id === config.modelId);
+    const candidate = matched?.context_window ?? matched?.context_length ?? matched?.max_input_tokens;
+    if (
+      typeof candidate === "number" &&
+      Number.isInteger(candidate) &&
+      candidate > config.maxTokens &&
+      candidate <= 10_000_000
+    ) {
+      return candidate;
+    }
+  } catch {
+    // 网关不支持 /models 或离线启动时回落到配置值。
+  } finally {
+    clearTimeout(timer);
+  }
+  return config.contextWindow;
+};
+
 /**
  * 应用唯一的运行时组装入口。
  *
  * HTTP、调度器和 pi 都共享这里创建的 memory/jobs/conversation 实例，
  * 避免未来因重复创建 store 而出现两把写锁或两份会话状态。
  */
-export const createService = async (config: Config, options: { sharedSkillsDir?: string } = {}): Promise<ServiceContainer & {
+export const createService = async (rawConfig: Config, options: { sharedSkillsDir?: string; probeModelWindow?: boolean } = {}): Promise<ServiceContainer & {
   app: Awaited<ReturnType<typeof createHttpApp>>;
   close: () => Promise<void>;
 }> => {
+  const effectiveContextWindow = options.probeModelWindow
+    ? await probeUpstreamContextWindow(rawConfig)
+    : rawConfig.contextWindow;
+  const config: Config = effectiveContextWindow === rawConfig.contextWindow
+    ? rawConfig
+    : { ...rawConfig, contextWindow: effectiveContextWindow };
   const layout = createDataLayout(config.dataDir);
   await ensureLayout(layout);
   await initializeWorkspaceDocuments(layout);

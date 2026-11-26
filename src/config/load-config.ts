@@ -30,12 +30,12 @@ const modelSchema = z.object({
   baseUrl: z.string().optional(),
   id: z.string().optional(),
   apiKey: z.string().optional(),
-  contextWindow: positiveInt(10_000_000, 32768),
-  maxTokens: positiveInt(1_000_000, 4096),
+  contextWindow: positiveInt(10_000_000, 128_000),
+  maxTokens: positiveInt(1_000_000, 16_384),
 }).strict();
 const runtimeSchema = z.object({
   dataDir: z.string().optional(),
-  runTimeoutMs: positiveInt(3_600_000, 120_000),
+  runTimeoutMs: positiveInt(3_600_000, 600_000),
   monitorScanIntervalMs: positiveInt(3_600_000, 60_000),
   schedulerIntervalMs: positiveInt(3_600_000, 30_000),
 }).strict();

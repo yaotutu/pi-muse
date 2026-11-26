@@ -44,7 +44,7 @@
 - **要点与接入端注意**：
   - **聊天 SSE 断流不再取消服务端运行**：客户端调用 `POST /api/conversation/run` 提交消息并开始执行后，主动或被动断开该 HTTP 连接（切后台、锁屏、杀进程、网络切换）仅解除本次流订阅，服务端会继续在后台完成推理、工具与子代理调用并持久化历史。仅显式 `POST /api/conversation/stop`、单轮超时、会话重置/删除或服务关闭会取消运行。
   - **新增断线重挂流端点 `GET /api/conversation/stream?sessionId=...&runId=...`**：重连或回到前台时可按运行身份重新订阅正在执行的 AG-UI 聊天流；连接成功会先补发 `RUN_STARTED` 与当前轮已累积文本快照，再实时推送后续增量直到 `RUN_FINISHED` 或 `RUN_ERROR`。若运行已结束或不存在则返回 `404`，客户端改读 `GET /api/conversation`。
-  - **`GET /api/conversation` 新增 `lastRun` 字段**：返回当前进行中或最近一次已结束运行的展示状态快照（`SessionStatus | null`），便于客户端冷启动后立即区分「仍在运行 / 已完成 / 已失败 / 已取消」。
+  - **`GET /api/conversation` 新增 `lastRun` 字段**：返回当前进行中或最近一次已结束运行的展示状态快照（`SessionStatus | null`），便于客户端冷启动后立即区分「仍在运行 / 已完成 / 已失败 / 已取消」（其中单轮超时在 `lastRun` 中记为 `status: "failed"`，并带超时提示文案）。
   - **用户消息落盘即发 `conversation_updated`**：本轮用户消息写入后即触发一次 `conversation_updated`，冷启动或另一端中途拉取历史可立即看到用户消息。
 
 ### 2026-11-25 — 彻底移除 `domain` 概念，统一收口为 `subagent` 并新增只读检视接口 `/api/subagents`

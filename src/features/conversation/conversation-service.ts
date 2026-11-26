@@ -212,9 +212,18 @@ export function createConversation(
       },
     };
   };
-  const finishStatus = async (running: ActiveRun, sessionId: string, outcome: RunOutcome) => {
+  const finishStatus = async (running: ActiveRun, sessionId: string, outcome: RunOutcome, label?: string) => {
     await dependencies.cancelApprovals?.(sessionId, running.runId);
-    if (running.status) historyPort.appendAgentStatus?.(running.status.finish(outcome));
+    if (running.status) historyPort.appendAgentStatus?.(running.status.finish(outcome, label));
+  };
+  const settleFailureStatus = (running: ActiveRun, sessionId: string) => {
+    if (running.reason === "STOPPED" || running.reason === "SHUTDOWN") {
+      return finishStatus(running, sessionId, "cancelled");
+    }
+    if (running.reason === "TIMEOUT") {
+      return finishStatus(running, sessionId, "failed", "处理超时，未生成完整回复");
+    }
+    return finishStatus(running, sessionId, "failed");
   };
   const broadcast = (running: ActiveRun, event: ConversationEvent) => {
     if (event.type === "run_started") running.started = true;
@@ -326,7 +335,6 @@ export function createConversation(
           historyPort.appendTurn(turn);
           turnRecorded = true;
           running.session.syncContext();
-          await running.session.compactIfNeeded?.("Focus on retaining key user facts, ongoing tasks, and decisions.");
           unsubscribe = running.session.subscribe((event) => {
             if (event.type === "turn_start") {
               notifyHistoryRecorded();
@@ -391,7 +399,7 @@ export function createConversation(
           status,
         } satisfies ConversationResult);
         activity?.finish(running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
-        await finishStatus(running, currentSessionId, running.reason ? "cancelled" : "failed");
+        await settleFailureStatus(running, currentSessionId);
         const code =
           running.reason ||
           (error instanceof ConversationError ? error.code : "MODEL_ERROR");
@@ -511,7 +519,6 @@ export function createConversation(
       if (running.reason) throw new ConversationError(running.reason, "Response cancelled");
       historyPort.appendTurn(turn);
       running.session.syncContext();
-      await running.session.compactIfNeeded?.("Focus on retaining key user facts, ongoing tasks, and decisions.");
       unsubscribe = running.session.subscribe((event) => {
         // 工具轮的终止消息可能没有文本，只在非空时覆盖最后一段回复。
         if (event.type === "assistant_end") {
@@ -528,7 +535,8 @@ export function createConversation(
         status: ok ? "completed" : "failed",
       } satisfies ConversationResult);
       activity?.finish(ok ? "completed" : running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed", Boolean(finalText.trim()));
-      await finishStatus(running, sourceSessionId, ok ? "succeeded" : running.reason ? "cancelled" : "failed");
+      if (ok) await finishStatus(running, sourceSessionId, "succeeded");
+      else await settleFailureStatus(running, sourceSessionId);
       return { status: ok ? ("completed" as const) : ("failed" as const), text: finalText };
     } catch {
       if (running.session) {
@@ -540,7 +548,7 @@ export function createConversation(
         status: "failed",
       } satisfies ConversationResult);
       activity?.finish(running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
-      await finishStatus(running, sourceSessionId, running.reason ? "cancelled" : "failed");
+      await settleFailureStatus(running, sourceSessionId);
       return { status: "failed" as const, text: "" };
     } finally {
       if (timeout) clearTimeout(timeout);

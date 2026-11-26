@@ -15,6 +15,7 @@ import { runWithModelTrace, type ModelTraceContext } from "../model-trace/contex
 import type { DataLayout } from "../storage/data-layout.js";
 import { projectExecutionEvent } from "./execution.js";
 import { createResourceLoader } from "./resource-loader.js";
+import { buildCompactionSettings } from "./session-factory.js";
 import { SUBAGENT_TOOL_NAME } from "./subagent/extension.js";
 
 /** 子代理硬禁止的工具集合：永不下放 bash 与递归 subagent。 */
@@ -185,11 +186,7 @@ export const runSubagent = async (
         tools: allowedTools,
         settingsManager: SettingsManager.inMemory({
           compaction: spec.compaction
-            ? {
-                enabled: true,
-                reserveTokens: Math.min(16384, Math.floor(deps.config.contextWindow / 2)),
-                keepRecentTokens: Math.min(20000, Math.floor(deps.config.contextWindow / 4)),
-              }
+            ? buildCompactionSettings(deps.config.contextWindow, deps.config.maxTokens)
             : { enabled: false },
           retry: { enabled: false },
         }),

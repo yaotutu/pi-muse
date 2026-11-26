@@ -54,7 +54,7 @@ const lookupPortOwner = (port: number): string | undefined => {
 };
 
 const config = loadConfig();
-const service = await createService(config);
+const service = await createService(config, { probeModelWindow: true });
 let server: ServerType | undefined;
 let detachBrowserWebSocket: (() => void) | undefined;
 try {

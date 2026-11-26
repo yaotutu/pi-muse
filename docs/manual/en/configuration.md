@@ -34,11 +34,11 @@ Then edit it:
     "baseUrl": "http://127.0.0.1:8000/v1",
     "id": "my-model",
     "apiKey": "paste-model-api-key-here",
-    "contextWindow": 32768,
-    "maxTokens": 4096
+    "contextWindow": 128000,
+    "maxTokens": 16384
   },
   "runtime": {
-    "runTimeoutMs": 120000,
+    "runTimeoutMs": 600000,
     "schedulerIntervalMs": 30000
   },
   "tools": {
@@ -84,9 +84,9 @@ Every section and field may be omitted as needed; omitted values use built-in de
 | `model.baseUrl` | Empty | OpenAI-compatible API root address, for example `/v1`; must be configured together with `model.id`. |
 | `model.id` | Empty | The sole business model ID. Image attachments require this model to support vision input; it is not automatically switched or downgraded. |
 | `model.apiKey` | Empty | Model API key, written directly in the configuration file. |
-| `model.contextWindow` | `32768` | Must be greater than `model.maxTokens`. |
-| `model.maxTokens` | `4096` | Maximum model output. |
-| `runtime.runTimeoutMs` | `120000` | Execution budget for one chat turn, in milliseconds. Timing pauses while manual approval is pending and resumes with the remaining budget after all pending approvals finish; it does not receive a fresh full budget. Approvals still expire according to their own TTL, explicit Stop cancels immediately, and client disconnection does not cancel server execution. This does not change jobs-trigger timeout semantics. |
+| `model.contextWindow` | `128000` | Must be greater than `model.maxTokens`. When left at the default, startup tries to match the model's real window from `/models`; explicit values take precedence. |
+| `model.maxTokens` | `16384` | Maximum model output. |
+| `runtime.runTimeoutMs` | `600000` | Execution budget for one chat turn, in milliseconds (10 minutes by default). Timing pauses while manual approval is pending and resumes with the remaining budget after all pending approvals finish; it does not receive a fresh full budget, and timeouts settle `SessionStatus.status` as `failed`. Approvals still expire according to their own TTL, explicit Stop cancels immediately, and client disconnection does not cancel server execution. This does not change jobs-trigger timeout semantics. |
 | `runtime.schedulerIntervalMs` | `30000` | Scheduled-task scan interval. |
 | `runtime.monitorScanIntervalMs` | `60000` | Webpage-monitor scan interval. |
 | `runtime.dataDir` | Directory containing the configuration file | Relative paths are resolved against the configuration file's directory. An absolute path is recommended but not required. |
