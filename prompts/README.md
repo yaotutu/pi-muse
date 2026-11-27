@@ -20,8 +20,8 @@
 | [assistant/bootstrap.md](assistant/bootstrap.md) | 主对话助手（全新实例首轮） | 全新工作区初始化为 `workspace/assistant/BOOTSTRAP.md` 的一次性破冰引导；一旦 `SOUL.md` 或 `USER.md` 有内容即自动退场 |
 | [assistant/subagents.md](assistant/subagents.md) | 主对话助手 | 开放聊天路由的专职 Subagent 清单、领域通知卡片隔离说明与路由规约 |
 | `assistant/tools/*.md` | 主对话各能力工具 | 随当轮实际可用工具动态拼装（`files` / `current-time` / `write` / `database` / `instructions` / `skills` / `activity` / `memory` / `schedule` / `monitor` / `goal` / `weather` / `web` / `browser`） |
-| [subagents/sms-chat.md](subagents/sms-chat.md) | 短信专职 Subagent（聊天态） | 负责主聊天路由过来的短信查询与 `subagents/sms/AGENTS.md` 合并审批更新 |
-| [subagents/news-chat.md](subagents/news-chat.md) | 新闻专职 Subagent（聊天态） | 负责主聊天路由过来的新闻查询与 `subagents/news/AGENTS.md` 合并审批更新 |
+| [subagents/sms-chat.md](subagents/sms-chat.md) | 短信专职 Subagent（聊天态） | 负责主聊天路由过来的短信查询与 `subagents/sms/AGENTS.md` 合并更新 |
+| [subagents/news-chat.md](subagents/news-chat.md) | 新闻专职 Subagent（聊天态） | 负责主聊天路由过来的新闻查询与 `subagents/news/AGENTS.md` 合并更新 |
 | [subagents/browser.md](subagents/browser.md) | 浏览器专职 Subagent（聊天态） | 在独立内存上下文中操作共享真实 GUI Chrome，遇登录/验证码发起人工接管 |
 | [habits/consolidate.md](habits/consolidate.md) | 通用习惯归纳 Worker | 基于消费游标从各领域未消化反馈热缓冲中定期提炼 `add/edit/delete` 行为习惯，不覆盖显式指令、不记录一次性验证码/链接 |
 | [sms/realtime.md](sms/realtime.md) | 短信实时单周期 Worker | **默认静默（Default-Silent）基线 + 四级优先级**（用户指令 > 近期未消化反馈 > 已归纳长期习惯 > 默认静默），默认输出简体中文通知与理由 |

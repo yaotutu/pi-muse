@@ -1,7 +1,23 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { createWebService, UNTRUSTED_CONTENT_BANNER } from "../../src/features/web/web-service.js";
-import { parseBingRssResults, parseDuckDuckGoResults, safePublicGet } from "../../src/adapters/web/http-transport.js";
+import {
+  createHttpWebTransport,
+  createSearchSourceRegistry,
+  parseBingRssResults,
+  parseBraveResults,
+  parseDuckDuckGoResults,
+  parseJinaSearchResults,
+  parseSearxngResults,
+  parseTavilyResults,
+  resolveSearchProvider,
+  safePublicGet,
+  shouldBypassExternalReader,
+  type HttpRequestFn,
+  type SearchSource,
+} from "../../src/adapters/web/http-transport.js";
 import { resolvePublicHost } from "../../src/shared/public-host.js";
 import type { FetchedWebPage, WebSearchResult, WebTransport } from "../../src/features/web/types.js";
 
@@ -409,5 +425,205 @@ test("non-cancellation transport failures still surface as generic WebFailure", 
   assert.deepEqual(await web.fetch("https://example.test"), {
     error: "Web fetch failed",
     url: "https://example.test/",
+  });
+});
+
+test("search provider inference and JSON result parsers support Tavily, Brave, SearXNG and Jina", () => {
+  assert.equal(resolveSearchProvider(), "duckduckgo");
+  assert.equal(resolveSearchProvider({ provider: "auto", baseUrl: "http://127.0.0.1:8080" }), "searxng");
+  assert.equal(resolveSearchProvider({ provider: "auto", apiKey: "tvly-123" }), "tavily");
+  assert.equal(resolveSearchProvider({ provider: "auto", apiKey: "jina_123" }), "jina");
+  assert.equal(resolveSearchProvider({ provider: "auto", apiKey: "BSA-123" }), "brave");
+  assert.equal(resolveSearchProvider({ provider: "brave", apiKey: "tvly-123" }), "brave");
+
+  assert.deepEqual(
+    parseTavilyResults({
+      results: [
+        { title: " T1 ", url: "https://a.example", content: " S1 " },
+        { title: "Bad", url: "javascript:alert(1)", content: "x" },
+      ],
+    }, 5),
+    [{ title: "T1", url: "https://a.example", snippet: "S1" }],
+  );
+  assert.deepEqual(
+    parseBraveResults({
+      web: { results: [{ title: "B1", url: "https://b.example", description: "Desc" }] },
+    }, 5),
+    [{ title: "B1", url: "https://b.example", snippet: "Desc" }],
+  );
+  assert.deepEqual(
+    parseSearxngResults({
+      results: [{ title: "X1", url: "http://c.example", content: "Snippet" }],
+    }, 5),
+    [{ title: "X1", url: "http://c.example", snippet: "Snippet" }],
+  );
+  assert.deepEqual(
+    parseJinaSearchResults({
+      data: [{ title: "J1", url: "https://d.example", description: "JDesc" }],
+    }, 5),
+    [{ title: "J1", url: "https://d.example", snippet: "JDesc" }],
+  );
+});
+
+test("shouldBypassExternalReader protects credentials, auth params, raw data and local targets", () => {
+  assert.equal(shouldBypassExternalReader(new URL("https://example.com/article")), false);
+  assert.equal(shouldBypassExternalReader(new URL("https://example.com/article"), { useJinaReader: false }), true);
+  assert.equal(shouldBypassExternalReader(new URL("https://example.com/article"), { allowPrivateTargets: true }), true);
+  assert.equal(shouldBypassExternalReader(new URL("https://user:pass@example.com/article")), true);
+  assert.equal(shouldBypassExternalReader(new URL("https://example.com/doc?token=secret")), true);
+  assert.equal(shouldBypassExternalReader(new URL("https://example.com/doc?X-Amz-Signature=abc")), true);
+  assert.equal(shouldBypassExternalReader(new URL("https://example.com/feed.json")), true);
+  assert.equal(shouldBypassExternalReader(new URL("https://example.com/feed.xml")), true);
+  assert.equal(shouldBypassExternalReader(new URL("https://example.com/readme.txt")), true);
+});
+
+test("Jina Reader extracts Markdown on success and falls back cleanly on failure or bypass", async () => {
+  const calls: Array<{ url: string; method?: string; headers?: Record<string, string>; body?: string }> = [];
+  const fakeDns = { address: "93.184.216.34", family: 4 as const };
+  const fakeTransport: HttpRequestFn = async (url, _cfg, _pinned, _timeout, _sig, opts) => {
+    calls.push({ url: url.toString(), method: opts?.method, headers: opts?.headers, body: opts?.body });
+    if (url.hostname === "r.jina.ai") {
+      if (url.toString().includes("fallback.example")) {
+        return { status: 503, headers: {}, body: "unavailable", url };
+      }
+      return {
+        status: 200,
+        headers: { "content-type": "text/markdown; charset=utf-8" },
+        body: "# Clean Markdown\n\nBody text.",
+        url,
+      };
+    }
+    return {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+      body: "<html><title>Direct</title><body><p>Local HTML</p></body></html>",
+      url,
+    };
+  };
+
+  // 使用纯 IPv4 字面量触发 resolvePublicHost 公网放行而无需真实外网 DNS 解析
+  const jinaTransport = createHttpWebTransport({
+    timeoutMs: 5000,
+    maxResponseBytes: 100000,
+    fetch: { useJinaReader: true, jinaApiKey: "jina_demo" },
+  }, fakeTransport);
+  const web = createWebService(jinaTransport, { searchResults: 5, maxSearchResults: 10, maxContentChars: 5000 });
+  const ok = await web.fetch("https://93.184.216.34/post");
+  assert.equal("error" in ok, false);
+  if (!("error" in ok)) {
+    assert.equal(ok.extractor, "jina");
+    assert.match(ok.text, /# Clean Markdown/);
+  }
+  assert.equal(calls[0]?.url, "https://r.jina.ai/https://93.184.216.34/post");
+  assert.equal(calls[0]?.headers?.authorization, "Bearer jina_demo");
+
+  // 含敏感参数 URL 绕过 Jina Reader，直接本地抓取（防止凭据泄漏）
+  calls.length = 0;
+  const direct = await web.fetch("https://93.184.216.34/doc?access_token=topsecret");
+  assert.equal("error" in direct, false);
+  if (!("error" in direct)) assert.equal(direct.extractor, "markdown");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.url, "https://93.184.216.34/doc?access_token=topsecret");
+
+  // 私网 IP 在提交到 r.jina.ai 之前即被 SSRF 拦截
+  calls.length = 0;
+  const blocked = await web.fetch("http://127.0.0.1/admin");
+  assert.deepEqual(blocked, { error: "Web fetch failed", url: "http://127.0.0.1/admin" });
+  assert.equal(calls.length, 0);
+
+  // Jina 异常时无缝回退本地抽取；fakeDns 仅作静态引用确认
+  assert.equal(fakeDns.family, 4);
+  const fallbackWeb = createWebService(
+    createHttpWebTransport({ timeoutMs: 5000, maxResponseBytes: 100000 }, async (url) => {
+      if (url.hostname === "r.jina.ai") throw new Error("upstream down");
+      return { status: 200, headers: { "content-type": "text/html" }, body: "<p>Local fallback</p>", url };
+    }),
+    { searchResults: 5, maxSearchResults: 10, maxContentChars: 5000 },
+  );
+  const fb = await fallbackWeb.fetch("https://93.184.216.34/fallback.example");
+  assert.equal("error" in fb, false);
+  if (!("error" in fb)) {
+    assert.equal(fb.extractor, "markdown");
+    assert.match(fb.text, /Local fallback/);
+  }
+});
+
+test("HTTP proxy config forwards requests with Proxy-Authorization while preserving SSRF rules", async (t) => {
+  let seenUrl = "";
+  let seenAuth = "";
+  const proxy = createServer((req, res) => {
+    seenUrl = req.url ?? "";
+    seenAuth = typeof req.headers["proxy-authorization"] === "string" ? req.headers["proxy-authorization"] : "";
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("proxied body");
+  });
+  await new Promise<void>((done) => proxy.listen(0, "127.0.0.1", () => done()));
+  t.after(() => proxy.close());
+  const port = (proxy.address() as AddressInfo).port;
+
+  const page = await safePublicGet("http://127.0.0.1:9999/hello", {
+    timeoutMs: 5000,
+    maxResponseBytes: 10000,
+    allowPrivateTargets: true,
+    proxy: `http://alice:s3cr3t@127.0.0.1:${port}`,
+  });
+  assert.equal(page.status, 200);
+  assert.equal(page.body, "proxied body");
+  assert.equal(seenUrl, "http://127.0.0.1:9999/hello");
+  assert.equal(seenAuth, `Basic ${Buffer.from("alice:s3cr3t").toString("base64")}`);
+
+  // 未放开私网目标时，即使配了代理也会提前被 SSRF 拦截，绝不打到代理
+  seenUrl = "";
+  await assert.rejects(
+    safePublicGet("http://127.0.0.1:9999/hello", {
+      timeoutMs: 5000,
+      maxResponseBytes: 10000,
+      proxy: `http://127.0.0.1:${port}`,
+    }),
+  );
+  assert.equal(seenUrl, "");
+});
+
+test("search source registry allows overriding built-in provider with a custom SearchSource", async () => {
+  const received: Array<{ query: string; count: number; provider: string | undefined }> = [];
+  const customDuckDuckGo: SearchSource = {
+    id: "duckduckgo",
+    search: async (query, count, context) => {
+      received.push({ query, count, provider: context.search?.provider });
+      return [
+        {
+          title: "<b>Custom Source</b>",
+          url: "https://custom.example/result",
+          snippet: "Custom snippet &amp; summary",
+        },
+      ];
+    },
+  };
+  const registry = createSearchSourceRegistry([customDuckDuckGo]);
+  assert.ok(registry.has("tavily"));
+  assert.equal(registry.get("duckduckgo"), customDuckDuckGo);
+
+  const transport = createHttpWebTransport(
+    {
+      timeoutMs: 5000,
+      maxResponseBytes: 10000,
+      search: { provider: "auto" },
+    },
+    undefined,
+    registry,
+  );
+  const web = createWebService(transport, { searchResults: 5, maxSearchResults: 10, maxContentChars: 5000 });
+  const result = await web.search("pluggable search", 3);
+  assert.deepEqual(received, [{ query: "pluggable search", count: 3, provider: "auto" }]);
+  assert.deepEqual(result, {
+    results: [
+      {
+        title: "Custom Source",
+        url: "https://custom.example/result",
+        snippet: "Custom snippet & summary",
+      },
+    ],
+    warnings: [],
+    truncated: false,
   });
 });

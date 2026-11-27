@@ -57,13 +57,15 @@ const setup = async (t: TestContext) => {
 };
 
 test("tool registration defines one explicit ordered allowlist and unchanged schemas", async (t) => {
-  const { tools } = await setup(t);
+  const { tools, layout, memory, jobs } = await setup(t);
   assert.deepEqual(tools.map((tool) => tool.name), [
     "currentTime", "memory", "memory_search", "schedule", "read", "grep", "find", "ls",
-    "search_web", "web_fetch", "get_weather",
+    "write", "edit", "search_web", "web_fetch", "get_weather",
   ]);
-  assert.equal(new Set(tools.map((tool) => tool.name)).size, 11);
-  assert.ok(tools.every((tool) => !["bash", "edit", "write"].includes(tool.name)));
+  assert.equal(new Set(tools.map((tool) => tool.name)).size, 13);
+  assert.ok(tools.every((tool) => tool.name !== "bash"));
+  const readOnly = createTools({ root: layout.workspaceDir, memory, jobs, writableEnabled: false });
+  assert.ok(readOnly.every((tool) => !["bash", "edit", "write"].includes(tool.name)));
   assert.equal(tools[0].parameters.additionalProperties, false);
   assert.deepEqual(tools[0].parameters.properties, {});
   assert.deepEqual(tools[1].parameters.required, ["action"]);
@@ -193,7 +195,7 @@ test("system prompt business guidance follows the final tool allowlist", async (
   });
   for (const unavailable of [
     "Use database for the server-managed SQLite databases",
-    "write/edit change",
+    "write/edit directly create or modify",
     "instructions reads or replaces",
     "For maintaining Pi Muse product skills",
     "memory_search",
@@ -218,7 +220,7 @@ test("system prompt business guidance follows the final tool allowlist", async (
   for (const available of [
     "Use database for the server-managed SQLite databases",
     "without per-operation approval or table-level permissions",
-    "write/edit change",
+    "write/edit directly create or modify",
     "instructions reads or replaces",
     "Skill assets are stored once",
     "memory_search to look",

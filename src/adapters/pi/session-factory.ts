@@ -256,24 +256,15 @@ export async function openPi(deps: PiDeps) {
         deps.status?.observe({ kind: "subagent", phase: "start", id: childId, role: agent.id, parentId: parentStepId });
         try {
           signal?.throwIfAborted();
-          const childApprovalObserver = deps.status
-            ? {
-                observe: (event: Parameters<NonNullable<Parameters<typeof createWritableFileTools>[5]>["observe"]>[0]) => deps.status!.observe(event),
-                prefix: childId,
-              }
-            : undefined;
-          const writable = actions && deps.config.writable.enabled !== false
+          const writable = deps.config.writable.enabled !== false
             ? createWritableFileTools(
                 cwd,
-                actions,
-                actionTimeoutMs ?? 86_400_000,
                 {
                   sessionId: deps.sessionId,
                   runId: deps.runId,
                   subagentId: childId,
                 },
                 layout.workspaceDir,
-                childApprovalObserver,
                 deps.workspaceCommits,
                 { allowManagedForSubagent: true },
               )[0]

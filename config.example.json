@@ -27,7 +27,17 @@
   },
   "tools": {
     "web": {
-      "enabled": true
+      "enabled": true,
+      "proxy": "",
+      "search": {
+        "provider": "auto",
+        "apiKey": "",
+        "baseUrl": ""
+      },
+      "fetch": {
+        "useJinaReader": true,
+        "jinaApiKey": ""
+      }
     },
     "weather": {
       "enabled": true

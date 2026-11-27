@@ -39,6 +39,23 @@ const runtimeSchema = z.object({
   monitorScanIntervalMs: positiveInt(3_600_000, 60_000),
   schedulerIntervalMs: positiveInt(3_600_000, 30_000),
 }).strict();
+const webSearchProvider = z.enum([
+  "auto",
+  "duckduckgo",
+  "brave",
+  "tavily",
+  "searxng",
+  "jina",
+]);
+const webSearchSchema = z.object({
+  provider: webSearchProvider.default("auto"),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().optional(),
+}).strict();
+const webFetchSchema = z.object({
+  useJinaReader: z.boolean().default(true),
+  jinaApiKey: z.string().optional(),
+}).strict();
 const webSchema = z.object({
   enabled: z.boolean().default(true),
   timeoutMs: positiveInt(60_000, 30_000),
@@ -48,6 +65,9 @@ const webSchema = z.object({
   userAgent: z.string().optional(),
   // 默认拒绝回环/私网目标；本机联调（如本地页面监控验收）显式打开。
   allowPrivateTargets: z.boolean().default(false),
+  proxy: z.string().optional(),
+  search: webSearchSchema.prefault({}),
+  fetch: webFetchSchema.prefault({}),
 }).strict();
 const weatherSchema = z.object({
   enabled: z.boolean().default(true),
@@ -166,12 +186,65 @@ export const createConfig = (
     enabled: file.tools.weather.enabled,
     defaultCity: text(file.tools.weather.defaultCity) || undefined,
   };
+  const proxyRaw = text(file.tools.web.proxy) || undefined;
+  let proxy: string | undefined;
+  if (proxyRaw) {
+    let parsedProxy: URL;
+    try {
+      parsedProxy = new URL(proxyRaw);
+    } catch {
+      throw new Error("tools.web.proxy must be an HTTP or HTTPS URL");
+    }
+    if (!["http:", "https:"].includes(parsedProxy.protocol) || parsedProxy.search || parsedProxy.hash) {
+      throw new Error("tools.web.proxy must be an HTTP or HTTPS URL without query or fragment");
+    }
+    proxy = proxyRaw;
+  }
+  const searchApiKey = text(file.tools.web.search.apiKey) || undefined;
+  const searchBaseUrlRaw = text(file.tools.web.search.baseUrl) || undefined;
+  let searchBaseUrl: string | undefined;
+  if (searchBaseUrlRaw) {
+    let parsedSearchUrl: URL;
+    try {
+      parsedSearchUrl = new URL(searchBaseUrlRaw);
+    } catch {
+      throw new Error("tools.web.search.baseUrl must be an HTTP(S) URL without credentials, query or fragment");
+    }
+    if (
+      !["http:", "https:"].includes(parsedSearchUrl.protocol) ||
+      parsedSearchUrl.username ||
+      parsedSearchUrl.password ||
+      parsedSearchUrl.search ||
+      parsedSearchUrl.hash
+    ) {
+      throw new Error("tools.web.search.baseUrl must be an HTTP(S) URL without credentials, query or fragment");
+    }
+    searchBaseUrl = searchBaseUrlRaw.replace(/\/+$/, "");
+  }
+  const searchProvider = file.tools.web.search.provider;
+  if ((searchProvider === "brave" || searchProvider === "tavily") && !searchApiKey) {
+    throw new Error(`tools.web.search.apiKey is required for provider ${searchProvider}`);
+  }
+  if (searchProvider === "searxng" && !searchBaseUrl) {
+    throw new Error("tools.web.search.baseUrl is required for provider searxng");
+  }
+  const jinaApiKey = text(file.tools.web.fetch.jinaApiKey) || undefined;
   const web = {
     ...file.tools.web,
     userAgent: text(file.tools.web.userAgent) || defaultUserAgent,
+    proxy,
+    search: {
+      provider: searchProvider,
+      apiKey: searchApiKey,
+      baseUrl: searchBaseUrl,
+    },
+    fetch: {
+      useJinaReader: file.tools.web.fetch.useJinaReader,
+      jinaApiKey,
+    },
   };
 
-  // 写文件默认开启（每次执行都需人工审批）；审批等待默认 24 小时超时。
+  // 工作区 write/edit 直接落盘（不走阻塞审批）；actionTimeoutMs 供需要确认的外部/技能审批使用。
   const writable = file.tools.writable;
   const cdpUrl = text(file.tools.browser.cdpUrl) || undefined;
   if (cdpUrl) {

@@ -166,3 +166,66 @@ export const commitApprovedFile = async ({
     if (temporary) await unlink(temporary).catch((error) => { if (!isMissing(error)) throw error; });
   }
 });
+
+export type CommitWorkspaceFileOptions = {
+  target: string;
+  /** 只用于成功文案，必须是逻辑路径，不能返回服务端绝对路径。 */
+  successPath: string;
+  original?: FileSnapshot;
+  content: string;
+  signal?: AbortSignal;
+  commitQueue?: WorkspaceCommitQueue;
+  /** 提交前重查目标仍是解析出的物理路径与边界。 */
+  validateTarget?: (target: string) => Promise<boolean>;
+};
+
+/**
+ * 工作区内部直接写入提交：在共享逐路径锁内复查路径与版本快照，
+ * 通过独占临时文件原子替换或排他创建并回读校验；不触发人工审批。
+ */
+export const commitWorkspaceFile = async ({
+  target,
+  successPath,
+  original,
+  content,
+  signal,
+  commitQueue = fallbackCommits,
+  validateTarget,
+}: CommitWorkspaceFileOptions) => commitQueue(target, async () => {
+  const unchanged = async () =>
+    (!validateTarget || await validateTarget(target)) &&
+    (await readFileSnapshot(target, MAX_TEXT_FILE_BYTES))?.version === original?.version;
+  let temporary: string | undefined;
+  let committed = false;
+  try {
+    if (signal?.aborted) return deniedResult("Operation aborted; nothing was written.");
+    if (!await unchanged())
+      return deniedResult("File changed concurrently while writing; please read the latest content and try again.");
+    await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+    if (signal?.aborted) return deniedResult("Operation aborted; nothing was written.");
+    if (!await unchanged())
+      return deniedResult("File changed concurrently while writing; please read the latest content and try again.");
+    temporary = join(dirname(target), `.write-${randomUUID()}.tmp`);
+    const file = await open(temporary, "wx", 0o600);
+    try {
+      if (signal?.aborted) return deniedResult("Operation aborted; nothing was written.");
+      await file.writeFile(content, "utf8");
+    } finally { await file.close(); }
+    if (signal?.aborted) return deniedResult("Operation aborted; nothing was written.");
+    if (!await unchanged())
+      return deniedResult("File changed concurrently while writing; please read the latest content and try again.");
+    if (original) await rename(temporary, target);
+    else await link(temporary, target);
+    committed = true;
+    if ((await readFileSnapshot(target, MAX_TEXT_FILE_BYTES))?.content !== content)
+      throw new Error("Read-back mismatch");
+    return { content: [{ type: "text" as const, text: `Saved ${successPath}.` }], details: undefined };
+  } catch {
+    if (committed) {
+      return deniedResult("File was written, but read-back verification failed. Verify the file before repeating.");
+    }
+    return deniedResult("Workspace file write refused: the file changed, the path is unsafe, or writing failed.");
+  } finally {
+    if (temporary) await unlink(temporary).catch((error) => { if (!isMissing(error)) throw error; });
+  }
+});

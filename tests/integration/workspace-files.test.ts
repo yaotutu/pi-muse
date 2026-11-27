@@ -276,41 +276,32 @@ test("workspace files: target and parent symlinks cannot read, write or delete t
   assert.equal(await stat(join(outside, "new.md")).catch(() => null), null);
 });
 
-test("workspace files: manual save invalidates an old model write approval version", async (t) => {
+test("workspace files: model direct write and manual save share workspace without approval", async (t) => {
   const opened = await openService(t);
   const { service, headers } = opened;
   const root = service.layout.workspaceDir;
   const writeTool = createWritableFileTools(
     root,
-    service.actions,
-    10_000,
-    { sessionId: "main", runId: "manual-write-race" },
+    { sessionId: "main", runId: "direct-write" },
     service.layout.workspaceDir,
-    undefined,
     service.workspaceCommits,
   ).find((tool) => tool.name === "write")!;
-  const pendingWrite = (writeTool.execute as unknown as (
+  const toolResult = await (writeTool.execute as unknown as (
     id: string,
     params: { path: string; content: string },
   ) => Promise<{ isError?: boolean; content: Array<{ text?: string }> }>)(
     "model-write-call",
-    { path: "draft.md", content: "MODEL-STALE-CONTENT" },
+    { path: "draft.md", content: "MODEL-DIRECT-CONTENT" },
   );
-  const action = await waitUntil(async () => (await service.actions.snapshotPending())[0], "model write approval");
-  assert.equal((action.payload as Record<string, string>).path, "draft.md");
+  assert.equal(toolResult.isError, undefined);
+  assert.deepEqual(await service.actions.snapshotPending(), []);
+  assert.equal(await readFile(join(opened.dataDir, "workspace", "draft.md"), "utf8"), "MODEL-DIRECT-CONTENT");
 
   const manual = await request(service, "/api/workspace/files/text", {
-    method: "POST", headers,
+    method: "PUT", headers,
     body: jsonBody({ path: "draft.md", content: "MANUAL-SAFE-CONTENT", confirmed: true }),
   });
   assert.equal(manual.status, 200);
-  const decision = await request(service, `/api/approvals/${action.id}/decision`, {
-    method: "POST", headers, body: jsonBody({ decision: "approve" }),
-  });
-  assert.equal(decision.status, 200);
-  const toolResult = await pendingWrite;
-  assert.equal(toolResult.isError, true);
-  assert.match(toolResult.content[0]?.text ?? "", /File changed since approval/);
   assert.equal(await readFile(join(opened.dataDir, "workspace", "draft.md"), "utf8"), "MANUAL-SAFE-CONTENT");
 });
 
@@ -352,23 +343,19 @@ test("workspace managed Markdown and settings endpoints read and replace the sam
   }
 });
 
-test("assistant instructions model update is approved and detects a newer settings write", async (t) => {
+test("assistant instructions model update saves directly to assistant/AGENTS.md without approval", async (t) => {
   const { service, headers } = await openService(t);
   const root = service.layout.workspaceDir;
-  const [write] = createWritableFileTools(root, service.actions, 10_000,
-    { sessionId: "main", runId: "instructions-race" }, root, undefined, service.workspaceCommits);
+  const [write] = createWritableFileTools(root, { sessionId: "main", runId: "instructions-direct" },
+    root, service.workspaceCommits);
   const tool = instructionsTool(service.layout, write.execute);
-  const pending = tool.execute("instructions-edit", { action: "set", content: "model" },
+  const res = await tool.execute("instructions-edit", { action: "set", content: "model updated rule" },
     undefined, undefined, {} as never);
-  const approval = await waitUntil(async () => (await service.actions.snapshotPending())[0], "instructions approval");
-  assert.equal((approval.payload as Record<string, string>).path, "assistant/AGENTS.md");
+  assert.equal((res as { isError?: boolean }).isError, undefined);
+  assert.deepEqual(await service.actions.snapshotPending(), []);
   const settings = "/api/assistant/instructions";
-  assert.equal((await request(service, settings, {
-    headers, method: "PUT", body: jsonBody({ instructions: "newer user edit" }),
-  })).status, 200);
-  assert.equal((await request(service, `/api/approvals/${approval.id}/decision`, {
-    headers, method: "POST", body: jsonBody({ decision: "approve" }),
-  })).status, 200);
-  assert.equal((await pending).isError, true);
-  assert.deepEqual(await (await request(service, settings, { headers })).json(), { instructions: "newer user edit", includes: [] });
+  assert.deepEqual(await (await request(service, settings, { headers })).json(), {
+    instructions: "model updated rule",
+    includes: [],
+  });
 });

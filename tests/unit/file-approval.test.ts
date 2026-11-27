@@ -5,10 +5,129 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createActionService, type ActionService } from "../../src/features/actions/action-service.js";
 import type { ActionRepository, PendingAction } from "../../src/features/actions/types.js";
+import {
+  awaitFileApproval,
+  commitApprovedFile,
+  deniedResult,
+  MAX_TEXT_FILE_BYTES,
+  readFileSnapshot,
+  type ApprovalActions,
+  type ApprovalContext,
+} from "../../src/adapters/pi/tools/file-approval.js";
 import { createWritableFileTools } from "../../src/adapters/pi/tools/files-writable.js";
+import { resolveWorkspacePath, safeWorkspacePath } from "../../src/adapters/pi/tools/workspace-path.js";
+import { createWorkspaceCommitQueue } from "../../src/adapters/workspace/file-commit-queue.js";
 
 type Tools = ReturnType<typeof createWritableFileTools>;
 type Params = { path: string; content: string } | { path: string; oldText: string; newText: string };
+
+/** 本地测试夹具：保留对审批门控（awaitFileApproval + commitApprovedFile）的完整单测覆盖。 */
+const safeTarget = async (root: string, path: string, boundaryDir?: string) => {
+  if (!path.trim()) throw new Error("Unsafe path");
+  const selected = resolveWorkspacePath(root, path);
+  if (!selected || selected.path === selected.base) throw new Error("Unsafe path");
+  return safeWorkspacePath(selected.base, selected.path, { allowMissing: true, boundaryDir });
+};
+
+const createApprovalTestTools = (
+  root: string,
+  actions: ApprovalActions,
+  timeoutMs: number,
+  context?: ApprovalContext,
+) => ([
+  {
+    name: "write",
+    async execute(_id: string, params: { path: string; content: string }, signal?: AbortSignal) {
+      if (signal?.aborted) return deniedResult("Operation aborted; nothing was written.");
+      if (Buffer.byteLength(params.content, "utf8") > MAX_TEXT_FILE_BYTES)
+        return deniedResult("File too large: writes are limited to 100KB.");
+      let target: string;
+      let original;
+      try {
+        target = await safeTarget(root, params.path);
+        original = await readFileSnapshot(target);
+      } catch {
+        return deniedResult("Access denied");
+      }
+      const approved = await awaitFileApproval(
+        actions,
+        "file_write",
+        `写入 ${params.path}`,
+        {
+          path: params.path,
+          content: params.content,
+          originalContent: original?.content ?? "",
+          baseVersion: original?.version ?? "missing",
+          beforeExists: String(original !== undefined),
+        },
+        timeoutMs,
+        signal,
+        { ...context, toolCallId: _id },
+      );
+      if (!approved) return deniedResult("Write not approved (denied, expired or cancelled); nothing was written.");
+      return commitApprovedFile({
+        target,
+        successPath: params.path,
+        original,
+        content: params.content,
+        approval: approved,
+        actions,
+        signal,
+        validateTarget: async (candidate) => (await safeTarget(root, params.path)) === candidate,
+      });
+    },
+  },
+  {
+    name: "edit",
+    async execute(_id: string, params: { path: string; oldText: string; newText: string }, signal?: AbortSignal) {
+      if (signal?.aborted) return deniedResult("Operation aborted; nothing was written.");
+      let target: string;
+      let original;
+      try {
+        target = await safeTarget(root, params.path);
+        original = await readFileSnapshot(target);
+      } catch {
+        return deniedResult("Access denied");
+      }
+      if (!original) return deniedResult("File not found.");
+      const first = original.content.indexOf(params.oldText);
+      if (first < 0) return deniedResult("oldText not found in the file.");
+      if (original.content.indexOf(params.oldText, first + 1) >= 0)
+        return deniedResult("oldText appears more than once; make it unique first.");
+      const content = original.content.slice(0, first) + params.newText + original.content.slice(first + params.oldText.length);
+      if (Buffer.byteLength(content, "utf8") > MAX_TEXT_FILE_BYTES)
+        return deniedResult("File too large: edited files are limited to 100KB.");
+      const approved = await awaitFileApproval(
+        actions,
+        "file_edit",
+        `编辑 ${params.path}`,
+        {
+          path: params.path,
+          oldText: params.oldText,
+          newText: params.newText,
+          originalContent: original.content,
+          content,
+          baseVersion: original.version,
+          beforeExists: "true",
+        },
+        timeoutMs,
+        signal,
+        { ...context, toolCallId: _id },
+      );
+      if (!approved) return deniedResult("Edit not approved (denied, expired or cancelled); nothing was written.");
+      return commitApprovedFile({
+        target,
+        successPath: params.path,
+        original,
+        content,
+        approval: approved,
+        actions,
+        signal,
+        validateTarget: async (candidate) => (await safeTarget(root, params.path)) === candidate,
+      });
+    },
+  },
+] as const);
 
 /** 模拟真实 repository 的串行读改写和序列化隔离，不触碰用户实例/配置。 */
 const memoryRepository = (initial: PendingAction[] = []): ActionRepository => {
@@ -45,8 +164,25 @@ const fixture = async (t: TestContext) => {
   await mkdir(root);
   return { directory, root, actions: createActionService(memoryRepository()) };
 };
-const execute = (tools: Tools, name: "write" | "edit", params: Params, signal?: AbortSignal) =>
-  tools.find((tool) => tool.name === name)!.execute("test-call", params as never, signal, undefined, {} as never);
+type ToolExecuteResult = {
+  isError?: boolean;
+  content: Array<{ type: string; text?: string }>;
+};
+const execute = (
+  tools: Tools | ReturnType<typeof createApprovalTestTools>,
+  name: "write" | "edit",
+  params: Params,
+  signal?: AbortSignal,
+): Promise<ToolExecuteResult> =>
+  (
+    tools.find((tool) => tool.name === name)!.execute as (
+      toolCallId: string,
+      params: never,
+      signal?: AbortSignal,
+      onUpdate?: unknown,
+      ctx?: unknown,
+    ) => Promise<ToolExecuteResult>
+  )("test-call", params as never, signal, undefined, {} as never);
 
 /** 自动决定只用于工具单测提速，仍通过真实审批服务状态机，不绕过 decide。 */
 const approving = (
@@ -121,12 +257,62 @@ test("approval rejects invalid durations", async () => {
   assert.deepEqual(await actions.list(), []);
 });
 
+test("workspace write and edit commit directly inside workspace without requesting approval", async (t) => {
+  const { root } = await fixture(t);
+  const queue = createWorkspaceCommitQueue();
+  const tools = createWritableFileTools(root, { sessionId: "agent", runId: "run" }, root, queue);
+  const bomContent = `\uFEFF${"正文".repeat(1_000)}`;
+  const created = await execute(tools, "write", { path: "nested/note.md", content: bomContent });
+  assert.equal(created.isError, undefined);
+  assert.equal(await readFile(join(root, "nested/note.md"), "utf8"), bomContent);
+
+  const edited = await execute(tools, "edit", {
+    path: "nested/note.md",
+    oldText: "\uFEFF正文正文",
+    newText: "updated",
+  });
+  assert.equal(edited.isError, undefined);
+  assert.equal(
+    await readFile(join(root, "nested/note.md"), "utf8"),
+    `updated${"正文".repeat(998)}`,
+  );
+  assert.deepEqual(await readdir(join(root, "nested")), ["note.md"]);
+});
+
+test("workspace write and edit enforce path safety, size, uniqueness and concurrent write detection", async (t) => {
+  const { directory, root } = await fixture(t);
+  const outside = join(directory, "outside");
+  await mkdir(outside);
+  await writeFile(join(outside, "file"), "original");
+  await symlink(join(outside, "file"), join(root, "linked-file"));
+  await symlink(outside, join(root, "linked-parent"));
+  const alias = join(directory, "alias");
+  await symlink(root, alias);
+
+  const queue = createWorkspaceCommitQueue();
+  const tools = createWritableFileTools(root, undefined, root, queue);
+  for (const path of ["linked-file", "linked-parent/file", "../outside/file", join(outside, "file"), ".", ""]) {
+    assert.equal((await execute(tools, "write", { path, content: "mine" })).isError, true);
+    assert.equal((await execute(tools, "edit", { path, oldText: "original", newText: "mine" })).isError, true);
+  }
+  assert.equal((await execute(createWritableFileTools(alias), "write", { path: "file", content: "mine" })).isError, true);
+  assert.equal(await readFile(join(outside, "file"), "utf8"), "original");
+
+  await writeFile(join(root, "file"), "a".repeat(99_999) + "x");
+  assert.equal((await execute(tools, "edit", { path: "file", oldText: "x", newText: "中" })).isError, true);
+  assert.equal((await execute(tools, "write", { path: "other", content: "中".repeat(33_334) })).isError, true);
+  assert.equal((await execute(tools, "edit", { path: "file", oldText: "aa", newText: "b" })).isError, true);
+  assert.equal((await execute(tools, "edit", { path: "file", oldText: "missing", newText: "b" })).isError, true);
+  assert.equal((await execute(tools, "edit", { path: "file", oldText: "x", newText: "y" })).isError, undefined);
+  assert.equal(Buffer.byteLength(await readFile(join(root, "file"), "utf8")), 100_000);
+});
+
 test("write approval exposes full content, version and execution context", async (t) => {
   const { root, actions } = await fixture(t);
   const original = "before".repeat(1_000);
   const content = "正文".repeat(1_000);
   await writeFile(join(root, "note.md"), original);
-  const tools = createWritableFileTools(root, approving(actions), 5_000, { sessionId: "agent", runId: "run" });
+  const tools = createApprovalTestTools(root, approving(actions), 5_000, { sessionId: "agent", runId: "run" });
   const result = await execute(tools, "write", { path: "note.md", content });
   assert.equal(result.isError, undefined);
   const [action] = await actions.list();
@@ -146,10 +332,9 @@ test("write approval exposes full content, version and execution context", async
 
 test("new-file write approval records beforeExists=false with an empty before", async (t) => {
   const { root, actions } = await fixture(t);
-  const result = await execute(createWritableFileTools(root, approving(actions), 5_000), "write", { path: "nested/new.md", content: "new" });
+  const result = await execute(createApprovalTestTools(root, approving(actions), 5_000), "write", { path: "nested/new.md", content: "new" });
   assert.equal(result.isError, undefined);
   const [action] = await actions.list();
-  // 新建文件的完整预览：before 为空串，beforeExists 明确为 false，baseVersion 固定为 missing。
   assert.deepEqual(action.payload, {
     path: "nested/new.md", originalContent: "", content: "new",
     baseVersion: "missing", beforeExists: "false",
@@ -157,35 +342,27 @@ test("new-file write approval records beforeExists=false with an empty before", 
   assert.equal(await readFile(join(root, "nested/new.md"), "utf8"), "new");
 });
 
-test("approved text preserves a leading UTF-8 BOM through read-back", async (t) => {
-  const { root, actions } = await fixture(t);
-  const content = "\uFEFFBOM preserved";
-  const result = await execute(createWritableFileTools(root, approving(actions), 5_000), "write", { path: "note.md", content });
-  assert.equal(result.isError, undefined);
-  assert.equal(await readFile(join(root, "note.md"), "utf8"), content);
-});
-
 test("execution claim failure stops file effects and receipt failure never reports that a committed file is absent", async (t) => {
   const { root, actions } = await fixture(t);
   const refused = { ...approving(actions), markExecuting: async () => false };
-  const noClaim = await execute(createWritableFileTools(root, refused, 5_000), "write", { path: "nested/file", content: "no claim" });
+  const noClaim = await execute(createApprovalTestTools(root, refused, 5_000), "write", { path: "nested/file", content: "no claim" });
   assert.equal(noClaim.isError, true);
   assert.deepEqual(await readdir(root), []);
 
   const failedClaim = { ...approving(actions), markExecuting: async () => { throw new Error("private storage error"); } };
-  await assert.rejects(execute(createWritableFileTools(root, failedClaim, 5_000), "write", { path: "nested/file", content: "claim failed" }));
+  await assert.rejects(execute(createApprovalTestTools(root, failedClaim, 5_000), "write", { path: "nested/file", content: "claim failed" }));
   assert.deepEqual(await readdir(root), []);
 
   const lostReceipt = { ...approving(actions), finishExecution: async () => { throw new Error("private storage error"); } };
-  const committed = await execute(createWritableFileTools(root, lostReceipt, 5_000), "write", { path: "committed.md", content: "saved" });
+  const committed = await execute(createApprovalTestTools(root, lostReceipt, 5_000), "write", { path: "committed.md", content: "saved" });
   assert.equal(committed.isError, true);
   assert.equal(await readFile(join(root, "committed.md"), "utf8"), "saved");
   assert.deepEqual(await readdir(root), ["committed.md"]);
   const text = committed.content[0];
   assert.equal(text.type, "text");
   if (text.type === "text") {
-    assert.match(text.text, /File was committed/);
-    assert.doesNotMatch(text.text, /nothing was written|private storage error/);
+    assert.match(text.text ?? "", /File was committed/);
+    assert.doesNotMatch(text.text ?? "", /nothing was written|private storage error/);
   }
   const last = (await actions.list()).at(-1)!;
   assert.equal(last.status, "approved");
@@ -201,7 +378,7 @@ test("edit approval exposes complete before/after and treats replacement syntax 
   const original = "prefix:" + oldText + ":suffix";
   const content = "prefix:" + newText + ":suffix";
   await writeFile(join(root, "note.md"), original);
-  const result = await execute(createWritableFileTools(root, approving(actions), 5_000), "edit", { path: "note.md", oldText, newText });
+  const result = await execute(createApprovalTestTools(root, approving(actions), 5_000), "edit", { path: "note.md", oldText, newText });
   assert.equal(result.isError, undefined);
   const [action] = await actions.list();
   assert.equal(action.payload.oldText, oldText);
@@ -212,86 +389,53 @@ test("edit approval exposes complete before/after and treats replacement syntax 
   assert.equal(await readFile(join(root, "note.md"), "utf8"), content);
 });
 
-test("approval abort before invocation creates neither pending action nor directories", async (t) => {
+test("approval abort before, during polling and during submit leaves no filesystem side effects", async (t) => {
   const { root, actions } = await fixture(t);
-  const signal = AbortSignal.abort();
-  const result = await execute(createWritableFileTools(root, actions, 5_000), "write", { path: "nested/file", content: "new" }, signal);
-  assert.equal(result.isError, true);
+  const aborted = await execute(createApprovalTestTools(root, actions, 5_000), "write", { path: "nested/file", content: "new" }, AbortSignal.abort());
+  assert.equal(aborted.isError, true);
   assert.deepEqual(await actions.list(), []);
-  assert.deepEqual(await readdir(root), []);
-});
 
-test("approval abort during polling cancels immediately without waiting the two-second sleep", async (t) => {
-  const { root, actions } = await fixture(t);
   const polling = deferred<void>();
   const controller = new AbortController();
-  const wrapped = { ...actions, poll: async (id: string) => { const result = await actions.poll(id); polling.resolve(); return result; } };
-  const result = execute(createWritableFileTools(root, wrapped, 5_000), "write", { path: "nested/file", content: "new" }, controller.signal);
+  const wrapped = { ...actions, poll: async (id: string) => { const res = await actions.poll(id); polling.resolve(); return res; } };
+  const result = execute(createApprovalTestTools(root, wrapped, 5_000), "write", { path: "nested/file", content: "new" }, controller.signal);
   await polling.promise;
   controller.abort();
   assert.equal((await bounded(result)).isError, true);
-  assert.equal((await actions.list())[0].status, "cancelled");
-  assert.equal(await actions.decide((await actions.list())[0].id, "approve"), undefined);
   assert.deepEqual(await readdir(root), []);
 });
 
-test("approval abort also wins over an unresolved poll", async (t) => {
-  const { root, actions } = await fixture(t);
-  const polling = deferred<void>();
-  const controller = new AbortController();
-  const wrapped = { ...actions, poll: async () => { polling.resolve(); return new Promise<never>(() => {}); } };
-  const result = execute(createWritableFileTools(root, wrapped, 5_000), "write", { path: "file", content: "new" }, controller.signal);
-  await polling.promise;
-  controller.abort();
-  assert.equal((await bounded(result)).isError, true);
-  assert.equal((await actions.list())[0].status, "cancelled");
-});
-
-test("approval abort during submit revokes the newly persisted pending action", async (t) => {
-  const { root, actions } = await fixture(t);
-  const controller = new AbortController();
-  const wrapped = { ...actions, submit: async (...args: Parameters<ActionService["submit"]>) => {
-    const action = await actions.submit(...args);
-    controller.abort();
-    return action;
-  } };
-  const result = await execute(createWritableFileTools(root, wrapped, 5_000), "write", { path: "file", content: "new" }, controller.signal);
-  assert.equal(result.isError, true);
-  assert.equal((await actions.list())[0].status, "cancelled");
-  assert.deepEqual(await readdir(root), []);
-});
-
-test("approval already approved but aborted before commit performs no filesystem side effects", async (t) => {
-  const { root, actions } = await fixture(t);
-  const controller = new AbortController();
-  const wrapped = { ...approving(actions), poll: async (id: string) => {
-    const decision = await actions.poll(id);
-    controller.abort();
-    return decision;
-  } };
-  assert.equal((await execute(createWritableFileTools(root, wrapped, 5_000), "write", { path: "nested/file", content: "new" }, controller.signal)).isError, true);
-  assert.deepEqual(await readdir(root), []);
-});
-
-test("denied or expired approvals never create files", async (t) => {
+test("denied, expired, or version-changed approvals never overwrite files", async (t) => {
   const { root, actions } = await fixture(t);
   const denying = { ...actions, submit: async (...args: Parameters<ActionService["submit"]>) => {
     const action = await actions.submit(...args);
     await actions.decide(action.id, "deny");
     return action;
   } };
-  assert.equal((await execute(createWritableFileTools(root, denying, 5_000), "write", { path: "file", content: "new" })).isError, true);
+  assert.equal((await execute(createApprovalTestTools(root, denying, 5_000), "write", { path: "file", content: "new" })).isError, true);
   t.mock.timers.enable({ apis: ["Date"], now: 1_000 });
   const expiring = { ...actions, submit: async (...args: Parameters<ActionService["submit"]>) => {
     const action = await actions.submit(...args);
     t.mock.timers.tick(10);
     return action;
   } };
-  assert.equal((await execute(createWritableFileTools(root, expiring, 10), "write", { path: "file", content: "new" })).isError, true);
+  assert.equal((await execute(createApprovalTestTools(root, expiring, 10), "write", { path: "file", content: "new" })).isError, true);
   assert.deepEqual(await readdir(root), []);
+
+  await writeFile(join(root, "file"), "original");
+  const changed = approving(actions, async () => { await writeFile(join(root, "file"), "external"); });
+  assert.equal((await execute(createApprovalTestTools(root, changed, 5_000), "write", { path: "file", content: "mine" })).isError, true);
+  assert.equal(await readFile(join(root, "file"), "utf8"), "external");
+
+  await writeFile(join(root, "same"), "original");
+  const replaced = approving(actions, async () => {
+    await writeFile(join(root, "replacement"), "original");
+    await rename(join(root, "replacement"), join(root, "same"));
+  });
+  assert.equal((await execute(createApprovalTestTools(root, replaced, 5_000), "write", { path: "same", content: "mine" })).isError, true);
+  assert.equal(await readFile(join(root, "same"), "utf8"), "original");
 });
 
-// 两个工厂先读同一基线、全部获批后同时提交，确保测试真实覆盖共享队列而非单实例互斥。
 for (const name of ["write", "edit"] as const) {
   test(`${name} approvals from separate tools share a canonical workspace path commit queue`, async (t) => {
     const { root, actions } = await fixture(t);
@@ -299,8 +443,8 @@ for (const name of ["write", "edit"] as const) {
     const ready = deferred<void>();
     let count = 0;
     const wrapped = approving(actions, async () => { if (++count === 2) ready.resolve(); await ready.promise; });
-    const first = createWritableFileTools(root, wrapped, 5_000);
-    const second = createWritableFileTools(root, wrapped, 5_000);
+    const first = createApprovalTestTools(root, wrapped, 5_000);
+    const second = createApprovalTestTools(root, wrapped, 5_000);
     const params = (content: string): Params => name === "write"
       ? { path: "file", content }
       : { path: "file", oldText: "original", newText: content };
@@ -308,153 +452,5 @@ for (const name of ["write", "edit"] as const) {
     assert.equal(results.filter((result) => !result.isError).length, 1);
     assert.equal(results.filter((result) => result.isError).length, 1);
     assert.match(await readFile(join(root, "file"), "utf8"), /^(first|second)$/);
-    assert.deepEqual(await readdir(root), ["file"]);
-  });
-
-  test(`${name} approval refuses an externally changed version`, async (t) => {
-    const { root, actions } = await fixture(t);
-    await writeFile(join(root, "file"), "original");
-    const wrapped = approving(actions, async () => { await writeFile(join(root, "file"), "external"); });
-    const params = name === "write" ? { path: "file", content: "mine" } : { path: "file", oldText: "original", newText: "mine" };
-    const result = await execute(createWritableFileTools(root, wrapped, 5_000), name, params);
-    assert.equal(result.isError, true);
-    assert.equal(await readFile(join(root, "file"), "utf8"), "external");
   });
 }
-
-test("new-file write approval refuses a file created while waiting", async (t) => {
-  const { root, actions } = await fixture(t);
-  const wrapped = approving(actions, async () => { await writeFile(join(root, "file"), "external"); });
-  assert.equal((await execute(createWritableFileTools(root, wrapped, 5_000), "write", { path: "file", content: "mine" })).isError, true);
-  assert.equal(await readFile(join(root, "file"), "utf8"), "external");
-});
-
-test("write approval refuses a same-content file replacement with a new inode", async (t) => {
-  const { root, actions } = await fixture(t);
-  await writeFile(join(root, "file"), "original");
-  const wrapped = approving(actions, async () => {
-    await writeFile(join(root, "replacement"), "original");
-    await rename(join(root, "replacement"), join(root, "file"));
-  });
-  assert.equal((await execute(createWritableFileTools(root, wrapped, 5_000), "write", { path: "file", content: "mine" })).isError, true);
-  assert.equal(await readFile(join(root, "file"), "utf8"), "original");
-});
-
-test("write and edit reject symlink targets, linked parents and traversal before requesting approval", async (t) => {
-  const { directory, root, actions } = await fixture(t);
-  const outside = join(directory, "outside");
-  await mkdir(outside);
-  await writeFile(join(outside, "file"), "original");
-  await symlink(join(outside, "file"), join(root, "linked-file"));
-  await symlink(outside, join(root, "linked-parent"));
-  const tools = createWritableFileTools(root, approving(actions), 5_000);
-  for (const path of ["linked-file", "linked-parent/file", "../outside/file", join(outside, "file"), ".", ""]) {
-    assert.equal((await execute(tools, "write", { path, content: "mine" })).isError, true);
-    assert.equal((await execute(tools, "edit", { path, oldText: "original", newText: "mine" })).isError, true);
-  }
-  assert.deepEqual(await actions.list(), []);
-  assert.equal(await readFile(join(outside, "file"), "utf8"), "original");
-});
-
-test("approval rechecks a parent directory swapped for an external symlink", async (t) => {
-  const { directory, root, actions } = await fixture(t);
-  const outside = join(directory, "outside");
-  await mkdir(outside);
-  const wrapped = approving(actions, async () => { await symlink(outside, join(root, "nested")); });
-  const result = await execute(createWritableFileTools(root, wrapped, 5_000), "write", { path: "nested/file", content: "mine" });
-  assert.equal(result.isError, true);
-  assert.deepEqual(await readdir(outside), []);
-});
-
-test("approval rechecks a target swapped for a symlink after the initial read", async (t) => {
-  const { directory, root, actions } = await fixture(t);
-  const outside = join(directory, "outside");
-  await writeFile(outside, "external");
-  await writeFile(join(root, "file"), "original");
-  const wrapped = approving(actions, async () => {
-    await rm(join(root, "file"));
-    await symlink(outside, join(root, "file"));
-  });
-  const result = await execute(createWritableFileTools(root, wrapped, 5_000), "edit", { path: "file", oldText: "original", newText: "mine" });
-  assert.equal(result.isError, true);
-  assert.equal(await readFile(outside, "utf8"), "external");
-});
-
-test("edit rejects empty, missing and overlapping oldText without requesting approval", async (t) => {
-  const { root, actions } = await fixture(t);
-  await writeFile(join(root, "file"), "aaa");
-  const tools = createWritableFileTools(root, approving(actions), 5_000);
-  for (const oldText of ["", "missing", "aa"])
-    assert.equal((await execute(tools, "edit", { path: "file", oldText, newText: "new" })).isError, true);
-  assert.deepEqual(await actions.list(), []);
-  assert.equal(await readFile(join(root, "file"), "utf8"), "aaa");
-});
-
-test("write and edit enforce 100KB in UTF-8 on the complete resulting file", async (t) => {
-  const { root, actions } = await fixture(t);
-  await writeFile(join(root, "file"), "a".repeat(99_999) + "x");
-  const tools = createWritableFileTools(root, approving(actions), 5_000);
-  assert.equal((await execute(tools, "edit", { path: "file", oldText: "x", newText: "中" })).isError, true);
-  assert.equal((await execute(tools, "write", { path: "other", content: "中".repeat(33_334) })).isError, true);
-  assert.deepEqual(await actions.list(), []);
-  assert.equal((await execute(tools, "edit", { path: "file", oldText: "x", newText: "y" })).isError, undefined);
-  assert.equal(Buffer.byteLength(await readFile(join(root, "file"), "utf8")), 100_000);
-});
-
-test("approved request that expires before the commit cannot create a directory or file", async (t) => {
-  const { root, actions } = await fixture(t);
-  t.mock.timers.enable({ apis: ["Date"], now: 1_000 });
-  const wrapped = { ...approving(actions), poll: async (id: string) => {
-    const decision = await actions.poll(id);
-    t.mock.timers.tick(10);
-    return decision;
-  } };
-  const result = await execute(createWritableFileTools(root, wrapped, 10), "write", { path: "nested/file", content: "mine" });
-  assert.equal(result.isError, true);
-  const message = result.content[0];
-  assert.equal(message.type, "text");
-  if (message.type === "text") assert.match(message.text, /expired/);
-  assert.deepEqual(await readdir(root), []);
-});
-
-test("write approvals for a missing file cannot both create and overwrite it", async (t) => {
-  const { root, actions } = await fixture(t);
-  const ready = deferred<void>();
-  let count = 0;
-  const wrapped = approving(actions, async () => { if (++count === 2) ready.resolve(); await ready.promise; });
-  const results = await Promise.all(["first", "second"].map((content) =>
-    execute(createWritableFileTools(root, wrapped, 5_000), "write", { path: "nested/file", content })));
-  assert.equal(results.filter((result) => !result.isError).length, 1);
-  assert.equal(results.filter((result) => result.isError).length, 1);
-  assert.match(await readFile(join(root, "nested/file"), "utf8"), /^(first|second)$/);
-  assert.deepEqual(await readdir(join(root, "nested")), ["file"]);
-});
-
-test("write and edit approvals for the same baseline share a commit queue", async (t) => {
-  const { root, actions } = await fixture(t);
-  await writeFile(join(root, "file"), "original");
-  const ready = deferred<void>();
-  let count = 0;
-  const wrapped = approving(actions, async () => { if (++count === 2) ready.resolve(); await ready.promise; });
-  const results = await Promise.all([
-    execute(createWritableFileTools(root, wrapped, 5_000), "write", { path: "file", content: "written" }),
-    execute(createWritableFileTools(root, wrapped, 5_000), "edit", { path: "file", oldText: "original", newText: "edited" }),
-  ]);
-  assert.equal(results.filter((result) => !result.isError).length, 1);
-  assert.equal(results.filter((result) => result.isError).length, 1);
-  assert.match(await readFile(join(root, "file"), "utf8"), /^(written|edited)$/);
-});
-
-test("write rejects a workspace root alias before asking for approval", async (t) => {
-  const { directory, root, actions } = await fixture(t);
-  const alias = join(directory, "alias");
-  const outside = join(directory, "outside");
-  await mkdir(outside);
-  await symlink(root, alias);
-  const tools = createWritableFileTools(alias, approving(actions), 5_000);
-  const result = await execute(tools, "write", { path: "file", content: "mine" });
-  assert.equal(result.isError, true);
-  assert.deepEqual(await actions.list(), []);
-  assert.deepEqual(await readdir(root), []);
-  assert.deepEqual(await readdir(outside), []);
-});

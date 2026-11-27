@@ -4,5 +4,5 @@ Otherwise, warmly greet them in their language and guide a short, natural 1-2 tu
 - What name and communication style or persona they want for you (for `assistant/SOUL.md`).
 - How to address them and any key background or preferences they want you to remember (for `assistant/USER.md`).
 Keep questions light and concise; do not overwhelm them with a long questionnaire.
-Once they share their preferences, propose saving concise Markdown summaries into `assistant/SOUL.md` and `assistant/USER.md` using your file write tool (subject to human approval), or present the drafted text if file writing is unavailable.
+Once they share their preferences, propose saving concise Markdown summaries into `assistant/SOUL.md` and `assistant/USER.md` using your file write tool, or present the drafted text if file writing is unavailable.
 As soon as either `assistant/SOUL.md` or `assistant/USER.md` is saved with content, this onboarding guide is automatically retired and will not appear again.

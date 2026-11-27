@@ -81,6 +81,9 @@ test("config defaults allow an unconfigured LAN-accessible instance", async (t) 
         maxContentChars: 50000,
         searchResults: 5,
         userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36",
+        proxy: undefined,
+        search: { provider: "auto", apiKey: undefined, baseUrl: undefined },
+        fetch: { useJinaReader: true, jinaApiKey: undefined },
       },
       weather: { enabled: true, defaultCity: undefined },
       writable: { enabled: true, actionTimeoutMs: 86400000 },
@@ -251,4 +254,34 @@ test("missing explicit config files, invalid JSON and unknown fields fail clearl
   const future = join(dir, "future.json");
   await writeFile(future, JSON.stringify({ schemaVersion: 2 }), { mode: 0o600 });
   assert.throws(() => loadConfig(future), /schemaVersion/);
+});
+
+test("web search, fetch and proxy configuration validates providers, keys and urls", () => {
+  const withTavily = createConfig({
+    tools: {
+      web: {
+        proxy: " http://127.0.0.1:7890 ",
+        search: { provider: "tavily", apiKey: " tvly-secret ", baseUrl: " https://tavily.local/search/ " },
+        fetch: { useJinaReader: false, jinaApiKey: " jina-key " },
+      },
+    },
+  });
+  assert.equal(withTavily.web.proxy, "http://127.0.0.1:7890");
+  assert.deepEqual(withTavily.web.search, {
+    provider: "tavily",
+    apiKey: "tvly-secret",
+    baseUrl: "https://tavily.local/search",
+  });
+  assert.deepEqual(withTavily.web.fetch, {
+    useJinaReader: false,
+    jinaApiKey: "jina-key",
+  });
+
+  assert.throws(() => createConfig({ tools: { web: { proxy: "socks5://127.0.0.1:1080" } } }), /tools\.web\.proxy/);
+  assert.throws(() => createConfig({ tools: { web: { proxy: "http://127.0.0.1:7890?a=1" } } }), /tools\.web\.proxy/);
+  assert.throws(() => createConfig({ tools: { web: { search: { provider: "brave" } } } }), /apiKey is required/);
+  assert.throws(() => createConfig({ tools: { web: { search: { provider: "tavily" } } } }), /apiKey is required/);
+  assert.throws(() => createConfig({ tools: { web: { search: { provider: "searxng" } } } }), /baseUrl is required/);
+  assert.throws(() => createConfig({ tools: { web: { search: { baseUrl: "ftp://searx.local" } } } }), /tools\.web\.search\.baseUrl/);
+  assert.throws(() => createConfig({ tools: { web: { search: { baseUrl: "http://user:pass@searx.local" } } } }), /tools\.web\.search\.baseUrl/);
 });

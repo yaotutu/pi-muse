@@ -47,7 +47,13 @@ Then edit it:
       "actionTimeoutMs": 86400000
     },
     "web": {
-      "enabled": true
+      "enabled": true,
+      "search": {
+        "provider": "auto"
+      },
+      "fetch": {
+        "useJinaReader": true
+      }
     },
     "weather": {
       "enabled": true,
@@ -90,8 +96,8 @@ Every section and field may be omitted as needed; omitted values use built-in de
 | `runtime.schedulerIntervalMs` | `30000` | Scheduled-task scan interval. |
 | `runtime.monitorScanIntervalMs` | `60000` | Webpage-monitor scan interval. |
 | `runtime.dataDir` | Directory containing the configuration file | Relative paths are resolved against the configuration file's directory. An absolute path is recommended but not required. |
-| `tools.writable.enabled` | `true` | Whether to register `write` / `edit` and allow `skills.save`; when enabled, every operation still requires individual manual approval. `skills.list/read` remains available when this is disabled. |
-| `tools.writable.actionTimeoutMs` | `86400000` | Validity period for file-operation approval, in milliseconds (default 24 hours, max 7 days); an expired approval cannot commit a modification. |
+| `tools.writable.enabled` | `true` | Whether to register `write` / `edit` and allow `skills.save`. Workspace (`workspace/`) files and domain instructions save directly without blocking approval; `skills.save` still requires manual approval. `skills.list/read` remains available when disabled. |
+| `tools.writable.actionTimeoutMs` | `86400000` | Validity period for approval-gated actions (such as `skills.save` or confirmation proposals), in milliseconds (default 24 hours, max 7 days). |
 | `tools.web.enabled` | `true` | Whether to declare `search_web` / `web_fetch` to the model. |
 | `tools.web.timeoutMs` | `30000` | Total timeout budget for one web fetch, in milliseconds. It includes up to 6 redirects, with each hop consuming the remaining time. |
 | `tools.web.maxResponseBytes` | `2000000` | Maximum size of one response. |
@@ -99,6 +105,12 @@ Every section and field may be omitted as needed; omitted values use built-in de
 | `tools.web.searchResults` | `5` | Default number of search results; the tool parameter allows at most 10. |
 | `tools.web.userAgent` | Browser user agent | User-Agent for web requests. |
 | `tools.web.allowPrivateTargets` | `false` | Explicitly relaxes the private-network/loopback target restriction only for local integration work; all other request security boundaries remain unchanged. |
+| `tools.web.proxy` | Empty | Optional HTTP/HTTPS proxy URL (e.g. `http://127.0.0.1:7890`) for `search_web` / `web_fetch`. |
+| `tools.web.search.provider` | `auto` | Search backend: `auto` (`searxng` when `baseUrl` is set, otherwise `tavily`/`jina`/`brave` inferred by `apiKey` prefix `tvly-`/`jina_`, or `duckduckgo` fallback), `duckduckgo`, `brave`, `tavily`, `searxng`, or `jina`. |
+| `tools.web.search.apiKey` | Empty | API key required by `brave` and `tavily` (optional for `jina`). |
+| `tools.web.search.baseUrl` | Empty | Base URL required by `searxng` (e.g. `http://127.0.0.1:8080`), or endpoint override for other providers. |
+| `tools.web.fetch.useJinaReader` | `true` | Prefer Jina Reader for clean Markdown extraction on public pages and fall back to local extraction on failure; bypassed for private, credentialed, auth-param, or raw-data URLs. |
+| `tools.web.fetch.jinaApiKey` | Empty | Optional Jina API key for higher Reader rate limits. |
 | `tools.weather.enabled` | `true` | Whether to declare `get_weather` to the model. |
 | `tools.weather.defaultCity` | Empty | Default city used when the user does not specify one. When empty, the model asks for the city. |
 | `tools.browser.enabled` | `true` | Whether to enable the real-browser domain and the unified `browser` tool. |

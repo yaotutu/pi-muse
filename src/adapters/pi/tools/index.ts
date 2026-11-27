@@ -70,11 +70,12 @@ export const skillToToolsMap: Record<string, string[]> = {
 };
 
 const writableTools = (deps: ToolDependencies) =>
-  deps.actions && deps.writableEnabled !== false
+  deps.writableEnabled !== false
     ? createWritableFileTools(
-      deps.root, deps.actions, deps.actionTimeoutMs ?? 86_400_000,
+      deps.root,
       { sessionId: deps.sessionId, runId: deps.runId, subagentId: deps.subagentId },
-      deps.layout?.workspaceDir, deps.approvalObserver, deps.workspaceCommits,
+      deps.layout?.workspaceDir,
+      deps.workspaceCommits,
     )
     : [];
 
@@ -88,7 +89,7 @@ const registrations = [
   { names: ["goal"], create: (deps: ToolDependencies) => deps.goals ? [goalTool(deps.goals)] : [] },
   { names: ["monitor"], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.monitors ? [monitorTool(deps.monitors, deps.sessionId)] : [] },
   { names: ["read", "grep", "find", "ls"], create: (deps: ToolDependencies) => createFileTools(deps.root, { boundaryDir: deps.layout?.workspaceDir, readOnlyFiles: deps.readOnlyFiles }) },
-  // 写文件默认开启，经人工审批闸门；config tools.writable=false 可整体关闭。
+  // 写文件默认开启，工作区内直接落盘；config tools.writable=false 可整体关闭。
   {
     names: ["write", "edit"],
     create: (deps: ToolDependencies) =>

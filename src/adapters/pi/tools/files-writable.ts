@@ -6,14 +6,11 @@ import { resolveWorkspacePath, safeWorkspacePath } from "./workspace-path.js";
 import { managedWorkspaceTarget } from "../../workspace/managed-text.js";
 import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
 import {
-  awaitFileApproval,
-  commitApprovedFile,
+  commitWorkspaceFile,
   deniedResult,
   MAX_TEXT_FILE_BYTES,
   readFileSnapshot,
-  type ApprovalActions,
   type ApprovalContext,
-  type ApprovalObservation,
   type FileSnapshot,
   type RunApprovalObserver,
 } from "./file-approval.js";
@@ -22,7 +19,7 @@ export type { RunApprovalObserver };
 
 const aborted = () => deniedResult("Operation aborted; nothing was written.");
 
-/** 新文件可缺失，已有祖先和根目录仍逐段拒绝链接；审批后用同一规则重查。 */
+/** 新文件可缺失，已有祖先和根目录仍逐段拒绝链接；提交前用同一规则重查。 */
 const safeTarget = async (root: string, path: string, boundaryDir?: string) => {
   if (!path.trim()) throw new Error("Unsafe path");
   const selected = resolveWorkspacePath(root, path);
@@ -44,17 +41,14 @@ const validateText = (content: string, managed: boolean, subagentId?: string, al
 /** 每次 run 由组合方传入新的上下文；此工厂不推断当前 runId。 */
 export const createWritableFileTools = (
   root: string,
-  actions: ApprovalActions,
-  timeoutMs: number,
   context?: ApprovalContext,
   boundaryDir?: string,
-  observation?: RunApprovalObserver,
   commitQueue?: WorkspaceCommitQueue,
   options?: { allowManagedForSubagent?: boolean },
 ) => [
   defineTool({
     name: "write", label: "Write file",
-    description: "Create or overwrite a text file inside the documents directory. Every write requires explicit user approval. Relative paths only, no symlinks or ..; max 100KB. Concurrent changes require new approval.",
+    description: "Create or overwrite a text file directly inside the workspace directory without requiring user approval. Relative paths only, no symlinks or ..; max 100KB.",
     parameters: Type.Object({
       path: Type.String({ description: "File path relative to the documents directory." }),
       content: Type.String({ description: "Full file content to write." }),
@@ -75,34 +69,11 @@ export const createWritableFileTools = (
       const content = params.content;
       const validationError = validateText(content, managed, context?.subagentId, options?.allowManagedForSubagent);
       if (validationError) return deniedResult(validationError);
-      const approved = await awaitFileApproval(
-        actions,
-        "file_write",
-        `写入 ${params.path}`,
-        {
-          path: params.path,
-          content: params.content,
-          originalContent: original?.content ?? "",
-          baseVersion: original?.version ?? "missing",
-          beforeExists: String(original !== undefined),
-        },
-        timeoutMs,
-        signal,
-        { ...context, toolCallId: _id },
-        observation ? (event: ApprovalObservation) => observation.observe({
-          ...event,
-          id: `${observation.prefix}:${event.id}`,
-          parentId: `${observation.prefix}:tool:${_id}`,
-        }) : undefined,
-      );
-      if (!approved) return deniedResult("Write not approved (denied, expired or cancelled); nothing was written.");
-      return commitApprovedFile({
+      return commitWorkspaceFile({
         target,
         successPath: params.path,
         original,
         content: params.content,
-        approval: approved,
-        actions,
         signal,
         commitQueue,
         validateTarget: async (candidate) => (await safeTarget(root, params.path, boundaryDir)).target === candidate,
@@ -111,7 +82,7 @@ export const createWritableFileTools = (
   }),
   defineTool({
     name: "edit", label: "Edit file",
-    description: "Replace one exact nonempty text occurrence in an existing file. Requires explicit user approval; oldText must appear exactly once; resulting file max 100KB. Concurrent changes require new approval.",
+    description: "Replace one exact nonempty text occurrence directly in an existing workspace file without requiring user approval; oldText must appear exactly once; resulting file max 100KB.",
     parameters: Type.Object({
       path: Type.String({ description: "File path relative to the documents directory." }),
       oldText: Type.String({ minLength: 1, description: "Nonempty exact existing text to replace." }),
@@ -138,36 +109,11 @@ export const createWritableFileTools = (
         return deniedResult("File too large: edited files are limited to 100KB.");
       const validationError = validateText(content, managed, context?.subagentId, options?.allowManagedForSubagent);
       if (validationError) return deniedResult(validationError);
-      const approved = await awaitFileApproval(
-        actions,
-        "file_edit",
-        `编辑 ${params.path}`,
-        {
-          path: params.path,
-          oldText: params.oldText,
-          newText: params.newText,
-          originalContent: original.content,
-          content,
-          baseVersion: original.version,
-          beforeExists: "true",
-        },
-        timeoutMs,
-        signal,
-        { ...context, toolCallId: _id },
-        observation ? (event: ApprovalObservation) => observation.observe({
-          ...event,
-          id: `${observation.prefix}:${event.id}`,
-          parentId: `${observation.prefix}:tool:${_id}`,
-        }) : undefined,
-      );
-      if (!approved) return deniedResult("Edit not approved (denied, expired or cancelled); nothing was written.");
-      return commitApprovedFile({
+      return commitWorkspaceFile({
         target,
         successPath: params.path,
         original,
         content,
-        approval: approved,
-        actions,
         signal,
         commitQueue,
         validateTarget: async (candidate) => (await safeTarget(root, params.path, boundaryDir)).target === candidate,

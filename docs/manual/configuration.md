@@ -47,7 +47,13 @@ chmod 600 .pi-muse/config.json
       "actionTimeoutMs": 86400000
     },
     "web": {
-      "enabled": true
+      "enabled": true,
+      "search": {
+        "provider": "auto"
+      },
+      "fetch": {
+        "useJinaReader": true
+      }
     },
     "weather": {
       "enabled": true,
@@ -90,8 +96,8 @@ chmod 600 .pi-muse/config.json
 | `runtime.schedulerIntervalMs` | `30000` | 定时任务扫描间隔 |
 | `runtime.monitorScanIntervalMs` | `60000` | 网页监控扫描间隔 |
 | `runtime.dataDir` | 配置文件所在目录 | 相对路径按配置文件所在目录解析；推荐绝对路径，但不强制 |
-| `tools.writable.enabled` | `true` | 是否注册 `write` / `edit`，并允许 `skills.save`；开启后仍需逐次人工审批，`skills.list/read` 不受该开关影响 |
-| `tools.writable.actionTimeoutMs` | `86400000` | 文件操作审批有效期（毫秒，默认 24 小时，最大 7 天）；过期不能提交修改 |
+| `tools.writable.enabled` | `true` | 是否注册 `write` / `edit`，并允许 `skills.save`；工作区 `workspace/` 内的文件与指令写入直接落盘不走阻塞审批，`skills.save` 仍走人工审批，`skills.list/read` 不受该开关影响 |
+| `tools.writable.actionTimeoutMs` | `86400000` | 需要人工确认的操作（如 `skills.save` 或审批提案）有效期（毫秒，默认 24 小时，最大 7 天）；过期不能提交 |
 | `tools.web.enabled` | `true` | 是否向模型声明 `search_web` / `web_fetch` |
 | `tools.web.timeoutMs` | `30000` | 整个 Web 抓取总超时预算（毫秒，含最多 6 次重定向，每跳使用剩余时间） |
 | `tools.web.maxResponseBytes` | `2000000` | 单次响应大小上限 |
@@ -99,6 +105,12 @@ chmod 600 .pi-muse/config.json
 | `tools.web.searchResults` | `5` | 默认搜索结果数，工具参数最大 10 |
 | `tools.web.userAgent` | 浏览器 UA | Web 请求 User-Agent |
 | `tools.web.allowPrivateTargets` | `false` | 仅本机联调时显式放宽私网/回环目标限制；其余请求安全边界不变 |
+| `tools.web.proxy` | 空 | 可选 HTTP/HTTPS 代理地址（例如 `http://127.0.0.1:7890`），用于 `search_web` / `web_fetch` 外网请求 |
+| `tools.web.search.provider` | `auto` | 搜索源：`auto`（有 `baseUrl` 选 `searxng`，否则按 `apiKey` 前缀 `tvly-`/`jina_` 自动选 `tavily`/`jina`/`brave`，未配 Key 时用 `duckduckgo`）、`duckduckgo`、`brave`、`tavily`、`searxng`、`jina` |
+| `tools.web.search.apiKey` | 空 | `brave`、`tavily` 必填（或 `jina` 可选）的搜索 API Key |
+| `tools.web.search.baseUrl` | 空 | `searxng` 必填的实例根地址（如 `http://127.0.0.1:8080`），或其它兼容搜索端点覆盖 |
+| `tools.web.fetch.useJinaReader` | `true` | 公开网页优先走 Jina Reader 提取干净 Markdown，失败时自动回退本地抽取；私网/带凭据/鉴权参数/纯数据 URL 跳过 |
+| `tools.web.fetch.jinaApiKey` | 空 | 可选 Jina API Key，提高 Reader 请求配额 |
 | `tools.weather.enabled` | `true` | 是否向模型声明 `get_weather` |
 | `tools.weather.defaultCity` | 空 | 用户未指定城市时使用的默认城市；为空时模型会追问城市 |
 | `tools.browser.enabled` | `true` | 是否启用真实浏览器域与统一 `browser` 工具 |

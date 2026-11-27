@@ -1540,27 +1540,19 @@ test("assistant instructions: GET/PUT global settings and prompt injection in bo
   assert.ok(systemMsg2.includes("Chief Assistant"));
 });
 
-test("assistant instructions: conversation can update shared instructions via instructions tool", {
+test("assistant instructions: conversation can update shared instructions directly via instructions tool", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
   const topic0 = await h.service().sessions.create("chat-inst-agent");
   t.after(h.close);
 
-  // 1. 发送触发词"设定规则"，模型调用 instructions 工具 set "RULE-FROM-CHAT: Always be polite."
+  // 1. 发送触发词"设定规则"，模型调用 instructions 工具 set "RULE-FROM-CHAT: Always be polite." 并直接落盘
   const run1 = input([user("请设定规则")], "run-tool-inst-1");
   run1.sessionId = topic0.id;
-  const pendingRun = h.events(run1);
-  const action = await waitForTest(async () => (await h.service().actions.snapshotPending())[0], "assistant instructions file approval");
-  assert.equal(action.kind, "file_write");
-  assert.equal(action.payload.path, "assistant/AGENTS.md");
-  assert.equal(action.payload.content, "RULE-FROM-CHAT: Always be polite.");
-  assert.equal(action.sessionId, topic0.id);
-  const before = await (await h.request("/api/assistant/instructions")).json();
-  assert.deepEqual(before, { instructions: "", includes: [] });
-  assert.equal((await h.request(`/api/approvals/${action.id}/decision`, { decision: "approve" })).status, 200);
-  const ev1 = await pendingRun;
+  const ev1 = await h.events(run1);
   assert.equal(ev1.at(-1)?.type, "RUN_FINISHED");
+  assert.deepEqual(await h.service().actions.snapshotPending(), []);
   const toolCall = ev1.find((e) => e.type === "TOOL_CALL_START") as any;
   assert.equal(toolCall?.toolCallName, "instructions");
 
@@ -1641,31 +1633,17 @@ test("subagent: browser subagent is self-contained read-only workspace + browser
 
 });
 
-test("subagent: write approval is owned by the parent run and Stop cancels child without committing", { timeout: 30000 }, async (t) => {
+test("subagent: sms subagent updates workspace/subagents/sms/AGENTS.md directly without approval", { timeout: 30000 }, async (t) => {
   const h = await harness(15000);
   t.after(h.close);
   await h.request("/api/information/settings", { enabled: true, batchWindowSeconds: 3600 }, "PUT");
-  const run = input([user("请子代理写入草稿")], "child-write");
-  const pendingRun = h.events(run);
-  let action: Awaited<ReturnType<ReturnType<typeof h.service>["actions"]["snapshotPending"]>>[number] | undefined;
-  for (let i = 0; i < 500; i++) {
-    // 待审批不再有 HTTP 列表接口：等待使用审批域只读快照，不伪造第二套状态。
-    action = (await h.service().actions.snapshotPending())[0];
-    if (action) break;
-    await sleep(10);
-  }
-  assert.ok(action, "child should wait for approval");
-  assert.equal(action.sessionId, "main");
-  assert.equal(action.runId, run.runId);
-  const stopped = await h.request("/api/conversation/stop", { sessionId: run.sessionId, runId: run.runId });
-  assert.equal((await stopped.json()).stopped, true);
-  const events = await pendingRun;
-  assert.equal(events.at(-1)?.type, "RUN_ERROR");
-  const settled = await h.request(`/api/approvals/${action.id}`).then((response) => response.json());
-  assert.equal(settled.status, "cancelled");
-  assert.equal(settled.revision, 2);
-  assert.equal(settled.decidedAt, null);
-  assert.equal(await readFile(join(h.dataDir, "workspace", "subagents", "sms", "AGENTS.md"), "utf8"), "");
+  const events = await h.events(input([user("请子代理写入草稿")], "child-write"));
+  assert.equal(events.at(-1)?.type, "RUN_FINISHED");
+  assert.deepEqual(await h.service().actions.snapshotPending(), []);
+  assert.equal(
+    await readFile(join(h.dataDir, "workspace", "subagents", "sms", "AGENTS.md"), "utf8"),
+    "# 短信审批写入测试\n",
+  );
   assert.equal((await h.service().conversationHub.forSession("main")).isRunning(), false);
 });
 
@@ -1745,67 +1723,24 @@ test("goal domain: chat tool create, REST CRUD, milestone toggle and on-demand p
   assert.equal(goalsList.goals.length, 0);
 });
 
-test("write approval gate: approve writes the file, deny and boundary paths behave honestly", {
+test("workspace write and edit apply directly without blocking approval", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
   t.after(h.close);
-  const pendingNotifications = async () => {
-    // 待审批不再有 HTTP 列表接口；这里使用审批域只读快照作为等待条件，
-    // HTTP 决定仍走新协议 POST /api/approvals/:id/decision。
-    return h.service().actions.snapshotPending();
-  };
-  // 1) approve：run 挂起等待审批 → 批准 → 文件落盘 → 模型继续。
-  const run1 = h.events(input([user("帮我写入草稿")], "write-ok"));
-  let action: { id: string } | undefined;
-  for (let i = 0; i < 15 && !action; i++) {
-    await sleep(400);
-    action = (await pendingNotifications())[0];
-  }
-  assert.ok(action, "write tool should create a pending action");
-  assert.equal(
-    (await h.request(`/api/approvals/${action.id}/decision`, { decision: "approve" })).status,
-    200,
-  );
-  const ev1 = await run1;
+  // 1) write：直接落盘，不生成待审批，模型继续完成回复。
+  const ev1 = await h.events(input([user("帮我写入草稿")], "write-ok"));
   assert.equal(ev1.at(-1)?.type, "RUN_FINISHED");
+  assert.deepEqual(await h.service().actions.snapshotPending(), []);
   const written = await readFile(join((h.service().layout).workspaceDir, "draft.md"), "utf8");
   assert.match(written, /DRAFT-CONTENT/);
   assert.ok(
     ev1.filter((x) => x.type === "TEXT_MESSAGE_CONTENT").map((x) => (x as { delta?: string }).delta ?? "").join("").startsWith("write reply:"),
   );
-  // 相反决定与已处理审批一律 409；响应携带当前完整审批视图，revision 不再推进。
-  const conflict = await h.request(`/api/approvals/${action.id}/decision`, { decision: "deny" });
-  assert.equal(conflict.status, 409);
-  const conflictBody = await conflict.json();
-  assert.equal(conflictBody.approval.id, action.id);
-  assert.equal(conflictBody.approval.status, "approved");
-  assert.equal(conflictBody.approval.revision, 4);
-  assert.equal(conflictBody.approval.execution.status, "succeeded");
-  // 2) deny：拒绝后文件不变，模型收到受控拒绝文案并正常收尾。
-  const before = await readFile(join((h.service().layout).workspaceDir, "draft.md"), "utf8");
-  const run2 = h.events(input([...(await h.getHistory()), user("再写入一次")], "write-deny"));
-  let action2: { id: string } | undefined;
-  for (let i = 0; i < 15 && !action2; i++) {
-    await sleep(400);
-    const list = await pendingNotifications();
-    action2 = list.find((x) => x.id !== action!.id);
-  }
-  assert.ok(action2);
-  await h.request(`/api/approvals/${action2.id}/decision`, { decision: "deny" });
-  const ev2 = await run2;
+  // 2) edit：直接局部替换并落盘，不生成待审批。
+  const ev2 = await h.events(input([...(await h.getHistory()), user("改一下草稿")], "edit-ok"));
   assert.equal(ev2.at(-1)?.type, "RUN_FINISHED");
-  assert.equal(await readFile(join((h.service().layout).workspaceDir, "draft.md"), "utf8"), before);
-  // 3) edit：批准后替换生效（oldText 唯一）。
-  const run3 = h.events(input([...(await h.getHistory()), user("改一下草稿")], "edit-ok"));
-  let action3: { id: string } | undefined;
-  for (let i = 0; i < 15 && !action3; i++) {
-    await sleep(400);
-    const list = await pendingNotifications();
-    action3 = list.find((x) => x.id !== action2!.id);
-  }
-  await h.request(`/api/approvals/${action3!.id}/decision`, { decision: "approve" });
-  assert.equal((await run3).at(-1)?.type, "RUN_FINISHED");
+  assert.deepEqual(await h.service().actions.snapshotPending(), []);
   assert.match(
     await readFile(join((h.service().layout).workspaceDir, "draft.md"), "utf8"),
     /marker-edited/,

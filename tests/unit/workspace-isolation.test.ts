@@ -15,32 +15,7 @@ import {
   safeWorkspacePath,
   UnsafeFilePathError,
 } from "../../src/adapters/pi/tools/workspace-path.js";
-import { createActionService, type ActionService } from "../../src/features/actions/action-service.js";
-import type { ActionRepository, PendingAction } from "../../src/features/actions/types.js";
-
-/** 串行读改写的内存审批仓库；不触动正式 .pi-muse，仅用于本地测试隔离。 */
-const memoryRepository = (initial: PendingAction[] = []): ActionRepository => {
-  let items = structuredClone(initial);
-  let tail = Promise.resolve();
-  return {
-    read: async () => { await tail; return structuredClone(items); },
-    update: <T>(change: (items: PendingAction[]) => { items?: PendingAction[]; result: T }) => {
-      const result = tail.then(() => {
-        const next = change(structuredClone(items));
-        if (next.items) items = structuredClone(next.items);
-        return next.result;
-      });
-      tail = result.then(() => undefined, () => undefined);
-      return result;
-    },
-  };
-};
-
-const deferred = <T>() => {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
-};
+import { createWorkspaceCommitQueue } from "../../src/adapters/workspace/file-commit-queue.js";
 
 /** 所有文件工具遵循相同的 pi execute 签名；以 `as never` 跳过 SDK 的 schema 强约束并断言 content/details。 */
 type Tools = ReturnType<typeof createFileTools>;
@@ -259,31 +234,13 @@ test("reading a valid PNG file returns an image content block", async (t) => {
   assert.ok(block?.data && block.data.length > 0, "image block should carry non-empty base64 data");
 });
 
-// 7. 两个会话对同一 shared 文件并发提交审批，只能有一个真正写入。
-test("two sessions approving the same shared file only let one commit, even when versions race", async (t) => {
+// 7. 两个会话对同一 shared 文件并发写入，共用物理路径队列时先到者提交、后者因基线版本变化被拒。
+test("two sessions writing the same shared file serialize via commit queue and reject stale baseline", async (t) => {
   const { layout, rootA, rootB, sharedDir } = await setupWorkspace(t);
   await writeFile(join(sharedDir, "note.md"), "original");
-  const repository = memoryRepository();
-  const actions = createActionService(repository);
-
-  // 两个动作并发提交审批；同时落定后 commitFile 的共享队列让第一个提交，第二个因版本号变化被拒。
-  const ready = deferred<void>();
-  let count = 0;
-  const approving: Pick<ActionService, "submit" | "poll" | "cancel" | "markExecuting" | "finishExecution"> = {
-    markExecuting: actions.markExecuting,
-    finishExecution: actions.finishExecution,
-    submit: async (...args: Parameters<ActionService["submit"]>) => {
-      const action = await actions.submit(...args);
-      if (++count === 2) ready.resolve();
-      await ready.promise;
-      await actions.decide(action.id, "approve");
-      return action;
-    },
-    poll: actions.poll,
-    cancel: actions.cancel,
-  };
-  const factoryA = createWritableFileTools(rootA, approving, 5_000, { sessionId: "main", runId: "run-a" }, layout.workspaceDir);
-  const factoryB = createWritableFileTools(rootB, approving, 5_000, { sessionId: "trip-2026", runId: "run-b" }, layout.workspaceDir);
+  const commitQueue = createWorkspaceCommitQueue();
+  const factoryA = createWritableFileTools(rootA, { sessionId: "main", runId: "run-a" }, layout.workspaceDir, commitQueue);
+  const factoryB = createWritableFileTools(rootB, { sessionId: "trip-2026", runId: "run-b" }, layout.workspaceDir, commitQueue);
   const writeTool = (tools: WriteTools) => tools.find((tool) => tool.name === "write")!;
   const results = await Promise.all([
     callTool(writeTool(factoryA), { path: "note.md", content: "from-A" }),
@@ -291,17 +248,11 @@ test("two sessions approving the same shared file only let one commit, even when
   ]);
   const wins = results.filter((result) => !result.isError);
   const losses = results.filter((result) => result.isError === true);
-  assert.equal(wins.length, 1, "exactly one session should commit a clean approval");
-  assert.equal(losses.length, 1, "the racing approval must be refused for version change");
-  // shared 目录只多出一个 note.md，内容来自赢的会话
+  assert.equal(wins.length, 1, "exactly one session should write a clean baseline");
+  assert.equal(losses.length, 1, "the racing write must be refused for concurrent version change");
+  // shared 目录只多出一个 note.md，内容来自先提交的会话
   const newContent = await readFile(join(sharedDir, "note.md"), "utf8");
   assert.match(newContent, /^(from-A|from-B)$/);
   const { readdir } = await import("node:fs/promises");
   assert.deepEqual((await readdir(sharedDir)).sort(), ["assistant", "files", "note.md", "subagents"]);
-  const decided = await actions.list();
-  // 两个 pending 都进入 approved/denied 流程：失败者是基线版本变更被拒绝，不是被人 deny
-  assert.equal(decided.length, 2);
-  for (const action of decided) {
-    assert.equal(action.status === "approved" || action.status === "denied", true);
-  }
 });

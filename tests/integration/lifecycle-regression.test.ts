@@ -81,18 +81,15 @@ const readOptional = async (file: string) => {
   }
 };
 
-test("Stop cancels a pending write approval without changing the existing file", async (t) => {
+test("Stop cancels a pending skill-save approval without changing or creating the skill file", async (t) => {
   const h = await createFixture(t);
   const service = await h.startService();
-  await enableBuiltinSkills(service, ["write"]);
-  const target = join(h.layout.workspaceDir, "draft.md");
-  const original = "EXISTING-DRAFT must survive Stop\n";
-  await mkdir(dirname(target), { recursive: true });
-  await writeFile(target, original);
+  await enableBuiltinSkills(service, ["skill-creator"]);
+  const target = join(h.layout.skillsDir, "stop-check-skill", "SKILL.md");
   const runId = randomUUID();
   const input: ConversationInput = {
     sessionId: "main", runId,
-    expectedRevision: "empty", message: { id: randomUUID(), content: "帮我写入草稿" },
+    expectedRevision: "empty", message: { id: randomUUID(), content: "帮我保存技能草稿" },
   };
   // 立即消费 SSE，并提前接住失败，避免等待审批期间产生未处理的 rejection。
   const run = post(service, "/api/conversation/run", input)
@@ -103,11 +100,11 @@ test("Stop cancels a pending write approval without changing the existing file",
     .then((text) => ({ text }), (error: unknown) => ({ error }));
   // 待审批没有 HTTP 列表接口；内部只读快照用于等待真实挂起状态，不伪造第二套状态。
   await until(async () => (await service.actions.snapshotPending()).length > 0,
-    "write did not reach pending approval");
+    "skills.save did not reach pending approval");
   const pending = await service.actions.snapshotPending();
   assert.equal(pending.length, 1);
   assert.equal(pending[0].kind, "file_write");
-  assert.equal(await readFile(target, "utf8"), original);
+  assert.equal(await readOptional(target), null);
 
   const stopped = await post(service, "/api/conversation/stop", { sessionId: "main", runId });
   assert.equal(stopped.status, 200);
@@ -126,7 +123,7 @@ test("Stop cancels a pending write approval without changing the existing file",
   try { persisted = reader.prepare("SELECT id, status FROM actions").all() as any; } finally { reader.close(); }
   assert.equal(persisted.find((action) => action.id === pending[0].id)?.status, "cancelled");
   assert.equal((await service.conversationHub.forSession("main")).isRunning(), false);
-  assert.equal(await readFile(target, "utf8"), original);
+  assert.equal(await readOptional(target), null);
 });
 
 test("closed service rejects task creation and memory writes through its original app with 503", async (t) => {

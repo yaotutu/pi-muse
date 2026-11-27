@@ -70,6 +70,9 @@ const toMarkdown = (html: string) => {
 };
 
 const pageText = (page: FetchedWebPage, mode: "markdown" | "text") => {
+  if (page.extractorHint) {
+    return { text: normalize(page.body), extractor: page.extractorHint };
+  }
   const type = page.contentType.toLowerCase();
   if (type.includes("json") || type.includes("+json")) {
     try {

@@ -89,22 +89,32 @@ test("e2e: parent dispatches single, concurrent and chained subagents without a 
   assert.deepEqual(listed.subagents.map((s) => s.id), ["sms", "news", "browser", "habits", "dream"]);
 });
 
+test("e2e: subagent writes workspace instructions directly without approval", { timeout: 90_000 }, async (t) => {
+  const { service, client } = await fixture(t);
+  terminalSuccess(await client.run("请子代理写入", "main"));
+  assert.deepEqual(await client.pending(), []);
+  assert.deepEqual((await readdir(join(service.dataDir, "workspace"))).sort(), ["assistant", "files", "subagents"]);
+  const target = join(service.dataDir, "workspace", "subagents", "sms", "AGENTS.md");
+  assert.match(await readFile(target, "utf8"), /短信审批写入测试/);
+  terminalSuccess(await client.run("现在几点", "main"));
+});
+
 for (const decision of ["approve", "deny", "cancel"] as const) {
-  test(`e2e: subagent file approval ${decision} preserves ownership and filesystem truth`, { timeout: 90_000 }, async (t) => {
+  test(`e2e: skill save approval ${decision} preserves ownership and filesystem truth`, { timeout: 90_000 }, async (t) => {
     const { service, client } = await fixture(t);
-    const running = await client.startRun("请子代理写入", "main");
+    const running = await client.startRun("保存技能草稿", "main");
     // 主同步来源仍为 SSE ready 的完整集合，HTTP pending 只是补充只读入口。
-    const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval");
+    const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "skill approval");
     assert.equal(action.sessionId, running.sessionId);
     assert.equal(action.revision, 1);
     assert.equal(action.preview.type, "file_diff");
-    assert.match(action.preview.after, /短信审批写入测试/);
-    assert.equal(action.preview.path, "subagents/sms/AGENTS.md");
+    assert.equal(action.preview.scope, "skill");
+    assert.match(action.preview.after, /stop-check-skill/);
+    assert.equal(action.preview.path, "stop-check-skill/SKILL.md");
     assert.equal(action.preview.before, "");
-    assert.equal(action.preview.beforeExists, true);
-    assert.deepEqual((await readdir(join(service.dataDir,"workspace"))).sort(), ["assistant", "files", "subagents"]);
-    const target = join(service.dataDir, "workspace", "subagents", "sms", "AGENTS.md");
-    assert.equal(await readFile(target, "utf8"), "");
+    assert.equal(action.preview.beforeExists, false);
+    const target = join(service.dataDir, "assets", "skills", "stop-check-skill", "SKILL.md");
+    await assert.rejects(stat(target), { code: "ENOENT" });
     if (decision === "cancel") {
       assert.equal((await client.json("/api/conversation/stop", { sessionId: running.sessionId, runId: running.runId })).stopped, true);
       const events = await running.done;
@@ -121,7 +131,7 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     assert.ok(settled.resolvedAt);
     assert.equal(settled.decidedAt === null, decision === "cancel");
     if (decision === "approve") assert.equal(await readFile(target, "utf8"), action.preview.after);
-    else assert.equal(await readFile(target, "utf8"), "");
+    else await assert.rejects(stat(target), { code: "ENOENT" });
     // 终态审批只出现在历史列表，pending 集合由 ready 给出且已为空。
     assert.deepEqual(await client.pending(), []);
     const page = await client.approvalPage(`?limit=1`);
@@ -265,7 +275,7 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   const first = await client.subscribeEvents();
   t.after(async () => { await first.close(); });
   assert.deepEqual(workspaceEvents.ready.parse((await first.next())!.data).pendingApprovals, []);
-  const running = await client.startRun("帮我写入草稿", "main");
+  const running = await client.startRun("保存技能草稿", "main");
   let pending: ReturnType<typeof workspaceEvents.approval_pending.parse> | undefined;
   let waiting: { pendingApprovalIds: string[]; phase: string | null } | undefined;
   for (;;) {
@@ -283,9 +293,9 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   assert.equal(pending.revision, 1);
   assert.equal(pending.status, "pending");
   assert.equal(pending.preview.type, "file_diff");
-  assert.equal(pending.preview.path, "draft.md");
-  assert.equal(pending.preview.scope, "workspace");
-  assert.match(pending.preview.after, /DRAFT-CONTENT/);
+  assert.equal(pending.preview.path, "stop-check-skill/SKILL.md");
+  assert.equal(pending.preview.scope, "skill");
+  assert.match(pending.preview.after, /stop-check-skill/);
   assert.ok(waiting.pendingApprovalIds.includes(pending.id));
   // HTTP 完整视图与 SSE 推送是同一 id、同一 revision、同一不可变预览。
   const detail = approvalView.parse(await client.approval(pending.id));
@@ -325,9 +335,11 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   assert.equal(terminal.status, "succeeded");
   // 本轮新增输出与落盘结果都可读；断线后运行终态仍能通过 GET /api/runs/status 取回。
   const history = await client.history(running.sessionId);
-  assert.match(JSON.stringify(history), /DRAFT-CONTENT|write reply:/);
-  assert.equal(await readFile(join(service.dataDir, "workspace/draft.md"), "utf8"),
-    pending.preview.after);
+  assert.match(JSON.stringify(history), /stop-check-skill|Saved user skill/);
+  assert.equal(
+    await readFile(join(service.dataDir, "assets", "skills", "stop-check-skill", "SKILL.md"), "utf8"),
+    pending.preview.after,
+  );
   await second.close();
   const final = await client.json(`/api/runs/status?sessionId=${encodeURIComponent(running.sessionId)}&runId=${encodeURIComponent(running.runId)}`);
   assert.equal(final.status.status, "succeeded");

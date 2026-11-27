@@ -11,6 +11,7 @@ export type FetchedWebPage = {
   status: number;
   contentType: string;
   body: string;
+  extractorHint?: string;
 };
 
 /** feature 只依赖业务 port；后续替换搜索供应商或增加代理时不影响工具层。 */

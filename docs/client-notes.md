@@ -36,6 +36,15 @@
 
 ## 变更与须知记录
 
+### 2026-11-27 — 工作区文件改为直接写入不弹窗审批；Web 搜索支持多源与 Jina Reader
+
+- **影响端形态**：`all`
+- **类型**：`behavior`
+- **契约入口**：`/docs`「审批」「执行记录」
+- **要点与接入端注意**：
+  - 模型在 `workspace/` 内调用 `write`、`edit` 或子代理更新领域 `AGENTS.md` 时不再产生待审批事项，改为在沙箱边界与并发版本保护内直接落盘，并在 `steps` 时间线留痕；`skills.save`、建议提案以及后续外部高风险动作仍保留完整人工审批流。
+  - `tools.web` 新增可选搜索源（`tavily`/`brave`/`searxng`/`jina`/`duckduckgo`）、Jina Reader 网页正文抽取及 HTTP/HTTPS 代理配置；工具入参与出参契约不变。
+
 ### 2026-11-26 — 统一执行记录与步骤时间线（移除 `activity` 概念，新增 `GET /api/runs`，审批默认 24 小时过期）
 
 - **影响端形态**：`all`（重点影响 `rich-ui`）

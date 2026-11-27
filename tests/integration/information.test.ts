@@ -386,22 +386,16 @@ test("subagent stays declared regardless of sms toggle and topic sessions do not
     assert.equal(requestToolNames(request).includes("subagent"), true);
   }
 
-  // 领域规则走统一文件审批，配置页和文件页读取同一原文。
+  // 领域规则直接落盘，配置页和文件页读取同一原文，不产生阻塞审批。
   const instructionsPath = join(h.dataDir, "workspace", "assistant", "AGENTS.md");
   await writeFile(instructionsPath, "MAIN-ONLY-RULE\n", "utf8");
   for (const [domain, endpoint, instructions] of [
     ["sms", "/api/information/preferences", "信用卡还款必须提醒我"],
     ["news", "/api/news/preferences", "少推娱乐新闻，关注系统架构"],
   ] as const) {
-    const before = (await h.call(endpoint)).body;
     const run = h.runChat(sessionId, `设定领域规则:${domain}:${instructions}`);
-    const action = await waitForTest(async () => (await h.service().actions.snapshotPending())[0], "domain rule approval");
-    assert.equal(action.kind, "file_write");
-    assert.equal(action.payload.path, `subagents/${domain}/AGENTS.md`);
-    assert.equal(action.payload.content, instructions);
-    assert.deepEqual((await h.call(endpoint)).body, before, "unapproved write must not change preferences");
-    assert.equal((await h.call(`/api/approvals/${action.id}/decision`, { method: "POST", body: JSON.stringify({ decision: "approve" }) })).status, 200);
     assert.match(await run, /RUN_FINISHED/);
+    assert.deepEqual(await h.service().actions.snapshotPending(), []);
     assert.equal(((await h.call(endpoint)).body as { instructions: string }).instructions, instructions);
     assert.equal(await readFile(join(h.dataDir, "workspace", "subagents", domain, "AGENTS.md"), "utf8"), instructions);
     const path = `subagents/${domain}/AGENTS.md`;

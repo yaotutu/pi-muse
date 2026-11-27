@@ -177,14 +177,14 @@ const createDomainChatTools = (options: {
   const updateInstructionsTool = defineTool({
     name: `${prefix}_update_instructions`,
     label: `${prefix.toUpperCase()} Update Instructions`,
-    description: `Submit complete merged user instructions for ${instructionsPath}. Requires user approval.`,
+    description: `Save complete merged user instructions directly to ${instructionsPath}.`,
     parameters: updateInstructionsParameters,
     execute: async (toolCallId, params, signal, _onUpdate, toolContext) => {
       if (typeof params.instructions !== "string" || params.instructions.length > SUBAGENT_INSTRUCTIONS_MAX_LENGTH) {
         return rejected(`instructions must be a string of at most ${SUBAGENT_INSTRUCTIONS_MAX_LENGTH} characters`);
       }
       if (!ctx.writeWorkspaceFile) {
-        return rejected("Approved instruction writing is unavailable.");
+        return rejected("Workspace instruction writing is unavailable.");
       }
       signal?.throwIfAborted();
       const current = await readPreferences();
@@ -204,7 +204,7 @@ const createDomainChatTools = (options: {
       );
       if (saved.isError) {
         return rejected(
-          saved.text || "Instruction change did not report success. Check the file approval result before trying again.",
+          saved.text || "Failed to save domain instructions.",
         );
       }
       const result = { subagentId: prefix, path: instructionsPath, instructions: params.instructions, updated: true };

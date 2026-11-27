@@ -577,6 +577,21 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
+    // 技能保存路径：用于验证需人工审批的写入被 Stop 中断时不会落盘。
+    if (declaresTool("skills") && /保存技能草稿/.test(last) && !pendingToolResult) {
+      event({ role: "assistant" });
+      event(
+        toolCall("skills", {
+          action: "save",
+          name: "stop-check-skill",
+          file: "SKILL.md",
+          content: "---\nname: stop-check-skill\ndescription: test\n---\nbody\n",
+        }),
+      );
+      event({}, "tool_calls");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     // 记忆检索路径：触发词"检索记忆" + 声明了 memory_search 工具。
     if (declaresTool("memory_search") && /检索记忆/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });
