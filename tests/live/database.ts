@@ -105,22 +105,13 @@ const execute = async (options: LiveOptions) => {
     assert.ok(main.results.includes(marker), "model must receive the stored SQL result");
     record("real-agent-main-write-query", { toolCalls: main.calls, rows: mainRows.length });
 
-    const news = await run("news-schema-extension",
-      `在 news 数据库创建 live_database_notes(id TEXT PRIMARY KEY, value TEXT NOT NULL)，插入 id='note-one'、value='${marker}_NEWS'，查询该记录。不要修改 news_ 开头的内置表。`);
-    assert.equal(inspect(join(dataDir, "state", "news.sqlite"), "live_database_notes")[0]?.value, marker + "_NEWS");
-    assert.ok(news.results.includes(marker + "_NEWS"));
-    const sources = await client.json("/api/news/sources") as { sources: unknown[] };
-    assert.deepEqual(sources.sources, []);
-    record("real-agent-news-custom-table", { toolCalls: news.calls, newsApiReadable: true });
-
     const oldService = service!;
     service = undefined;
     await stopHttp();
     await oldService.close();
     client = await start(dataDir);
     assert.equal(inspect(join(dataDir, "state", "main.sqlite"), "live_database_probe")[0]?.value, marker);
-    assert.equal(inspect(join(dataDir, "state", "news.sqlite"), "live_database_notes")[0]?.value, marker + "_NEWS");
-    record("database-restart-persistence", { databases: ["main", "news"] });
+    record("database-restart-persistence", { databases: ["main"] });
 
     const query = await run("read-after-restart",
       `只查询 main 数据库 live_database_probe 中 id='row-one' 的 value。不要新增或修改数据。`);
@@ -128,14 +119,13 @@ const execute = async (options: LiveOptions) => {
     record("real-agent-read-after-restart", { toolCalls: query.calls });
 
     const drop = await run("drop-own-tables",
-      "删除 main 数据库的 live_database_probe 表，再删除 news 数据库的 live_database_notes 表。无需请求审批。这两张表都只属于本次测试。不要删除其他表。");
-    for (const [file, table] of [["main.sqlite", "live_database_probe"], ["news.sqlite", "live_database_notes"]] as const) {
+      "删除 main 数据库的 live_database_probe 表。无需请求审批。这张表只属于本次测试。不要删除其他表。");
+    for (const [file, table] of [["main.sqlite", "live_database_probe"]] as const) {
       const database = new DatabaseSync(join(dataDir, "state", file), { readOnly: true });
       try {
         assert.equal(database.prepare("SELECT COUNT(*) AS total FROM sqlite_schema WHERE type='table' AND name=?").get(table)?.total, 0);
       } finally { database.close(); }
     }
-    assert.deepEqual((await client.json("/api/news/sources") as { sources: unknown[] }).sources, []);
     record("real-agent-drop-without-approval", { toolCalls: drop.calls });
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);

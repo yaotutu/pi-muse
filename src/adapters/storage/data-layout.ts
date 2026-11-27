@@ -11,13 +11,13 @@ export type DataLayout = {
   root: string; companionsDir: string; profileDir: string; workspaceDir: string; sessionsDir: string; sessionIndexFile: string;
   assistantInstructionsFile: string; assistantSkillOverridesFile: string; assistantMcpOverridesFile: string;
   subagentMcpOverridesFile: string; subagentSettingsFile: string;
-  stateDir: string; newsInstructionsFile: string; smsInstructionsFile: string; agentDir: string; piAuthFile: string;
+  stateDir: string; smsInstructionsFile: string; agentDir: string; piAuthFile: string;
   /** 长期记忆是给人读写的纯文本；身份设置是配置 JSON。 */
   memoryMarkdownFile: string; identityFile: string;
   /** 网页监控本次保持 JSON 文件，不迁数据库。 */
   monitorsFile: string;
   mcpConfigFile: string;
-  mainDatabaseFile: string; newsDatabaseFile: string;
+  mainDatabaseFile: string;
   soulFile: string; userFile: string; bootstrapFile: string; authKeyFile: string;
   androidUpdatesDir: string; browserProfileDir: string; browserDownloadsDir: string; skillsDir: string; tracesDir: string;
 };
@@ -38,14 +38,13 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     assistantMcpOverridesFile: join(profileDir, "mcp-overrides.json"),
     subagentMcpOverridesFile: join(stateDir, "subagent-mcp-overrides.json"),
     subagentSettingsFile: join(stateDir, "subagent-settings.json"),
-    newsInstructionsFile: join(workspaceDir, "subagents", "news", "AGENTS.md"),
     smsInstructionsFile: join(workspaceDir, "subagents", "sms", "AGENTS.md"),
     sessionIndexFile: join(sessionsDir, "index.json"),
     agentDir: join(runtime, "pi"), piAuthFile: join(runtime, "auth", "pi.json"),
     memoryMarkdownFile: join(profileDir, "memory.md"), identityFile: join(profileDir, "identity.json"),
     monitorsFile: join(stateDir, "monitors.json"),
     mcpConfigFile: join(root, "mcp.json"),
-    mainDatabaseFile: join(stateDir, "main.sqlite"), newsDatabaseFile: join(stateDir, "news.sqlite"),
+    mainDatabaseFile: join(stateDir, "main.sqlite"),
     soulFile: join(assistant, "SOUL.md"), userFile: join(assistant, "USER.md"),
     bootstrapFile: join(assistant, "BOOTSTRAP.md"),
     authKeyFile: join(runtime, "auth", "auth.key"),
@@ -72,7 +71,7 @@ export const ensureLayout = async (layout: DataLayout): Promise<void> => {
   for (const directory of [
     root,
     workspaceDir, join(workspaceDir, "assistant"), join(workspaceDir, "subagents"),
-    join(workspaceDir, "subagents", "news"), join(workspaceDir, "subagents", "sms"), join(workspaceDir, "files"),
+    join(workspaceDir, "subagents", "sms"), join(workspaceDir, "files"),
     layout.sessionsDir, layout.stateDir, layout.profileDir,
     join(root, "assets"), layout.companionsDir, layout.skillsDir,
     join(root, "runtime"), join(root, "runtime", "auth"), layout.agentDir,
@@ -96,7 +95,6 @@ export const initializeWorkspaceDocuments = async (layout: DataLayout): Promise<
     layout.assistantInstructionsFile,
     layout.soulFile,
     layout.userFile,
-    layout.newsInstructionsFile,
     layout.smsInstructionsFile,
   ]) {
     try {

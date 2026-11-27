@@ -11,7 +11,6 @@ import * as message from "./messages.js";
 import * as habits from "./habits.js";
 import * as information from "./information.js";
 import * as companion from "./companions.js";
-import * as news from "./news.js";
 import * as subagent from "./subagents.js";
 import * as mcp from "./mcp.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
@@ -99,7 +98,7 @@ export const endpoints: EndpointSpec[] = [
     hint: "列出会话所属的定时任务和网页监控，包括暂停和已完成项。scheduleRevision 用于绑定删除确认时的任务清单。GET 不创建会话。" },
   { operationId: "deleteSession", method: "delete", path: "/api/sessions/:sessionId", tag: "会话", summary: "删除专题会话", auth: true, request: req.deleteSessionSchema, response: resp.deleteSessionResponse,
     hint: "显式选择删除任务/监控，或保留并转归 main。主会话不可删除。任务列表有变化时返回 409 SESSION_SCHEDULES_CHANGED，保留任务而原会话任务正在执行时返回 409 SESSION_JOB_RUNNING。删除会话历史、反馈并关闭在途聊天。保留任务时待投递监控通知随任务转移。", errorResponses: { 409: { description: "确认清单有变化、原会话的任务仍在执行，或会话不可删除", schema: resp.errorResponse } } },
-  { operationId: "getAssistantInstructions", method: "get", path: "/api/assistant/instructions", tag: "助手设置", summary: "读取助手指令", auth: true, response: resp.instructionsResponse, hint: "所有聊天会话共用 workspace/assistant/AGENTS.md 原文（缺失为空串）及顶部 YAML frontmatter `include:` 引用诊断 `includes`。支持引用同工作区内相对路径纯文本文件（模型注入前实时展开，问题引用不阻止保存或运行）。独立于短信与新闻领域偏好。" },
+  { operationId: "getAssistantInstructions", method: "get", path: "/api/assistant/instructions", tag: "助手设置", summary: "读取助手指令", auth: true, response: resp.instructionsResponse, hint: "所有聊天会话共用 workspace/assistant/AGENTS.md 原文（缺失为空串）及顶部 YAML frontmatter `include:` 引用诊断 `includes`。支持引用同工作区内相对路径纯文本文件（模型注入前实时展开，问题引用不阻止保存或运行）。独立于短信领域偏好。" },
   { operationId: "saveAssistantInstructions", method: "put", path: "/api/assistant/instructions", tag: "助手设置", summary: "保存助手指令", auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse, hint: "整份替换并保留原文（含顶部 YAML frontmatter `include:`），返回原文与最新 `includes` 诊断；最后成功保存生效。所有聊天会话从下一轮重读并展开可用引用，不能扩大工具/路径/审批权限。" },
   { operationId: "getAssistantSkills", method: "get", path: "/api/assistant/skills", tag: "助手设置", summary: "读取全部可选技能及来源", auth: true, response: resp.skillsResponse,
     hint: "列出当前可选技能，不限于已启用项。来源 user=DATA_DIR/assets/skills 实例自有、builtin=内置自有、shared=服务端用户 ~/.agents/skills 通用目录。按名称合并，优先级 user > builtin > shared；关闭优先项不会回退同名低优先来源。默认开关：内置技能按随服务端发布的 skills-defaults 清单（当前 9 项默认开启），通用与实例自建技能一律默认关闭；手动保存的选择始终优先并绑定来源。返回 id/name/description/source/defaultEnabled/enabled，不返回物理路径。GET 不创建目录或私有 config.json。开关和资产由所有聊天会话共用。" },
@@ -294,7 +293,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "listHabitSubagents",
     method: "get", path: "/api/habits", tag: "习惯", summary: "列出所有已注册的行为习惯 Subagent",
-    hint: "返回全部受通用习惯引擎管理的专职 Subagent 清单（如 sms、news）及各自习惯条数、未消化反馈计数与最近一次归纳状态，无需客户端硬编码列表。",
+    hint: "返回全部受通用习惯引擎管理的专职 Subagent 清单（如 sms）及各自习惯条数、未消化反馈计数与最近一次归纳状态，无需客户端硬编码列表。",
     auth: true, response: habits.habitSubagentsListResponse,
     errorResponses: {
       503: { description: "服务正在关闭", schema: resp.errorResponse },
@@ -303,7 +302,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getHabitSubagentOverview",
     method: "get", path: "/api/habits/:subagentId", tag: "习惯", summary: "读取指定 Subagent 的行为习惯列表、待归纳样本与归纳状态",
-    hint: "返回该 Subagent（如 sms、news）的名称与说明、已持久化生效的长短期行为习惯条目（habits，最多 50 条）、未消化反馈计数（unconsolidatedCount）与近期去重待归纳样本明细（pendingSignals，按最新倒序最多 20 条）、自动归纳阈值（autoThreshold=5）、定期归纳周期（intervalMs=7200000）、当前已提交游标 cursorSeq 及最近一次归纳统计。未注册 Subagent 返回 404，非法 subagentId 返回 400。",
+    hint: "返回该 Subagent（如 sms）的名称与说明、已持久化生效的长短期行为习惯条目（habits，最多 50 条）、未消化反馈计数（unconsolidatedCount）与近期去重待归纳样本明细（pendingSignals，按最新倒序最多 20 条）、自动归纳阈值（autoThreshold=5）、定期归纳周期（intervalMs=7200000）、当前已提交游标 cursorSeq 及最近一次归纳统计。未注册 Subagent 返回 404，非法 subagentId 返回 400。",
     auth: true, response: habits.habitSubagentOverviewResponse,
     errorResponses: {
       400: { description: "非法 subagentId 标识", schema: resp.errorResponse },
@@ -492,142 +491,11 @@ export const endpoints: EndpointSpec[] = [
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
-  // ---- 新闻 V1：独立阅读视图，内部复用 information/pi，无专属聊天入口 ----
-  {
-    operationId: "getNewsStatus",
-    method: "get", path: "/api/news/status", tag: "新闻", summary: "读取新闻采集与分析状态",
-    hint: "只读状态查询。processing=true 时客户端可仅在新闻页前台短时回读本接口和列表；refreshing/processing 均为 false 或达到终态后停止轮询。后台分析失败时文章仍可读，推荐只包含已确认成功筛选结果。",
-    auth: true, response: news.newsStatusResponseSchema,
-    errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
-  },
-  {
-    operationId: "listNewsSources",
-    method: "get", path: "/api/news/sources", tag: "新闻", summary: "列出 RSS 源",
-    hint: "只读列出源配置与健康状态。lastError 为受控文案；lastErrorDetails 与添加源失败的 failure 共用分类字段，不含外部响应体、外部内容或内部堆栈。旧源尚无分类时可省略 lastErrorDetails，不推断旧错误。",
-    auth: true, response: news.newsSourceListResponseSchema,
-    errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
-  },
-  {
-    operationId: "createNewsSource",
-    method: "post", path: "/api/news/sources", tag: "新闻", summary: "添加 RSS 源",
-    hint: "仅接受无凭据公网 HTTP(S) URL；最终 HTTP 响应必须 2xx，服务端验证 RSS2 后保存源，不接纳文章。URL 去 fragment、scheme/host 小写、去默认端口后查重，409 文案包含已存在源 ID；不按重定向最终地址归一。条目缺稳定 guid/有效 link 或标题时跳过并返回 skipped；超过一半条目无效则整源 PARSE_INVALID。正文薄或为空但有 ID/标题的条目保留。拒绝带凭据 URL；抓取/解析失败 400 的 failure 为受控分类，不透传上游内容。",
-    auth: true, request: news.newsCreateSourceRequestSchema, response: news.newsCreateSourceResponseSchema,
-    errorResponses: {
-      400: { description: "字段/JSON 非法，或源抓取/解析失败；仅后者携带 failure 分类", schema: news.newsCreateSourceErrorSchema },
-      409: { description: "归一 URL 相同的 RSS 源已存在；文案包含已存在的源 ID", schema: resp.errorResponse },
-      503: { description: "服务正在关闭", schema: resp.errorResponse },
-    },
-  },
-  {
-    operationId: "deleteNewsSource",
-    method: "delete", path: "/api/news/sources/:sourceId", tag: "新闻", summary: "停止采集 RSS 源",
-    hint: "删除只停止后续采集；已接纳文章及其反馈、收藏和评论继续保留。sourceId 不存在返回 404。",
-    auth: true, response: news.newsDeleteSourceResponseSchema,
-    errorResponses: {
-      400: { description: "非法 sourceId", schema: resp.errorResponse },
-      404: { description: "源不存在", schema: resp.errorResponse },
-      409: { description: "该源正在本次抓取中", schema: resp.errorResponse },
-      503: { description: "服务正在关闭", schema: resp.errorResponse },
-    },
-  },
-  {
-    operationId: "listNewsArticles",
-    method: "get", path: "/api/news/articles", tag: "新闻", summary: "分页读取新闻文章",
-    hint: "按 publishedAt+稳定 ID 倒序分页。view=recommended 只返回成功结构化筛选选中的文章并带 reason；savedOnly 只过滤不改变排序。模型失败不产生假推荐，全部时间线仍可读。",
-    auth: true, query: news.newsArticlesQuerySchema, response: news.newsArticleListResponseSchema,
-    errorResponses: {
-      400: { description: "非法查询或游标", schema: resp.errorResponse },
-      503: { description: "服务正在关闭", schema: resp.errorResponse },
-    },
-  },
-  {
-    operationId: "getNewsArticle",
-    method: "get", path: "/api/news/articles/:articleId", tag: "新闻", summary: "读取新闻文章",
-    hint: "返回文章元数据、安全文本、推荐理由和逐篇反馈；不创建或修改任何状态。",
-    auth: true, response: news.newsArticleDetailResponseSchema,
-    errorResponses: {
-      400: { description: "非法 articleId", schema: resp.errorResponse },
-      404: { description: "文章不存在", schema: resp.errorResponse },
-      503: { description: "服务正在关闭", schema: resp.errorResponse },
-    },
-  },
-  {
-    operationId: "setNewsReaction",
-    method: "put", path: "/api/news/articles/:articleId/reaction", tag: "新闻", summary: "设置文章喜欢或不喜欢",
-    hint: "like/dislike 互斥；null 撤销。反馈按 articleId 会话局部持久化，不绑定聊天消息或 session，也不随主会话 reset 清空。",
-    auth: true, request: news.newsReactionRequestSchema, response: news.newsFeedbackResponseSchema,
-    errorResponses: {
-      400: { description: "非法请求或 articleId", schema: resp.errorResponse },
-      404: { description: "文章不存在", schema: resp.errorResponse },
-      503: { description: "服务正在关闭；反馈未保存", schema: resp.errorResponse },
-    },
-  },
-  {
-    operationId: "setNewsSaved",
-    method: "put", path: "/api/news/articles/:articleId/saved", tag: "新闻", summary: "设置文章收藏",
-    hint: "saved 独立于 like/dislike；重复设置当前值幂等。收藏作为下一轮分析的弱信号，不立即触发模型。",
-    auth: true, request: news.newsSavedRequestSchema, response: news.newsFeedbackResponseSchema,
-    errorResponses: {
-      400: { description: "非法请求或 articleId", schema: resp.errorResponse },
-      404: { description: "文章不存在", schema: resp.errorResponse },
-      503: { description: "服务正在关闭；反馈未保存", schema: resp.errorResponse },
-    },
-  },
-  {
-    operationId: "addNewsComment",
-    method: "post", path: "/api/news/articles/:articleId/comments", tag: "新闻", summary: "新增文章评论",
-    hint: "text 先 trim，必须非空且最多 4000 字符。服务端生成 id/createdAt/updatedAt；反馈不写入聊天历史。",
-    auth: true, request: news.newsCommentCreateRequestSchema, response: news.newsFeedbackResponseSchema,
-    errorResponses: {
-      400: { description: "非法请求、articleId 或空/超长评论", schema: resp.errorResponse },
-      404: { description: "文章不存在", schema: resp.errorResponse },
-      503: { description: "服务正在关闭；评论未保存", schema: resp.errorResponse },
-    },
-  },
-  {
-    operationId: "deleteNewsComment",
-    method: "delete", path: "/api/news/articles/:articleId/comments/:commentId", tag: "新闻", summary: "删除文章评论",
-    hint: "删除指定评论并返回文章当前完整反馈；重复删除返回 404。",
-    auth: true, response: news.newsFeedbackResponseSchema,
-    errorResponses: {
-      400: { description: "非法 articleId 或 commentId", schema: resp.errorResponse },
-      404: { description: "文章或评论不存在", schema: resp.errorResponse },
-      503: { description: "服务正在关闭；删除未保存", schema: resp.errorResponse },
-    },
-  },
-  {
-    operationId: "refreshNews",
-    method: "post", path: "/api/news/refresh", tag: "新闻", summary: "手动抓取 RSS 源",
-    hint: "请求须为有效 JSON 空对象 {}，非法 JSON 或空请求体返回 400 且无抓取/重置副作用。同步完成逐源抓取并返回 added、skipped，不等待模型分析；已有 information 调度处理 pending。缺标题/稳定 ID 的条目跳过，超过一半无效则该源失败；空正文条目保留并以标题作最小正文。并发 refresh 返回 409。单源或全部源抓取失败仍返回 200，受控文案/分类从 sources 的 lastError/lastErrorDetails 查看，status 提供汇总错误。抓取后尝试重置 failed；新闻模型轮运行时 resetDeferred=true，failed 保持原样，不自动补重试。resetDeferred=false 不保证模型分析完成。不自动重发写入。",
-    auth: true, request: news.newsRefreshRequestSchema, response: news.newsRefreshResponseSchema,
-    errorResponses: {
-      400: { description: "非法 JSON、空请求体或非空对象；不执行抓取/failed 重置", schema: resp.errorResponse },
-      409: { description: "已有 refresh 正在运行", schema: resp.errorResponse },
-      503: { description: "服务正在关闭", schema: resp.errorResponse },
-    },
-  },
-  {
-    operationId: "getNewsPreferences",
-    method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻指令、include 诊断与行为习惯",
-    hint: "instructions 是保存在 workspace/subagents/news/AGENTS.md 的明确新闻指令原文，includes 报告顶部 YAML frontmatter `include:` 引用展开诊断；habits 与 unconsolidatedFeedbackCount 由通用习惯引擎从逐篇反馈中定期沉淀并提供（样本明细与手动管理统一走 /api/habits/news），不覆盖明确 instructions、会话指令或全局 USER。",
-    auth: true, response: news.newsPreferencesResponseSchema,
-    errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
-  },
-  {
-    operationId: "updateNewsPreferences",
-    method: "put", path: "/api/news/preferences", tag: "新闻", summary: "保存新闻领域指令",
-    hint: "instructions 最多 20000 字符，空串清空；最后成功保存生效，原样保留顶部 YAML frontmatter `include:` 引用并返回最新 includes 诊断。本接口和工作区文件页编辑同一份 workspace/subagents/news/AGENTS.md，也不触发模型；也可在主聊天路由至 news subagent 调整。",
-    auth: true, request: news.newsPreferencesUpdateRequestSchema, response: news.newsPreferencesResponseSchema,
-    errorResponses: {
-      400: { description: "非法请求或超长 instructions", schema: resp.errorResponse },
-      503: { description: "服务正在关闭；指令未保存", schema: resp.errorResponse },
-    },
-  },
   // ---- 专职 Subagent 检视（只读）----
   {
     operationId: "listSubagents",
     method: "get", path: "/api/subagents", tag: "Subagents", summary: "列出服务端已注册的全部专职 Subagent 及其能力绑定",
-    hint: "返回全仓统一注册中心内的所有专职 Subagent（如 sms、news、browser、habits、dream），包含各 Subagent 的触发入口（chat/background）、启用状态、纯函数执行策略、静态绑定的工具/技能/MCP 槽位以及各维度可编辑性元信息。",
+    hint: "返回全仓统一注册中心内的所有专职 Subagent（如 sms、browser、habits、dream），包含各 Subagent 的触发入口（chat/background）、启用状态、纯函数执行策略、静态绑定的工具/技能/MCP 槽位以及各维度可编辑性元信息。",
     auth: true, response: subagent.subagentsListResponseSchema,
     errorResponses: {
       503: { description: "服务正在关闭", schema: resp.errorResponse },
@@ -671,7 +539,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "updateSubagentMcp",
     method: "put", path: "/api/subagents/:id/mcp", tag: "Subagents", summary: "保存专职 Subagent 的外部 MCP 选用白名单",
-    hint: "替换指定聊天路由 Subagent 允许使用的全局 MCP 服务名列表（servers，默认空数组）。所有名称必须在全局 mcp.json 中已声明；仅聊天路由 Subagent（如 sms/news/browser）支持绑定外部 MCP，纯后台结构化 Subagent（habits/dream）返回 400 INVALID_INPUT。持久化保存于 DATA_DIR/state/subagent-mcp-overrides.json。",
+    hint: "替换指定聊天路由 Subagent 允许使用的全局 MCP 服务名列表（servers，默认空数组）。所有名称必须在全局 mcp.json 中已声明；仅聊天路由 Subagent（如 sms/browser）支持绑定外部 MCP，纯后台结构化 Subagent（habits/dream）返回 400 INVALID_INPUT。持久化保存于 DATA_DIR/state/subagent-mcp-overrides.json。",
     auth: true, request: subagent.subagentMcpUpdateRequestSchema, response: subagent.subagentMcpSelectionResponseSchema,
     errorResponses: {
       400: { description: "非法 Subagent ID、不支持绑定 MCP 或包含未声明的服务名", schema: resp.errorResponse },
@@ -686,9 +554,9 @@ export const endpoints: EndpointSpec[] = [
     method: "post", path: "/api/conversation/run", tag: "会话", summary: "提交一条用户消息（SSE 流）",
     hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。仅接受已存在的会话；删除进行中返回 409 SESSION_DELETING，客户端不自动重试旧 ID。事件顺序：${SSE_EVENT_ORDER}。` +
       "message.attachments 最多 4 项，随本条消息一次性提交：PNG/JPEG/GIF/WebP 单图最大 8MiB，全部原始字节合计最大 8MiB，严格 UTF-8 文本合计最大 100000 字节；请求体上限 12MiB，超限在 SSE/历史/模型开始前返回 413 REQUEST_TOO_LARGE。图片需要当前单业务模型支持视觉，服务端不自动换模型、不静默丢图；PDF/Office/压缩包及其他二进制拒绝，SVG/HTML 只按不可信文本处理。completed 重放或失败显式重试必须保持附件顺序与字节 SHA-256 身份一致。" +
-      "主模型可调用 database 工具自主操作 main/news 托管 SQLite：可查询、写入、建表、改列和删表，无逐次 SQL 审批或表级权限。news 与新闻 API 共用同一数据库；main 是默认库，不表示其他业务已全部迁入。该工具不接受任意文件路径、不附加外部数据库或加载扩展；文件 write/edit 的审批边界不变。" +
+      "主模型可调用 database 工具自主操作 main 托管 SQLite：可查询、写入、建表、改列和删表，无逐次 SQL 审批或表级权限。该工具不接受任意文件路径、不附加外部数据库或加载扩展；文件 write/edit 的审批边界不变。" +
       "database 的调用/结果按现有 tools.presentation 的 hidden/summary 投影，工具帧隐藏 SQL 参数和原始行；模型仍可能在最终回答中引用结果。Stop 不保证中断已开始的同步 SQL，已提交修改不会因稍后取消而撤销。结果未明先查询核对，不自动重放。" +
-      "主模型可在本轮调用 subagent 工具将专职任务路由至服务端已注册且开放 chat 触发的专职 Subagent（如 sms、news、browser），子会话返回结果后主模型继续；这不是独立后台任务队列，不提供创建子任务的 HTTP 接口（可通过 GET /api/subagents 检视全部 Subagent 配置）。" +
+      "主模型可在本轮调用 subagent 工具将专职任务路由至服务端已注册且开放 chat 触发的专职 Subagent（如 sms、browser），子会话返回结果后主模型继续；这不是独立后台任务队列，不提供创建子任务的 HTTP 接口（可通过 GET /api/subagents 检视全部 Subagent 配置）。" +
       "工具参数统一为 {mode: 'single'|'parallel'|'chain', tasks: [{agent, task}]}；最多 8 项，最多 4 个子会话并发，链式用 {previous} 引用上一步结果，失败即停止；独占资源类 Subagent（如 browser）在 parallel 模式下会被拒绝。" +
       "subagent 的客户端卡片按 tools.presentation 的 hidden/summary 策略显示，参数正文不透出；父 SSE 不直接嵌套子会话聊天流或暴露原始工具详情。" +
       "所有 Subagent 均遵循纯函数语义（无跨次聊天上下文），仅在单次执行周期内拥有独立内存会话记录，所有会话共用同一个扁平工作区，不创建任何子目录；写工作区规则仍走版本绑定人工审批，审批 sessionId/runId 绑定父运行。客户端断开 HTTP 流仅解除本次流订阅，不会取消服务端运行（含子代理与审批），服务端会在后台继续完成并持久化历史；仅显式 POST /api/conversation/stop、单轮超时、会话重置/删除或服务关闭会同时取消并等待子会话清理；不会在服务重启后自动续跑。断线重连后可调用 GET /api/conversation/stream 重挂正在运行的聊天流。",

@@ -33,8 +33,8 @@
 
 - `src/bootstrap/create-service.ts`：唯一 `ModelRuntime`、provider 与内存凭据的初始化；不同会话共享 runtime，不共享执行锁和上下文。
 - `src/adapters/pi/session-factory.ts`：主/专题持久化会话装配、模型选择、技能/工具裁剪、压缩设置及聊天 `subagent` 角色权限组合。
-- `src/adapters/pi/subagent-runner.ts`：唯一通用内存子代理内核（`runSubagent` / `runStructuredSubagent`），统一负责默认零权限隔离、禁止工具拦截、超时/取消、错误脱敏与追踪；供聊天 `subagent`、短信、新闻与 Dream 共用。
-- `src/adapters/pi/information-runner.ts`、`news-runner.ts`、`dream-runner.ts`：分别只保留各自领域的提示词组装与结构化提交工具，通过 `subagent-runner.ts` 执行。
+- `src/adapters/pi/subagent-runner.ts`：唯一通用内存子代理内核（`runSubagent` / `runStructuredSubagent`），统一负责默认零权限隔离、禁止工具拦截、超时/取消、错误脱敏与追踪；供聊天 `subagent`、短信与 Dream 共用。
+- `src/adapters/pi/information-runner.ts`、`dream-runner.ts`：分别只保留各自领域的提示词组装与结构化提交工具，通过 `subagent-runner.ts` 执行。
 - `src/adapters/pi/resource-loader.ts`：向 SDK 提供明确的 system prompt、已启用技能和扩展，不发现个人 CLI 的 context files、prompt templates 或 themes。
 - `src/adapters/pi/session-history.ts`、`history-projection.ts`：权威 JSONL 读取、custom entry/context edit、revision 与展示历史投影。
 - `src/adapters/pi/execution.ts`：SDK 事件投影、取消/idle port，以及进入模型上下文和 JSONL 前的错误脱敏。

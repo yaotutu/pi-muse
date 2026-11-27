@@ -44,11 +44,9 @@ test("DataLayout describes the current paths without migrating legacy data", () 
   assert.equal(layout.assistantInstructionsFile, join(root, "workspace", "assistant", "AGENTS.md"));
   assert.equal(layout.soulFile, join(root, "workspace", "assistant", "SOUL.md"));
   assert.equal(layout.userFile, join(root, "workspace", "assistant", "USER.md"));
-  assert.equal(layout.newsInstructionsFile, join(root, "workspace", "subagents", "news", "AGENTS.md"));
   assert.equal(layout.smsInstructionsFile, join(root, "workspace", "subagents", "sms", "AGENTS.md"));
   assert.equal(layout.sessionIndexFile, join(root, "sessions", "index.json"));
   assert.equal(layout.mainDatabaseFile, join(root, "state", "main.sqlite"));
-  assert.equal(layout.newsDatabaseFile, join(root, "state", "news.sqlite"));
   assert.equal(layout.skillsDir, join(root, "assets", "skills"));
   assert.equal(layout.piAuthFile, join(root, "runtime", "auth", "pi.json"));
 });

@@ -133,7 +133,6 @@ Public session IDs and internal pi IDs are distinct. `main` is permanent, topic 
 DATA_DIR/
   workspace/
     assistant/                      USER.md, SOUL.md, AGENTS.md (fresh workspaces also seed one-time BOOTSTRAP.md)
-    subagents/news/AGENTS.md  News recommendation instructions
     subagents/sms/AGENTS.md   SMS alert instructions
     files/                          Ordinary files
   sessions/
@@ -142,14 +141,13 @@ DATA_DIR/
   state/
     assistant/                      memory.md, identity.json, skill-overrides.json, mcp-overrides.json
     main.sqlite                     Jobs, goals, approvals, SMS state, Dream state, message feedback, shared user habits
-    news.sqlite                     News data (articles, feeds, article feedback)
     monitors.json                   Webpage monitors
   assets/                           companions/, skills/
   mcp.json                          Optional standard MCP server configuration (mcpServers)
   runtime/                        auth/, pi/, browser/, traces/, android-updates/
 ```
 
-Workspace Files shows assistant documents, domain instructions, and ordinary files; see [Instructions and prompts](instructions.md). Pull down to refresh the directory, or open the top-right menu to create a text file or jump to another directory. Settings and the workspace editor read and write the same raw Markdown files; the five managed instruction and profile documents also support top-of-file YAML Frontmatter `include:` references expanded dynamically before model calls. Main and topic chats share assistant documents. News and SMS each read their own domain instructions. A delegated subagent holds context for its current run. The layout starts fresh and does not import old instance data.
+Workspace Files shows assistant documents, domain instructions, and ordinary files; see [Instructions and prompts](instructions.md). Pull down to refresh the directory, or open the top-right menu to create a text file or jump to another directory. Settings and the workspace editor read and write the same raw Markdown files; the four managed instruction and profile documents also support top-of-file YAML Frontmatter `include:` references expanded dynamically before model calls. Main and topic chats share assistant documents. SMS reads its own domain instructions. A delegated subagent holds context for its current run. The layout starts fresh and does not import old instance data.
 
 ## Android update mirror
 
@@ -177,7 +175,7 @@ After editing switches, tap 保存技能 (Save skills); changes take effect next
 
 Shared skill-folder entry links are supported by resolving the actual skill root. Internal links, out-of-bound files, and oversized instructions are diagnosed rather than loaded. Shared scripts and `extension.ts` are never executed. Enabling a skill does not enable bash, install dependencies, or expand tool permissions. Ordinary `read` receives only the exact enabled skill instructions and supported text resources, not access to the entire home directory.
 
-These `SKILL.md` skills and shared switches apply only to chat sessions; background domain sub-agents such as SMS, News, and future domains never inject chat skills and rely solely on their domain prompts, independent explicit rule boards, and shared consolidated habits.
+These `SKILL.md` skills and shared switches apply only to chat sessions; background domain sub-agents such as SMS and future domains never inject chat skills and rely solely on their domain prompts, independent explicit rule boards, and shared consolidated habits.
 
 ## File Write Approvals {#file-write-approvals}
 
@@ -267,7 +265,7 @@ Pi Muse supports the standard Model Context Protocol (MCP) over both local subpr
 }
 ~~~
 
-- **Hot management & independent main-assistant/subagent toggles**: Manage the global server list live via `GET/PUT/PATCH/DELETE /api/mcp/servers*` and `POST /api/mcp/servers/:name/reconnect` (see `/docs`). Globally enabled servers default to **on** for the main chat assistant and **off** for subagents; main chat can toggle individual servers via `GET/PUT /api/assistant/mcp` (`DATA_DIR/state/assistant/mcp-overrides.json`), and chat-routable subagents (`sms`, `news`, `browser`) can opt in per subagent via `GET/PUT /api/subagents/:id/mcp` (`DATA_DIR/state/subagent-mcp-overrides.json`) without affecting global connections.
+- **Hot management & independent main-assistant/subagent toggles**: Manage the global server list live via `GET/PUT/PATCH/DELETE /api/mcp/servers*` and `POST /api/mcp/servers/:name/reconnect` (see `/docs`). Globally enabled servers default to **on** for the main chat assistant and **off** for subagents; main chat can toggle individual servers via `GET/PUT /api/assistant/mcp` (`DATA_DIR/state/assistant/mcp-overrides.json`), and chat-routable subagents (`sms`, `browser`) can opt in per subagent via `GET/PUT /api/subagents/:id/mcp` (`DATA_DIR/state/subagent-mcp-overrides.json`) without affecting global connections.
 - **Security and isolation**: `env` and `headers` values never leave the server in API responses (`envKeys` and `headerNames` only). All MCP outputs are tagged as untrusted external data, tool calls execute directly in main chat and explicitly authorized chat subagents without secondary server approval popups, and unauthorized subagents never inherit external MCP tools.
 
 ## Mock Configuration {#mock-configuration}

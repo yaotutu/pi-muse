@@ -6,7 +6,6 @@ export const managedWorkspaceTexts = {
   soul: "assistant/SOUL.md",
   assistantInstructions: "assistant/AGENTS.md",
   smsInstructions: "subagents/sms/AGENTS.md",
-  newsInstructions: "subagents/news/AGENTS.md",
 } as const;
 
 export const managedWorkspaceTarget = (root: string, target: string) =>

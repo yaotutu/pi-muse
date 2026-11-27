@@ -10,9 +10,9 @@ export class DatabaseToolError extends Error {
     public readonly statementIndex?: number,
   ) {
     const messages: Record<DatabaseErrorCode, string> = {
-      invalid_request: "Invalid database request. Use one SQL statement or a statements array, fixed main/news names and valid limits/parameters.",
+      invalid_request: "Invalid database request. Use one SQL statement or a statements array, fixed main name and valid limits/parameters.",
       cancelled: "Database call cancelled before completion.",
-      host_boundary: "Only managed main/news databases are supported. External files, extensions, host functions and explicit transaction control are not supported.",
+      host_boundary: "Only the managed main database is supported. External files, extensions, host functions and explicit transaction control are not supported.",
       unsupported_sql: "This maintenance operation cannot safely run here. Persistent exclusive locking is unsupported; nontransactional connection PRAGMA settings must run as single SQL, not inside an atomic batch.",
       sql_error: "SQLite could not complete this request. Check SQL syntax, bindings, constraints and maintenance/transaction compatibility.",
       unavailable: "Managed database is unavailable or not idle.",

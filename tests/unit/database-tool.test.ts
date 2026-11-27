@@ -35,7 +35,7 @@ function managed(database = new DatabaseSync(":memory:")): DatabaseToolConnectio
 }
 
 function fixture(t: TestContext) {
-  const connections = { main: managed(), news: managed() };
+  const connections = { main: managed() };
   const requested: DatabaseName[] = [];
   const store = createDatabaseToolStore(async (name) => { requested.push(name); return connections[name]; });
   const service = createDatabaseService(store);
@@ -56,33 +56,31 @@ function errorCode(code: string, outcome?: string) {
   };
 }
 
-test("database lists only logical managed names; defaults main and isolates news", async (t) => {
+test("database lists only the logical managed main name", async (t) => {
   const f = fixture(t);
   assert.deepEqual(await f.service.execute({ action: "list" }), {
-    databases: [{ name: "main", default: true }, { name: "news", default: false }],
+    databases: [{ name: "main", default: true }],
   });
   assert.deepEqual(f.requested, []);
   await f.execute("CREATE TABLE own_table (id INTEGER)");
   const schema = await f.service.execute({ action: "schema" }) as DatabaseExecutionResult;
   assert.ok(schema.results[0]!.rows.some((row) => row[2] === "own_table"));
-  const newsSchema = await f.service.execute({ action: "schema", database: "news" }) as DatabaseExecutionResult;
-  assert.equal(newsSchema.results[0]!.rows.length, 0);
-  await assert.rejects(f.execute("SELECT * FROM own_table", { database: "news" }), errorCode("sql_error"));
+  await assert.rejects(f.execute("SELECT 1", { database: "other" as DatabaseName }), errorCode("invalid_request", "not_started"));
 });
 
 test("database permits SELECT bindings, unrestricted DDL/DML/ALTER/DROP and exact columns", async (t) => {
   const f = fixture(t);
-  await f.execute("CREATE TABLE news_preferences (id INTEGER PRIMARY KEY, secret TEXT)");
-  await f.execute("ALTER TABLE news_preferences ADD COLUMN custom INTEGER");
-  const insert = await f.execute("INSERT INTO news_preferences(secret,custom) VALUES (?, ?)", { params: ["safe ' quote ; SELECT", 4] });
+  await f.execute("CREATE TABLE sample_preferences (id INTEGER PRIMARY KEY, secret TEXT)");
+  await f.execute("ALTER TABLE sample_preferences ADD COLUMN custom INTEGER");
+  const insert = await f.execute("INSERT INTO sample_preferences(secret,custom) VALUES (?, ?)", { params: ["safe ' quote ; SELECT", 4] });
   assert.equal(insert.results[0]!.changes, "1");
-  await f.execute("UPDATE news_preferences SET custom=:value WHERE secret=:secret", { params: { ":value": 7, ":secret": "safe ' quote ; SELECT" } });
-  const rows = await f.execute("SELECT custom AS duplicate, custom AS duplicate, secret FROM news_preferences");
+  await f.execute("UPDATE sample_preferences SET custom=:value WHERE secret=:secret", { params: { ":value": 7, ":secret": "safe ' quote ; SELECT" } });
+  const rows = await f.execute("SELECT custom AS duplicate, custom AS duplicate, secret FROM sample_preferences");
   assert.deepEqual(rows.results[0]!.columns, ["duplicate", "duplicate", "secret"]);
   assert.deepEqual(rows.results[0]!.rows, [[integer(7), integer(7), "safe ' quote ; SELECT"]]);
   assert.equal(rows.results[0]!.changes, "0");
-  assert.equal((await f.execute("DELETE FROM news_preferences")).results[0]!.changes, "1");
-  assert.equal((await f.execute("DROP TABLE news_preferences")).results[0]!.changes, "0");
+  assert.equal((await f.execute("DELETE FROM sample_preferences")).results[0]!.changes, "1");
+  assert.equal((await f.execute("DROP TABLE sample_preferences")).results[0]!.changes, "0");
   assert.equal(f.connections.main.database.isTransaction, false);
 });
 

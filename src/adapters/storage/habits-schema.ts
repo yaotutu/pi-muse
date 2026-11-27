@@ -4,7 +4,7 @@ import { SQLITE_MODULE_LEDGER_TABLE, type SqliteModule } from "./sqlite-modules.
 
 /**
  * main.sqlite 的通用用户习惯归纳模块（v1）：
- * - habit_domains：各领域（sms/news/assistant 等）的消费游标 seq 与最近一次归纳统计；
+ * - habit_domains：各领域（sms/assistant 等）的消费游标 seq 与最近一次归纳统计；
  * - habit_items：长期生效的结构化行为习惯条文，支持按 domain+position 保序与增删改；
  * - habit_signals：按自增 seq 严格保序的反馈热缓冲队列，归纳成功提交后才推进游标并清理已消化行。
  */

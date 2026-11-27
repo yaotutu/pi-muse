@@ -12,7 +12,7 @@ export const habitRunStatusSchema = z.enum(["succeeded", "failed", "skipped", "c
 
 export const habitItemSchema = z.strictObject({
   id: z.string().min(1).max(128).describe("习惯条目唯一标识（hab_...）"),
-  subagentId: habitSubagentParamSchema.describe("所属专职 Subagent 标识（如 sms、news）"),
+  subagentId: habitSubagentParamSchema.describe("所属专职 Subagent 标识（如 sms）"),
   text: z.string().min(1).max(MAX_HABIT_TEXT_LENGTH).describe("AI 归纳或用户手写的行为习惯规范"),
   source: habitSourceSchema.describe("consolidated=模型归纳沉淀；manual=用户手动新增/修改"),
   createdAt: z.string().datetime(),
@@ -21,7 +21,7 @@ export const habitItemSchema = z.strictObject({
 
 export const habitPendingSignalSchema = z.strictObject({
   targetId: z.string().min(1).max(200).describe("反馈关联的目标 ID（如通知 ID 或文章 ID）"),
-  kind: z.string().min(1).max(64).describe("反馈信号来源类型（如 sms_notification、news_article）"),
+  kind: z.string().min(1).max(64).describe("反馈信号来源类型（如 sms_notification）"),
   summary: z.string().describe("被反馈对象的摘要文本"),
   reaction: z.enum(["like", "dislike"]).nullable(),
   saved: z.boolean(),
@@ -31,7 +31,7 @@ export const habitPendingSignalSchema = z.strictObject({
 });
 
 export const habitSubagentSummarySchema = z.strictObject({
-  subagentId: habitSubagentParamSchema.describe("目标专职 Subagent ID（如 sms、news）"),
+  subagentId: habitSubagentParamSchema.describe("目标专职 Subagent ID（如 sms）"),
   name: z.string().min(1).describe("Subagent 展示名称"),
   summary: z.string().min(1).describe("Subagent 职责说明"),
   running: z.boolean().describe("当前是否有习惯归纳任务正在运行"),
@@ -49,7 +49,7 @@ export const habitSubagentsListResponse = z.strictObject({
 });
 
 export const habitSubagentOverviewResponse = z.strictObject({
-  subagentId: habitSubagentParamSchema.describe("目标专职 Subagent ID（如 sms、news）"),
+  subagentId: habitSubagentParamSchema.describe("目标专职 Subagent ID（如 sms）"),
   name: z.string().min(1).describe("Subagent 展示名称"),
   summary: z.string().min(1).describe("Subagent 职责说明"),
   running: z.boolean().describe("当前是否有习惯归纳任务正在运行"),

@@ -786,19 +786,6 @@ export const stopConversation = async (sessionId: string, runId: string, signal?
   if (!response.ok) throw new ApiError(response.status, "停止失败，请重试");
 };
 
-export type { NewsArticleDto } from "../../../src/http/contracts/news.js";
-export const listNews = async (view: "all" | "recommended", cursor?: string, signal?: AbortSignal): Promise<import("../../../src/http/contracts/news.js").NewsArticleListDto> => {
-  const query = new URLSearchParams({ view });
-  if (cursor) query.set("cursor", cursor);
-  const response = await request(`/api/news/articles?${query}`, { signal });
-  if (!response.ok) throw new ApiError(response.status, "无法读取新闻");
-  return response.json();
-};
-export const refreshNews = async (): Promise<void> => {
-  const response = await request("/api/news/refresh", { method: "POST", body: "{}" });
-  if (!response.ok) throw new ApiError(response.status, "抓取失败；请检查新闻状态，不自动重发");
-};
-
 export const getBrowserStatus = async (signal?: AbortSignal): Promise<BrowserStatusDto> => {
   const response = await request("/api/browser/status", { signal });
   if (!response.ok) throw new ApiError(response.status, "无法读取浏览器状态");

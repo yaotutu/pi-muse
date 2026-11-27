@@ -1,4 +1,4 @@
-export type DatabaseName = "main" | "news";
+export type DatabaseName = "main";
 export type DatabaseParameter = string | number | null;
 export type DatabaseParameters = DatabaseParameter[] | Record<string, DatabaseParameter>;
 export type DatabaseStatement = { sql: string; params?: DatabaseParameters };

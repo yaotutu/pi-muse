@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import { builtServiceEntry } from "../support/service-process.js";
 
-for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "corrupt-main-sqlite", "corrupt-news-sqlite"] as const) {
+for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "corrupt-main-sqlite"] as const) {
   test(`e2e: built entry ${failure} fails naturally without leaked processes or overwritten documents`, { timeout: 40_000 }, async (t) => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-muse-e2e-failure-"));
     t.after(() => rm(cwd, { recursive: true, force: true }));
@@ -18,19 +18,12 @@ for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "c
     portHolder.listen(0, "127.0.0.1"); await once(portHolder, "listening");
     t.after(async () => { if (portHolder.listening) await new Promise<void>((resolve) => portHolder.close(() => resolve())); });
     const address = portHolder.address(); assert.ok(address && typeof address !== "string");
-    const config = { server: { host: "127.0.0.1", port: address.port, accessKey: "failure-fixture" }, runtime: { dataDir: "." },
-      ...(["corrupt-news-sqlite"].includes(failure)
-        ? { model: { baseUrl: "http://127.0.0.1:1", id: "failure-model", apiKey: "synthetic-key" }, traces: { enabled: true } }
-        : {}),
-    };
+    const config = { server: { host: "127.0.0.1", port: address.port, accessKey: "failure-fixture" }, runtime: { dataDir: "." } };
     await writeFile(join(directory, "config.json"), failure === "invalid-config" ? "{invalid-json" : JSON.stringify(config), { mode: 0o600 });
     const corrupt = "{invalid-monitors-must-survive";
     if (failure === "corrupt-document") await writeFile(join(directory, "state", "monitors.json"), corrupt);
-        const corruptMainDatabase = "this is not a sqlite database at all........";
+    const corruptMainDatabase = "this is not a sqlite database at all........";
     if (failure === "corrupt-main-sqlite") await writeFile(join(directory, "state", "main.sqlite"), corruptMainDatabase);
-    // news.sqlite 为垃圾字节时启动必须失败，且不能覆盖原文件。
-    const corruptNewsDatabase = "this is not a sqlite database at all........";
-    if (failure === "corrupt-news-sqlite") await writeFile(join(directory, "state", "news.sqlite"), corruptNewsDatabase);
     const process = spawn(globalThis.process.execPath, [builtServiceEntry], {
       cwd, env: { ...globalThis.process.env, HOME: join(cwd, "isolated-home") },
       stdio: ["ignore", "pipe", "pipe"],
@@ -56,10 +49,6 @@ for (const failure of ["invalid-config", "corrupt-document", "occupied-port", "c
     if (failure === "corrupt-main-sqlite") {
       assert.match(output, /file is not a database/);
       assert.equal(await readFile(join(directory, "state", "main.sqlite"), "utf8"), corruptMainDatabase);
-    }
-    if (failure === "corrupt-news-sqlite") {
-      assert.match(output, /file is not a database/);
-      assert.equal(await readFile(join(directory, "state", "news.sqlite"), "utf8"), corruptNewsDatabase);
     }
   });
 }

@@ -37,13 +37,13 @@ export function createDatabaseService(store: DatabaseToolStore) {
     async execute(request: DatabaseRequest, signal?: AbortSignal): Promise<DatabaseResult> {
       checkDatabaseCancellation(signal);
       if (!request || !["list", "schema", "execute"].includes(request.action)) invalid();
-      if (request.database !== undefined && request.database !== "main" && request.database !== "news") invalid();
+      if (request.database !== undefined && request.database !== "main") invalid();
       const maxRows = request.maxRows ?? DATABASE_LIMITS.defaultRows;
       const maxBytes = request.maxBytes ?? DATABASE_LIMITS.defaultBytes;
       if (!Number.isInteger(maxRows) || maxRows < 1 || maxRows > DATABASE_LIMITS.maxRows ||
         !Number.isInteger(maxBytes) || maxBytes < DATABASE_LIMITS.minBytes || maxBytes > DATABASE_LIMITS.maxBytes) invalid();
       if (request.action !== "execute" && (request.sql !== undefined || request.params !== undefined || request.statements !== undefined)) invalid();
-      if (request.action === "list") return { databases: [{ name: "main", default: true }, { name: "news", default: false }] };
+      if (request.action === "list") return { databases: [{ name: "main", default: true }] };
       let statements: DatabaseStatement[];
       let atomic = false;
       if (request.action === "schema") statements = [{ sql: schemaSql }];

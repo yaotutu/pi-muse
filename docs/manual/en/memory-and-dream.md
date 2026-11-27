@@ -17,7 +17,7 @@ Deletion is irreversible and affects all sessions without deleting chat. Never s
 ## Memory and profile boundaries {#memory-and-profile-boundaries}
 
 - USER, SOUL, identity and memory are global. SOUL/USER are reread each turn; memory is retrieved on demand rather than injected in full.
-- Chat sessions share assistant instructions and skill switches. News and SMS have their own preferences.
+- Chat sessions share assistant instructions and skill switches. SMS keeps its own preferences.
 - There is one shared workspace root. Shared files do not merge chat histories.
 - Feedback itself does not start Dream, a model or training. Information processing may explicitly read bounded current main feedback examples.
 

@@ -42,13 +42,13 @@ test("habits module owns 3 tables and enforces CRUD + 50-item cap", async (t) =>
 
   const h1 = await repo.addHabit("sms", "忽略电商大促短信", "manual");
   const h2 = await repo.addHabit("sms", "银行大额账单优先提醒", "consolidated");
-  const newsHabit = await repo.addHabit("news", "优先保留开源内核分析", "manual");
+  const demoHabit = await repo.addHabit("demo", "优先保留开源内核分析", "manual");
 
   assert.match(h1.id, /^hab_/);
   assert.equal(h1.source, "manual");
   assert.equal(h2.source, "consolidated");
   assert.deepEqual((await repo.listHabits("sms")).map((h) => h.id), [h1.id, h2.id]);
-  assert.deepEqual((await repo.listHabits("news")).map((h) => h.id), [newsHabit.id]);
+  assert.deepEqual((await repo.listHabits("demo")).map((h) => h.id), [demoHabit.id]);
 
   const updated = await repo.updateHabit("sms", h1.id, "彻底屏蔽促销优惠券");
   assert.equal(updated.text, "彻底屏蔽促销优惠券");

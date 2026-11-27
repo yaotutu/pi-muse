@@ -194,7 +194,7 @@ test("system prompt business guidance follows the final tool allowlist", async (
     allowedToolNames: ["currentTime", "read", "grep", "find", "ls"],
   });
   for (const unavailable of [
-    "Use database for the server-managed SQLite databases",
+    "Use database for the server-managed SQLite database",
     "write/edit directly create or modify",
     "instructions reads or replaces",
     "For maintaining Pi Muse product skills",
@@ -218,7 +218,7 @@ test("system prompt business guidance follows the final tool allowlist", async (
     ],
   });
   for (const available of [
-    "Use database for the server-managed SQLite databases",
+    "Use database for the server-managed SQLite database",
     "without per-operation approval or table-level permissions",
     "write/edit directly create or modify",
     "instructions reads or replaces",

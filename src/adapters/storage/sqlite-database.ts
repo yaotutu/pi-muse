@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 /**
- * SQLite 基础层：关系化业务域（main.sqlite 与 news.sqlite 各自对应唯一 Managed 实例）共用该基础层，
+ * SQLite 基础层：关系化业务域（main.sqlite 对应唯一 Managed 实例）共用该基础层，
  * 内置 database 工具也复用同一连接，不允许各开 writer 连接。
  *
  * 安全边界：

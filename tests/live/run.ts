@@ -100,7 +100,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       assert.equal(calls.length, 1); return JSON.parse(calls[0].arguments);
     };
 
-    const single = await begin("single", delegate({ mode: "single", tasks: [{ agent: "news", task: "实际调用currentTime一次，只回复LIVE-SINGLE与工具中的ISO时间。不要写文件。" }] }));
+    const single = await begin("single", delegate({ mode: "single", tasks: [{ agent: "sms", task: "实际调用currentTime一次，只回复LIVE-SINGLE与工具中的ISO时间。不要写文件。" }] }));
     let rows = await finish(single); const singleArgs = dispatch(rows);
     assert.equal(singleArgs.mode, "single"); assert.equal(singleArgs.tasks?.length, 1);
     assert.ok(rows.some((row) => row.child && row.calls.some((call) => call.name === "currentTime")));
@@ -108,7 +108,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.match(toolResults(rows.filter((row) => !row.child)), /LIVE-SINGLE/);
     record(scenario, { actualChildTool: "currentTime", resultReturnedToParent: true });
 
-    const parallel = await begin("parallel", delegate({ mode: "parallel", tasks: [{ agent: "sms", task: "实际调用currentTime一次，只回复LIVE-PARA-A与ISO时间。" }, { agent: "news", task: "实际调用currentTime一次，只回复LIVE-PARA-B与ISO时间。" }] }));
+    const parallel = await begin("parallel", delegate({ mode: "parallel", tasks: [{ agent: "sms", task: "实际调用currentTime一次，只回复LIVE-PARA-A与ISO时间。" }, { agent: "sms", task: "实际调用currentTime一次，只回复LIVE-PARA-B与ISO时间。" }] }));
     rows = await finish(parallel); const parallelArgs = dispatch(rows);
     assert.equal(parallelArgs.mode, "parallel"); assert.equal(parallelArgs.tasks?.length, 2);
     const initial = rows.filter((row) => row.child && row.toolResults.length === 0); assert.equal(initial.length, 2);
@@ -118,7 +118,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.match(parentResults, /LIVE-PARA-A/); assert.match(parentResults, /LIVE-PARA-B/);
     record(scenario, { actualConcurrentChildren: 2, bothResultsReturned: true });
 
-    const chain = await begin("chain", delegate({ mode: "chain", tasks: [{ agent: "sms", task: "实际调用currentTime一次，只回复LIVE-CHAIN-ONE与ISO时间。" }, { agent: "news", task: "上一步结果：{previous}。实际调用currentTime一次，再回复LIVE-CHAIN-TWO并保留上一步真实结果。" }] }));
+    const chain = await begin("chain", delegate({ mode: "chain", tasks: [{ agent: "sms", task: "实际调用currentTime一次，只回复LIVE-CHAIN-ONE与ISO时间。" }, { agent: "sms", task: "上一步结果：{previous}。实际调用currentTime一次，再回复LIVE-CHAIN-TWO并保留上一步真实结果。" }] }));
     rows = await finish(chain); const chainArgs = dispatch(rows);
     assert.equal(chainArgs.mode, "chain"); assert.equal(chainArgs.tasks?.length, 2);
     const chainInitial = rows.filter((row) => row.child && row.toolResults.length === 0); assert.equal(chainInitial.length, 2);
@@ -131,7 +131,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     record(scenario, { previousResultSubstituted: true, chainResultReturned: true });
 
     scenario = "natural-chain";
-    const naturalChainPrompt = "这是隔离真实验收。请使用子代理工具以链式顺序（chain）委派两个任务：第一步让 sms 子代理调用 currentTime 一次，只回复 LIVE-NAT-ONE 与时间；第二步让 news 子代理接收上一步真实结果（必须在任务说明中通过 {previous} 占位），再次调用 currentTime 一次，再回复 LIVE-NAT-TWO 并包含上一步结果。请只调用一次 subagent 工具，不要给出 JSON 模板或自行执行，不要编造。";
+    const naturalChainPrompt = "这是隔离真实验收。请使用子代理工具以链式顺序（chain）委派两个任务：第一步让 sms 子代理调用 currentTime 一次，只回复 LIVE-NAT-ONE 与时间；第二步让 sms 子代理接收上一步真实结果（必须在任务说明中通过 {previous} 占位），再次调用 currentTime 一次，再回复 LIVE-NAT-TWO 并包含上一步结果。请只调用一次 subagent 工具，不要给出 JSON 模板或自行执行，不要编造。";
     const naturalChain = await begin("natural-chain", naturalChainPrompt);
     rows = await finish(naturalChain); const naturalArgs = dispatch(rows);
     assert.equal(naturalArgs.mode, "chain");

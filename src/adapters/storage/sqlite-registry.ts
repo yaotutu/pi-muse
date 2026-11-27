@@ -11,7 +11,6 @@ import { habitsModule } from "./habits-schema.js";
  * main.sqlite 的模块注册表。
  *
  * 顺序即建库顺序；账本按模块登记版本，因此新增模块不会影响已有模块的版本。
- * 新闻库 news.sqlite 是独立数据库，不在此注册。
  */
 export const mainSqliteModules: readonly SqliteModule[] = [
   jobsModule,

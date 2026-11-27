@@ -384,7 +384,7 @@ test("subagent stays declared regardless of sms toggle and topic sessions do not
   for (const request of disabledRequests) {
     assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Specialized subagents")));
     assert.equal(requestToolNames(request).includes("subagent"), true);
-    // 统一启停：sms 停用后不再出现在主聊天路由声明中，仍可用 news 等其余助手。
+    // 统一启停：sms 停用后不再出现在主聊天路由声明中，其余助手不受影响。
     assert.ok(!request.messages.some((message) => message.role === "system" && requestText(message.content).includes("- `sms`")));
   }
   await h.setupPipeline({ enabled: true, batchWindowSeconds: 3600 });
@@ -394,7 +394,6 @@ test("subagent stays declared regardless of sms toggle and topic sessions do not
   await writeFile(instructionsPath, "MAIN-ONLY-RULE\n", "utf8");
   for (const [domain, endpoint, instructions] of [
     ["sms", "/api/information/preferences", "信用卡还款必须提醒我"],
-    ["news", "/api/news/preferences", "少推娱乐新闻，关注系统架构"],
   ] as const) {
     const run = h.runChat(sessionId, `设定领域规则:${domain}:${instructions}`);
     assert.match(await run, /RUN_FINISHED/);

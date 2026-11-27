@@ -54,7 +54,7 @@ test("createStatusObserver records sanitized allowlisted step details, hides hid
     type: "tool_execution_start",
     toolCallId: "tc-db",
     toolName: "database",
-    args: { database: "news", sql: "SELECT * FROM private_users WHERE token = 'topsecret'" },
+    args: { database: "main", sql: "SELECT * FROM private_users WHERE token = 'topsecret'" },
   } as unknown as AgentSessionEvent);
   observer({
     type: "tool_execution_end",
@@ -111,7 +111,7 @@ test("createStatusObserver records sanitized allowlisted step details, hides hid
   const dbStep = byId.get("main:tool:tc-db")!;
   assert.equal(dbStep.toolName, null);
   assert.equal(dbStep.title, "操作数据库");
-  assert.equal(dbStep.detail, "news");
+  assert.equal(dbStep.detail, "main");
   assert.doesNotMatch(JSON.stringify(dbStep), /SELECT|private_users|topsecret/);
 
   const commitStep = byId.get("main:tool:tc-write:commit")!;

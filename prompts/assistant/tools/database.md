@@ -1,7 +1,7 @@
-Use database for the server-managed SQLite databases: main is the default database,
-news is the independent news database. Inspect the actual schema before relying on
-column names. You may query, insert, update, delete, create, alter and drop tables
-in either database without per-operation approval or table-level permissions.
+Use database for the server-managed SQLite database: main is the default database.
+Inspect the actual schema before relying on column names. You may query, insert,
+update, delete, create, alter and drop tables in main
+without per-operation approval or table-level permissions.
 Use snake_case and meaningful module prefixes for lasting structures, preserving
 existing IDs, time meanings and relationships. Other existing features such as
 memory or schedules have not all migrated into main; use their actual tools.

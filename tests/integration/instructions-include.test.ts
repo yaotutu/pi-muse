@@ -6,7 +6,6 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel, type ModelRequest } from "../support/fake-model.js";
-import { waitForTest } from "../support/http-client.js";
 import { createService } from "../support/test-service.js";
 
 const requestText = (content: unknown): string =>
@@ -127,34 +126,25 @@ test("main chat expands frontmatter includes across SOUL, USER, and INSTRUCTIONS
   assert.ok(afterApply.instructions.includes("回复前先核对时间"));
 });
 
-test("SMS and News expand workspace instructions includes while keeping HTTP GET raw and never expanding habits", async (t) => {
+test("SMS expands workspace instructions includes while keeping HTTP GET raw and never expanding habits", async (t) => {
   const h = await fixture(t);
   const { workspaceDir } = h.service.layout;
 
   await writeFile(join(workspaceDir, "subagents", "sms", "bank.md"), "SMS-SUB-BANK-ALERTS", "utf8");
-  await writeFile(join(workspaceDir, "subagents", "news", "topics.md"), "NEWS-SUB-AI-SYSTEMS", "utf8");
   await writeFile(join(workspaceDir, "files", "vip.md"), "SHARED-VIP-CONTACT", "utf8");
   await writeFile(join(workspaceDir, "files", "forbidden-secret.md"), "FORBIDDEN-SECRET-MUST-NOT-EXPAND", "utf8");
 
   const smsRaw = "---\ninclude:\n  - ./bank.md\n  - ../../files/vip.md\n  - ./missing-sms.md\n---\n\nSMS root instructions.";
-  const newsRaw = "---\ninclude:\n  - ./topics.md\n  - ../../files/vip.md\n  - ./missing-news.md\n---\n\nNews root instructions.";
 
   assert.equal((await h.api("/api/information/preferences", "PUT", { instructions: smsRaw })).status, 200);
-  assert.equal((await h.api("/api/news/preferences", "PUT", { instructions: newsRaw })).status, 200);
 
   const smsPrefsBody = (await h.api("/api/information/preferences")).body as { instructions: string; includes: Array<{ status: string }> };
   assert.equal(smsPrefsBody.instructions, smsRaw);
   assert.ok(smsPrefsBody.includes.some((entry) => entry.status === "loaded"));
-  const newsPrefsBody = (await h.api("/api/news/preferences")).body as { instructions: string; includes: Array<{ status: string }> };
-  assert.equal(newsPrefsBody.instructions, newsRaw);
-  assert.ok(newsPrefsBody.includes.some((entry) => entry.status === "loaded"));
 
   // Poison habits with YAML frontmatter include; MUST NEVER expand.
   assert.equal((await h.api("/api/habits/sms", "POST", {
     text: "---\ninclude:\n  - ../../files/forbidden-secret.md\n---\nlearned-sms-only",
-  })).status, 200);
-  assert.equal((await h.api("/api/habits/news", "POST", {
-    text: "---\ninclude:\n  - ../../files/forbidden-secret.md\n---\nlearned-news-only",
   })).status, 200);
 
   assert.equal((await h.api("/api/information/settings", "PUT", { enabled: true, batchWindowSeconds: 3600 })).status, 200);
@@ -172,45 +162,6 @@ test("SMS and News expand workspace instructions includes while keeping HTTP GET
   assert.ok(smsSystem.includes("SHARED-VIP-CONTACT"));
   assert.ok(smsSystem.includes("learned-sms-only"));
   assert.ok(!smsSystem.includes("FORBIDDEN-SECRET-MUST-NOT-EXPAND"), "habits must never expand include directives");
-
-  // Trigger News screening with poisoned habits as well.
-  const now = new Date().toISOString();
-  const newsReqStart = h.model.requests.length;
-  await h.service.newsRepository.update((state) => ({
-    state: {
-      ...state,
-      processing: {
-        ...state.processing,
-        items: [{
-          id: "news_inc_1",
-          source: "newssource_1",
-          externalId: "inc-art-1",
-          title: "AI Systems release",
-          content: "NOTIFY new AI kernel notes",
-          receivedAt: now,
-          acceptedAt: now,
-          status: "pending",
-          metadata: { sourceId: "newssource_1", sourceTitle: "Tech Feed", url: "https://example.com/1" },
-        }],
-      },
-    },
-    result: undefined,
-  }));
-
-  const runDone = await waitForTest(async () => {
-    const r = (await h.service.newsRepository.read()).processing.runs[0];
-    return r && r.status !== "running" ? r : undefined;
-  }, "news screening run", 8000);
-  assert.equal(runDone.status, "completed");
-
-  const newsReq = h.model.requests.slice(newsReqStart).find((req) => systemPromptOf(req).includes("personal RSS news screening"));
-  assert.ok(newsReq, "expected News screening model request");
-  const newsSystem = systemPromptOf(newsReq);
-  assert.ok(newsSystem.includes("News root instructions."));
-  assert.ok(newsSystem.includes("<!-- begin include: subagents/news/topics.md -->\nNEWS-SUB-AI-SYSTEMS\n<!-- end include: subagents/news/topics.md -->"));
-  assert.ok(newsSystem.includes("SHARED-VIP-CONTACT"));
-  assert.ok(newsSystem.includes("learned-news-only"));
-  assert.ok(!newsSystem.includes("FORBIDDEN-SECRET-MUST-NOT-EXPAND"), "News habits must never expand include directives");
 });
 
 test("instructions and domain preferences return accurate include diagnostics across all error statuses", async (t) => {
@@ -262,11 +213,4 @@ test("instructions and domain preferences return accurate include diagnostics ac
     smsBody.includes.map((entry) => [entry.path, entry.status]),
     [["./valid.md", "loaded"], ["./missing.md", "missing"]],
   );
-
-  const savedNews = await h.api("/api/news/preferences", "PUT", {
-    instructions: "---\ninclude: ./nope.md\n---\nNEWS-ROOT",
-  });
-  assert.equal(savedNews.status, 200);
-  const newsBody = savedNews.body as { includes: Array<{ path: string; status: string }> };
-  assert.deepEqual(newsBody.includes.map((entry) => [entry.path, entry.status]), [["./nope.md", "missing"]]);
 });

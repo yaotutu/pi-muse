@@ -27,7 +27,6 @@ test("centralized prompts directory loads all system prompts and README index", 
   assert.ok(files.includes("sms/realtime.md"));
   assert.ok(files.includes("sms/archive.md"));
   assert.ok(files.includes("sms/briefing.md"));
-  assert.ok(files.includes("news/screening.md"));
   assert.ok(files.includes("habits/consolidate.md"));
   assert.ok(files.includes("dream/consolidate.md"));
   assert.ok(files.includes("dream/hard-rules.md"));

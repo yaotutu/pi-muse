@@ -1,6 +1,6 @@
 # Scheduled jobs, web monitors, and execution records
 
-This guide explains the current mobile client entries for scheduled jobs, web monitors, and execution records. The primary tabs are Messages, News, and Settings: create a job or monitor in main chat, then open Scheduled jobs or Web monitors under Settings → Records and tasks to manage it. Current-session execution timelines appear both as a compact collapsible bar above tool-using replies and inside the session details panel. This page is checked against current server and mobile source; it is not a test of a released APK.
+This guide explains the current mobile client entries for scheduled jobs, web monitors, and execution records. The primary tabs are Messages and Settings: create a job or monitor in main chat, then open Scheduled jobs or Web monitors under Settings → Records and tasks to manage it. Current-session execution timelines appear both as a compact collapsible bar above tool-using replies and inside the session details panel. This page is checked against current server and mobile source; it is not a test of a released APK.
 
 ## Purpose and Scope {#purpose-and-scope}
 
@@ -65,7 +65,7 @@ The default scan period means execution may start slightly later. If a tool resu
 | A daily time behaves unexpectedly | Server timezone returned by `/api/health` | Enter `HH:mm` in server time; do not convert using the phone timezone. |
 | A monitor does not notify | Condition, latest check, fetch error, and server state | `change` does not notify on the baseline or unchanged content; `contains` does not repeat while a match continues. |
 | Monitor fetching fails | Whether the URL is public HTTP(S), reachable, and web tools are enabled | Fix the link or retry later. The error remains until the next successful check. |
-| The old task aggregate page is missing | The primary tabs are Messages, News, and Settings | Manage jobs and monitors under Settings → Records and tasks; execution history is in the session details panel under Execution records. |
+| The old task aggregate page is missing | The primary tabs are Messages and Settings | Manage jobs and monitors under Settings → Records and tasks; execution history is in the session details panel under Execution records. |
 | An operation result is unknown | Tool result and current-session state | Verify whether the record still exists and its state before retrying. Do not resend automatically. |
 
 When you delete a topic session, review its jobs and monitors before confirming. Delete them with the session or keep them and move them to the main chat. Kept schedules retain their timing, control state, latest result, and pending monitor notifications. If a job is running in the topic, wait for it to finish before choosing to keep the schedules. Resetting the main chat clears its history and keeps its schedules.

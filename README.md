@@ -14,22 +14,21 @@ Chat, read, remember, and follow through on plans—with a native mobile app and
 
 [What it does](#what-it-does) · [Quick start](#quick-start) · [Safety and privacy](#safety-and-privacy) · [Development](#development-and-api)
 
-<img src="docs/assets/showcase.png" width="98%" alt="Pi Muse Android app: main chat, news, and settings">
+<img src="docs/assets/showcase.png" width="98%" alt="Pi Muse Android app: main chat and settings">
 
 </div>
 
 Screenshots use demo data; the companion pack shown is a replaceable example. This overview describes current source capabilities, not a guarantee that every feature is in the latest published APK. Check the [release notes](https://github.com/yaotutu/pi-muse-mobile/releases/latest) for your installed version.
 
-Individual screens: [Main chat](docs/assets/screenshots/chat.png) · [News](docs/assets/screenshots/news.png) · [Settings](docs/assets/screenshots/settings.png) · [Companion picker](docs/assets/screenshots/companions.png)
+Individual screens: [Main chat](docs/assets/screenshots/chat.png) · [Settings](docs/assets/screenshots/settings.png) · [Companion picker](docs/assets/screenshots/companions.png)
 
 ## What it does
 
 Pi Muse is a personal, single-user assistant, not a team platform or a chat-platform bot. The server runs the model and background work; the phone gives you a place to talk, read, review changes, and manage the results.
 
 - **One assistant, a direct main chat.** Open Messages and start talking—no conversation picker. Stream replies, attach images or text, review tool activity, and leave message feedback. The server also has topic-session foundations with isolated chat histories, while assistant instructions (including modular top-of-file YAML Frontmatter `include:` files) and skill switches are shared globally; the mobile app currently exposes only `main`. All sessions share one flat workspace.
-- **Reading that leads back to a conversation.** News collects global RSS feeds and recommends articles. Read, save, like, or dislike an article; Discuss appends an editable citation to the existing main draft without sending it. Article content is treated as untrusted external material.
 - **Plans that stay visible.** Create one-time or daily tasks and public-page monitors through chat, then manage them in Settings. Monitor intervals start at five minutes. Track longer-term goals with milestones rather than burying progress in chat history.
-- **Memory and a personal working style.** Maintain assistant and user profiles, shared assistant instructions, domain instructions for SMS/News (including modular top-of-file YAML Frontmatter `include:` sub-files), skills, and long-term memory. Optional Dream maintenance organizes memories and proposes follow-up items for review.
+- **Memory and a personal working style.** Maintain assistant and user profiles, shared assistant instructions, domain instructions for SMS (including modular top-of-file YAML Frontmatter `include:` sub-files), skills, and long-term memory. Optional Dream maintenance organizes memories and proposes follow-up items for review.
 - **A companion, not another assistant.** A transparent character, compact status label, and subtle, finite animations convey what is happening. Tap the character or status to expand main-chat actions, execution, approvals, and history around that same character; closing reverses the transition without recreating the chat. The built-in penguin is the fallback; complete custom packs installed on the server can be selected on the phone. These are pose images with light motion, not companion videos. Three local themes are available: Classic Blue, Morning Light, and Midnight Black.
 
 ### Review file changes before they happen

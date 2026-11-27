@@ -39,25 +39,17 @@ import {
   createInformationBriefingRunner,
   createInformationRunner,
 } from "../adapters/pi/information-runner.js";
-import { createNewsScreeningRunner } from "../adapters/pi/news-runner.js";
 import {
   createSubagentRegistry,
   type SubagentRegistry,
 } from "../features/subagents/registry.js";
 import { createBuiltinSubagents } from "../adapters/pi/subagents/catalog.js";
 import { createSubagentSettingsRepository } from "../adapters/storage/subagent-settings-repository.js";
-import { openNewsRepository } from "../adapters/storage/news-repository.js";
 import { openSqliteDatabase } from "../adapters/storage/sqlite-database.js";
 import { ensureSqliteModules } from "../adapters/storage/sqlite-modules.js";
 import { mainSqliteModules } from "../adapters/storage/sqlite-registry.js";
 import { createDatabaseToolStore } from "../adapters/storage/database-tool-store.js";
 import { createDatabaseService } from "../features/database/database-service.js";
-import { fetchRss2 } from "../adapters/news/rss.js";
-import { createNewsService } from "../features/news/service.js";
-import {
-  createNewsScreeningScheduler,
-  createNewsScreeningService,
-} from "../features/news/screening.js";
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout, ensureLayout, initializeWorkspaceDocuments, sessionHistoryDir } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
@@ -370,8 +362,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
     write: async (text: string) => { await writeProfileFile(file, text, undefined, layout.workspaceDir); },
   });
   const smsInstructions = domainInstructions(layout.smsInstructionsFile);
-  const newsInstructions = domainInstructions(layout.newsInstructionsFile);
-  // 通用用户习惯定期归纳服务：接管 sms / news 的未消化反馈热缓冲与长期习惯沉淀。
+  // 通用用户习惯定期归纳服务：接管 sms 的未消化反馈热缓冲与长期习惯沉淀。
   const habits = createHabitsService({
     repository: habitsRepository,
     domains: [
@@ -380,12 +371,6 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
         name: "短信助手",
         summary: "手机短信/外部信息的日常筛选、提醒与静默过滤偏好。",
         readInstructions: () => smsInstructions.readResolved(),
-      },
-      {
-        id: "news",
-        name: "新闻助手",
-        summary: "RSS 新闻源抓取后的文章兴趣推荐、收藏与跳过偏好。",
-        readInstructions: () => newsInstructions.readResolved(),
       },
     ],
     consolidateModel: createHabitConsolidationRunner({ config, layout, modelRuntime }),
@@ -411,52 +396,17 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
     synthesizeBriefing: createInformationBriefingRunner({ config, layout, modelRuntime }),
     repository: informationRepository,
   });
-  // 新闻事实落 news.sqlite；启动时使用当前数据库路径。
-  // Managed 实例唯一，后续 AgentSQL 工具复用同一实例，不另开 writer。
-  let newsStorage: Awaited<ReturnType<typeof openNewsRepository>>;
-  try {
-    newsStorage = await openNewsRepository({
-      databaseFile: layout.newsDatabaseFile,
-    });
-  } catch (error) {
-    await Promise.allSettled([mainDatabase.close(), habits.close(), information.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
-    throw error;
-  }
-  const newsRepository = newsStorage.repository;
   let databasesClosing = false;
-  const database = createDatabaseService(createDatabaseToolStore(async (name) => {
+  const database = createDatabaseService(createDatabaseToolStore(async () => {
     if (databasesClosing) throw new Error("Managed databases are closing");
-    if (name === "news") return newsStorage.database;
     return mainDatabase;
   }));
   const closeDatabases = async () => {
     databasesClosing = true;
-    const pending = [newsStorage.database.close(), mainDatabase.close()];
-    return Promise.allSettled(pending);
+    return Promise.allSettled([mainDatabase.close()]);
   };
-  // 新闻领域读取自己的用户指令文件和通用习惯引擎上下文。
-  const newsScreening = createNewsScreeningService({
-    observeWork: workspaceEvents.presence.observe,
-    repository: newsRepository,
-    instructions: newsInstructions,
-    habits,
-    onFeedbackChanged: (payload) => habits.recordSignal("news", payload.targetId, payload),
-    onChanged: (scope) => workspaceEvents.subagentChanged("news", scope),
-    runModel: createNewsScreeningRunner({ config, layout, modelRuntime }),
-  });
   const informationScheduler = createInformationScheduler(information, {
     isEnabled: () => subagents?.isEnabled("sms") ?? true,
-  });
-  const newsScreeningScheduler = createNewsScreeningScheduler(newsScreening, {
-    isEnabled: () => subagents?.isEnabled("news") ?? true,
-  });
-  const news = createNewsService({
-    observeWork: workspaceEvents.presence.observe,
-    repository: newsRepository,
-    screening: newsScreening,
-    fetchFeed: (url, signal) => fetchRss2(url, config.web, signal),
-    isBackgroundEnabled: () => subagents?.isEnabled("news") ?? true,
-    onChanged: (scope) => workspaceEvents.subagentChanged("news", scope),
   });
   subagents = createSubagentRegistry({
     settingsRepository: createSubagentSettingsRepository(layout),
@@ -478,40 +428,6 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
         }
         workspaceEvents.subagentChanged("sms", "settings");
       },
-      news: {
-        preferences: () => news.preferences(),
-        query: async (input) => {
-          if (input.action === "overview") {
-            const [status, sources, preferences, recentArticles] = await Promise.all([
-              news.status(),
-              news.listSources(),
-              news.preferences(),
-              news.listArticles({ view: "recommended", savedOnly: false, limit: 5 }),
-            ]);
-            return {
-              status,
-              sources: sources.sources,
-              preferences,
-              recentArticles: recentArticles.articles,
-            };
-          }
-          if (input.action === "items") {
-            return news.listArticles({
-              view: input.status === "all" ? "all" : "recommended",
-              savedOnly: false,
-              limit: input.limit ?? 20,
-              cursor: input.cursor,
-            });
-          }
-          if (input.action === "item") {
-            return news.getArticle(input.itemId ?? "");
-          }
-          if (input.action === "runs") {
-            return newsScreening.listRuns({ status: input.status, limit: input.limit, cursor: input.cursor });
-          }
-          return newsScreening.getRun(input.runId ?? "");
-        },
-      },
       browser,
       mcp,
     }),
@@ -520,7 +436,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
 
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
   try {
-    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), habitsRepository.validateAll(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate(), newsRepository.reconcileOnStart?.()]);
+    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), habitsRepository.validateAll(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart()]);
     const hasSubagentSettings = await stat(layout.subagentSettingsFile).then(() => true, () => false);
     if (!hasSubagentSettings && (await informationRepository.getSettings()).enabled) {
       await subagents.syncEnabled("sms", true);
@@ -528,17 +444,15 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
     await actions.cancelPending();
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
-    await Promise.allSettled([habits.close(), information?.close(), newsScreening.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
+    await Promise.allSettled([habits.close(), information?.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
     await closeDatabases();
     throw error;
   }
   let mainConversation: Awaited<ReturnType<typeof conversationHub.forSession>>;
   try {
     mainConversation = await conversationHub.forSession("main");
-    await news.initialize();
   } catch (error) {
-    await news.close();
-    await Promise.allSettled([habits.close(), information?.close(), newsScreening.close(), news.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
+    await Promise.allSettled([habits.close(), information?.close(), conversationHub.closeAll(), browser?.close(), modelTrace?.close()]);
     await closeDatabases();
     throw error;
   }
@@ -608,7 +522,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
   // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
   const traces = createModelTraceReader(layout.tracesDir);
   const androidUpdates = createAndroidReleaseMirror(layout.androidUpdatesDir);
-  const dependencies = { androidUpdates, companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, dream, dreamScheduler, habits, habitsScheduler, information, informationScheduler, news, subagents, mcp, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, messageFeedbackRepository };
+  const dependencies = { androidUpdates, companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, dream, dreamScheduler, habits, habitsScheduler, information, informationScheduler, subagents, mcp, database, sessions, browser, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
@@ -617,12 +531,12 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
     clearInterval(approvalTimer);
     // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
     workspaceEvents.close();
-    const stopped = [androidUpdates.close(), scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), habitsScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), newsScreening.close(), newsScreeningScheduler.close(), conversationHub.closeAll(), mcp.close()];
+    const stopped = [androidUpdates.close(), scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), habitsScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), conversationHub.closeAll(), mcp.close()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
       await approvalExpiry;
-      // 新闻写方与在途请求都收尾后再关库；之后不再接受任何 news_* 写入。
+      // 全部写方与在途请求收尾后再关库。
       results.push(...await closeDatabases());
       await browser?.close();
       await recency.flush();
@@ -643,8 +557,6 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
     dreamScheduler.start();
     habitsScheduler.start();
     informationScheduler.start();
-    newsScreeningScheduler.start();
-    news.start();
     return { ...dependencies, app, close };
   } catch (error) {
     await close();

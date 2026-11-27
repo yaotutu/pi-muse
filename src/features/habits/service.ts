@@ -73,7 +73,7 @@ const validHabitId = (raw: string): string => {
 
 /**
  * 通用、与领域解耦的用户行为习惯归纳服务：
- * - 维护每个领域（如 sms/news/assistant）的长期已归纳习惯列表（HabitItem[]）；
+ * - 维护每个领域（如 sms/assistant）的长期已归纳习惯列表（HabitItem[]）；
  * - 维护基于递增 seq 游标的原始反馈热缓冲（habit_signals）：未达归纳时立即注入最新样本，
  *   归纳成功提交后才原子推进游标并清理已消化信号；模型失败/取消绝不丢弃信号。
  */

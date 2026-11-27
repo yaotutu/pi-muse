@@ -113,11 +113,11 @@ export const workspaceEvents = {
   subagent_updated: z
     .strictObject({
       instanceId: instanceIdSchema,
-      subagentId: z.string().min(1).describe("发生变更的专职 Subagent ID，如 sms 或 news。"),
+      subagentId: z.string().min(1).describe("发生变更的专职 Subagent ID，如 sms。"),
       scope: z.enum(["items", "runs", "habits", "preferences", "settings"]).describe("发生变更的子视图范围，客户端仅按需刷新对应区块。"),
     })
     .describe(
-      "专职 Subagent（如 sms/news）条目、执行记录、行为习惯、偏好或设置发生变化时的轻量失效通知；同一 (subagentId, scope) 在缓冲中合并，客户端按需重读对应只读接口。",
+      "专职 Subagent（如 sms）条目、执行记录、行为习惯、偏好或设置发生变化时的轻量失效通知；同一 (subagentId, scope) 在缓冲中合并，客户端按需重读对应只读接口。",
     ),
   browser_updated: z
     .strictObject({

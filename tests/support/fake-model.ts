@@ -223,10 +223,10 @@ export async function createFakeModel() {
       }
       let selected: { name: string; args: object } | undefined;
       if (last === "E2E parallel") selected = { name: "subagent", args: { mode: "parallel", tasks: [
-        { agent: "sms", task: "E2E clock A" }, { agent: "news", task: "E2E clock B" },
+        { agent: "sms", task: "E2E clock A" }, { agent: "sms", task: "E2E clock B" },
       ] } };
       else if (last === "E2E chain") selected = { name: "subagent", args: { mode: "chain", tasks: [
-        { agent: "sms", task: "E2E seed" }, { agent: "news", task: "E2E previous {previous}" },
+        { agent: "sms", task: "E2E seed" }, { agent: "sms", task: "E2E previous {previous}" },
       ] } };
       else if (last === "E2E single") selected = { name: "subagent", args: { mode: "single", tasks: [{ agent: "sms", task: "E2E clock single" }] } };
       else if (last === "E2E browser single") selected = { name: "subagent", args: { mode: "single", tasks: [{ agent: "browser", task: "E2E clock single" }] } };
@@ -301,7 +301,7 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
-    // 领域规则修改与查询：主聊天路由给 sms / news subagent，子代理内部调用对应专属工具。
+    // 领域规则修改与查询：主聊天路由给 sms subagent，子代理内部调用对应专属工具。
     if (declaresTool("subagent") && !pendingToolResult) {
       const ruleMatch = last.match(/设定领域规则:([a-z][a-z0-9_-]*):([^\n]+)/);
       if (ruleMatch) {
@@ -325,11 +325,11 @@ export async function createFakeModel() {
         return;
       }
     }
-    // 专职 sms / news 子代理执行内部工具
-    if ((declaresTool("sms_update_instructions") || declaresTool("news_update_instructions")) && !pendingToolResult) {
+    // 专职 sms 子代理执行内部工具
+    if (declaresTool("sms_update_instructions") && !pendingToolResult) {
       const ruleMatch = last.match(/设定领域规则:([a-z][a-z0-9_-]*):([^\n]+)/);
       if (ruleMatch) {
-        const prefix = ruleMatch[1] === "news" ? "news" : "sms";
+        const prefix = ruleMatch[1]!;
         event({ role: "assistant" });
         event(toolCall(`${prefix}_update_instructions`, {
           instructions: ruleMatch[2]!.trim(),
@@ -430,7 +430,6 @@ export async function createFakeModel() {
     const informationTool = (input.tools ?? []).find((tool) => (tool as {function?:{name?:string}}).function?.name === "submit_information_result") as {function?:{parameters?:{properties?:Record<string,unknown>}}} | undefined;
     const toolProps = informationTool?.function?.parameters?.properties ?? {};
     const isArchiveBatch = Boolean(toolProps.habitOperations && !toolProps.notifications);
-    const isNewsScreening = Boolean(!toolProps.notifications && !toolProps.habitOperations);
     const submissionFor = (items: Array<{id:string;content:string}>, invalid = false) => {
       const result = informationSubmission(items, invalid);
       if (isArchiveBatch) {
@@ -443,12 +442,6 @@ export async function createFakeModel() {
         return {
           decisions: result.decisions,
           ...(habitOperations.length ? { habitOperations } : {}),
-        };
-      }
-      if (isNewsScreening) {
-        return {
-          decisions: result.decisions,
-          ...(items.some((item) => item.content.includes("NEWS_OBJECT_NOTIFICATIONS")) ? { notifications: {} } : {}),
         };
       }
       return result;

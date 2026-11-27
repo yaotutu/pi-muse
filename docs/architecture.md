@@ -54,7 +54,7 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 
 所有静态系统提示词统一托管在仓库根目录 `prompts/`（全英文模板 + 中文索引 `prompts/README.md`；源码模式直读磁盘，构建时同步至 `dist/prompts/`；不做数据目录覆盖）。所有 Agent 统一遵循「系统提示词（`prompts/`） + 用户 `AGENTS.md`（与通用已归纳长期习惯） + 当次 `UNTRUSTED INPUT DATA`（含未消化反馈热缓冲）」三层拼装。
 
-主对话每轮装配顺序是 `prompts/assistant/base.md`、本轮实际工具说明（`prompts/assistant/tools/*.md` 及主聊天开放路由的专职 Subagent 清单 `prompts/assistant/subagents.md`）、SOUL、USER、共享助手 `workspace/assistant/AGENTS.md`、memory 检索说明。助手指令在各聊天会话每轮重读，不能扩大工具权限。短信与新闻专职 Subagent 各自读取本领域 `AGENTS.md`。全部 5 份工作区托管文档（`workspace/assistant/{SOUL,USER,AGENTS}.md` 与 `workspace/subagents/{sms,news}/AGENTS.md`）均支持在文件最顶部使用 YAML Frontmatter `include:` 引用 `workspace/` 内相对路径的纯文本文件（读写 API 保持原文不拍平，并在 `/api/assistant/instructions`、`/api/information/preferences`、`/api/news/preferences` 与 `/api/subagents/:id` 附带只读 `includes` 诊断数组；注入模型前按当前文件所在目录实时展开，最多 5 层嵌套与 60,000 字符上限，环路/重复自动去重，缺失或越界静默跳过；AI 归纳习惯绝不解析 `include:`）。
+主对话每轮装配顺序是 `prompts/assistant/base.md`、本轮实际工具说明（`prompts/assistant/tools/*.md` 及主聊天开放路由的专职 Subagent 清单 `prompts/assistant/subagents.md`）、SOUL、USER、共享助手 `workspace/assistant/AGENTS.md`、memory 检索说明。助手指令在各聊天会话每轮重读，不能扩大工具权限。短信专职 Subagent 读取本领域 `AGENTS.md`。全部 4 份工作区托管文档（`workspace/assistant/{SOUL,USER,AGENTS}.md` 与 `workspace/subagents/sms/AGENTS.md`）均支持在文件最顶部使用 YAML Frontmatter `include:` 引用 `workspace/` 内相对路径的纯文本文件（读写 API 保持原文不拍平，并在 `/api/assistant/instructions`、`/api/information/preferences` 与 `/api/subagents/:id` 附带只读 `includes` 诊断数组；注入模型前按当前文件所在目录实时展开，最多 5 层嵌套与 60,000 字符上限，环路/重复自动去重，缺失或越界静默跳过；AI 归纳习惯绝不解析 `include:`）。
 
 技能资产全局共用，开关全局保存并绑定 `source/name`；默认值只来自随服务端发布的内置清单 `assets/skills-defaults.json`，通用与自建来源一律默认关闭，最终装配以手动选择优先。目录优先级为实例 `DATA_DIR/skills/` > 内置技能 > 服务端用户 `~/.agents/skills/`，来源在目录、维护视图和 HTTP 清单中一致；关闭不回退，同名新来源不继承旧选择。复用 pi loader 解析标准 SKILL.md，不写私有技能 config，也不发现个人 CLI 的其他配置、扩展或凭据。通用技能目录只读，入口链接规范化为真实技能根，内部链接与超限正文拒绝；共享脚本/extension.ts 不执行。自有可信扩展仍是服务端代码，路径 guard 不是操作系统沙箱。只有本轮启用技能的精确 SKILL.md 与支持的文本资源可作为 read 的额外只读例外；不扩大目录、代码或配置访问。专职 Subagent 默认零继承主聊天技能，只加载自身静态绑定的能力。
 
@@ -63,9 +63,8 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 全仓统一为**「唯一底层执行内核 + 唯一上层专职 Subagent 注册中心」**，不再并存动态聊天角色文件与独立 `domain_agent` 目录：
 
 - **底层唯一内核（`src/adapters/pi/subagent-runner.ts`）**：`runSubagent` 与结构化薄封装 `runStructuredSubagent` 坚持默认零权限（Deny-by-default），每次执行创建独立 `SessionManager.inMemory`，纯函数语义（无跨次聊天上下文，仅在单次执行周期内持有独立内存会话记录），不落盘、不创建会话目录、不发现个人 CLI 资源，硬拦截 `bash` 与递归 `subagent`，统一管理超时、`AbortSignal` 取消、错误脱敏、`modelTrace` 与资源释放。
-- **上层统一注册中心（`src/features/subagents/` + `src/adapters/pi/subagents/catalog.ts`）**：所有专职 Subagent 提前静态声明自身提示词、工具、技能与 MCP（预留槽位），集中注册在 `create-service.ts`，当前内置 5 个专职 Subagent：
+- **上层统一注册中心（`src/features/subagents/` + `src/adapters/pi/subagents/catalog.ts`）**：所有专职 Subagent 提前静态声明自身提示词、工具、技能与 MCP（预留槽位），集中注册在 `create-service.ts`，当前内置 4 个专职 Subagent：
   - `sms`（`chat` + `background`）：后台实时/归档/简报筛选 + 主聊天路由查短信与修改 `workspace/subagents/sms/AGENTS.md`（经父会话版本绑定人工审批）。
-  - `news`（`chat` + `background`）：后台 RSS 筛选 + 主聊天路由查新闻与修改 `workspace/subagents/news/AGENTS.md`（经父会话版本绑定人工审批）。
   - `browser`（`chat`，`parallelAllowed: false`）：独占共享真实 GUI Chrome，执行多步网页浏览、交互与信息提取，遇登录或验证码发起人工接管；在 `parallel` 模式下直接拒绝以防抢占同一桌面窗口。
   - `habits`（`background`）：后台定期归纳各领域未消化用户反馈样本为长期行为习惯。
   - `dream`（`background`）：后台定期整理主会话增量消息并提出笔记变更提案。
@@ -78,18 +77,16 @@ pi `createAgentSession` 是执行循环唯一实现；`SessionManager`/JSONL 是
 
 反馈绑定公开会话、pi 会话和消息 id，在 `main.sqlite` 独立记录原始反应/收藏（`saved`）/评论事件并同步索引状态视图，不追加到 JSONL、不改变聊天 revision。喜欢/不喜欢互斥且可撤销，收藏可独立开关，评论 trim 后 1–4000 字符；支持按 `saved` 与 `reaction` 条件查询消息反馈列表（`GET /api/sessions/:sessionId/messages/feedback`）。当前生成消息和工具结果不可反馈。reset 与删除会话清理对应反馈；旧 pi 身份返回冲突，不把反馈迁移到新历史。底层统一记录全部行为事件，具体下游业务可按需消费（当前信息偏好从通知反馈提取 reaction/saved/comments 样本）。
 
-## 领域业务与通用习惯引擎（短信、新闻、Dream）
+## 领域业务与通用习惯引擎（短信、Dream）
 
-短信与新闻业务模块持有各自的持久化数据、用户指令文件 `workspace/subagents/<id>/AGENTS.md` 与通用行为习惯引擎；AI 执行与主聊天交互统一由对应的 `sms` / `news` 专职 Subagent 承载：
+短信业务模块持有自己的持久化数据、用户指令文件 `workspace/subagents/<id>/AGENTS.md` 与通用行为习惯引擎；AI 执行与主聊天交互统一由对应的 `sms` 专职 Subagent 承载：
 
-- **指令写入**：设置页与工作区文件页共享各领域的 `workspace/subagents/<id>/AGENTS.md` 原文（字段名统一为 `instructions`）。主聊天路由至 `sms` / `news` Subagent 修改规则时，透传父会话工作区文件版本绑定审批。
+- **指令写入**：设置页与工作区文件页共享各领域的 `workspace/subagents/<id>/AGENTS.md` 原文（字段名统一为 `instructions`）。主聊天路由至 `sms` Subagent 修改规则时，透传父会话工作区文件版本绑定审批。
 - **后台技能彻底剥离**：聊天 `SKILL.md` 与全局技能开关只服务主聊天会话；后台 Subagent 绝不注入主聊天技能、也不读取 `workspace/assistant/AGENTS.md` 或全局 `memory.md`，只依赖仓库 `prompts/` 中各自的系统提示词、独立用户 `AGENTS.md` 与通用习惯引擎维护的长期习惯条目及未消化反馈热缓冲。
 - **通用习惯定期归纳与热缓冲（`src/features/habits/`）**：跨领域管理长期行为习惯（`habit_items`，每领域上限 50 条、每条 `<= 300` 字、支持用户手动通过 `/api/habits/:subagentId` 增删改且不写用户 `AGENTS.md`；`GET /api/habits` 列举全部已注册领域摘要，`GET /api/habits/:domain` 附带 `name`、`summary` 与活跃待归纳 `pendingSignals` 明细）与按递增 `seq` 游标追踪的原始反馈热缓冲（`habit_signals`）。达到每领域 5 个去重活跃反馈目标、固定 2 小时周期或手动触发 `POST /api/habits/:domain/consolidate` 时，受限 `habit-runner` 增量输出 `add/edit/delete` 并在成功校验后原子推进 `cursorSeq` 与清理已消化样本；模型失败、取消或并发手工修改均受游标与乐观版本保护，绝不丢弃未消化反馈。未及归纳的近期反馈通过热缓冲即时进入下一轮领域推理，彻底避免仅截断保留最近 10 条导致的规则遗忘。
-- **通知与主聊天可见性**：每个业务自行决定输出是留在独立列表视图（如新闻）还是推送到主聊天窗口（如重要短信提醒与归档简报）。推入 `main` 会话的通知携带显式 `subagentId`（仅允许 `source === "notification"` 且存在 `notificationId`），不额外触发一轮主聊天模型；凡已进入主聊天窗口的消息均对主模型直接可见，不再对主模型隐藏过滤。
+- **通知与主聊天可见性**：每个业务自行决定输出形态：重要短信提醒与归档简报推送到主聊天窗口。推入 `main` 会话的通知携带显式 `subagentId`（仅允许 `source === "notification"` 且存在 `notificationId`），不额外触发一轮主聊天模型；凡已进入主聊天窗口的消息均对主模型直接可见，不再对主模型隐藏过滤。
 
 短信是一条全局信息管线（`src/features/information/`），设置默认关闭，系统提示词采用默认静默（Default-Silent）基线与四级优先级（`用户 AGENTS.md` > `近期未消化反馈热缓冲` > `已归纳长期习惯` > `默认静默基线`），严格分离两条通道并共享同一套用户指令（`workspace/subagents/sms/AGENTS.md`）与通用习惯引擎（`sms` 域）：1）日常实时单周期（`queue=realtime`）：接入后经 O(1) 索引查询到期或手动触发（`POST /api/information/runs` 支持 `{}` 或 `{ retryFailed: true }` 重试失败条目），单轮判定（`submit_information_result`）落库后直接推送主对话；多条目批次被上游内容安全审核（`MODEL_CONTENT_REJECTED`）拒绝时自动二分隔离，仅真正触发审核的条目失败，其余条目正常处理；2）历史批量归档（`queue=archive`）：通过 `/api/information/archive/*` 独立导入并显式运行，与实时调度彻底隔离，逐批向通用习惯库增量提交 `habitOperations`，多条目批次被上游内容安全审核（`MODEL_CONTENT_REJECTED`）拒绝时同样自动二分隔离毒丸条目；当归档队列 pending=0 且不再存在非审核类失败（瞬时故障、`INVALID_MODEL_RESULT` 等仍阻断并等待 `retryFailed`）时，通过 `submit_information_briefing` 至多推送 1 条 <= 1200 字简报，其中自然告知被审核跳过的条目数（`skippedCount`，不泄露内部字段名）。仓储层采用 `main.sqlite` `sms` v4 直接 SQL 定向查询/事务（含 `idx_sms_items_queue_status`、`idx_sms_items_accepted`、`idx_sms_runs_started`、`idx_sms_decisions_item` 四组索引），归档 run 的 `started_at`/`finished_at` 单调推进以保证波次边界确定性，列表/详情接口直接投影 `decision` 与 `reason`，并在每轮收尾按有界保留上限自动清理历史（始终保留待处理/运行中/失败条目）。专题会话不接收通知，silent 或失败不制造通知；disable/reset/shutdown 取消未落盘投递，已落盘通知不回滚。
-
-新闻是完全独立的全局 RSS 采集与推荐筛选管线（`src/features/news/service.ts` 与 `src/features/news/screening.ts`），源、文章、反馈与推荐结果保存在独立的 `news.sqlite`（v3 已清理废弃列并有界保留最多 2,000 篇无反馈历史文章，含用户反馈的文章永不裁剪），彻底解耦短信管线与 `workspace/assistant/AGENTS.md`；反馈变更同时向通用习惯引擎（`news` 域）写入热缓冲信号，筛选模型仅返回 `decisions`，长期偏好由通用习惯引擎定期提炼并回注筛选上下文。调度同样通过 O(1) SQL `hasPendingArticle()` 触发受限单轮模型。新闻服务与数据库工具复用同一 SQLite 连接及操作队列。RSS 通过安全网络 adapter 抓取，严格 XML/大小/深度/条数校验，拒绝 DTD/实体和可执行 HTML。推荐不写聊天，删除源保留文章与反馈，已归纳习惯不覆盖用户显式指令。
 
 Dream 是实例全局服务：系统整理提示词与不可覆盖安全规则统一托管在仓库 `prompts/dream/`（无运行时数据目录覆盖），游标按来源会话在数据库保存，待决项全局管理。整理用受限内存 pi 轮；条件写入核对读取版本，不覆盖用户并发编辑；失败/部分成功不推进对应游标。来源已删除时不得借待决项重建会话。周期固定两小时，忙会话跳过，不自动重跑失败模型轮。
 
@@ -109,11 +106,11 @@ jobs 和 monitors 的来源是公开会话；省略来源使用 main。只绑定
 
 ## 数据布局与校验
 
-路径唯一来源是 `src/adapters/storage/data-layout.ts`。唯一工作区 `workspace/` 保存全局 `assistant/{SOUL,USER,AGENTS}.md`、`subagents/{sms,news}/AGENTS.md` 与 `files/`；全局状态目录 `state/assistant/` 保存 `memory.md`、`identity.json` 与 `skill-overrides.json`；`sessions/index.json` 与 `sessions/<sessionId>/history/` 保存各会话元数据与 JSONL；默认业务库 `state/main.sqlite` 保存定时任务、目标、审批记录、短信、通用用户习惯、Dream 与消息反馈行为数据，新闻使用独立 `state/news.sqlite`，网页监控暂留 `state/monitors.json`。存储边界与判据见 [SQLite 存储约定](sqlite-storage.md)。
+路径唯一来源是 `src/adapters/storage/data-layout.ts`。唯一工作区 `workspace/` 保存全局 `assistant/{SOUL,USER,AGENTS}.md`、`subagents/sms/AGENTS.md` 与 `files/`；全局状态目录 `state/assistant/` 保存 `memory.md`、`identity.json` 与 `skill-overrides.json`；`sessions/index.json` 与 `sessions/<sessionId>/history/` 保存各会话元数据与 JSONL；默认业务库 `state/main.sqlite` 保存定时任务、目标、审批记录、短信、通用用户习惯、Dream 与消息反馈行为数据，网页监控暂留 `state/monitors.json`。存储边界与判据见 [SQLite 存储约定](sqlite-storage.md)。
 
 SQLite 表和字段采用 snake_case，领域表以模块名前缀区分，迁移版本单独登记。新闻文章、反馈、评论、批次和决定关系化保存，不以整份 JSON 文档替代关系表。保持原始业务 ID、顺序、时间及删除语义；来源是历史快照的关联不应错误级联删除文章。数据库内更新使用短事务，不在 SQL 事务内等待模型、网络或人工决定。
 
-`database` 是共享的业务数据工具，可自主查询、写入、建表、改列和删表，无库/表角色或逐次 SQL 审批；main/news 两个库均可操作。它不是任意文件或代码执行接口：库位置由宿主管理，不借 SQLite 扩展、外部文件附加或文件输出绕过工作区与文件审批边界。数据库结构被直接改坏时应如实失败，不自动重建成空库。同步 SQL 已执行/提交的副作用不因稍后取消而回滚，不宣称 AbortSignal 能中断任意正在运行的 SQLite 语句。
+`database` 是共享的业务数据工具，可自主查询、写入、建表、改列和删表，无库/表角色或逐次 SQL 审批；当前唯一托管库是 main。它不是任意文件或代码执行接口：库位置由宿主管理，不借 SQLite 扩展、外部文件附加或文件输出绕过工作区与文件审批边界。数据库结构被直接改坏时应如实失败，不自动重建成空库。同步 SQL 已执行/提交的副作用不因稍后取消而回滚，不宣称 AbortSignal 能中断任意正在运行的 SQLite 语句。
 
 仅 ENOENT 可初始化默认值，损坏 JSON、非法字段、未知结构与其他 I/O 错误必须报错，不过滤坏条目或静默置空。文件写入使用同目录独占临时文件、受保护权限与 rename；单进程串行读改写。新布局不读取、转换、迁移或删除旧实例数据；正式实例处理另行授权。
 
@@ -129,7 +126,7 @@ SQLite 的连接所有权、模块命名、当前表语义与演进边界见 [SQ
 
 外网请求保留 DNS/SSRF/固定 IP/逐跳重定向/超时/大小/取消防护。私网仅显式配置例外（或管理员显式配置的自有 SearXNG 实例地址），其他边界不变。Web 适配层按职责拆分为底层安全 HTTP 通道（`src/adapters/web/http-client.ts`）、可插拔 `SearchSource` 注册表与多搜索源（`src/adapters/web/search/`）及网页正文抓取（`src/adapters/web/fetch.ts`）：`tools.web.search` 支持 `auto` / `tavily` / `brave` / `searxng` / `jina` / `duckduckgo` 并支持后续通过注册表扩展新搜索源；`tools.web.fetch` 默认对公网非纯数据、无凭据/鉴权参数 URL 优先经 Jina Reader 转为干净 Markdown，失败时无缝回退本地抽取；可选 `tools.web.proxy` 通过 HTTP/HTTPS 代理发起外网请求（仍前置公网域名校验）。页面、RSS、附件和外部工具内容均是不可信数据。
 
-标准 MCP（stdio 与 Streamable HTTP）配置持久化在实例目录 `DATA_DIR/mcp.json`（标准 `mcpServers` 形状），通过 `/api/mcp/servers*` 鉴权接口进行热增删改、启停与重连。`env` 与自定义 `headers` 明文值只留在服务端安全配置文件与内存，回读接口只返回键名集合；MCP 工具按 `mcp__<server>__<tool>` 暴露给主聊天模型直接执行并在运行步骤记录留痕（不在主服务端另弹二次审批），返回文本统一携带不可信外部数据标记。全局声明的所有已启用服务对主聊天默认全部开启，主聊天可通过 `GET/PUT /api/assistant/mcp`（持久化于 `DATA_DIR/state/assistant/mcp-overrides.json`）独立开关而不影响全局连接；专职子代理默认不继承外部 MCP，聊天路由型 Subagent（如 `sms`、`news`、`browser`）可通过 `GET/PUT /api/subagents/:id/mcp`（持久化于 `DATA_DIR/state/subagent-mcp-overrides.json`）按显式允许清单从同一全局目录选用。
+标准 MCP（stdio 与 Streamable HTTP）配置持久化在实例目录 `DATA_DIR/mcp.json`（标准 `mcpServers` 形状），通过 `/api/mcp/servers*` 鉴权接口进行热增删改、启停与重连。`env` 与自定义 `headers` 明文值只留在服务端安全配置文件与内存，回读接口只返回键名集合；MCP 工具按 `mcp__<server>__<tool>` 暴露给主聊天模型直接执行并在运行步骤记录留痕（不在主服务端另弹二次审批），返回文本统一携带不可信外部数据标记。全局声明的所有已启用服务对主聊天默认全部开启，主聊天可通过 `GET/PUT /api/assistant/mcp`（持久化于 `DATA_DIR/state/assistant/mcp-overrides.json`）独立开关而不影响全局连接；专职子代理默认不继承外部 MCP，聊天路由型 Subagent（如 `sms`、`browser`）可通过 `GET/PUT /api/subagents/:id/mcp`（持久化于 `DATA_DIR/state/subagent-mcp-overrides.json`）按显式允许清单从同一全局目录选用。
 
 浏览器全局复用唯一、懒启动、可见的 Chrome；受保护 profile/downloads 不进入工作区。模型不获得任意 JavaScript evaluate、cookie、localStorage 或密码。HTTP/WS 与浏览器工具共享同一服务；ticket、鉴权、帧背压与生命周期按生成契约执行。
 

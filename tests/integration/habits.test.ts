@@ -7,7 +7,6 @@ import test, { type TestContext } from "node:test";
 import { createConfig } from "../../src/config/load-config.js";
 import { habitSubagentOverviewResponse, habitItemResponse } from "../../src/http/contracts/habits.js";
 import { informationPreferencesResponse } from "../../src/http/contracts/information.js";
-import { newsPreferencesResponseSchema } from "../../src/http/contracts/news.js";
 import { createFakeModel, type ModelRequest } from "../support/fake-model.js";
 import { waitForTest } from "../support/http-client.js";
 import { createService } from "../support/test-service.js";
@@ -58,7 +57,7 @@ const fixture = async (t: TestContext) => {
   return { api, dataDir, model, service };
 };
 
-test("habits HTTP CRUD, validation, and model consolidation failure preservation across SMS & News", async (t) => {
+test("habits HTTP CRUD, validation, and model consolidation failure preservation across SMS", async (t) => {
   const h = await fixture(t);
 
   // Unknown & invalid domain errors
@@ -163,47 +162,6 @@ test("habits HTTP CRUD, validation, and model consolidation failure preservation
   // Delete manual habit
   assert.equal((await h.api(`/api/habits/sms/${created.id}`, "DELETE")).status, 200);
   assert.equal(habitSubagentOverviewResponse.parse((await h.api("/api/habits/sms")).body).habits.length, 1);
-
-  // News domain feedback -> auto-threshold consolidation after 5 distinct articles
-  const now = new Date().toISOString();
-  await h.service.newsRepository.update((state) => ({
-    state: {
-      ...state,
-      processing: {
-        ...state.processing,
-        items: Array.from({ length: 5 }, (_, idx) => ({
-          id: `news_hab_${idx}`,
-          source: "newssource_1",
-          externalId: `ext-hab-${idx}`,
-          title: `News Title ${idx}`,
-          content: `News content ${idx}`,
-          receivedAt: now,
-          acceptedAt: now,
-          status: "processed" as const,
-          metadata: { sourceId: "newssource_1", sourceTitle: "Tech Feed", url: null },
-        })),
-      },
-    },
-    result: undefined,
-  }));
-
-  for (let idx = 0; idx < 5; idx++) {
-    await h.api(`/api/news/articles/news_hab_${idx}/reaction`, "PUT", { reaction: idx === 0 ? "dislike" : "like" });
-    if (idx === 0) {
-      await h.api(`/api/news/articles/news_hab_${idx}/comments`, "POST", {
-        text: "HABIT_ADD:新闻优先精选底层架构与工程实战，跳过融资八卦",
-      });
-    }
-  }
-
-  const newsConsolidated = await waitForTest(async () => {
-    const ov = habitSubagentOverviewResponse.parse((await h.api("/api/habits/news")).body);
-    return !ov.running && ov.unconsolidatedCount === 0 && ov.habits.length > 0 ? ov : undefined;
-  }, "auto threshold consolidation for news", 8000);
-  assert.equal(newsConsolidated.habits[0]?.text, "新闻优先精选底层架构与工程实战，跳过融资八卦");
-  const newsPrefs = newsPreferencesResponseSchema.parse((await h.api("/api/news/preferences")).body);
-  assert.equal(newsPrefs.habits.length, 1);
-  assert.equal(newsPrefs.unconsolidatedFeedbackCount, 0);
 
   // Also verify unified subagent registry detail sees `habits` snapshot directly!
   const smsDetail = await h.service.subagents.getDetail("sms");

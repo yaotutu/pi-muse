@@ -35,11 +35,11 @@ test("GET /api/subagents and GET /api/subagents/:id expose all 5 specialized sub
     const listBody = subagentsListResponseSchema.parse(await listRes.json());
     assert.deepEqual(
       listBody.subagents.map((item) => item.id),
-      ["sms", "news", "browser", "habits", "dream"],
+      ["sms", "browser", "habits", "dream"],
     );
 
-    // 验证所有 5 个 Subagent 详情都严格满足契约并暴露提示词、工具、技能与 MCP 槽位
-    for (const id of ["sms", "news", "browser", "habits", "dream"]) {
+    // 验证所有 4 个 Subagent 详情都严格满足契约并暴露提示词、工具、技能与 MCP 槽位
+    for (const id of ["sms", "browser", "habits", "dream"]) {
       const detailRes = await service.app.request(`/api/subagents/${id}`, { headers });
       assert.equal(detailRes.status, 200);
       const detail = subagentDetailResponseSchema.parse(await detailRes.json());
@@ -50,14 +50,14 @@ test("GET /api/subagents and GET /api/subagents/:id expose all 5 specialized sub
       assert.ok(Array.isArray(detail.capabilities.skills));
       assert.deepEqual(detail.capabilities.mcp, []);
       assert.equal(detail.editability.enabled, id === "browser" ? "readonly" : "editable");
-      assert.equal(detail.enabled, id === "news" || id === "habits" || id === "dream");
+      assert.equal(detail.enabled, id === "habits" || id === "dream");
       assert.equal(detail.editability.mcp, id === "habits" || id === "dream" ? "readonly" : "editable");
-      if (id === "sms" || id === "news" || id === "browser") {
+      if (id === "sms" || id === "browser") {
         assert.ok(typeof detail.routingHint === "string" && detail.routingHint.length > 0, `${id} should own routingHint`);
       } else {
         assert.equal(detail.routingHint, null);
       }
-      if (id === "sms" || id === "news") {
+      if (id === "sms") {
         assert.equal(detail.hasUserInstructions, true);
         assert.equal(detail.editability.userInstructions, "editable");
         assert.ok(detail.userInstructions?.path.endsWith("AGENTS.md"));
@@ -208,19 +208,19 @@ rl.on("line", (line) => {
   assert.deepEqual(smsEnabled.enabledServers, ["demo_echo"]);
   assert.equal(smsEnabled.servers[0]?.effectiveEnabled, true);
 
-  // GET /api/subagents/:id 同步体现已绑定的 MCP，news 保持空
+  // GET /api/subagents/:id 同步体现已绑定的 MCP，未绑定的 browser 保持空
   const smsDetail = subagentDetailResponseSchema.parse(
     await (await service.app.request("/api/subagents/sms", { headers })).json(),
   );
   assert.deepEqual(smsDetail.capabilities.mcp, [
     { name: "demo_echo", description: "Subagent echo MCP", transport: "stdio" },
   ]);
-  const newsDetail = subagentDetailResponseSchema.parse(
-    await (await service.app.request("/api/subagents/news", { headers })).json(),
+  const browserDetail = subagentDetailResponseSchema.parse(
+    await (await service.app.request("/api/subagents/browser", { headers })).json(),
   );
-  assert.deepEqual(newsDetail.capabilities.mcp, []);
+  assert.deepEqual(browserDetail.capabilities.mcp, []);
 
-  // 启用 sms 后做运行时隔离验证：sms 能调用 mcp__demo_echo__echo，news 看不到该工具
+  // 启用 sms 后做运行时隔离验证：sms 能调用 mcp__demo_echo__echo
   await service.subagents.setEnabled("sms", true);
   const smsRun = await service.subagents.runChatTask("sms", "调用MCP回显", {
     sessionId: "main",
@@ -229,24 +229,37 @@ rl.on("line", (line) => {
   assert.equal(smsRun.isError, false);
   assert.match(smsRun.output, /MCP_RESULT:mcp-echo-test/);
 
-  const newsRun = await service.subagents.runChatTask("news", "调用MCP回显", {
-    sessionId: "main",
-    subagentId: "subagent-news-1",
+  // 撤销 sms 的 MCP 绑定后，运行时工具列表同步收窄，不再出现该工具
+  const smsRevoke = await service.app.request("/api/subagents/sms/mcp", {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ servers: [] }),
   });
-  assert.equal(newsRun.isError, false);
-  assert.doesNotMatch(newsRun.output, /MCP_RESULT:mcp-echo-test/);
+  assert.equal(smsRevoke.status, 200);
+  const smsRunRevoked = await service.subagents.runChatTask("sms", "调用MCP回显", {
+    sessionId: "main",
+    subagentId: "subagent-sms-2",
+  });
+  assert.equal(smsRunRevoked.isError, false);
+  assert.doesNotMatch(smsRunRevoked.output, /MCP_RESULT:mcp-echo-test/);
 
-  // 停用 news 后：列表状态与聊天路由统一同步拦截
-  const disableNewsRes = await service.app.request("/api/subagents/news", {
+  // 重新授权后停用 sms：列表状态与聊天路由统一同步拦截
+  const smsRegrant = await service.app.request("/api/subagents/sms/mcp", {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ servers: ["demo_echo"] }),
+  });
+  assert.equal(smsRegrant.status, 200);
+  const disableSmsRes = await service.app.request("/api/subagents/sms", {
     method: "PATCH",
     headers,
     body: JSON.stringify({ enabled: false }),
   });
-  assert.equal(disableNewsRes.status, 200);
-  assert.equal(subagentDetailResponseSchema.parse(await disableNewsRes.json()).enabled, false);
-  assert.equal((await service.subagents.listChatDescriptors()).some((d) => d.id === "news"), false);
+  assert.equal(disableSmsRes.status, 200);
+  assert.equal(subagentDetailResponseSchema.parse(await disableSmsRes.json()).enabled, false);
+  assert.equal((await service.subagents.listChatDescriptors()).some((d) => d.id === "sms"), false);
   await assert.rejects(
-    service.subagents.runChatTask("news", "调用MCP回显", { sessionId: "main", subagentId: "subagent-news-2" }),
+    service.subagents.runChatTask("sms", "调用MCP回显", { sessionId: "main", subagentId: "subagent-sms-3" }),
     /disabled/,
   );
 
@@ -293,12 +306,12 @@ test("Subagent unified enablement auto-enables sms on SMS upload and persists to
   };
   let headers = await loginHeaders();
 
-  // 默认 sms=false，news=true；browser 无驱动时不可启用
+  // 默认 sms=false，habits=true；browser 无驱动时不可启用
   const initialList = subagentsListResponseSchema.parse(
     await (await service.app.request("/api/subagents", { headers })).json(),
   );
   assert.equal(initialList.subagents.find((s) => s.id === "sms")?.enabled, false);
-  assert.equal(initialList.subagents.find((s) => s.id === "news")?.enabled, true);
+  assert.equal(initialList.subagents.find((s) => s.id === "habits")?.enabled, true);
 
   const browserEnableRes = await service.app.request("/api/subagents/browser", {
     method: "PATCH",

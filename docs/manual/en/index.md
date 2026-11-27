@@ -6,9 +6,8 @@ This manual introduces installation, connection, daily use, and security boundar
 
 - [Quick Start](getting-started.md): install the server, connect the phone, send a message, and receive a reply.
 - [Conversations and sessions](conversations-and-agents.md): send and stop conversations, switch sessions, reset chat history, and delete sessions.
-- [Specialized Subagents](subagents.md): understand the 5 built-in subagents, automatic routing, rule approvals, and read-only inspection.
-- [Instructions and prompts](instructions.md): three-layer prompt structure, the five managed workspace documents, and top-of-file Frontmatter `include:` splitting.
-- [News reading](news.md): manage RSS sources, browse recommended and all timelines, and use per-article feedback.
+- [Specialized Subagents](subagents.md): understand the 4 built-in subagents, automatic routing, rule approvals, and read-only inspection.
+- [Instructions and prompts](instructions.md): three-layer prompt structure, the four managed workspace documents, and top-of-file Frontmatter `include:` splitting.
 - [Attachments, files, and approvals](files-and-approvals.md): distinguish message attachments, workspace files, and model file-write approvals.
 - [Tasks and webpage monitors](tasks-and-monitors.md): manage scheduled jobs and webpage monitors through chat tools, and review execution records.
 - [Goals and milestones](goals.md): the concept of long-term goals, model-context injection, and chat-based management, distinguished from scheduled execution.

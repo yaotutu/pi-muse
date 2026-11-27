@@ -11,7 +11,7 @@ A goal itself does not execute a plan, create scheduled jobs, monitor pages, or 
 ## Prerequisites {#prerequisites}
 
 - The phone is connected to the real server as described in [Quick Start](getting-started.md#connect-mobile-client).
-- The current mobile client has no standalone goal-management entry: the primary navigation is only 「消息 / 新闻 / 设置」 (Messages / News / Settings). There is no goals page, and goals were not moved into Settings. Existing goal data and server-side goal capabilities are retained and are not deleted by the navigation change.
+- The current mobile client has no standalone goal-management entry: the primary navigation is only 「消息 / 设置」 (Messages / Settings). There is no goals page, and goals were not moved into Settings. Existing goal data and server-side goal capabilities are retained and are not deleted by the navigation change.
 - To let the model create, list, toggle milestones, or change goal status in chat, keep the `goal` skill enabled. Built-in skills are enabled by default.
 
 ## Manage Goals in Chat {#manage-goals-in-chat}

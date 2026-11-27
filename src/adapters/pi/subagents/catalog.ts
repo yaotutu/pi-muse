@@ -11,8 +11,6 @@ import type { BrowserService } from "../../../features/browser/browser-service.j
 import type { InformationService } from "../../../features/information/service.js";
 import { InformationError } from "../../../features/information/errors.js";
 import type { McpService } from "../../../features/mcp/types.js";
-import type { NewsService } from "../../../features/news/service.js";
-import { NewsError } from "../../../features/news/errors.js";
 import { loadPrompt } from "../../prompts/loader.js";
 import { managedWorkspaceTexts } from "../../workspace/managed-text.js";
 import { runSubagent, type SubagentRuntimeDeps } from "../subagent-runner.js";
@@ -21,14 +19,10 @@ import { createBrowserTools } from "../tools/browser.js";
 import { createFileTools } from "../tools/files.js";
 import { createMcpTools } from "../tools/mcp.js";
 import { SUBMIT_INFORMATION_BRIEFING_TOOL_NAME, SUBMIT_INFORMATION_RESULT_TOOL_NAME } from "../information-runner.js";
-import { SUBMIT_NEWS_SCREENING_TOOL_NAME } from "../news-runner.js";
 import { PROPOSE_NOTES_TOOL_NAME } from "../dream-runner.js";
 
 export type BuiltinSubagentsDeps = SubagentRuntimeDeps & {
   information: Pick<InformationService, "getPreferences" | "query">;
-  news: Pick<NewsService, "preferences"> & {
-    query: (input: DomainQueryInput) => Promise<Record<string, unknown>>;
-  };
   browser?: BrowserService;
   mcp?: Pick<McpService, "getSubagentAllowedServers" | "getActiveTools" | "getPromptSummaries">;
   onSmsEnabledChanged?: (enabled: boolean) => Promise<void> | void;
@@ -141,7 +135,7 @@ const runStatelessChatSubagent = async (
 };
 
 const createDomainChatTools = (options: {
-  prefix: "sms" | "news";
+  prefix: "sms";
   instructionsPath: string;
   readPreferences: () => Promise<{
     instructions: string;
@@ -174,7 +168,7 @@ const createDomainChatTools = (options: {
           details: result,
         };
       } catch (error) {
-        if ((error instanceof InformationError || error instanceof NewsError) && error.code !== "SHUTDOWN") {
+        if (error instanceof InformationError && error.code !== "SHUTDOWN") {
           return rejected(error.message);
         }
         throw error;
@@ -308,49 +302,6 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
       }),
   };
 
-  const news: SubagentRegistration = {
-    id: "news",
-    name: "新闻助手",
-    description: "处理 RSS 新闻源与文章筛选、新闻记录查询及阅读兴趣偏好规则（subagents/news/AGENTS.md）管理。",
-    routingHint:
-      "Route any RSS source/article/run query or news topic/interest/ignore preference to `news`. " +
-      "Never store news filtering preferences only in global `memory` or `assistant/AGENTS.md`, because background news screening does not read them.",
-    triggers: ["chat", "background"],
-    defaultEnabled: true,
-    executionPolicy: { stateless: true, parallelAllowed: true },
-    prompts: () => [
-      builtinSection("chat", "聊天路由任务提示词", "chat", "subagents/news-chat.md"),
-      builtinSection("screening", "后台新闻筛选提示词", "background", "news/screening.md"),
-    ],
-    tools: [
-      { name: "news_query", description: "只读查询新闻源概览、文章列表、文章详情与筛选运行记录", triggers: ["chat"] },
-      { name: "news_get_instructions", description: "读取新闻显式指令、include 诊断与已归纳习惯", triggers: ["chat"] },
-      { name: "news_update_instructions", description: "提交合并后的新闻指令全文（经版本绑定人工审批）", triggers: ["chat"], requiresApproval: true },
-      { name: "currentTime", description: "读取服务端当前时间与时区", triggers: ["chat"] },
-      { name: SUBMIT_NEWS_SCREENING_TOOL_NAME, description: "提交结构化新闻筛选决策", triggers: ["background"] },
-    ],
-    skills: [],
-    mcp: [],
-    userInstructions: {
-      path: managedWorkspaceTexts.newsInstructions,
-      read: () => deps.news.preferences(),
-    },
-    runChatTask: async (task, ctx) =>
-      runStatelessChatSubagent(deps, {
-        id: "news",
-        systemPrompt: loadPrompt("subagents/news-chat.md"),
-        tools: createDomainChatTools({
-          prefix: "news",
-          instructionsPath: managedWorkspaceTexts.newsInstructions,
-          readPreferences: () => deps.news.preferences(),
-          query: (input) => deps.news.query(input),
-          ctx,
-        }),
-        task,
-        ctx,
-      }),
-  };
-
   const browser: SubagentRegistration = {
     id: "browser",
     name: "浏览器助手",
@@ -424,5 +375,5 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
     mcp: [],
   };
 
-  return [sms, news, browser, habits, dream];
+  return [sms, browser, habits, dream];
 };

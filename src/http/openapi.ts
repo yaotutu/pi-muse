@@ -32,16 +32,7 @@ const describePathParam = (path: string, name: string): string => {
     return "可反馈的用户/助手消息稳定 ID；来自权威历史，不是工具结果或乐观流式消息";
   }
   if (name === "commentId") {
-    if (path.includes("/news/")) {
-      return "服务端生成的新闻文章评论 ID";
-    }
     return "服务端生成的消息评论 UUID";
-  }
-  if (name === "articleId" && path.includes("/news/")) {
-    return "服务端生成的新闻文章稳定 ID";
-  }
-  if (name === "sourceId" && path.includes("/news/")) {
-    return "服务端生成的 RSS 源稳定 ID";
   }
   if (name === "pendingId") {
     if (path.includes("/dream/")) {
@@ -63,11 +54,11 @@ const describePathParam = (path: string, name: string): string => {
     if (path.includes("/approvals/")) return "审批项唯一标识（如 apv_...）";
     if (path.includes("/information/items/")) return "信息原始条目唯一标识（info_...）";
     if (path.includes("/information/runs/")) return "信息处理 run 唯一标识（inforun_...）";
-    if (path.startsWith("/api/subagents/")) return "已注册的专职 Subagent 唯一标识（如 sms、news、browser、habits、dream；小写字母开头）";
+    if (path.startsWith("/api/subagents/")) return "已注册的专职 Subagent 唯一标识（如 sms、browser、habits、dream；小写字母开头）";
     return "目标资源唯一标识";
   }
   if (path.startsWith("/api/habits/")) {
-    if (name === "subagentId") return "已注册的行为习惯 Subagent ID（如 sms、news；小写字母开头）";
+    if (name === "subagentId") return "已注册的行为习惯 Subagent ID（如 sms；小写字母开头）";
     if (name === "habitId") return "服务端生成的习惯条目唯一标识（如 hab_...）";
   }
   if (name === "itemId" && path.includes("/information/items/")) {
@@ -101,8 +92,6 @@ const pathParams = (path: string) => {
           ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: HABIT_SUBAGENT_PATTERN.source, description }
         : path.startsWith("/api/habits/") && name === "habitId"
           ? { type: "string" as const, minLength: 1, maxLength: 128, pattern: HABIT_ID_PATTERN.source, description }
-        : path.startsWith("/api/news/") && ["articleId", "sourceId", "commentId"].includes(name)
-          ? { type: "string" as const, minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$", description }
         : path.includes("/information/items/") && name === "itemId"
           ? { type: "string" as const, minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$", description }
           : path.includes("/information/runs/") && name === "runId"

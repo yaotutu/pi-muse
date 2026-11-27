@@ -17,7 +17,6 @@ import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { createMessageRoutes } from "./routes/messages.js";
 import { createHabitsRoutes } from "./routes/habits.js";
 import { createInformationRoutes } from "./routes/information.js";
-import { createNewsRoutes } from "./routes/news.js";
 import { createSubagentRoutes } from "./routes/subagents.js";
 import { createMcpRoutes } from "./routes/mcp.js";
 import { McpError } from "../features/mcp/types.js";
@@ -153,7 +152,6 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/api/sessions", createSessionRoutes(dependencies));
   app.route("/api/assistant", createAssistantRoutes(dependencies));
   app.route("/api/companions", createCompanionRoutes(dependencies.companions));
-  app.route("/api/news", createNewsRoutes(dependencies));
   app.route("/api/subagents", createSubagentRoutes(dependencies));
   app.route("/api/mcp", createMcpRoutes(dependencies));
   app.route("/", createTracesRoutes(dependencies));

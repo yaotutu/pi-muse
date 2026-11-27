@@ -102,7 +102,7 @@ test("habits service batches unconsolidated signals losslessly, preserves cursor
     repository: createHabitsRepository(managed),
     domains: [
       { id: "sms", name: "短信", summary: "短信筛选", readInstructions: async () => "显式指令" },
-      { id: "news", name: "新闻", summary: "新闻筛选" },
+      { id: "demo", name: "演示", summary: "演示筛选" },
     ],
     autoThreshold: 3,
     intervalMs: 10_000,
@@ -158,14 +158,14 @@ test("habits service batches unconsolidated signals losslessly, preserves cursor
 
   // Busy guard prevents concurrent manual consolidate on the same domain
   blockConsolidation = new Promise<void>((resolve) => { gate = resolve; });
-  await service.recordSignal("news", "art-1", signalPayload("art-1", "dislike"));
-  const firstRun = service.consolidate("news");
-  await waitForTest(async () => ((await service.getOverview("news")).running ? true : undefined), "news running");
-  await assert.rejects(() => service.consolidate("news"), { code: "BUSY" });
+  await service.recordSignal("demo", "art-1", signalPayload("art-1", "dislike"));
+  const firstRun = service.consolidate("demo");
+  await waitForTest(async () => ((await service.getOverview("demo")).running ? true : undefined), "demo running");
+  await assert.rejects(() => service.consolidate("demo"), { code: "BUSY" });
   gate();
   blockConsolidation = undefined;
-  const newsDone = await firstRun;
-  assert.equal(newsDone.habits.length, 1);
+  const demoDone = await firstRun;
+  assert.equal(demoDone.habits.length, 1);
 });
 
 test("clearing feedback before consolidation removes the target from hot buffer and skips model invocation", async (t) => {

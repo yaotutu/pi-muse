@@ -86,7 +86,7 @@ test("e2e: parent dispatches single, concurrent and chained subagents without a 
   assert.ok((await readdir(join(service.dataDir, "sessions"))).every((name) => !name.startsWith("subagent-")));
   await assert.rejects(stat(join(service.dataDir, "tasks.json")), { code: "ENOENT" });
   const listed = (await client.json("/api/subagents")) as { subagents: Array<{ id: string }> };
-  assert.deepEqual(listed.subagents.map((s) => s.id), ["sms", "news", "browser", "habits", "dream"]);
+  assert.deepEqual(listed.subagents.map((s) => s.id), ["sms", "browser", "habits", "dream"]);
 });
 
 test("e2e: subagent writes workspace instructions directly without approval", { timeout: 90_000 }, async (t) => {

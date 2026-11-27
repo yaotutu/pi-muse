@@ -4,7 +4,7 @@ This page keeps only capability entry points. Detailed procedures live in their 
 
 ## Conversations and Sessions {#conversations-and-agents}
 
-The mobile app has three primary tabs: Messages, News, and Settings. Messages opens the permanent main chat directly, without a session picker. The server retains topic-session foundations with isolated chat histories and active runs while assistant instructions and skill switches are shared globally, and the app currently exposes only `main`. All sessions share one flat workspace. Main supports streaming replies, Stop, and reset; see [Conversations](conversations-and-agents.md) and [Instructions and prompts](instructions.md). Current source capabilities do not mean the installed APK has been updated; check its Release.
+The mobile app has two primary tabs: Messages and Settings. Messages opens the permanent main chat directly, without a session picker. The server retains topic-session foundations with isolated chat histories and active runs while assistant instructions and skill switches are shared globally, and the app currently exposes only `main`. All sessions share one flat workspace. Main supports streaming replies, Stop, and reset; see [Conversations](conversations-and-agents.md) and [Instructions and prompts](instructions.md). Current source capabilities do not mean the installed APK has been updated; check its Release.
 
 ## Attachments, Files, and Approvals {#files-and-approvals}
 
@@ -12,7 +12,6 @@ Message attachments enter model context with chat history; workspace files are p
 
 ## Tasks, Goals, and Memory {#tasks-goals-and-memory}
 
-- [News reading](news.md): RSS source management, recommended and all timelines, per-article feedback, and saves.
 - [Tasks and webpage monitors](tasks-and-monitors.md): create jobs and monitors through chat and manage them in Settings; session details provide execution records and approvals.
 - [Goals and milestones](goals.md): manage long-term goals and milestones in Settings → Goals or through chat, separately from scheduled task execution.
 - [Memory and Dream](memory-and-dream.md): long-term memory search and management, plus separately configured consolidation.

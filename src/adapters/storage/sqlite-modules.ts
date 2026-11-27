@@ -3,9 +3,8 @@ import type { ManagedSqliteDatabase } from "./sqlite-database.js";
 /**
  * main.sqlite 的模块化结构与迁移账本。
  *
- * 为什么不用 PRAGMA user_version：新闻库 news.sqlite 是独立数据库，独占自己的
- * user_version；main.sqlite 要容纳多个业务模块，一个全局版本号无法表达
- * “jobs 已升级、sms 还没升级”。因此 main 使用按模块登记的账本。
+ * 为什么不用 PRAGMA user_version：main.sqlite 要容纳多个业务模块，
+ * 一个全局版本号无法表达“jobs 已升级、sms 还没升级”。因此 main 使用按模块登记的账本。
  *
  * 规则：
  * - 一个模块的表只有在该模块在账本里登记后才允许存在；已有库缺表或版本不符

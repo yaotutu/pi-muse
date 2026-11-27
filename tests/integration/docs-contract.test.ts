@@ -407,7 +407,7 @@ test("docs: source routing, deletion, safe errors and deployed code identity are
 test("docs: database tool declares shared storage, autonomous SQL and honest cancellation", () => {
   const doc = buildOpenApiDocument();
   const chat = doc.paths["/api/conversation/run"].post as { description: string };
-  for (const rule of [/database/, /main\/news/, /无逐次 SQL 审批或表级权限/, /共用同一数据库/,
+  for (const rule of [/database/, /main 托管 SQLite/, /无逐次 SQL 审批或表级权限/,
     /不接受任意文件路径/, /工具帧隐藏 SQL 参数和原始行/, /已提交修改不会因稍后取消而撤销/,
     /不自动重放/]) assert.match(chat.description, rule);
   assert.equal(Object.hasOwn(doc.paths, "/api/database"), false, "SQL stays a model tool, not a new unaudited REST endpoint");
@@ -1123,72 +1123,4 @@ test("docs: browser status, viewer ticket, launch cookie, viewport, handoff and 
   const wsContracts = (doc as unknown as { "x-websocket-contracts": Record<string, unknown> })["x-websocket-contracts"];
   assert.ok(wsContracts?.browser, "OpenAPI must include browser WebSocket contract");
   assert.equal(wsContracts?.browserDesktop, undefined);
-});
-
-test("docs: news endpoints freeze the client contract without exposing the internal agent", () => {
-  const doc = buildOpenApiDocument();
-  const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;
-  const newsPaths = Object.entries(paths)
-    .filter(([path]) => path.startsWith("/api/news"))
-    .map(([path, operations]) => [path, Object.keys(operations).sort()] as const)
-    .sort(([left], [right]) => left.localeCompare(right));
-  assert.deepEqual(newsPaths, [
-    ["/api/news/articles", ["get"]],
-    ["/api/news/articles/{articleId}", ["get"]],
-    ["/api/news/articles/{articleId}/comments", ["post"]],
-    ["/api/news/articles/{articleId}/comments/{commentId}", ["delete"]],
-    ["/api/news/articles/{articleId}/reaction", ["put"]],
-    ["/api/news/articles/{articleId}/saved", ["put"]],
-    ["/api/news/preferences", ["get", "put"]],
-    ["/api/news/refresh", ["post"]],
-    ["/api/news/sources", ["get", "post"]],
-    ["/api/news/sources/{sourceId}", ["delete"]],
-    ["/api/news/status", ["get"]],
-  ]);
-
-  for (const operations of Object.values(paths)) {
-    for (const operation of Object.values(operations)) {
-      if (operation.tags?.[0] !== "新闻") continue;
-      assert.deepEqual(operation.security, [{ bearerAuth: [] }]);
-      assert.ok(!JSON.stringify(operation).includes("news-internal"));
-      assert.ok(!JSON.stringify(operation).includes("sessionId"));
-    }
-  }
-
-  const list = paths["/api/news/articles"]!.get!;
-  const savedOnly = queryParameter(list, "savedOnly");
-  assert.deepEqual(savedOnly.schema.enum, ["true", "false"]);
-  assert.equal(savedOnly.schema.default, "false");
-  assert.match(savedOnly.description ?? "", /收藏/);
-  assert.match(list.description ?? "", /publishedAt/);
-  assert.match(list.description ?? "", /模型失败/);
-  const refresh = paths["/api/news/refresh"]!.post!;
-  assert.match(refresh.description ?? "", /不等待模型分析/);
-  assert.match(refresh.description ?? "", /非法 JSON.*400/);
-  assert.match(refresh.description ?? "", /全部源.*200/);
-  assert.match(refresh.description ?? "", /resetDeferred=true.*不自动补重试/);
-  assert.ok(refresh.responses["400"]);
-  const refreshSchema = refresh.responses["200"]!.content!["application/json"]!.schema!;
-  assert.deepEqual(refreshSchema.required, ["added", "skipped", "resetDeferred"]);
-  assert.match(refreshSchema.properties!.resetDeferred!.description ?? "", /不会自动补重试/);
-  const create = paths["/api/news/sources"]!.post!;
-  assert.match(create.description ?? "", /fragment.*scheme\/host.*默认端口/);
-  assert.match(create.description ?? "", /不按重定向最终地址归一/);
-  assert.match(create.description ?? "", /超过一半.*PARSE_INVALID/);
-  const errorSchema = create.responses["400"]!.content!["application/json"]!.schema!;
-  const failure = errorSchema.properties!.failure!;
-  assert.deepEqual(failure.properties!.category!.enum, ["NETWORK", "SSRF_BLOCKED", "TIMEOUT", "HTTP_ERROR", "PARSE_INVALID", "UNKNOWN"]);
-  assert.deepEqual(failure.required, ["category"]);
-  assert.equal(failure.additionalProperties, false);
-  assert.equal(failure.properties!.httpStatus!.minimum, 100);
-  assert.equal(failure.properties!.httpStatus!.maximum, 599);
-  const sourceSchema = paths["/api/news/sources"]!.get!.responses["200"]!.content!["application/json"]!.schema!.properties!.sources!.items!;
-  const details = sourceSchema.properties!.lastErrorDetails!;
-  const sourceFailure = details.anyOf?.find((schema) => schema.type === "object");
-  assert.deepEqual(sourceFailure?.properties, failure.properties, "add error and persisted source details use the same classification fields");
-  assert.deepEqual(sourceFailure?.required, failure.required);
-  assert.equal(sourceFailure?.additionalProperties, false);
-  assert.ok(!sourceSchema.required!.includes("lastErrorDetails"), "legacy source details remain optional");
-  assert.ok(create.responses["200"]!.content!["application/json"]!.schema!.required!.includes("skipped"));
-  assert.match(paths["/api/news/sources/{sourceId}"]!.delete!.description ?? "", /文章.*保留/);
 });

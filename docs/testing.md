@@ -54,7 +54,6 @@ pnpm test:live --config <path> --allow-live [--keep-artifacts]  # 显式真实�
 node --import tsx tests/live/skill-authoring.ts --config <path> --allow-live --keep-artifacts
 node --import tsx tests/live/shared-skills.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/information.ts --config <path> --allow-live [--keep-artifacts]
-node --import tsx tests/live/news.ts --config <path> --allow-live [--keep-artifacts] [--allow-private-targets]
 node --import tsx tests/live/database.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/browser.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/session-tool-scope.ts --config <path> --allow-live
@@ -110,13 +109,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 - 覆盖混合批与全静默结构化提交、silent 不写聊天、通知发布与 notification/session/message 溯源、习惯列表与近期热缓冲反馈进入下一轮、普通聊天 `subagent` 工具（含只读查询与规则更新）、幂等/冲突/跨会话隔离、自动调度、disable/reset/delete 取消排队通知以及重启持久化。
 - 以后端 repository、PI 历史 revision/message、真实代理 tool call/result 与 HTTP 状态为证据；后台请求必须只声明 `submit_information_result`。同一 SDK 轮内允许无效提交后由模型自行纠正，但最终必须恰好一个有效提交；测试策略只约束合成数据，不用关键词代码替代模型决策，失败不自动重试模型。
 
-### `tests/live/news.ts`
-
-- 启动隔离后端并经真实透明代理调用外部模型，不读取正式实例或凭据；显式抓取真实公网 RSS2，不使用合成 feed 冒充真实验收。
-- 覆盖源添加、重复 refresh 不重复接纳、cold start、结构化推荐与 reason、全部/推荐/收藏筛选、逐篇喜欢/不喜欢/评论/收藏、反馈进入热缓冲及触发通用习惯归纳、删除源保留文章和反馈、main 身份不变（主聊天 revision 不变）、重启后源/文章/反馈/习惯恢复。直接只读检查 `news.sqlite` 的关系表、数量与 integrity_check，确认新实例不生成 news.json；这些数据库检查不替代真实 RSS 与模型链路。
-- 以真实 RSS HTTP、后端 repository/API 状态、真实代理 tool call/result 与重启回读为证据；失败不自动重试模型。纯解析、存储和路由边界可用合成 XML/本地 HTTP 另做聚焦回归，但不能替代本项真实公网与模型验收。
-- `--allow-private-targets` 是 news live 脚本专属选项，默认 `false`，重复传入会拒绝。仅当本机 DNS 对公网域名返回 198.18 Fake-IP、需要在 loopback 隔离实例中抓取真实 RSS 时显式启用；共享 live options、生产配置和默认 SSRF 防护均不改变。输出必须如实说明该网络例外。
-
+### `tests/live/information-context.ts`
 
 - 显式授权后仅读取配置的 model，启动隔离真实 HTTP 后端与真实模型透明代理；不读取真实短信，不修改正式会话或功能设置。
 - 覆盖普通/功能会话双向请求、目标信息工具、主聊天上下文不混入、连续追问与重启恢复、通知改绑不改变回复去向、主模型真实 agent 工具、来源审批与目标技能开关分离，以及同讨论 busy、HTTP 断开/父 Stop/reset/delete/关闭取消和不复活。
@@ -125,7 +118,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 ### `tests/live/database.ts`
 
 - 使用共享 live 参数显式启动隔离真实后端，经透明代理调用当前外部真实模型，不读取或迁移真实数据库。
-- 验证模型实际调用 `database`，在 main 自建表并写入/查询、在 news 建独立测试表且内置新闻 API 仍可读、重启后两库数据保留，以及模型自主删掉本次测试表而不进入审批。
+- 验证模型实际调用 `database`，在 main 自建表并写入/查询、重启后数据保留，以及模型自主删掉本次测试表而不进入审批。
 - 同时检查真实 SQLite 行值与工具返回，不以模型自然语言自述判定成功。`--keep-artifacts` 保留脱敏 summary/tool traces；失败不自动重试。自有 Web renderer、历史回读和错误态仍需另行页面验收。
 
 ### `tests/live/browser.ts`

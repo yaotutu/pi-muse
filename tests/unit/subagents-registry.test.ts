@@ -114,7 +114,7 @@ test("subagent registry waits for single concurrent async load across all agents
   const registry = createSubagentRegistry({
     agents: [
       sampleAgent({ id: "sms", defaultEnabled: false }),
-      sampleAgent({ id: "news", defaultEnabled: true }),
+      sampleAgent({ id: "demo", defaultEnabled: true }),
       sampleAgent({ id: "habits", defaultEnabled: true }),
     ],
     settingsRepository: {
@@ -130,6 +130,6 @@ test("subagent registry waits for single concurrent async load across all agents
   const listed = await registry.list();
   assert.equal(loadCalls, 1);
   assert.equal(listed.subagents.find((s) => s.id === "sms")?.enabled, true);
-  assert.equal(listed.subagents.find((s) => s.id === "news")?.enabled, true);
+  assert.equal(listed.subagents.find((s) => s.id === "demo")?.enabled, true);
   assert.equal(listed.subagents.find((s) => s.id === "habits")?.enabled, false);
 });

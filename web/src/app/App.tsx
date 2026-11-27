@@ -1,4 +1,3 @@
-import { NewsView } from "../news/NewsView";
 import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { ChatView } from "../chat/ChatView";
 import { BrowserView } from "../browser/BrowserView";
@@ -360,7 +359,7 @@ export const App = () => {
   const [newTitle, setNewTitle] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [error, setError] = useState("");
-  type View = "news" | "chat" | "browser" | "jobs" | "goals" | "traces" | "settings";
+  type View = "chat" | "browser" | "jobs" | "goals" | "traces" | "settings";
   const [view, setView] = useState<View>("chat");
   // 小屏（<768px）侧栏变为抽屉；默认开抽屉选会话，选完自动收起。
   const [drawer, setDrawer] = useState(false);
@@ -463,7 +462,6 @@ export const App = () => {
   const navItems: { key: View; label: string }[] = [
     { key: "chat", label: "消息" },
     { key: "browser", label: "浏览器" },
-    { key: "news", label: "新闻" },
     { key: "jobs", label: "任务" },
     { key: "goals", label: "目标" },
     { key: "traces", label: "模型追踪" },
@@ -640,7 +638,6 @@ export const App = () => {
             handoffHint={workspace.browserHandoff}
           />
         )}
-        {view === "news" && <NewsView />}
         {view === "jobs" && <JobsView />}
         {view === "goals" && <GoalsView />}
         {view === "traces" && <TracesView />}

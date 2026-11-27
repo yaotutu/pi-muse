@@ -14,7 +14,6 @@ const makeWorkspace = async (t: test.TestContext) => {
   const workspace = join(root, "workspace");
   await mkdir(join(workspace, "assistant"), { recursive: true });
   await mkdir(join(workspace, "subagents", "sms"), { recursive: true });
-  await mkdir(join(workspace, "subagents", "news"), { recursive: true });
   await mkdir(join(workspace, "files"), { recursive: true });
   t.after(async () => {
     await rm(root, { recursive: true, force: true });

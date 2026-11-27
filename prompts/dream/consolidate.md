@@ -10,7 +10,7 @@ Route each durable fact to exactly one place:
   preferences.
 
 Do not promote a local preference to USER, SOUL, MEMORY, or INSTRUCTIONS merely because that
-target is globally available. Domain agent instructions (such as SMS or News `AGENTS.md`) remain
+target is globally available. Domain agent instructions (such as SMS `AGENTS.md`) remain
 owned by their domain entry; do not duplicate or rewrite them here.
 
 Write short, atomic statements (for example "has a cat named Luna"), not

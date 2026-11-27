@@ -14,7 +14,7 @@ export const databaseTool = (database: Pick<DatabaseService, "execute">) => defi
   name: "database",
   label: "Managed SQLite databases",
   description:
-    "Use managed SQLite main (default main.sqlite) or news (news.sqlite). list returns logical database names; schema returns main/temp schema definitions. " +
+    "Use the managed SQLite main database (main.sqlite). list returns logical database names; schema returns main/temp schema definitions. " +
     "execute accepts either sql plus optional params, OR a nonempty statements array (each entry sql/params) executed atomically in one database transaction. " +
     "Freely SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER or DROP any business table: no table ACL or approval. " +
     "Ordinary PRAGMA and VACUUM are supported where SQLite permits; use a single sql for maintenance incompatible with transactions. " +
@@ -26,7 +26,7 @@ export const databaseTool = (database: Pick<DatabaseService, "execute">) => defi
     "Errors are sanitized; an unknown outcome requires inspecting state, never blindly retrying writes.",
   parameters: Type.Object({
     action: Type.Union([Type.Literal("list"), Type.Literal("schema"), Type.Literal("execute")]),
-    database: Type.Optional(Type.Union([Type.Literal("main"), Type.Literal("news")], { description: "Defaults to main. No paths or other databases." })),
+    database: Type.Optional(Type.Literal("main", { description: "Defaults to main. No paths or other databases." })),
     sql: Type.Optional(sql),
     params: Type.Optional(parameters),
     statements: Type.Optional(Type.Array(Type.Object({ sql, params: Type.Optional(parameters) }, { additionalProperties: false }), {

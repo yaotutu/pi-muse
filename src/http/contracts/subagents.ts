@@ -65,7 +65,7 @@ export const subagentInstructionsSnapshotSchema = z.strictObject({
 });
 
 export const subagentSummarySchema = z.strictObject({
-  id: subagentIdParamSchema.describe("Subagent 唯一标识（如 sms、news、browser、habits、dream）"),
+  id: subagentIdParamSchema.describe("Subagent 唯一标识（如 sms、browser、habits、dream）"),
   name: z.string().min(1).describe("Subagent 展示名称"),
   description: z.string().min(1).describe("Subagent 职责与能力声明"),
   routingHint: z.string().nullable().describe("由该 Subagent 自己维护并注入主聊天提示词的路由注意事项；无则为 null"),

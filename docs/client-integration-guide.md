@@ -29,7 +29,7 @@
 | 层级 | 含义 | 适用范围与具体内容 |
 | --- | --- | --- |
 | **Must（硬边界 / 协议不变量）** | 违反会导致鉴权失败、数据错乱、状态覆盖或破坏安全隔离 | 1. **凭据安全（全端）**：只持久化服务地址与 Bearer Session Token；**严禁**持久化明文 `accessKey`，**严禁**将 Bearer Token 放入任何 URL query（图片、SSE、WS 均不可）。<br>2. **契约唯一权威（全端）**：精确路径、请求/响应字段、校验边界与错误码以运行实例 `GET /docs`、`GET /openapi.json` 及 `src/http/contracts/` 为准，不猜测、不另建手写规范。<br>3. **写入未明不重发（全端）**：除明确声明幂等的操作外，写入超时/断网必须先回读服务端权威状态，禁止静默自动重发。<br>4. **聊天提交不变量（对话端）**：`POST /api/conversation/run` 不回传全量历史，必须提交 `expectedRevision` 并正确处理 `409` 版本/删除冲突。<br>5. **身份与版本合并（涉及对应实体时）**：严格区分 `sessionId`、`piSessionId` 与 `instanceId`；运行状态仅在同 `instanceId` 内按 `(sessionId, runId, revision)` 合并，审批按 `(id, revision)` 跨实例合并。<br>6. **文件审批与手动确认（富交互 / 文件端）**：模型文件审批必须向用户完整展示不可变 `before`/`after` 原文并由人决定；区分 `status: "approved"`（人的授权）与 `execution.status`（真实落盘结果）。手动文件写/建仅在向用户完整展示并确认后才传 `confirmed: true`，不得以此绕过模型审批。<br>7. **不可信内容隔离（全端）**：外部网页、RSS、短信、文本附件以及工作区 `kind: "text"` 中的 SVG/HTML 一律按不可信纯文本处理，禁止直接当 HTML/脚本执行。 |
-| **Should（推荐工作模式）** | 服务端围绕这些模式设计；采用后体验与状态一致性最佳 | 1. **连接级单通知流（`rich-ui`）**：每个服务器连接只维持一条 `GET /api/events` SSE 长连接，由连接级分发至各模块。<br>2. **按 `ready` 整集重建（`rich-ui`）**：每次收到 `ready` 首帧，整体替换本地进行中运行、待审批与在线状态集合，不做断线前后并集。<br>3. **聊天流与界面解耦（`rich-ui` / 多会话端）**：切换会话或界面时保持在途聊天流挂载、独立保留每会话草稿；若轻量端不保活后台流，切出前提醒用户或显式调用 Stop。<br>4. **失效信号防竞态（订阅 `/api/events` 时）**：收到 `conversation_updated` 后标脏并重读 `GET /api/conversation`；正在流式输出时可延后至流结束后再刷，刷新请求进行中又收新事件须补刷。<br>5. **领域通知结构化引用（`rich-ui`）**：对后台领域（如 `sms`、`news`）通知卡片与新闻文章，采用 `【领域引用:<domainId>】...【引用结束】` 格式追加到草稿由用户发送。<br>6. **渐进接入（全端）**：先跑通对应端形态的最小闭环，再按需逐步扩展。 |
+| **Should（推荐工作模式）** | 服务端围绕这些模式设计；采用后体验与状态一致性最佳 | 1. **连接级单通知流（`rich-ui`）**：每个服务器连接只维持一条 `GET /api/events` SSE 长连接，由连接级分发至各模块。<br>2. **按 `ready` 整集重建（`rich-ui`）**：每次收到 `ready` 首帧，整体替换本地进行中运行、待审批与在线状态集合，不做断线前后并集。<br>3. **聊天流与界面解耦（`rich-ui` / 多会话端）**：切换会话或界面时保持在途聊天流挂载、独立保留每会话草稿；若轻量端不保活后台流，切出前提醒用户或显式调用 Stop。<br>4. **失效信号防竞态（订阅 `/api/events` 时）**：收到 `conversation_updated` 后标脏并重读 `GET /api/conversation`；正在流式输出时可延后至流结束后再刷，刷新请求进行中又收新事件须补刷。<br>5. **领域通知结构化引用（`rich-ui`）**：对后台领域（如 `sms`）通知卡片，采用 `【领域引用:<domainId>】...【引用结束】` 格式追加到草稿由用户发送。<br>6. **渐进接入（全端）**：先跑通对应端形态的最小闭环，再按需逐步扩展。 |
 | **May（接入端完全自主空间）** | 完全由各端自行决策，服务端不做任何约束 | 1. 硬件形态、操作系统、语言、固件或跨端框架（RN、Flutter、Web、C/Rust/Python、脚本等）。<br>2. 信息架构、交互方式（触屏 UI、语音播报、命令行、纯后台无界面）。<br>3. 视觉主题、配色、动效、音频反馈与助手形象是否展示/如何展示。<br>4. 端侧状态管理方案、内存缓冲策略与本地草稿存储方式。<br>5. 纯端侧展示偏好（置顶分组、折叠、字号、播报语速等）。<br>6. 是否接入次级领域（目标、Dream、浏览器控制、形象包等）以及接入顺序。 |
 
 ---
@@ -148,7 +148,7 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
    - **会话在线态（`session_presence_updated`）**：同一连接按到达顺序覆盖，优先级规则由服务端维护（等待用户 > 错误 > 工作中）；`lastActiveAt` 仅用于会话活跃排序，不用于版本比较。不要使用 `serverTime`/`updatedAt` 排序或用事件数量计数业务操作。
 4. **失效信号与防竞态刷新**：
    - `session_directory_updated`：重读 `GET /api/sessions`。
-   - `domain_updated`：携带 `{ instanceId, domain, scope }`（`scope` 为 `items | runs | habits | preferences | settings`）；按对应领域（如 `"sms"`、`"news"`）与 `scope` 定向刷新偏好、习惯或列表状态，替代高频轮询。
+   - `domain_updated`：携带 `{ instanceId, domain, scope }`（`scope` 为 `items | runs | habits | preferences | settings`）；按对应领域（如 `"sms"`）与 `scope` 定向刷新偏好、习惯或列表状态，替代高频轮询。
    - `browser_updated`：携带 `{ instanceId, scope, handoff? }`（`scope` 为 `tabs | viewport | files | handoff | lifecycle`）；当真实浏览器切换标签、调整视口、上传/下载变化或助手发起/解除人工接管（`handoff`）时推送，客户端按需刷新或提示用户接管。
    - `conversation_updated`：仅携带 `{ instanceId, sessionId, piSessionId }`，不含消息正文。收到后核对 `instanceId`：
      - 对当前展示中的会话：若该会话此刻正在跑聊天 SSE 流，先打“历史待刷新”脏标记，等本轮流收尾后再读 `GET /api/conversation`；否则立即读取。**如果一次 `GET /api/conversation` 请求尚未返回期间又到达新的 `conversation_updated`，必须在这次请求完成后立刻补读一轮**，避免漏掉新消息。
@@ -211,30 +211,25 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
    - 读取详情 `GET /api/workspace/files/content` 会区分 `kind: "text" | "image" | "binary"`（`image`/`binary` 返回 `dataBase64`）。**安全要求**：SVG 与 HTML 文件服务端会按 `kind: "text"` 原样返回，接入端必须按不可信纯文本渲染或预览代码，**禁止当成可执行网页/脚本渲染**。
    - 新建（`POST /api/workspace/files/text`）或更新（`PUT /api/workspace/files/text`）文本时，服务端要求 Body 必填 `confirmed: true`。接入端必须在界面向用户完整展示待写入内容（更新时展示 `before`/`after` 对比）并得到用户明确保存确认后才提交，不得默认静默填充 `confirmed: true`。最后一次成功保存生效，写入只允许安全 ASCII 相对路径字符集（详情见 `/docs`）。
 
-### 6.4 后台领域 Agent（`sms` / `news` 及后续扩展领域）
+### 6.4 后台领域 Agent（`sms` 及后续扩展领域）
 
 服务端采用「**单一主助手 + 多个独立后台领域 Agent**」架构：
 
 - **指令文件与隔离原则**：每个领域 Agent 拥有独立系统提示词（仓库托管 `prompts/`）、独立用户显式指令 `instructions`（保存即覆盖，与工作区 `workspace/domains/<id>/INSTRUCTIONS.md` 同步，并返回顶部 `include:` 引用诊断 `includes`），以及由通用习惯引擎定期从反馈中提炼的长期习惯 `habits` 与未消化计数 `unconsolidatedFeedbackCount`（可通过 `GET /api/habits` 发现全部已注册领域，通过 `/api/habits/:domain` 查看完整习惯与 `pendingSignals` 待归纳明细、手动增删改及手动触发归纳，不覆盖明确 `instructions`）。后台领域 Agent **不读取**主聊天技能、`workspace/assistant/INSTRUCTIONS.md` 或全局 `memory`。在主聊天中，用户提到领域过滤/偏好时，主助手会调用 `domain_agent` 工具（`get_instructions` / `update_instructions`）协同查询或提议更新对应领域指令（更新仍走模型文件审批）。
 - **主聊天通知隔离与结构化引用约定（推荐 `rich-ui`）**：
-  - 后台重要通知会由服务端写入 `main` 会话历史，该消息带有可靠元数据：`metadata.source === "notification"`、`metadata.notificationId` 以及 `metadata.domainId`（如 `"sms"`、`"news"`）。
+  - 后台重要通知会由服务端写入 `main` 会话历史，该消息带有可靠元数据：`metadata.source === "notification"`、`metadata.notificationId` 以及 `metadata.domainId`（如 `"sms"`）。
   - 服务端在每次送入主模型上下文前，**默认过滤掉所有带 `domainId` 的通知卡片**，避免零碎通知污染主对话。
-  - 当用户在富交互端选中某条领域通知卡片“引用并提问”，或从新闻页点击“在聊天中讨论”时，推荐按统一结构化格式将该内容作为不可信引用**追加到当前会话草稿**（不要自动替用户发送，由用户补充意图后再发送）：
+  - 当用户在富交互端选中某条领域通知卡片“引用并提问”时，推荐按统一结构化格式将该内容作为不可信引用**追加到当前会话草稿**（不要自动替用户发送，由用户补充意图后再发送）：
     ```text
     【领域引用:<domainId>】
     ...（引用标题/时间/摘要或正文片段）...
     【引用结束】
     ```
-  - 发送后，主助手即可在当轮上下文看到这段引用，并能准确将后续规则改动通过 `domain_agent` 路由到对应领域。
+  - 发送后，主助手即可在当轮上下文看到这段引用，并能准确将后续规则改动通过 `subagent` 工具路由到对应领域。
 - **信息/短信后台接入（`/api/information/*`，适合 `webhook` / 投喂端 / `rich-ui`）**：
   - 本组端点均为全局路径（不带 `:sessionId`）；开关与窗口（`enabled`、`batchWindowSeconds` 0–3600）由 `/api/information/settings` 管理；用户指令与 `include:` 诊断、已归纳习惯及未消化计数由对称契约 `/api/information/preferences`（`{ instructions, includes, habits, unconsolidatedFeedbackCount }`）返回，长期习惯、待归纳样本 `pendingSignals` 查看与手动归纳统一走 `/api/habits` 与 `/api/habits/sms`。
   - **日常实时接入**：调用 `POST /api/information/items`（1–100 条，进入 `queue: "realtime"`），以 `(source, externalId)` 为幂等键（同内容幂等回读，不同内容 `409 CONFLICT` 不覆盖原文；后台禁用时 `409 DISABLED`）；可通过 `POST /api/information/runs`（传 `{}` 或 `{ retryFailed?: boolean }`）立即触发一次单周期判定（可选重试失败条目）并推送通知到 `main`；`GET /api/information/items` 与 `GET /api/information/items/:itemId` 对已评估条目直接返回可选 `decision` 与 `reason`。
   - **历史批量归档**：与实时调度完全隔离——导入调用 `POST /api/information/archive/items`（1–500 条，进入 `queue: "archive"`），完成后显式调用 `POST /api/information/archive/run`（`{ background?, retryFailed? }`）逐批向通用习惯库增量沉淀习惯并在清空后（只剩内容审核确定性拒绝时可视为已清空）发至多 1 条 <= 1200 字简报；多条目批次被上游内容安全审核拒绝会自动二分隔离，仅真正触发审核的条目失败、其余正常处理，此时响应可能 `status: "partial"` 且 `briefingPublished: true`；进度通过 `GET /api/information/status` 的 `archive.{running, pendingCount, processedCount, failedCount}` 轮询。
-- **新闻阅读与推荐（`/api/news/*`，适合 `rich-ui`）**：
-  - 支持 RSS 源列表/添加/停止采集（删除源后已接纳的文章、收藏、反应与评论**继续保留**，仅停止后续采集；添加源 400 失败会附带受控 `failure.category`）。
-  - 文章支持 `view=all|recommended` 与 `savedOnly=true|false` 游标分页；`POST /api/news/refresh` 需传严格空 JSON 对象 `{}`（不等待模型筛选结束，前台可短时观察 `GET /api/news/status` 直至 `refreshing` 和 `processing` 均为 `false` 后停表并刷新列表）。
-  - 逐篇反馈（`reaction` 喜欢/不喜欢、`saved` 收藏、`comments` 评论）独立持久在新闻域内，不写入聊天历史，也不会因 `main` 会话 reset 被清空。
-
 ### 6.5 其他可选领域与通用规则
 
 - **定时任务与网页监控（`/api/jobs*`、`/api/monitors*`，`rich-ui` / `webhook`）**：
@@ -246,7 +241,7 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
 - **长期目标、记忆与 Dream（`/api/goals*`、`/api/memories*`、`/api/dream*`，`rich-ui` / `webhook`）**：
   - 均为实例全局管理。激活态目标（`active`）会摘要注入每轮对话；长期记忆上限 500 条（满额返回 `409`）按需被模型检索；Dream 每两小时整理一次对话并产出待决建议（`pending`），调用 `POST /api/dream/pending/:pendingId` 应用（`apply`）或丢弃（`dismiss`）时即使建议来自已删专题会话，也只写入全局目标，绝不借此重建已删会话。
 - **游标分页通用规范（全端适用）**：
-  - 适用于执行记录（`/api/runs`）、审批历史（`/api/approvals`）、信息条目/run（`/api/information/items|runs`）、新闻文章（`/api/news/articles`）和模型追踪（`/api/traces`）。
+  - 适用于执行记录（`/api/runs`）、审批历史（`/api/approvals`）、信息条目/run（`/api/information/items|runs`）和模型追踪（`/api/traces`）。
   - `cursor` / `nextCursor` 是绑定了当次过滤条件的不透明字符串，翻页时原样回传即可；**只要切换了任何过滤参数，必须清空旧 `cursor` 从第一页重新拉取**，否则会返回 `400`。此类分页不冻结快照，新增项出现在第一页。
 - **助手形象包（`/api/companions*`，`rich-ui`）**：
   - 纯客户端展示资源，不进入模型上下文。每个完整包固定包含 8 个状态 PNG，顺序与名称为：`idle`、`thinking`、`responding`、`working`、`waiting-approval`、`success`、`error`、`stopped`。

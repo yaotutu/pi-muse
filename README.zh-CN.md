@@ -14,22 +14,21 @@
 
 [能做什么](#能做什么) · [快速开始](#快速开始) · [安全与隐私](#安全与隐私) · [开发](#开发与-api)
 
-<img src="docs/assets/showcase.png" width="98%" alt="Pi Muse Android 客户端：主聊天、新闻与设置">
+<img src="docs/assets/showcase.png" width="98%" alt="Pi Muse Android 客户端：主聊天与设置">
 
 </div>
 
 截图使用演示数据；展示的形象包为可替换示例。本文介绍当前源码能力，不代表最新发布的 APK 已包含每项功能；安装版本请核对[版本说明](https://github.com/yaotutu/pi-muse-mobile/releases/latest)。
 
-查看单图：[主聊天](docs/assets/screenshots/chat.png) · [新闻](docs/assets/screenshots/news.png) · [设置](docs/assets/screenshots/settings.png) · [形象切换](docs/assets/screenshots/companions.png)
+查看单图：[主聊天](docs/assets/screenshots/chat.png) · [设置](docs/assets/screenshots/settings.png) · [形象切换](docs/assets/screenshots/companions.png)
 
 ## 能做什么
 
 Pi Muse 面向个人自用，是单用户、单一助手，不是团队平台或聊天平台机器人。服务端负责模型执行与后台工作，手机负责对话、阅读、审阅修改和管理结果。
 
 - **单一助手，直接聊天。** 打开「消息」就能交流，不用选择会话。流式查看回复，附上图片或文本，查看工具活动，为消息留下反馈。服务端也具备历史相互隔离的专题会话底座，助手指令（支持顶部 YAML Frontmatter `include:` 拆分引用）与技能开关全局共用；移动端目前只开放 `main` 主聊天。全部会话共用一个扁平工作区。
-- **从阅读自然回到讨论。** 「新闻」全局采集 RSS 并推荐文章，可以阅读、收藏、喜欢或不喜欢。点击「讨论」只向 main 既有草稿追加可编辑引用，不会自动发送；文章内容按不可信外部材料处理。
 - **让计划有处可查。** 通过聊天创建一次性或每日任务、公网页面监控，再到设置中管理。监控间隔最短五分钟；长期目标通过里程碑跟进，不把进度埋在聊天记录里。
-- **记忆与自己的工作方式。** 维护助手和用户资料、共享助手指令、短信/新闻领域指令（均支持顶部 YAML Frontmatter `include:` 拆分引用工作区文本）、技能与长期记忆。可选的 Dream 整理记忆，并提出待审阅的后续事项建议。
+- **记忆与自己的工作方式。** 维护助手和用户资料、共享助手指令、短信领域指令（均支持顶部 YAML Frontmatter `include:` 拆分引用工作区文本）、技能与长期记忆。可选的 Dream 整理记忆，并提出待审阅的后续事项建议。
 - **一个形象，不是另一个助手。** 透明人物、紧凑短状态与有限次轻动效一起表达运行状态。点击人物或状态，围绕同一个人物原位展开主聊天操作、执行、审批和历史，关闭时反向收起，不重建聊天。内置企鹅兜底，手机可选择服务端安装的完整自定义形象包。这是姿态图加轻动效，不是形象视频。本机还有经典蓝白、晨光白、深夜黑三套主题。
 
 ### 文件修改，先看再批准

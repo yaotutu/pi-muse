@@ -492,11 +492,11 @@ test("chat subagent isolates exclusive browser agent from parallel mode while al
   const parallelChildB = model.requests.find((req) =>
     JSON.stringify(req.messages).includes("Task: E2E clock B"),
   );
-  assert.ok(parallelChildA && parallelChildB, "parallel sms/news subagent child requests must exist");
-  const smsTools = new Set((parallelChildA.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name));
-  const newsTools = new Set((parallelChildB.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name));
-  assert.equal(smsTools.has("sms_query"), true);
-  assert.equal(smsTools.has("browser"), false);
-  assert.equal(newsTools.has("news_query"), true);
-  assert.equal(newsTools.has("browser"), false);
+  assert.ok(parallelChildA && parallelChildB, "parallel sms subagent child requests must exist");
+  const toolsA = new Set((parallelChildA.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name));
+  const toolsB = new Set((parallelChildB.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name));
+  assert.equal(toolsA.has("sms_query"), true);
+  assert.equal(toolsA.has("browser"), false);
+  assert.equal(toolsB.has("sms_query"), true);
+  assert.equal(toolsB.has("browser"), false);
 });

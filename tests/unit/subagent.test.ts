@@ -8,7 +8,7 @@ import { projectExecutionEvent } from "../../src/adapters/pi/execution.js";
 
 const agents: SubagentChatDescriptor[] = [
   { id: "sms", name: "短信助手", description: "SMS subagent", parallelAllowed: true },
-  { id: "news", name: "新闻助手", description: "News subagent", parallelAllowed: true },
+  { id: "demo", name: "演示助手", description: "Demo subagent", parallelAllowed: true },
   { id: "browser", name: "浏览器助手", description: "Browser subagent", parallelAllowed: false },
 ];
 const context = undefined as never;
@@ -18,8 +18,8 @@ test("SDK validateToolArguments strictly validates subagent tool arguments again
   const call = (args: ToolCall["arguments"]): ToolCall => ({ type: "toolCall", id: "test-call", name: "subagent", arguments: args });
 
   assert.doesNotThrow(() => validateToolArguments(tool, call({ mode: "single", tasks: [{ agent: "sms", task: "hello" }] })));
-  assert.doesNotThrow(() => validateToolArguments(tool, call({ mode: "parallel", tasks: [{ agent: "sms", task: "a" }, { agent: "news", task: "b" }] })));
-  assert.doesNotThrow(() => validateToolArguments(tool, call({ mode: "chain", tasks: [{ agent: "sms", task: "a" }, { agent: "news", task: "b" }] })));
+  assert.doesNotThrow(() => validateToolArguments(tool, call({ mode: "parallel", tasks: [{ agent: "sms", task: "a" }, { agent: "demo", task: "b" }] })));
+  assert.doesNotThrow(() => validateToolArguments(tool, call({ mode: "chain", tasks: [{ agent: "sms", task: "a" }, { agent: "demo", task: "b" }] })));
 
   assert.throws(() => validateToolArguments(tool, call({ tasks: [{ agent: "sms", task: "a" }] })));
   assert.throws(() => validateToolArguments(tool, call({ mode: "single" })));
@@ -56,7 +56,7 @@ test("subagent rejects single with multiple tasks, unknown agents, and non-paral
 
   const singleMulti = await tool.execute(
     "c-1",
-    { mode: "single", tasks: [{ agent: "sms", task: "SECRET_TASK_1" }, { agent: "news", task: "SECRET_TASK_2" }] },
+    { mode: "single", tasks: [{ agent: "sms", task: "SECRET_TASK_1" }, { agent: "demo", task: "SECRET_TASK_2" }] },
     undefined, undefined, context,
   );
   assert.equal(singleMulti.isError, true);
@@ -127,10 +127,10 @@ test("subagent protocol preserves single, chain {previous} substitution, paralle
   const single = await tool.execute("one", { mode: "single", tasks: [{ agent: "sms", task: "single" }] }, undefined, undefined, context);
   assert.equal(single.content[0].type === "text" && single.content[0].text, "single");
 
-  const chain = await tool.execute("chain", { mode: "chain", tasks: [{ agent: "sms", task: "first" }, { agent: "news", task: "next {previous}" }] }, undefined, undefined, context);
+  const chain = await tool.execute("chain", { mode: "chain", tasks: [{ agent: "sms", task: "first" }, { agent: "demo", task: "next {previous}" }] }, undefined, undefined, context);
   assert.equal(chain.content[0].type === "text" && chain.content[0].text, "next literal $& value");
 
-  const failedChain = await tool.execute("chain-fail", { mode: "chain", tasks: [{ agent: "sms", task: "fail" }, { agent: "news", task: "never" }] }, undefined, undefined, context);
+  const failedChain = await tool.execute("chain-fail", { mode: "chain", tasks: [{ agent: "sms", task: "fail" }, { agent: "demo", task: "never" }] }, undefined, undefined, context);
   assert.equal(failedChain.isError, true);
   assert.ok(!calls.includes("never"));
 
@@ -149,9 +149,9 @@ test("subagent protocol preserves single, chain {previous} substitution, paralle
       mode: "parallel",
       tasks: [
         { agent: "sms", task: "big" },
-        { agent: "news", task: "2" },
+        { agent: "demo", task: "2" },
         { agent: "sms", task: "3" },
-        { agent: "news", task: "4" },
+        { agent: "demo", task: "4" },
         { agent: "sms", task: "5" },
       ],
     },

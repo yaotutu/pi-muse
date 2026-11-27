@@ -36,6 +36,19 @@
 
 ## 变更与须知记录
 
+### 2026-11-27 — 新闻模块整体下线（全部 `/api/news/*` 端点、`news` Subagent 与 `news.sqlite` 移除）
+
+- **影响端形态**：`all`（重点影响 `rich-ui`）
+- **类型**：`breaking`
+- **契约入口**：`/docs`「Subagents」「数据库」
+- **破坏性变更**：
+  1. 全部 13 个新闻端点（`/api/news/status`、`/api/news/sources*`、`/api/news/articles*`、`/api/news/refresh`、`/api/news/preferences` 的读取与保存）下线，调用返回 404；
+  2. `GET /api/subagents` 与 `GET /api/subagents/:id` 只返回 4 个 Subagent（`sms`、`browser`、`habits`、`dream`），不再有 `news`；聊天路由型 Subagent 仅剩 `sms` 与 `browser`；
+  3. `database` 工具与 `GET /api/database` 只支持逻辑库 `main`，不再有 `news` 库；
+  4. `/api/events` 不再产生 `subagentId:"news"` 的更新事件；`GET /api/habits` 不再含 `news` 领域条目；
+  5. 工作区不再托管 `subagents/news/AGENTS.md`。
+- **接入端注意**：移除对上述端点与 `news` Subagent 的全部请求与 UI 逻辑；旧实例数据目录可能残留 `news.sqlite` 文件，服务端不再打开它，接入端也不应再引用。新闻能力后续将以独立服务形态重建，届时另行公告。
+
 ### 2026-11-27 — 新增标准 MCP 服务接入与热管理接口（`/api/mcp/servers*` 与 `/api/assistant/mcp`）
 
 - **影响端形态**：`all`（重点影响 `rich-ui` 后续管理页）
@@ -43,8 +56,8 @@
 - **契约入口**：`/docs`「MCP」「助手设置」「Subagents」（`GET/PUT/PATCH/DELETE /api/mcp/servers*`、`GET/PUT /api/assistant/mcp`、`PATCH /api/subagents/:id`、`GET/PUT /api/subagents/:id/mcp`）
 - **要点与接入端注意**：
   - 服务端只在全局唯一入口（`DATA_DIR/mcp.json`）声明和管理标准 MCP 服务（支持本地 `stdio` 子进程与远程 `http` Streamable HTTP），支持热增删、启停与重连，无需重启服务。
-  - 全局已启用的 MCP 对聊天默认全部开启、对各 Subagent 默认全部关闭；聊天可通过 `GET/PUT /api/assistant/mcp` 独立开关，聊天路由型 Subagent（`sms`/`news`/`browser`）可通过 `GET/PUT /api/subagents/:id/mcp` 按需从同一全局列表启用指定服务，互不影响全局连接。
-  - 全部 5 个 Subagent 使用同一套 `PATCH /api/subagents/:id { enabled }` 启停控制（同时作用于对话路由与后台调度），不再保留短信后台特殊拒收逻辑：`sms` 默认关闭，收到实时或历史短信上传（`POST /api/information/items` / `POST /api/information/archive/items`）时会自动开启。
+  - 全局已启用的 MCP 对聊天默认全部开启、对各 Subagent 默认全部关闭；聊天可通过 `GET/PUT /api/assistant/mcp` 独立开关，聊天路由型 Subagent（`sms`/`browser`）可通过 `GET/PUT /api/subagents/:id/mcp` 按需从同一全局列表启用指定服务，互不影响全局连接。
+  - 全部 Subagent 使用同一套 `PATCH /api/subagents/:id { enabled }` 启停控制（同时作用于对话路由与后台调度），不再保留短信后台特殊拒收逻辑：`sms` 默认关闭，收到实时或历史短信上传（`POST /api/information/items` / `POST /api/information/archive/items`）时会自动开启。
   - 列表与详情接口严格脱敏：仅返回 `envKeys` 与 `headerNames`，绝不回传 `env` 或 `headers` 明文值。
   - 已连接 MCP 服务的工具以 `mcp__<server>__<tool>` 暴露给主聊天助手**直接执行**（不在主服务端二次弹出审批确认），运行步骤记录会自动记录 `MCP · <server>` 与脱敏工具名。
 

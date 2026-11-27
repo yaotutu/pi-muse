@@ -1,6 +1,6 @@
 # SQLite 存储约定
 
-服务端结构化业务状态分两类存放：**机器维护的状态进 SQLite，人维护的内容留纯文本或 JSON 配置**。新闻使用独立数据库 `news.sqlite`，其余模块共用默认库 `main.sqlite`；聊天历史仍由 pi 管理为 JSONL，客户端存储不在本约定范围内。
+服务端结构化业务状态分两类存放：**机器维护的状态进 SQLite，人维护的内容留纯文本或 JSON 配置**。结构化业务状态统一存放在默认库 `main.sqlite`；聊天历史仍由 pi 管理为 JSONL，客户端存储不在本约定范围内。
 
 ## 判据
 
@@ -8,11 +8,9 @@
 - **纯文本文件**：内容是给人读、给人手改的短文档（人设、用户资料、会话规则、记忆条目）。
 - **JSON 文件**：配置而不是业务事实（服务配置、身份设置）。
 
-前缀与表名不能替代归属判断：`news_` 表示新闻独立分库，是当前唯一例外。
-
 ## 连接与生命周期
 
-- 路径只在 `src/adapters/storage/data-layout.ts` 声明。`main.sqlite` 在启动时打开并校验结构；`news.sqlite` 由新闻仓储打开。两者都由 bootstrap 统一注入，不允许各开 writer。
+- 路径只在 `src/adapters/storage/data-layout.ts` 声明。`main.sqlite` 在启动时打开并校验结构，由 bootstrap 统一注入，不允许各开 writer。
 - `openSqliteDatabase()` 基于 Node.js 24.18.0+ 内置 `node:sqlite`：WAL、`synchronous=FULL`、外键开启、5000ms busy timeout；库与边车 0600，新建目录 0700，不隐式 chmod 已有目录。
 - 读改写与工具执行都经过该实例的 `serialize()` 队列；`transaction()` 只包同步短事务，事务内不得 await 模型、网络或人工决定。
 - 关闭先拒绝新入口、收敛运行与在途请求，再等队列并关库。提交后的权限收紧或回执错误仍可能让结果未知，不自动重放写入。
@@ -25,13 +23,10 @@
 - 新建空库时按注册顺序建立全部模块并一次登记。
 - 版本变化必须由代码显式提供新 DDL；本约定不提供自动迁移脚本。
 
-新闻库 `news.sqlite` 独立使用自己的 `user_version`，不进入该账本。
-
 ## 表与归属
 
 | 库 | 表 | 归属 |
 | --- | --- | --- |
-| `news.sqlite` | `news_sources`、`news_articles`、`news_article_feedback`、`news_article_comments`、`news_analysis_runs`、`news_analysis_run_items`、`news_analysis_decisions`、`news_state`、`news_meta` | 新闻（`user_version = 3`：已清理 `news_state`/`news_analysis_runs` 历史废弃列；筛后有界保留最多 2,000 篇无反馈文章，含用户反馈的文章永不裁剪） |
 | `main.sqlite` | `jobs` | 定时任务 |
 | `main.sqlite` | `goals`、`goal_milestones` | 目标 |
 | `main.sqlite` | `actions` | 审批记录与执行回执 |
@@ -45,7 +40,7 @@
 
 - 业务 ID 保持不变，时间沿用 UTC ISO 8601，业务发生时间与系统接纳时间分开。
 - 关系用外键，幂等用唯一约束；删除规则逐项明确。历史快照不错误依赖配置记录继续存在。
-- 显式选择列并只改受影响行（`news.sqlite` 按行 diff 提交，`sms_*` 直接 SQL 定向读写/分页），不整表清空重写，Agent 增加的列与自建表不被抹掉。
+- 显式选择列并只改受影响行（`sms_*` 直接 SQL 定向读写/分页），不整表清空重写，Agent 增加的列与自建表不被抹掉。
 - JSON 只用于确有必要的变形 payload，不把整个业务聚合塞成一行。
 - 会话仍在 JSON/JSONL，因此 `origin_session_id` 等只是字符串，不建跨存储外键；删除会话由领域服务显式清理。
 
@@ -54,8 +49,8 @@
 | 数据 | 形式 | 说明 |
 | --- | --- | --- |
 | `workspace/assistant/{SOUL,USER}.md` | Markdown | 全局助手人设与用户资料 |
-| `workspace/assistant/AGENTS.md`、`workspace/domains/{sms,news}/AGENTS.md` | Markdown | 主助手与各领域 Agent 的用户指令 |
-| `prompts/**`（随仓库发布） | Markdown | 统一系统提示词模板（含 Dream、短信、新闻、主助手与工具说明） |
+| `workspace/assistant/AGENTS.md`、`workspace/subagents/sms/AGENTS.md` | Markdown | 主助手与短信领域 Agent 的用户指令 |
+| `prompts/**`（随仓库发布） | Markdown | 统一系统提示词模板（含 Dream、短信、主助手与工具说明） |
 | `state/assistant/memory.md` | Markdown | 长期记忆条目，带稳定 id 供按 id 修改/删除 |
 | `state/assistant/identity.json` | JSON | 身份设置，属于配置 |
 | `state/monitors.json` | JSON | 网页监控本次不迁数据库 |

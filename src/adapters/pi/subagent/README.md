@@ -17,7 +17,7 @@ This is an adapted source integration, **not an unmodified upstream extension**:
 - `constrainedSampling` is declared with `{ type: "json_schema", strict: "prefer" }` to guide
   providers supporting strict JSON Schema.
 - Child CLI spawning is replaced by the shared deny-by-default `runSubagent` kernel (`../subagent-runner.ts`), used across chat routing and background structured workers.
-- All specialized subagents (`sms`, `news`, `browser`, `habits`, `dream`) are statically defined in `../subagents/catalog.ts` and registered in `src/features/subagents/registry.ts` (read-only inspectable via `GET /api/subagents`). Legacy coding roles (`scout`, `planner`, `reviewer`, `worker`) and `DATA_DIR/subagents` dynamic overrides are removed.
+- All specialized subagents (`sms`, `browser`, `habits`, `dream`) are statically defined in `../subagents/catalog.ts` and registered in `src/features/subagents/registry.ts` (read-only inspectable via `GET /api/subagents`). Legacy coding roles (`scout`, `planner`, `reviewer`, `worker`) and `DATA_DIR/subagents` dynamic overrides are removed.
 - Exclusive subagents (`parallelAllowed: false`, such as `browser`) are rejected in `parallel` mode before queuing or starting children.
 - CLI/TUI rendering and raw child message/stderr details are omitted. Parent
   model receives the bounded final result; existing presentation rules control

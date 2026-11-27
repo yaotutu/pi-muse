@@ -6,9 +6,8 @@
 
 - [快速上手](getting-started.md)：安装服务端、连接手机、发送消息并收到回复。
 - [对话与会话](conversations-and-agents.md)：发送和停止对话、切换会话、重置会话与删除会话。
-- [专职子代理（Subagents）](subagents.md)：了解内置 5 个专职子代理、自动路由、规则审批与只读配置检视。
-- [指令与提示词](instructions.md)：了解三层提示词结构、工作区五份托管文档与顶部 Frontmatter `include:` 拆分引用。
-- [新闻阅读](news.md)：管理 RSS 源、浏览推荐与全部时间线，以及使用逐篇反馈。
+- [专职子代理（Subagents）](subagents.md)：了解内置 4 个专职子代理、自动路由、规则审批与只读配置检视。
+- [指令与提示词](instructions.md)：了解三层提示词结构、工作区四份托管文档与顶部 Frontmatter `include:` 拆分引用。
 - [附件、文件与审批](files-and-approvals.md)：区分消息附件、工作区文件和模型文件写入审批。
 - [任务与网页监控](tasks-and-monitors.md)：通过聊天工具管理定时任务和网页监控，查看执行记录。
 - [目标与里程碑](goals.md)：长期目标的概念、模型上下文注入与聊天管理方式，区分目标和定时执行。
