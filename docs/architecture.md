@@ -129,6 +129,8 @@ SQLite 的连接所有权、模块命名、当前表语义与演进边界见 [SQ
 
 外网请求保留 DNS/SSRF/固定 IP/逐跳重定向/超时/大小/取消防护。私网仅显式配置例外（或管理员显式配置的自有 SearXNG 实例地址），其他边界不变。Web 适配层按职责拆分为底层安全 HTTP 通道（`src/adapters/web/http-client.ts`）、可插拔 `SearchSource` 注册表与多搜索源（`src/adapters/web/search/`）及网页正文抓取（`src/adapters/web/fetch.ts`）：`tools.web.search` 支持 `auto` / `tavily` / `brave` / `searxng` / `jina` / `duckduckgo` 并支持后续通过注册表扩展新搜索源；`tools.web.fetch` 默认对公网非纯数据、无凭据/鉴权参数 URL 优先经 Jina Reader 转为干净 Markdown，失败时无缝回退本地抽取；可选 `tools.web.proxy` 通过 HTTP/HTTPS 代理发起外网请求（仍前置公网域名校验）。页面、RSS、附件和外部工具内容均是不可信数据。
 
+标准 MCP（stdio 与 Streamable HTTP）配置持久化在实例目录 `DATA_DIR/mcp.json`（标准 `mcpServers` 形状），通过 `/api/mcp/servers*` 鉴权接口进行热增删改、启停与重连。`env` 与自定义 `headers` 明文值只留在服务端安全配置文件与内存，回读接口只返回键名集合；MCP 工具按 `mcp__<server>__<tool>` 暴露给主聊天模型直接执行并在运行步骤记录留痕（不在主服务端另弹二次审批），返回文本统一携带不可信外部数据标记且默认不泄露给普通子代理。
+
 浏览器全局复用唯一、懒启动、可见的 Chrome；受保护 profile/downloads 不进入工作区。模型不获得任意 JavaScript evaluate、cookie、localStorage 或密码。HTTP/WS 与浏览器工具共享同一服务；ticket、鉴权、帧背压与生命周期按生成契约执行。
 
 模型 Key 只留受保护配置与内存，不写日志、客户端、auth 文件或 JSONL。模型/工具诊断在进入上下文和持久化前脱敏。trace 是旁路记录，过滤已知 Key、鉴权头与上游 URL 细节，失败不影响执行；不进入模型上下文。

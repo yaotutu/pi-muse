@@ -36,6 +36,16 @@
 
 ## 变更与须知记录
 
+### 2026-11-27 — 新增标准 MCP 服务接入与热管理接口（`/api/mcp/servers*`）
+
+- **影响端形态**：`all`（重点影响 `rich-ui` 后续管理页）
+- **类型**：`feature`
+- **契约入口**：`/docs`「MCP」（`GET/PUT/PATCH/DELETE /api/mcp/servers*`）
+- **要点与接入端注意**：
+  - 服务端原生支持标准 MCP 服务接入（支持本地 `stdio` 子进程与远程 `http` Streamable HTTP），配置按标准 `mcpServers` JSON 持久化在 `DATA_DIR/mcp.json`，支持热增删、启停与重连，无需重启服务。
+  - 列表与详情接口严格脱敏：仅返回 `envKeys` 与 `headerNames`，绝不回传 `env` 或 `headers` 明文值。
+  - 已连接 MCP 服务的工具以 `mcp__<server>__<tool>` 暴露给主聊天助手**直接执行**（不在主服务端二次弹出审批确认，由用户自行信任或通过 `enabled` 控制），运行步骤记录会自动记录 `MCP · <server>` 与脱敏工具名。
+
 ### 2026-11-27 — 工作区文件改为直接写入不弹窗审批；Web 搜索支持多源与 Jina Reader
 
 - **影响端形态**：`all`

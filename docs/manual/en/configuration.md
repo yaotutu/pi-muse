@@ -145,6 +145,7 @@ DATA_DIR/
     news.sqlite                     News data (articles, feeds, article feedback)
     monitors.json                   Webpage monitors
   assets/                           companions/, skills/
+  mcp.json                          Optional standard MCP server configuration (mcpServers)
   runtime/                        auth/, pi/, browser/, traces/, android-updates/
 ```
 
@@ -243,6 +244,31 @@ Only public HTTP(S) is allowed by default; explicitly set `tools.browser.allowPr
 - Keep permissions at `0600` where possible.
 - The server does not write keys to logs, return them to clients, or write them into pi session files.
 - Protect configuration-file backups with the same safeguards as sensitive credentials.
+
+## Standard MCP Servers (`DATA_DIR/mcp.json`) {#mcp-servers}
+
+Pi Muse supports the standard Model Context Protocol (MCP) over both local subprocesses (`stdio`) and remote Streamable HTTP (`http`). Server definitions use the common `mcpServers` JSON format in `DATA_DIR/mcp.json` (optional; missing files default to no MCP servers):
+
+~~~json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./files"],
+      "description": "External filesystem tools"
+    },
+    "docs": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer your-token" },
+      "timeout": 60,
+      "enabled": true
+    }
+  }
+}
+~~~
+
+- **Hot management HTTP API**: Manage servers live via `GET/PUT/PATCH/DELETE /api/mcp/servers*` and `POST /api/mcp/servers/:name/reconnect` (toggling `enabled` or changing `description`/`timeout` preserves stored credentials; see `/docs`).
+- **Security and isolation**: `env` and `headers` values never leave the server in API responses (`envKeys` and `headerNames` only). All MCP outputs are tagged as untrusted external data, tool calls execute directly in main chat without secondary server approval popups (recorded in run step timelines), and background/chat subagents do not inherit external MCP tools.
 
 ## Mock Configuration {#mock-configuration}
 

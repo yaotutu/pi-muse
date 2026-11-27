@@ -58,7 +58,7 @@
 ## 不因 SDK 或依赖存在而引入的能力
 
 - memory/identity、jobs 调度、goals、monitors、actions 审批、HTTP 鉴权和 AG-UI 投影是本项目产品职责；SDK 提供执行与资源机制，不自动提供这些业务语义。不得因此将它们迁入第二套 agent loop 或状态系统。
-- pi-mcp、pi-codemode 等可能随 SDK 作为传递依赖安装，不等于产品已经接入 MCP 或沙箱代码执行。当前显式装配不开放这些能力，启用前必须单独定义权限、凭据、生命周期、取消与失败边界，不能把历史候选包清单当作实施授权。
+- `@earendil-works/pi-mcp` 已由独立服务 `src/features/mcp/` 与 `src/adapters/mcp/pi-mcp-connector.ts` 显式接入（支持标准 `mcpServers` 格式的 stdio 与 Streamable HTTP，凭据严格脱敏，输出按不可信外部数据标记，主聊天会话可直连调用而不再另弹二次审批，普通子代理不盲目继承）；`pi-codemode`、按需 `tool_search` 与 CLI OAuth 流程等能力在显式接入前保持关闭。
 - 不引入 pi-durable、持久队列或自动恢复来改变“崩了重跑”的已确认原则。不因为 SDK 有重试能力而打开自动重试，不把压缩视为 Dream 或自动记忆提取。
 - HTTP 层仍是项目自有 Hono/契约/AG-UI 适配，不因有 pi-server 或社区 pi-web 而增加另一层宿主或兼容接口。历史包评价只说明当时的选型，不宣称完成了当前生态的全面审计。
 

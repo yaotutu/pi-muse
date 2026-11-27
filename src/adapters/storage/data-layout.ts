@@ -15,6 +15,7 @@ export type DataLayout = {
   memoryMarkdownFile: string; identityFile: string;
   /** 网页监控本次保持 JSON 文件，不迁数据库。 */
   monitorsFile: string;
+  mcpConfigFile: string;
   mainDatabaseFile: string; newsDatabaseFile: string;
   soulFile: string; userFile: string; bootstrapFile: string; authKeyFile: string;
   androidUpdatesDir: string; browserProfileDir: string; browserDownloadsDir: string; skillsDir: string; tracesDir: string;
@@ -39,6 +40,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     agentDir: join(runtime, "pi"), piAuthFile: join(runtime, "auth", "pi.json"),
     memoryMarkdownFile: join(profileDir, "memory.md"), identityFile: join(profileDir, "identity.json"),
     monitorsFile: join(stateDir, "monitors.json"),
+    mcpConfigFile: join(root, "mcp.json"),
     mainDatabaseFile: join(stateDir, "main.sqlite"), newsDatabaseFile: join(stateDir, "news.sqlite"),
     soulFile: join(assistant, "SOUL.md"), userFile: join(assistant, "USER.md"),
     bootstrapFile: join(assistant, "BOOTSTRAP.md"),

@@ -78,6 +78,10 @@ import { loadSessionRecency } from "../adapters/storage/session-recency.js";
 import { createWorkspaceFileService } from "../features/workspace/files-service.js";
 import { workspaceFileCommits } from "../adapters/workspace/file-commit-queue.js";
 import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
+import { createMcpRepository } from "../adapters/storage/mcp-repository.js";
+import { createPiMcpConnector } from "../adapters/mcp/pi-mcp-connector.js";
+import { createMcpService } from "../features/mcp/service.js";
+import { serviceVersion } from "./service-version.js";
 import { createDreamRepository } from "../adapters/storage/dream-repository.js";
 import { readAssistantInstructions, writeAssistantInstructions } from "../adapters/storage/assistant-instructions.js";
 import { createDreamService } from "../features/dream/service.js";
@@ -209,6 +213,13 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
   await initializeMainSession(sessionRepository, sessionStorage);
   let information: Awaited<ReturnType<typeof createInformationService>> | undefined;
   let subagents: SubagentRegistry | undefined;
+  const mcp = createMcpService({
+    repository: createMcpRepository(layout),
+    connector: createPiMcpConnector({
+      workspaceDir: layout.workspaceDir,
+      version: (await serviceVersion).version,
+    }),
+  });
 
   // 多会话：每个 agent 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
   // pi runtime 全进程一份：provider 与 runtime key 注册一次，所有线程共用；
@@ -333,6 +344,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
               skills,
               workspaceCommits,
               subagents,
+              mcp,
               database,
             }),
             manager,
@@ -563,7 +575,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
   // 读取器不依赖记录开关：关闭新记录后，既有诊断仍可读取；缺目录为空集。
   const traces = createModelTraceReader(layout.tracesDir);
   const androidUpdates = createAndroidReleaseMirror(layout.androidUpdatesDir);
-  const dependencies = { androidUpdates, companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, dream, dreamScheduler, habits, habitsScheduler, information, informationScheduler, news, subagents, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, messageFeedbackRepository };
+  const dependencies = { androidUpdates, companions, traces, config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, dream, dreamScheduler, habits, habitsScheduler, information, informationScheduler, news, subagents, mcp, newsRepository, newsDatabase: newsStorage.database, database, sessions, browser, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
@@ -572,7 +584,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
     clearInterval(approvalTimer);
     // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
     workspaceEvents.close();
-    const stopped = [androidUpdates.close(), scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), habitsScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), newsScreening.close(), newsScreeningScheduler.close(), conversationHub.closeAll()];
+    const stopped = [androidUpdates.close(), scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), habitsScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), news.close(), newsScreening.close(), newsScreeningScheduler.close(), conversationHub.closeAll(), mcp.close()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
@@ -591,6 +603,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
   try {
     await sessions.recoverDeletions();
     await dream.describeAll();
+    await mcp.start();
     const app = await createHttpApp(dependencies);
     scheduler.start();
     monitorScheduler.start();

@@ -13,6 +13,7 @@ import * as information from "./information.js";
 import * as companion from "./companions.js";
 import * as news from "./news.js";
 import * as subagent from "./subagents.js";
+import * as mcp from "./mcp.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
 import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
 
@@ -1185,5 +1186,48 @@ export const endpoints: EndpointSpec[] = [
       404: { description: "下载记录不存在", schema: resp.errorResponse },
       500: { description: "下载目录不是安全的浏览器自有存储；错误已脱敏", schema: resp.errorResponse },
     },
+  },
+  // ---- 标准 MCP 服务管理 ----
+  {
+    operationId: "listMcpServers",
+    method: "get", path: "/api/mcp/servers", tag: "MCP", summary: "列出已配置的 MCP 服务与连接状态",
+    hint: "只读，不创建 mcp.json。返回服务状态、工具列表与配置摘要；env 与 headers 仅返回键名列表（envKeys/headerNames），绝不泄露敏感明文值。",
+    auth: true, response: mcp.mcpListResponseSchema,
+    errorResponses: { 500: mcp.mcpErrorResponses[500] },
+  },
+  {
+    operationId: "getMcpServer",
+    method: "get", path: "/api/mcp/servers/:name", tag: "MCP", summary: "查询单个 MCP 服务状态与工具",
+    hint: "只读，不泄露 env/headers 明文值；服务不存在返回 404 NOT_FOUND。",
+    auth: true, response: mcp.mcpServerResponseSchema,
+    errorResponses: { 400: mcp.mcpErrorResponses[400], 404: mcp.mcpErrorResponses[404], 500: mcp.mcpErrorResponses[500] },
+  },
+  {
+    operationId: "upsertMcpServer",
+    method: "put", path: "/api/mcp/servers/:name", tag: "MCP", summary: "新增或替换一个标准 MCP 服务并持久化到 mcp.json",
+    hint: "支持 stdio（command/args/env/cwd）与 Streamable HTTP（url/headers）。先校验输入与归一化命名空间冲突（- 与 _ 等价），持久化写入 DATA_DIR/mcp.json 后尝试连接。若连接失败仍保留配置并在 status=error 与 error 字段报告脱敏原因。暴露给主聊天模型直接执行，不触发二次审批；不暴露给普通子代理。",
+    auth: true, request: mcp.mcpServerUpsertRequest, response: mcp.mcpServerResponseSchema,
+    errorResponses: mcp.mcpErrorResponses,
+  },
+  {
+    operationId: "patchMcpServer",
+    method: "patch", path: "/api/mcp/servers/:name", tag: "MCP", summary: "修改 MCP 服务启停状态、说明或超时",
+    hint: "只更新 enabled/description/timeout 并完整保留既有 command/args/env/cwd/url/headers；启用时建立连接，禁用时立即断开并保留配置。",
+    auth: true, request: mcp.mcpServerPatchRequest, response: mcp.mcpServerResponseSchema,
+    errorResponses: { 400: mcp.mcpErrorResponses[400], 404: mcp.mcpErrorResponses[404], 500: mcp.mcpErrorResponses[500] },
+  },
+  {
+    operationId: "deleteMcpServer",
+    method: "delete", path: "/api/mcp/servers/:name", tag: "MCP", summary: "删除一个 MCP 服务配置并断开连接",
+    hint: "立即关闭对应子进程或 HTTP 连接并从 DATA_DIR/mcp.json 移除该条目；不存在返回 404 NOT_FOUND。",
+    auth: true, response: mcp.mcpDeleteResponseSchema,
+    errorResponses: { 400: mcp.mcpErrorResponses[400], 404: mcp.mcpErrorResponses[404], 500: mcp.mcpErrorResponses[500] },
+  },
+  {
+    operationId: "reconnectMcpServer",
+    method: "post", path: "/api/mcp/servers/:name/reconnect", tag: "MCP", summary: "手动重连指定 MCP 服务",
+    hint: "关闭旧连接后重新握手与发现工具列表；若服务处于 disabled 状态则保持禁用不建连。",
+    auth: true, response: mcp.mcpServerResponseSchema,
+    errorResponses: { 400: mcp.mcpErrorResponses[400], 404: mcp.mcpErrorResponses[404], 500: mcp.mcpErrorResponses[500] },
   },
 ];

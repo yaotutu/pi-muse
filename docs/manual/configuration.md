@@ -143,6 +143,7 @@ DATA_DIR/
     news.sqlite                     新闻数据（文章、订阅源、文章反馈）
     monitors.json                   网页监控
   assets/                           companions/、skills/
+  mcp.json                          可选的标准 MCP 服务配置（mcpServers）
   runtime/                          auth/、pi/、browser/、traces/、android-updates/
 ```
 
@@ -241,6 +242,31 @@ GitHub 发布成功后可向 `POST /updates/android/refresh` 发送空请求，�
 - 建议权限保持 `0600`。
 - 服务端不会把 key 写入日志、返回客户端或写入 pi 会话文件。
 - 备份配置文件时按敏感凭据同等保护。
+
+## 标准 MCP 服务（`DATA_DIR/mcp.json`） {#mcp-servers}
+
+Pi Muse 支持标准 MCP（Model Context Protocol）协议，既支持本地子进程模式（`stdio`），也支持远程流式 HTTP（Streamable HTTP）。配置与业界通用格式兼容，保存在实例目录下的 `DATA_DIR/mcp.json`（省略时为空，不影响启动）：
+
+~~~json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./files"],
+      "description": "读写指定目录的外部文件工具"
+    },
+    "docs": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer your-token" },
+      "timeout": 60,
+      "enabled": true
+    }
+  }
+}
+~~~
+
+- **热管理接口**：除手改 `mcp.json` 后重连外，可通过 `/api/mcp/servers`、`PUT /api/mcp/servers/:name`、`PATCH /api/mcp/servers/:name`（开关启停/改说明/改超时而不丢凭据）、`POST /api/mcp/servers/:name/reconnect` 与 `DELETE /api/mcp/servers/:name` 在线管理（精确字段见 `/docs`）。
+- **安全与权限边界**：`env` 与 `headers` 明文只在服务端配置文件与内存中使用，接口只回传键名列表（`envKeys`、`headerNames`）；工具输出统一带不可信数据隔离标记。外部 MCP 工具在主聊天中直接运行、不弹出二次审批，按执行步骤在运行记录中留痕；普通子代理默认不继承外部 MCP 工具。
 
 ## mock 配置 {#mock-configuration}
 

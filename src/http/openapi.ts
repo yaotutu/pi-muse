@@ -1,6 +1,7 @@
 import { COMPANION_STATES, COMPANION_PACK_ID_PATTERN } from "../features/companions/types.js";
 import { HABIT_SUBAGENT_PATTERN, HABIT_ID_PATTERN } from "../features/habits/types.js";
 import { SUBAGENT_ID_PATTERN } from "../features/subagents/types.js";
+import { MCP_SERVER_NAME_PATTERN } from "../features/mcp/types.js";
 import { SESSION_ID_PATTERN } from "../features/conversation/session-id.js";
 import { z } from "zod";
 import { endpoints } from "./contracts/endpoints.js";
@@ -75,6 +76,9 @@ const describePathParam = (path: string, name: string): string => {
   if (name === "runId" && path.includes("/information/runs/")) {
     return "信息处理 run 唯一标识（inforun_...）";
   }
+  if (name === "name" && path.startsWith("/api/mcp/servers/")) {
+    return "MCP 服务唯一名称（字母、数字、下划线或连字符，1–64 字符）";
+  }
   return `${name} 路径参数`;
 };
 
@@ -91,6 +95,8 @@ const pathParams = (path: string) => {
         ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: SESSION_ID_PATTERN.source, description }
         : path.startsWith("/api/subagents/") && name === "id"
           ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: SUBAGENT_ID_PATTERN.source, description }
+        : path.startsWith("/api/mcp/servers/") && name === "name"
+          ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: MCP_SERVER_NAME_PATTERN.source, description }
         : path.startsWith("/api/habits/") && name === "subagentId"
           ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: HABIT_SUBAGENT_PATTERN.source, description }
         : path.startsWith("/api/habits/") && name === "habitId"

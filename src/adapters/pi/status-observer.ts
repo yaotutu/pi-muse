@@ -24,31 +24,41 @@ const safeUrlSummary = (value: unknown): string | null => {
   }
 };
 
-const toolTitle = (name: string): string => ({
-  search_web: "搜索网页",
-  web_fetch: "读取网页",
-  browser: "操作浏览器",
-  read: "读取文件",
-  write: "写入文件",
-  edit: "编辑文件",
-  grep: "搜索文件内容",
-  find: "查找文件",
-  ls: "列出目录",
-  subagent: "委派子代理",
-  memory: "管理记忆",
-  memory_search: "检索记忆",
-  schedule: "管理定时任务",
-  monitor: "管理网页监控",
-  goal: "管理目标",
-  get_weather: "查询天气",
-  currentTime: "查询当前时间",
-  instructions: "管理助手指令",
-  skills: "管理技能",
-  database: "操作数据库",
-}[name] ?? "执行工具");
+const toolTitle = (name: string): string => {
+  if (name.startsWith("mcp__")) {
+    const server = name.split("__")[1]?.trim();
+    return server ? `MCP · ${server}` : "MCP 工具";
+  }
+  return {
+    search_web: "搜索网页",
+    web_fetch: "读取网页",
+    browser: "操作浏览器",
+    read: "读取文件",
+    write: "写入文件",
+    edit: "编辑文件",
+    grep: "搜索文件内容",
+    find: "查找文件",
+    ls: "列出目录",
+    subagent: "委派子代理",
+    memory: "管理记忆",
+    memory_search: "检索记忆",
+    schedule: "管理定时任务",
+    monitor: "管理网页监控",
+    goal: "管理目标",
+    get_weather: "查询天气",
+    currentTime: "查询当前时间",
+    instructions: "管理助手指令",
+    skills: "管理技能",
+    database: "操作数据库",
+  }[name] ?? "执行工具";
+};
 
 /** 只从白名单字段提取人类可读且脱敏后的简要摘要；不透出正文、SQL、凭据或原始载荷。 */
 const summarizeToolDetail = (name: string, args: unknown): string | null => {
+  if (name.startsWith("mcp__")) {
+    const toolName = name.split("__").slice(2).join("__").trim();
+    return compactText(toolName, 120);
+  }
   if (!isObject(args)) return null;
   switch (name) {
     case "search_web":

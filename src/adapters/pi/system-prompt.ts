@@ -1,4 +1,5 @@
 import type { SubagentChatDescriptor } from "../../features/subagents/types.js";
+import type { McpPromptSummary } from "../../features/mcp/types.js";
 import type { DataLayout } from "../storage/data-layout.js";
 import { readResolvedProfileFile } from "../storage/workspace-document-includes.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
@@ -31,6 +32,7 @@ export type SystemPromptOptions = {
   assistantInstructions?: string;
   recalledMemories?: readonly MemoryItem[];
   chatSubagents?: readonly SubagentChatDescriptor[];
+  mcpSummaries?: readonly McpPromptSummary[];
 };
 
 const toolSections: ReadonlyArray<{ tools: readonly string[]; promptPath: string }> = [
@@ -60,6 +62,7 @@ export const buildSystemPrompt = async ({
   assistantInstructions,
   recalledMemories,
   chatSubagents,
+  mcpSummaries,
 }: SystemPromptOptions): Promise<string> => {
   const tools = new Set(allowedToolNames);
   const has = (...names: readonly string[]) => names.every((name) => tools.has(name));
@@ -70,6 +73,16 @@ export const buildSystemPrompt = async ({
   ];
   if (has("subagent") && chatSubagents?.length) {
     capabilitySegments.push(buildSubagentsSystemPrompt(chatSubagents).replace(/^\n/, ""));
+  }
+  if (mcpSummaries?.length) {
+    const mcpLines = mcpSummaries.map((item) =>
+      `- \`${item.name}\` (${item.toolCount} tools): ${item.summary}`,
+    );
+    capabilitySegments.push(
+      renderPrompt("assistant/tools/mcp.md", {
+        MCP_SERVERS: mcpLines.join("\n"),
+      }),
+    );
   }
   capabilitySegments.push(
     ...trailingToolSections.filter((entry) => has(...entry.tools)).map((entry) => loadPrompt(entry.promptPath)),

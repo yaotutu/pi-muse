@@ -25,6 +25,7 @@
     "@ag-ui/core": "1.0.5",
     "@earendil-works/pi-ai": "1.6.1",
     "@earendil-works/pi-coding-agent": "1.6.1",
+    "@earendil-works/pi-mcp": "1.6.1",
     "@hono/node-server": "2.1.11",
     "fast-xml-parser": "5.12.1",
     "hono": "4.13.22",

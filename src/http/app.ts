@@ -19,6 +19,8 @@ import { createHabitsRoutes } from "./routes/habits.js";
 import { createInformationRoutes } from "./routes/information.js";
 import { createNewsRoutes } from "./routes/news.js";
 import { createSubagentRoutes } from "./routes/subagents.js";
+import { createMcpRoutes } from "./routes/mcp.js";
+import { McpError } from "../features/mcp/types.js";
 import { createWorkspaceEventRoutes } from "./routes/events.js";
 import { createTracesRoutes } from "./routes/traces.js";
 import { createBrowserRoutes } from "./routes/browser.js";
@@ -85,6 +87,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   );
   app.onError((error, c) => {
     if (error instanceof CompanionError) return c.json({ error: error.message, code: error.code }, error.status);
+    if (error instanceof McpError) return c.json({ error: error.message, code: error.code }, error.status);
     if (error instanceof UnknownSkillError) return c.json({ error: error.message, code: "UNKNOWN_SKILL" }, 400);
     if (error instanceof SessionError) return c.json({ error: error.message, code: error.code }, error.status);
     if (error instanceof ConversationError && error.code === "SESSION_NOT_FOUND")
@@ -152,6 +155,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/api/companions", createCompanionRoutes(dependencies.companions));
   app.route("/api/news", createNewsRoutes(dependencies));
   app.route("/api/subagents", createSubagentRoutes(dependencies));
+  app.route("/api/mcp", createMcpRoutes(dependencies));
   app.route("/", createTracesRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);

@@ -592,6 +592,24 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
+    // 标准 MCP 工具调用路径：查找声明的 mcp__* 工具并直接调用。
+    if (/调用MCP回显/.test(last) && !pendingToolResult) {
+      const mcpTool = (input.tools || [])
+        .map((tool) =>
+          typeof tool === "object" && tool !== null
+            ? (tool as { function?: { name?: string }; name?: string }).function?.name ??
+              (tool as { name?: string }).name
+            : undefined,
+        )
+        .find((name): name is string => typeof name === "string" && name.startsWith("mcp__"));
+      if (mcpTool) {
+        event({ role: "assistant" });
+        event(toolCall(mcpTool, { message: "mcp-echo-test" }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+    }
     // 记忆检索路径：触发词"检索记忆" + 声明了 memory_search 工具。
     if (declaresTool("memory_search") && /检索记忆/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });

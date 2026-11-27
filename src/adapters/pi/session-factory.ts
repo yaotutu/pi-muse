@@ -31,7 +31,9 @@ import type { SubagentRegistry } from "../../features/subagents/registry.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { createResourceLoader } from "./resource-loader.js";
 import { createTools, skillToToolsMap, registeredToolNames } from "./tools/index.js";
+import { createMcpTools } from "./tools/mcp.js";
 import { createWritableFileTools } from "./tools/files-writable.js";
+import type { McpService } from "../../features/mcp/types.js";
 import type { ReadOnlyFile } from "./tools/path-guard.js";
 import { createSubagentExtension, SUBAGENT_TOOL_NAME } from "./subagent/extension.js";
 import { createToolPresentation, type ToolPresentation } from "../ag-ui/tool-presentation.js";
@@ -69,6 +71,7 @@ export type PiDeps = {
   workspaceCommits?: WorkspaceCommitQueue;
   /** 统一专职 Subagent 注册中心；主聊天通过 subagent 工具按能力声明路由任务。 */
   subagents?: SubagentRegistry;
+  mcp?: McpService;
   database?: Pick<import("../../features/database/database-service.js").DatabaseService, "execute">;
 };
 
@@ -238,6 +241,15 @@ export async function openPi(deps: PiDeps) {
   const builtinAllowedToolNames = computeBuiltinAllowedToolNames(allCustomTools, enabledSkillNames);
   const allowedToolNames = [...builtinAllowedToolNames, ...extensionToolNames];
   const customTools = allCustomTools.filter((tool) => allowedToolNames.includes(tool.name));
+  const usedNames = new Set(allowedToolNames);
+  const activeMcpTools = deps.mcp
+    ? (await deps.mcp.getActiveTools()).filter((tool) => !usedNames.has(tool.exposedName))
+    : [];
+  if (activeMcpTools.length) {
+    const mcpToolDefs = createMcpTools(activeMcpTools);
+    customTools.push(...mcpToolDefs);
+    allowedToolNames.push(...mcpToolDefs.map((tool) => tool.name));
+  }
 
   const recalledMemories = deps.userText && memory ? await memory.recall(deps.userText) : [];
   const assistantInstructions = await readResolvedProfileFile(layout.assistantInstructionsFile, layout.workspaceDir);
@@ -353,6 +365,7 @@ export async function openPi(deps: PiDeps) {
     assistantInstructions,
     recalledMemories,
     chatSubagents,
+    mcpSummaries: deps.mcp?.getPromptSummaries(),
   });
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);
 
