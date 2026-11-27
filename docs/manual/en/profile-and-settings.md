@@ -98,11 +98,11 @@ See the [Real Browser Guide](browser.md) for deployment and viewer details.
 
 ## Android App Updates {#android-updates}
 
-1. Tap Settings, then 「应用更新」 (App update) under 「应用与连接」 (App and connection). The app checks automatically when it starts in the foreground and once per hour while foregrounded. You can also tap 「立即检查更新」 or 「再次检查」.
-2. Checking reads only the official GitHub repository's stable Release. The app picks the per-architecture package matching the device's CPU (for example `app-arm64-v8a-release.apk`) and falls back to the universal `app-release.apk` when that split package is missing or the architecture cannot be identified. Prereleases, drafts, and other assets are not used as update packages, and duplicate assets with the same name are rejected rather than guessed.
-3. When a higher version is found, the app shows the current version, target version, and size, then starts downloading. You can cancel or retry the download and continue using the app; downloading may consume mobile data.
+1. Tap Settings, then 「应用更新」 (App update) under 「应用与连接」 (App and connection). The app checks automatically when it starts in the foreground and once per hour while foregrounded. You can also tap 「检查更新」.
+2. When connected to a Pi Muse server, updates are checked and downloaded first from the server's same-origin release mirror (`GET /updates/android/latest`), avoiding GitHub anonymous rate limits on mobile devices; when disconnected, the app falls back to the official GitHub repository's stable Release. In both modes, the app picks the per-architecture package matching the device's CPU (for example `app-arm64-v8a-release.apk`) or falls back to `app-release.apk`, and verifies size, SHA-256, package ID, version, and release signing certificate before installing.
+3. When a higher version is found, the app shows the current version and target version, then starts downloading. You can cancel or retry the download and continue using the app; downloading may consume mobile data.
 4. After the download finishes, the client opens the Android system installer. The first attempt may require allowing Pi Muse to install unknown apps, and the final installation must still be confirmed in the system UI. Opening the installer does not mean the upgrade completed.
-5. If the check fails, the page shows the APK URL (preferring the device architecture's split package) and 「重新检查」 so you can download manually and follow the system prompts.
+5. If the check fails, the page shows 「检查更新」 and 「复制官方下载地址」 so you can download manually and follow the system prompts.
 
 The current update path supports only a standalone Android APK. Non-Android or non-standalone environments show that APK updates are unsupported; if the installed package version cannot be read, the app also directs you to use a formal APK manually. If you cancel installation while the system still retains the cached package, tap 「继续安装」. If Android clears the cache, download it again.
 
@@ -113,4 +113,4 @@ The current update path supports only a standalone Android APK. Non-Android or n
 | Profile page shows the last loaded value or an unknown save result | Tap 「刷新」 to verify the server value. After checking, save explicitly again if needed; the client does not retry automatically. |
 | Theme changed but saving failed | Local storage failed temporarily. Choose a theme again to retry saving; the visible switch is unaffected. |
 | Connection status says reauthentication is required | Open 「服务器连接」, enter the current AccessKey, then tap 「保存」; it takes effect after verification succeeds. |
-| App update check fails | Retry later or manually download the APK from the official Releases page. Update checks do not depend on the Pi Muse business server. |
+| App update check fails | When connected to a server, verify the server can reach GitHub and has synced via `POST /updates/android/refresh`; otherwise retry later or copy the official Releases download link. |

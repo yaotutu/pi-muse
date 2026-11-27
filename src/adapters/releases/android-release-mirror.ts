@@ -6,8 +6,9 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { androidApkNamePattern as apkName, androidReleaseTagPattern as tagPattern, androidReleaseManifest as manifestSchema, type AndroidRelease as Release } from "../../shared/android-release.js";
 
-const repository = "yaotutu/pi-muse-mobile";
+const repository = "yaotutu/pi-muse-flutter";
 export const githubAndroidReleaseUrl = `https://api.github.com/repos/${repository}/releases/latest`;
+const repositoryMarker = ".repository";
 const allowedHosts = new Set(["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]);
 type Asset = Release["assets"][number];
 
@@ -114,20 +115,26 @@ export function createAndroidReleaseMirror(root: string, options: { transport?: 
       return parsed;
     } catch { return null; }
   };
+  const matchesRepository = async (): Promise<boolean> => {
+    try { return (await readFile(join(root, repositoryMarker), "utf8")).trim() === repository; }
+    catch { return false; }
+  };
   const latest = async (): Promise<Release | null> => {
-    try { return await storedRelease(await readFile(join(root, "latest"), "utf8")); }
-    catch { return null; }
+    try {
+      if (!(await matchesRepository())) return null;
+      return await storedRelease(await readFile(join(root, "latest"), "utf8"));
+    } catch { return null; }
   };
   const publish = async () => {
     const signal = AbortSignal.any([shutdown.signal, AbortSignal.timeout(30 * 60_000)]);
-    const previous = await latest();
+    const previous = (await matchesRepository()) ? await latest() : null;
     const release = await readGithubRelease(transport, signal);
     if (previous && !isLater(release.tag_name, previous.tag_name)) return true;
     await mkdir(root, { recursive: true, mode: 0o700 });
     // 单实例串行同步，应对进程退出后遗留的临时目录。
     const leftovers = (await readdir(root)).filter((entry) => /^\.sync-[A-Za-z0-9]+$/.test(entry));
     await Promise.allSettled(leftovers.map((entry) => rm(join(root, entry), { recursive: true, force: true })));
-    // 同文件系统上先发布完整版本目录，再原子替换指针文件。
+    // 同文件系统上先发布完整版本目录，再原子写入仓库标识与指针文件。
     const stage = await mkdtemp(join(root, ".sync-"));
     const versionDir = join(root, release.tag_name);
     try {
@@ -149,6 +156,8 @@ export function createAndroidReleaseMirror(root: string, options: { transport?: 
       // 同一 tag 的未发布目录只可能来自上次更新在替换指针前中断。
       await rm(versionDir, { recursive: true, force: true });
       await rename(files, versionDir);
+      await writeFile(join(stage, repositoryMarker), repository, { flag: "wx", mode: 0o600 });
+      await rename(join(stage, repositoryMarker), join(root, repositoryMarker));
       await writeFile(join(stage, "latest"), release.tag_name, { flag: "wx", mode: 0o600 });
       await rename(join(stage, "latest"), join(root, "latest"));
     } finally { await rm(stage, { recursive: true, force: true }).catch(() => {}); }
@@ -182,7 +191,7 @@ export function createAndroidReleaseMirror(root: string, options: { transport?: 
     refresh,
     checkIfDue: () => { if (performance.now() - checkedAt >= 60 * 60_000) void refresh(); },
     async asset(tag: string, name: string) {
-      if (!apkName.test(name)) return undefined;
+      if (!apkName.test(name) || !(await matchesRepository())) return undefined;
       const asset = (await storedRelease(tag))?.assets.find((item) => item.name === name);
       if (!asset) return undefined;
       const path = join(root, tag, name);

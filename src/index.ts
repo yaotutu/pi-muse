@@ -75,6 +75,8 @@ try {
   );
   // once 同时处理监听失败；端口被占用时也释放已经创建的调度器。
   if (!server.listening) await once(server, "listening");
+  // 启动后主动触发一次官方 Android 安装包镜像同步，不阻塞 HTTP 启动。
+  service.androidUpdates.notify();
   // @hono/node-server 的返回类型覆盖 HTTP/2；本项目默认实际创建 HTTP/1.1 server。
   const browserWs = createBrowserUpgradeHandler(service.browser);
   const detachUpgrade = attachUpgradeHandler(server as unknown as Server, browserWs.handle);
