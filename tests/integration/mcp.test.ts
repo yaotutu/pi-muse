@@ -150,6 +150,38 @@ rl.on("line", (line) => {
   const approvalsRes = await fetchApp("/api/approvals", { headers: { Authorization: `Bearer ${token}` } });
   assert.equal(((await approvalsRes.json()) as { approvals: unknown[] }).approvals.length, 0);
 
+  // 主聊天独立开关：关闭后全局仍 connected，但下一轮对话不再暴露该 MCP 工具；重新开启后恢复
+  const assistantGet = await fetchApp("/api/assistant/mcp", { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(assistantGet.status, 200);
+  const assistantInitial = (await assistantGet.json()) as { servers: Array<{ name: string; effectiveEnabled: boolean }> };
+  assert.equal(assistantInitial.servers[0]?.effectiveEnabled, true);
+
+  const muteRes = await fetchApp("/api/assistant/mcp", {
+    method: "PUT",
+    headers: authHeaders,
+    body: JSON.stringify({ overrides: { demo_echo: false } }),
+  });
+  assert.equal(muteRes.status, 200);
+  assert.equal(((await muteRes.json()) as { servers: Array<{ effectiveEnabled: boolean }> }).servers[0]?.effectiveEnabled, false);
+
+  // 全局连接仍然保持 connected
+  const globalGet = await fetchApp("/api/mcp/servers/demo_echo", { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(((await globalGet.json()) as { server: { status: string } }).server.status, "connected");
+
+  const conv2 = (await (await fetchApp("/api/conversation?sessionId=main", { headers: { Authorization: `Bearer ${token}` } })).json()) as { revision: string };
+  const mutedRunRes = await fetchApp("/api/conversation/run", {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({
+      sessionId: "main",
+      runId: "00000000-0000-4000-8000-000000000103",
+      expectedRevision: conv2.revision,
+      message: { id: "00000000-0000-4000-8000-000000000104", content: "调用MCP回显" },
+    }),
+  });
+  const mutedSse = await mutedRunRes.text();
+  assert.doesNotMatch(mutedSse, /MCP_RESULT:mcp-echo-test/);
+
   // PATCH 禁用 + DELETE 移除 + 确认 client 变量未使用警告消除
   assert.ok(client);
   const patchRes = await fetchApp("/api/mcp/servers/demo_echo", {

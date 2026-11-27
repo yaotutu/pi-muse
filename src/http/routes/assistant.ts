@@ -4,9 +4,10 @@ import { UnknownSkillError } from "../../features/skills/service.js";
 import { writeAssistantInstructions } from "../../adapters/storage/assistant-instructions.js";
 import { inspectProfileFile } from "../../adapters/storage/workspace-document-includes.js";
 import { saveInstructionsSchema, updateSkillsSchema } from "../contracts/rest.js";
+import { mcpAssistantOverridesRequest } from "../contracts/mcp.js";
 
 /** 助手配置由所有会话共同读取，独立于会话生命周期。 */
-export const createAssistantRoutes = ({ layout, skills }: Pick<HttpDependencies, "layout" | "skills">) => {
+export const createAssistantRoutes = ({ layout, skills, mcp }: Pick<HttpDependencies, "layout" | "skills" | "mcp">) => {
   const app = new Hono();
   app.get("/instructions", async (c) => {
     const inspected = await inspectProfileFile(layout.assistantInstructionsFile, layout.workspaceDir);
@@ -35,6 +36,12 @@ export const createAssistantRoutes = ({ layout, skills }: Pick<HttpDependencies,
     if (!parsed.success) return c.json({ error: "Invalid skills", code: "INVALID_REQUEST" }, 400);
     await skills.updateOverrides(parsed.data.overrides);
     return c.json(await skills.describe());
+  });
+  app.get("/mcp", async (c) => c.json(await mcp.describeAssistantSelection()));
+  app.put("/mcp", async (c) => {
+    const parsed = mcpAssistantOverridesRequest.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid MCP overrides", code: "INVALID_INPUT" }, 400);
+    return c.json(await mcp.updateAssistantOverrides(parsed.data.overrides));
   });
   return app;
 };

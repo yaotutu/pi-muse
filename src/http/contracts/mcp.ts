@@ -70,6 +70,27 @@ export const mcpServerPatchRequest = z.strictObject({
   timeout: z.number().int().min(1).max(600).optional().describe("更新单次请求超时时间（秒）"),
 });
 
+export const mcpAssistantServerViewSchema = z.strictObject({
+  name: z.string().regex(MCP_SERVER_NAME_PATTERN).describe("MCP 服务唯一名称"),
+  transport: z.enum(["stdio", "http"]).describe("传输方式"),
+  description: z.string().describe("服务说明"),
+  globalEnabled: z.boolean().describe("全局总开关是否启用"),
+  status: z.enum(["disabled", "disconnected", "connecting", "connected", "error"]).describe("全局连接状态"),
+  toolCount: z.number().int().nonnegative().describe("工具数量"),
+  defaultEnabled: z.literal(true).describe("主聊天对全局已声明服务的默认状态（默认开启）"),
+  enabled: z.boolean().describe("主聊天对该服务的独立选用开关"),
+  effectiveEnabled: z.boolean().describe("主聊天当前最终是否可用（globalEnabled && enabled）"),
+});
+
+export const mcpAssistantSelectionResponseSchema = z.strictObject({
+  servers: z.array(mcpAssistantServerViewSchema).describe("全局列表在主聊天视角下的选用清单"),
+  overrides: z.record(z.string(), z.boolean()).describe("已保存的主聊天显式覆盖开关映射"),
+});
+
+export const mcpAssistantOverridesRequest = z.strictObject({
+  overrides: z.record(z.string(), z.boolean()).describe("主聊天 MCP 独立选用覆盖映射；未列出的全局服务默认开启"),
+});
+
 export const mcpErrorResponses = {
   400: { description: "服务名称或配置参数不合法", schema: errorResponse },
   404: { description: "指定名称的 MCP 服务不存在", schema: errorResponse },

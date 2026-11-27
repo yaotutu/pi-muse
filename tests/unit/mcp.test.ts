@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createDataLayout, ensureLayout } from "../../src/adapters/storage/data-layout.js";
-import { createMcpRepository } from "../../src/adapters/storage/mcp-repository.js";
+import { createMcpAssistantOverridesRepository, createMcpRepository } from "../../src/adapters/storage/mcp-repository.js";
 import { createPiMcpConnector } from "../../src/adapters/mcp/pi-mcp-connector.js";
 import { createMcpService } from "../../src/features/mcp/service.js";
 import { McpError } from "../../src/features/mcp/types.js";
@@ -82,6 +82,7 @@ test("mcp service connects real stdio server, redacts secrets, patches toggles, 
 
   const service = createMcpService({
     repository: createMcpRepository(layout),
+    assistantOverridesRepository: createMcpAssistantOverridesRepository(layout),
     connector: createPiMcpConnector({ workspaceDir: layout.workspaceDir, version: "0.1.0" }),
   });
   t.after(() => service.close());
@@ -124,6 +125,29 @@ test("mcp service connects real stdio server, redacts secrets, patches toggles, 
   const enabled = await service.patch("echo_srv", { enabled: true });
   assert.equal(enabled.status, "connected");
   assert.equal((await service.getActiveTools()).length, 1);
+
+  // 主聊天默认全部开启，独立关闭后全局仍在线且可供显式授权的 Agent 使用
+  const initialSel = await service.describeAssistantSelection();
+  assert.equal(initialSel.servers[0]?.defaultEnabled, true);
+  assert.equal(initialSel.servers[0]?.enabled, true);
+  assert.equal(initialSel.servers[0]?.effectiveEnabled, true);
+
+  const muted = await service.updateAssistantOverrides({ echo_srv: false });
+  assert.equal(muted.servers[0]?.globalEnabled, true);
+  assert.equal(muted.servers[0]?.enabled, false);
+  assert.equal(muted.servers[0]?.effectiveEnabled, false);
+  assert.equal((await service.getActiveTools({ scope: "assistant" })).length, 0);
+  assert.equal(service.getPromptSummaries({ scope: "assistant" }).length, 0);
+  assert.equal((await service.getActiveTools({ allowedServers: new Set(["echo_srv"]) })).length, 1);
+  assert.equal((await service.getActiveTools({ allowedServers: new Set() })).length, 0);
+
+  await assert.rejects(
+    () => service.updateAssistantOverrides({ missing_server: false }),
+    (err: unknown) => err instanceof McpError && err.status === 400,
+  );
+  await service.remove("echo_srv");
+  const afterRemove = await service.describeAssistantSelection();
+  assert.deepEqual(afterRemove, { servers: [], overrides: {} });
 });
 
 test("mcp service connects real Streamable HTTP server with custom headers redacted from views", async (t) => {
@@ -189,6 +213,7 @@ test("mcp service connects real Streamable HTTP server with custom headers redac
 
   const service = createMcpService({
     repository: createMcpRepository(layout),
+    assistantOverridesRepository: createMcpAssistantOverridesRepository(layout),
     connector: createPiMcpConnector({ workspaceDir: layout.workspaceDir, version: "0.1.0" }),
   });
   t.after(() => service.close());

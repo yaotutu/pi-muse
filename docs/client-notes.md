@@ -36,15 +36,16 @@
 
 ## 变更与须知记录
 
-### 2026-11-27 — 新增标准 MCP 服务接入与热管理接口（`/api/mcp/servers*`）
+### 2026-11-27 — 新增标准 MCP 服务接入与热管理接口（`/api/mcp/servers*` 与 `/api/assistant/mcp`）
 
 - **影响端形态**：`all`（重点影响 `rich-ui` 后续管理页）
 - **类型**：`feature`
-- **契约入口**：`/docs`「MCP」（`GET/PUT/PATCH/DELETE /api/mcp/servers*`）
+- **契约入口**：`/docs`「MCP」「助手设置」（`GET/PUT/PATCH/DELETE /api/mcp/servers*`、`GET/PUT /api/assistant/mcp`）
 - **要点与接入端注意**：
-  - 服务端原生支持标准 MCP 服务接入（支持本地 `stdio` 子进程与远程 `http` Streamable HTTP），配置按标准 `mcpServers` JSON 持久化在 `DATA_DIR/mcp.json`，支持热增删、启停与重连，无需重启服务。
+  - 服务端只在全局唯一入口（`DATA_DIR/mcp.json`）声明和管理标准 MCP 服务（支持本地 `stdio` 子进程与远程 `http` Streamable HTTP），支持热增删、启停与重连，无需重启服务。
+  - 全局已启用的 MCP 对主聊天默认全部开启（对普通子代理默认全部关闭）；主聊天可通过 `GET/PUT /api/assistant/mcp` 独立关闭或重新启用指定服务，不影响该服务在全局保持连接或后续供特定子代理选用。
   - 列表与详情接口严格脱敏：仅返回 `envKeys` 与 `headerNames`，绝不回传 `env` 或 `headers` 明文值。
-  - 已连接 MCP 服务的工具以 `mcp__<server>__<tool>` 暴露给主聊天助手**直接执行**（不在主服务端二次弹出审批确认，由用户自行信任或通过 `enabled` 控制），运行步骤记录会自动记录 `MCP · <server>` 与脱敏工具名。
+  - 已连接 MCP 服务的工具以 `mcp__<server>__<tool>` 暴露给主聊天助手**直接执行**（不在主服务端二次弹出审批确认），运行步骤记录会自动记录 `MCP · <server>` 与脱敏工具名。
 
 ### 2026-11-27 — 工作区文件改为直接写入不弹窗审批；Web 搜索支持多源与 Jina Reader
 

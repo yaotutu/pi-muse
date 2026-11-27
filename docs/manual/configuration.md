@@ -138,7 +138,7 @@ DATA_DIR/
     index.json
     <sessionId>/                    history/
   state/
-    assistant/                      memory.md、identity.json、skill-overrides.json
+    assistant/                      memory.md、identity.json、skill-overrides.json、mcp-overrides.json
     main.sqlite                     定时任务、目标、审批、短信状态、Dream 状态、消息反馈、通用用户习惯
     news.sqlite                     新闻数据（文章、订阅源、文章反馈）
     monitors.json                   网页监控
@@ -265,7 +265,7 @@ Pi Muse 支持标准 MCP（Model Context Protocol）协议，既支持本地子�
 }
 ~~~
 
-- **热管理接口**：除手改 `mcp.json` 后重连外，可通过 `/api/mcp/servers`、`PUT /api/mcp/servers/:name`、`PATCH /api/mcp/servers/:name`（开关启停/改说明/改超时而不丢凭据）、`POST /api/mcp/servers/:name/reconnect` 与 `DELETE /api/mcp/servers/:name` 在线管理（精确字段见 `/docs`）。
+- **热管理接口与主聊天独立开关**：除手改 `mcp.json` 后重连外，可通过 `/api/mcp/servers*` 在线增删改、启停与重连全局列表（精确字段见 `/docs`）。全局已启用的服务默认对主聊天全部开启、对普通子代理全部关闭；主聊天可通过 `GET/PUT /api/assistant/mcp`（持久化在 `DATA_DIR/state/assistant/mcp-overrides.json`）独立关闭或启用其中某个服务，而不影响该服务在全局保持连接或其他子代理按需引用。
 - **安全与权限边界**：`env` 与 `headers` 明文只在服务端配置文件与内存中使用，接口只回传键名列表（`envKeys`、`headerNames`）；工具输出统一带不可信数据隔离标记。外部 MCP 工具在主聊天中直接运行、不弹出二次审批，按执行步骤在运行记录中留痕；普通子代理默认不继承外部 MCP 工具。
 
 ## mock 配置 {#mock-configuration}

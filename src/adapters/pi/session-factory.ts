@@ -243,7 +243,7 @@ export async function openPi(deps: PiDeps) {
   const customTools = allCustomTools.filter((tool) => allowedToolNames.includes(tool.name));
   const usedNames = new Set(allowedToolNames);
   const activeMcpTools = deps.mcp
-    ? (await deps.mcp.getActiveTools()).filter((tool) => !usedNames.has(tool.exposedName))
+    ? (await deps.mcp.getActiveTools({ scope: "assistant" })).filter((tool) => !usedNames.has(tool.exposedName))
     : [];
   if (activeMcpTools.length) {
     const mcpToolDefs = createMcpTools(activeMcpTools);
@@ -365,7 +365,7 @@ export async function openPi(deps: PiDeps) {
     assistantInstructions,
     recalledMemories,
     chatSubagents,
-    mcpSummaries: deps.mcp?.getPromptSummaries(),
+    mcpSummaries: deps.mcp?.getPromptSummaries({ scope: "assistant" }),
   });
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);
 

@@ -108,6 +108,33 @@ export type McpServerPatch = {
   timeout?: number;
 };
 
+export type McpAssistantOverridesRepository = {
+  load: () => Promise<Record<string, boolean>>;
+  save: (overrides: Record<string, boolean>) => Promise<void>;
+};
+
+export type McpAssistantServerView = {
+  name: string;
+  transport: McpTransportKind;
+  description: string;
+  globalEnabled: boolean;
+  status: McpConnectionStatus;
+  toolCount: number;
+  defaultEnabled: true;
+  enabled: boolean;
+  effectiveEnabled: boolean;
+};
+
+export type McpAssistantSelectionResponse = {
+  servers: McpAssistantServerView[];
+  overrides: Record<string, boolean>;
+};
+
+export type McpToolFilterOptions = {
+  scope?: "assistant" | "all";
+  allowedServers?: ReadonlySet<string>;
+};
+
 export type McpErrorCode =
   | "INVALID_INPUT"
   | "NOT_FOUND"
@@ -162,7 +189,9 @@ export type McpService = {
   patch: (name: string, patch: McpServerPatch) => Promise<McpServerView>;
   remove: (name: string) => Promise<{ ok: true; name: string }>;
   reconnect: (name: string) => Promise<McpServerView>;
-  getActiveTools: () => Promise<readonly McpActiveTool[]>;
-  getPromptSummaries: () => readonly McpPromptSummary[];
+  describeAssistantSelection: () => Promise<McpAssistantSelectionResponse>;
+  updateAssistantOverrides: (overrides: Record<string, boolean>) => Promise<McpAssistantSelectionResponse>;
+  getActiveTools: (options?: McpToolFilterOptions) => Promise<readonly McpActiveTool[]>;
+  getPromptSummaries: (options?: McpToolFilterOptions) => readonly McpPromptSummary[];
   close: () => Promise<void>;
 };

@@ -1,5 +1,5 @@
 import { lstat, readFile } from "node:fs/promises";
-import { McpError, MCP_SERVER_NAME_PATTERN, normalizeMcpNamespace, type McpConfigDocument, type McpDiagnostic, type McpRepository, type McpServerEntry } from "../../features/mcp/types.js";
+import { McpError, MCP_SERVER_NAME_PATTERN, normalizeMcpNamespace, type McpAssistantOverridesRepository, type McpConfigDocument, type McpDiagnostic, type McpRepository, type McpServerEntry } from "../../features/mcp/types.js";
 import type { DataLayout } from "./data-layout.js";
 import { writeJsonDocument } from "./json-document.js";
 
@@ -160,6 +160,46 @@ export const createMcpRepository = (layout: Pick<DataLayout, "mcpConfigFile">): 
     save: async (document: McpConfigDocument) => {
       await ensureNotSymlink(file);
       await writeJsonDocument(file, { mcpServers: document.mcpServers });
+    },
+  };
+};
+
+/** 持久化主聊天的独立 MCP 选用开关；默认开启全局已启用服务，只保存显式覆盖记录。 */
+export const createMcpAssistantOverridesRepository = (
+  layout: Pick<DataLayout, "assistantMcpOverridesFile">,
+): McpAssistantOverridesRepository => {
+  const file = layout.assistantMcpOverridesFile;
+  return {
+    load: async () => {
+      const exists = await ensureNotSymlink(file);
+      if (!exists) return {};
+      let raw: string;
+      try {
+        raw = await readFile(file, "utf8");
+      } catch {
+        throw new McpError("CONFIG_CORRUPT", "Failed to read assistant MCP overrides", 500);
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        throw new McpError("CONFIG_CORRUPT", "Invalid JSON in assistant MCP overrides", 500);
+      }
+      if (!isRecord(parsed) || !isRecord(parsed.overrides)) {
+        throw new McpError("CONFIG_CORRUPT", "Assistant MCP overrides must contain an overrides object", 500);
+      }
+      const overrides: Record<string, boolean> = {};
+      for (const [k, v] of Object.entries(parsed.overrides)) {
+        if (!MCP_SERVER_NAME_PATTERN.test(k) || typeof v !== "boolean") {
+          throw new McpError("CONFIG_CORRUPT", "Invalid assistant MCP override entry", 500);
+        }
+        overrides[k] = v;
+      }
+      return overrides;
+    },
+    save: async (overrides: Record<string, boolean>) => {
+      await ensureNotSymlink(file);
+      await writeJsonDocument(file, { overrides });
     },
   };
 };

@@ -78,7 +78,7 @@ import { loadSessionRecency } from "../adapters/storage/session-recency.js";
 import { createWorkspaceFileService } from "../features/workspace/files-service.js";
 import { workspaceFileCommits } from "../adapters/workspace/file-commit-queue.js";
 import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
-import { createMcpRepository } from "../adapters/storage/mcp-repository.js";
+import { createMcpAssistantOverridesRepository, createMcpRepository } from "../adapters/storage/mcp-repository.js";
 import { createPiMcpConnector } from "../adapters/mcp/pi-mcp-connector.js";
 import { createMcpService } from "../features/mcp/service.js";
 import { serviceVersion } from "./service-version.js";
@@ -215,6 +215,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
   let subagents: SubagentRegistry | undefined;
   const mcp = createMcpService({
     repository: createMcpRepository(layout),
+    assistantOverridesRepository: createMcpAssistantOverridesRepository(layout),
     connector: createPiMcpConnector({
       workspaceDir: layout.workspaceDir,
       version: (await serviceVersion).version,

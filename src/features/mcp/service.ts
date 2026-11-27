@@ -3,6 +3,8 @@ import {
   MCP_SERVER_NAME_PATTERN,
   normalizeMcpNamespace,
   type McpActiveTool,
+  type McpAssistantOverridesRepository,
+  type McpAssistantSelectionResponse,
   type McpConfigDocument,
   type McpConnectionStatus,
   type McpDiagnostic,
@@ -14,6 +16,7 @@ import {
   type McpServerView,
   type McpService,
   type McpToolCallContentPart,
+  type McpToolFilterOptions,
   type McpTransportConnector,
   type McpTransportKind,
 } from "./types.js";
@@ -214,12 +217,18 @@ type ServerRuntime = {
  */
 export const createMcpService = (deps: {
   repository: McpRepository;
+  assistantOverridesRepository?: McpAssistantOverridesRepository;
   connector: McpTransportConnector;
   initialConnectWaitMs?: number;
 }): McpService => {
   const initialConnectWaitMs = deps.initialConnectWaitMs ?? 5000;
+  const overridesRepo: McpAssistantOverridesRepository = deps.assistantOverridesRepository ?? {
+    load: async () => ({}),
+    save: async () => {},
+  };
   let document: McpConfigDocument = { mcpServers: {} };
   let diagnostics: McpDiagnostic[] = [];
+  let assistantOverrides: Record<string, boolean> = {};
   let configCorrupt = false;
   let started = false;
   let closed = false;
@@ -353,13 +362,56 @@ export const createMcpService = (deps: {
   const ensureLoaded = async () => {
     if (started || closed) return;
     started = true;
-    const loaded = await deps.repository.load();
+    const [loaded, loadedOverrides] = await Promise.all([
+      deps.repository.load(),
+      overridesRepo.load(),
+    ]);
     document = loaded.document;
     diagnostics = [...loaded.diagnostics];
+    assistantOverrides = { ...loadedOverrides };
     configCorrupt = Boolean(loaded.corrupt);
     for (const [name, entry] of Object.entries(document.mcpServers)) {
       ensureRuntime(name, entry);
     }
+  };
+
+  const isServerAllowed = (
+    name: string,
+    entry: McpServerEntry,
+    options?: McpToolFilterOptions,
+  ): boolean => {
+    if (entry.enabled === false) return false;
+    if (options?.allowedServers) return options.allowedServers.has(name);
+    if (options?.scope === "all") return true;
+    return assistantOverrides[name] !== false;
+  };
+
+  const buildAssistantSelection = (): McpAssistantSelectionResponse => {
+    const sortedNames = Object.keys(document.mcpServers).sort((a, b) => a.localeCompare(b));
+    const filteredOverrides: Record<string, boolean> = {};
+    for (const name of sortedNames) {
+      if (Object.hasOwn(assistantOverrides, name)) {
+        filteredOverrides[name] = assistantOverrides[name]!;
+      }
+    }
+    const servers = sortedNames.map((name) => {
+      const entry = document.mcpServers[name]!;
+      const view = toView(name, entry);
+      const globalEnabled = view.enabled;
+      const enabled = assistantOverrides[name] !== false;
+      return {
+        name,
+        transport: view.transport,
+        description: view.description,
+        globalEnabled,
+        status: view.status,
+        toolCount: view.toolCount,
+        defaultEnabled: true as const,
+        enabled,
+        effectiveEnabled: globalEnabled && enabled,
+      };
+    });
+    return { servers, overrides: filteredOverrides };
   };
 
   return {
@@ -512,6 +564,12 @@ export const createMcpService = (deps: {
         const nextDoc: McpConfigDocument = { mcpServers: remaining };
         await deps.repository.save(nextDoc);
         document = nextDoc;
+        if (Object.hasOwn(assistantOverrides, name)) {
+          const nextOverrides = { ...assistantOverrides };
+          delete nextOverrides[name];
+          await overridesRepo.save(nextOverrides);
+          assistantOverrides = nextOverrides;
+        }
         diagnostics = diagnostics.filter((item) => item.server !== name);
         return { ok: true as const, name };
       }),
@@ -527,7 +585,34 @@ export const createMcpService = (deps: {
         return toView(name, entry);
       }),
 
-    getActiveTools: async () => {
+    describeAssistantSelection: async () => {
+      await ensureLoaded();
+      return buildAssistantSelection();
+    },
+
+    updateAssistantOverrides: (rawOverrides) =>
+      runExclusive(async () => {
+        if (closed) throw new McpError("CONNECTION_FAILED", "MCP service is closing", 502);
+        await ensureLoaded();
+        if (!isRecord(rawOverrides)) {
+          throw new McpError("INVALID_INPUT", "overrides must be an object", 400);
+        }
+        const nextOverrides: Record<string, boolean> = {};
+        for (const [name, enabled] of Object.entries(rawOverrides)) {
+          if (!Object.hasOwn(document.mcpServers, name)) {
+            throw new McpError("INVALID_INPUT", `Unknown MCP server "${name}"`, 400);
+          }
+          if (typeof enabled !== "boolean") {
+            throw new McpError("INVALID_INPUT", `Override for "${name}" must be boolean`, 400);
+          }
+          nextOverrides[name] = enabled;
+        }
+        await overridesRepo.save(nextOverrides);
+        assistantOverrides = nextOverrides;
+        return buildAssistantSelection();
+      }),
+
+    getActiveTools: async (options) => {
       if (closed) return [];
       if (startupPromise) {
         await Promise.race([
@@ -540,7 +625,7 @@ export const createMcpService = (deps: {
       }
       const active: McpActiveTool[] = [];
       for (const [serverName, entry] of Object.entries(document.mcpServers).sort(([a], [b]) => a.localeCompare(b))) {
-        if (entry.enabled === false) continue;
+        if (!isServerAllowed(serverName, entry, options)) continue;
         const runtime = runtimes.get(serverName);
         const connection = runtime?.connection;
         if (!connection) continue;
@@ -566,10 +651,10 @@ export const createMcpService = (deps: {
       return active;
     },
 
-    getPromptSummaries: () => {
+    getPromptSummaries: (options) => {
       const summaries: McpPromptSummary[] = [];
       for (const [name, entry] of Object.entries(document.mcpServers).sort(([a], [b]) => a.localeCompare(b))) {
-        if (entry.enabled === false) continue;
+        if (!isServerAllowed(name, entry, options)) continue;
         const runtime = runtimes.get(name);
         if (!runtime?.connection || runtime.connection.tools.length === 0) continue;
         summaries.push({

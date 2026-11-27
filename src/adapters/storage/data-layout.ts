@@ -9,7 +9,7 @@ import { loadPrompt } from "../prompts/loader.js";
 /** 路径唯一声明；新布局不读取、转换或删除旧实例数据。 */
 export type DataLayout = {
   root: string; companionsDir: string; profileDir: string; workspaceDir: string; sessionsDir: string; sessionIndexFile: string;
-  assistantInstructionsFile: string; assistantSkillOverridesFile: string;
+  assistantInstructionsFile: string; assistantSkillOverridesFile: string; assistantMcpOverridesFile: string;
   stateDir: string; newsInstructionsFile: string; smsInstructionsFile: string; agentDir: string; piAuthFile: string;
   /** 长期记忆是给人读写的纯文本；身份设置是配置 JSON。 */
   memoryMarkdownFile: string; identityFile: string;
@@ -34,6 +34,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     companionsDir: join(assets, "companions"),
     assistantInstructionsFile: join(assistant, "AGENTS.md"),
     assistantSkillOverridesFile: join(profileDir, "skill-overrides.json"),
+    assistantMcpOverridesFile: join(profileDir, "mcp-overrides.json"),
     newsInstructionsFile: join(workspaceDir, "subagents", "news", "AGENTS.md"),
     smsInstructionsFile: join(workspaceDir, "subagents", "sms", "AGENTS.md"),
     sessionIndexFile: join(sessionsDir, "index.json"),

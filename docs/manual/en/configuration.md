@@ -140,7 +140,7 @@ DATA_DIR/
     index.json
     <sessionId>/                    history/
   state/
-    assistant/                      memory.md, identity.json, skill-overrides.json
+    assistant/                      memory.md, identity.json, skill-overrides.json, mcp-overrides.json
     main.sqlite                     Jobs, goals, approvals, SMS state, Dream state, message feedback, shared user habits
     news.sqlite                     News data (articles, feeds, article feedback)
     monitors.json                   Webpage monitors
@@ -267,7 +267,7 @@ Pi Muse supports the standard Model Context Protocol (MCP) over both local subpr
 }
 ~~~
 
-- **Hot management HTTP API**: Manage servers live via `GET/PUT/PATCH/DELETE /api/mcp/servers*` and `POST /api/mcp/servers/:name/reconnect` (toggling `enabled` or changing `description`/`timeout` preserves stored credentials; see `/docs`).
+- **Hot management & independent main-assistant toggle**: Manage the global server list live via `GET/PUT/PATCH/DELETE /api/mcp/servers*` and `POST /api/mcp/servers/:name/reconnect` (see `/docs`). Globally enabled servers default to **on** for the main chat assistant and **off** for subagents; main chat can independently disable or re-enable individual servers via `GET/PUT /api/assistant/mcp` (persisted at `DATA_DIR/state/assistant/mcp-overrides.json`) without disconnecting them globally or blocking subagent opt-in.
 - **Security and isolation**: `env` and `headers` values never leave the server in API responses (`envKeys` and `headerNames` only). All MCP outputs are tagged as untrusted external data, tool calls execute directly in main chat without secondary server approval popups (recorded in run step timelines), and background/chat subagents do not inherit external MCP tools.
 
 ## Mock Configuration {#mock-configuration}
