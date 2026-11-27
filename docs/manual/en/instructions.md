@@ -74,7 +74,7 @@ include: [./bank.md, ./delivery-rules.md]
 
 ### SMS Default-Silent Baseline and Four-Tier Precedence {#sms-precedence}
 
-SMS processing is disabled by default. Its system prompt uses a **Default-Silent** baseline: uncertain messages without an explicit directive default to `silent` (promotions, carrier marketing, routine completed login OTPs, ordinary mid-transit shipping updates), while actionable alerts default to `notify` (pickup codes/delivery exceptions, unusual financial alerts, account security warnings, itinerary changes). Decisions follow strict precedence from highest to lowest:
+The SMS subagent is off by default and automatically enables when SMS sync is turned on or SMS messages are uploaded. Its system prompt uses a **Default-Silent** baseline: uncertain messages without an explicit directive default to `silent` (promotions, carrier marketing, routine completed login OTPs, ordinary mid-transit shipping updates), while actionable alerts default to `notify` (pickup codes/delivery exceptions, unusual financial alerts, account security warnings, itinerary changes). Decisions follow strict precedence from highest to lowest:
 
 1. **Your explicit instructions**: `workspace/subagents/sms/AGENTS.md` (highest authority).
 2. **Recent unconsolidated feedback**: likes, dislikes, saves, and comments you left on recent SMS notifications in `main` chat (held in a hot buffer until consolidated into long-term habits).

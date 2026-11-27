@@ -26,7 +26,7 @@ Pi Muse 只有一个负责日常对话的主助手，但在主助手背后，系
 ## 查看与管理专职子代理 {#inspect-subagents}
 
 服务端通过 `GET /api/subagents`、`GET /api/subagents/:id`、`PATCH /api/subagents/:id` 与 `GET/PUT /api/subagents/:id/mcp` 向客户端统一暴露全部已注册 Subagent 的状态与配置，包括：
-- 身份信息、触发入口（`chat` / `background`）、统一启用开关（`PATCH /api/subagents/:id` 同时控制对话路由与后台自动调度；`sms` 默为关闭，启用手机短信同步或收到短信上传时自动开启）与路由说明（`routingHint`）
+- 身份信息、触发入口（`chat` / `background`）、统一启用开关（`PATCH /api/subagents/:id` 同时控制对话路由与后台自动调度；`sms` 默认关闭，启用手机短信同步或收到短信上传时自动开启）与路由说明（`routingHint`）
 - 绑定的内置系统提示词全文、工具清单、技能与按需选用的 MCP 列表
 - 关联的用户规则文件（`AGENTS.md`）原文、`include:` 诊断及已归纳习惯快照
 

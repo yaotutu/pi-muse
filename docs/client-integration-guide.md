@@ -226,10 +226,11 @@ Pi Muse 是**单进程、单用户、单一助手身份、多会话上下文、�
     【引用结束】
     ```
   - 发送后，主助手即可在当轮上下文看到这段引用，并能准确将后续规则改动通过 `subagent` 工具路由到对应领域。
-- **信息/短信后台接入（`/api/information/*`，适合 `webhook` / 投喂端 / `rich-ui`）**：
-  - 本组端点均为全局路径（不带 `:sessionId`）；开关与窗口（`enabled`、`batchWindowSeconds` 0–3600）由 `/api/information/settings` 管理；用户指令与 `include:` 诊断、已归纳习惯及未消化计数由对称契约 `/api/information/preferences`（`{ instructions, includes, habits, unconsolidatedFeedbackCount }`）返回，长期习惯、待归纳样本 `pendingSignals` 查看与手动归纳统一走 `/api/habits` 与 `/api/habits/sms`。
-  - **日常实时接入**：调用 `POST /api/information/items`（1–100 条，进入 `queue: "realtime"`），以 `(source, externalId)` 为幂等键（同内容幂等回读，不同内容 `409 CONFLICT` 不覆盖原文；后台禁用时 `409 DISABLED`）；可通过 `POST /api/information/runs`（传 `{}` 或 `{ retryFailed?: boolean }`）立即触发一次单周期判定（可选重试失败条目）并推送通知到 `main`；`GET /api/information/items` 与 `GET /api/information/items/:itemId` 对已评估条目直接返回可选 `decision` 与 `reason`。
-  - **历史批量归档**：与实时调度完全隔离——导入调用 `POST /api/information/archive/items`（1–500 条，进入 `queue: "archive"`），完成后显式调用 `POST /api/information/archive/run`（`{ background?, retryFailed? }`）逐批向通用习惯库增量沉淀习惯并在清空后（只剩内容审核确定性拒绝时可视为已清空）发至多 1 条 <= 1200 字简报；多条目批次被上游内容安全审核拒绝会自动二分隔离，仅真正触发审核的条目失败、其余正常处理，此时响应可能 `status: "partial"` 且 `briefingPublished: true`；进度通过 `GET /api/information/status` 的 `archive.{running, pendingCount, processedCount, failedCount}` 轮询。
+- **信息/短信与 Subagent 统一接入（`/api/subagents/*`、`/api/information/*`，适合 `webhook` / 投喂端 / `rich-ui`）**：
+  - 全部专职 Subagent 统一通过 `GET /api/subagents`、`GET /api/subagents/:id`、`PATCH /api/subagents/:id`（`{ enabled }` 同时控制主聊天路由与后台调度）和 `GET/PUT /api/subagents/:id/mcp`（按 Subagent 独立勾选 MCP）检视与管理。
+  - 短信端点均为全局路径（不带 `:sessionId`）；`sms` Subagent 的启用状态由 `PATCH /api/subagents/sms` 与 `/api/information/settings`（含 `batchWindowSeconds` 0–3600）双向同步；用户指令与 `include:` 诊断、已归纳习惯及未消化计数由对称契约 `/api/information/preferences`（`{ instructions, includes, habits, unconsolidatedFeedbackCount }`）返回，长期习惯、待归纳样本 `pendingSignals` 查看与手动归纳统一走 `/api/habits` 与 `/api/habits/sms`。
+  - **日常实时接入**：调用 `POST /api/information/items`（1–100 条，进入 `queue: "realtime"`），以 `(source, externalId)` 为幂等键（同内容幂等回读，不同内容 `409 CONFLICT` 不覆盖原文；若 `sms` 尚未开启则自动开启，不再返回 `409 DISABLED`）；可通过 `POST /api/information/runs`（传 `{}` 或 `{ retryFailed?: boolean }`）立即触发一次单周期判定（可选重试失败条目）并推送通知到 `main`；`GET /api/information/items` 与 `GET /api/information/items/:itemId` 对已评估条目直接返回可选 `decision` 与 `reason`。
+  - **历史批量归档**：与实时调度完全隔离——导入调用 `POST /api/information/archive/items`（1–500 条，进入 `queue: "archive"`，同样在 `sms` 未开启时自动开启），完成后显式调用 `POST /api/information/archive/run`（`{ background?, retryFailed? }`）逐批向通用习惯库增量沉淀习惯并在清空后（只剩内容审核确定性拒绝时可视为已清空）发至多 1 条 <= 1200 字简报；多条目批次被上游内容安全审核拒绝会自动二分隔离，仅真正触发审核的条目失败、其余正常处理，此时响应可能 `status: "partial"` 且 `briefingPublished: true`；进度通过 `GET /api/information/status` 的 `archive.{running, pendingCount, processedCount, failedCount}` 轮询。
 ### 6.5 其他可选领域与通用规则
 
 - **定时任务与网页监控（`/api/jobs*`、`/api/monitors*`，`rich-ui` / `webhook`）**：
