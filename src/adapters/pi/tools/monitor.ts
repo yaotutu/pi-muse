@@ -1,5 +1,5 @@
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { MonitorService } from "../../../features/monitors/monitor-service.js";
 import type { MonitorCondition } from "../../../features/monitors/types.js";
 

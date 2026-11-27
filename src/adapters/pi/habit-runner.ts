@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { parseHabitConsolidationResult } from "../../features/habits/operations.js";
 import {
   MAX_HABITS_PER_SUBAGENT,

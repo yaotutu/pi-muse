@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { test, type TestContext } from "node:test";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineTool, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createConfig } from "../../src/config/load-config.js";
 import { createDataLayout, ensureLayout } from "../../src/adapters/storage/data-layout.js";

@@ -1,5 +1,5 @@
 import { defineTool, type AgentSessionEvent, type AgentToolResult, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import {
   SUBAGENT_INSTRUCTIONS_MAX_LENGTH,
   type SubagentChatRunContext,

@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 
 // 只读时钟工具：只读本地时钟。不碰文件、shell、网络，参数为空对象，
 // 模型无法借它表达任何副作用。错误信息也只包含本地时间格式化的失败原因。

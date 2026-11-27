@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { WebService, WebSearchResponse, WebFetchResponse, WebFailure } from "../../../features/web/types.js";
 
 /** 工具适配层负责唯一一次 JSON 编码，并用判别字段标识受控错误。 */

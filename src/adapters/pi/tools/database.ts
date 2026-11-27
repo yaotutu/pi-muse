@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { DatabaseService } from "../../../features/database/database-service.js";
 import { DATABASE_LIMITS } from "../../../features/database/database-service.js";
 import { DatabaseToolError } from "../../../features/database/errors.js";

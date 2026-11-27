@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { parseProposal, type ProposedChange } from "../../features/dream/proposal.js";
 import type { DreamProposeResult } from "../../features/dream/service.js";
 import { loadPrompt } from "../prompts/loader.js";

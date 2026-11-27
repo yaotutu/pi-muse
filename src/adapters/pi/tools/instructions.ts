@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { ASSISTANT_TEXT_LIMIT } from "../../../features/identity/types.js";
 import { type DataLayout } from "../../storage/data-layout.js";
 import { managedWorkspaceTexts } from "../../workspace/managed-text.js";

@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { WeatherService } from "../../../features/weather/types.js";
 
 // 只读天气工具。城市可省略；未配置默认城市时由模型向用户追问。

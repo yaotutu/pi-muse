@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { isWorkspaceText } from "../../../shared/workspace-text.js";
 import { ASSISTANT_TEXT_LIMIT } from "../../../features/identity/types.js";
 import { resolveWorkspacePath, safeWorkspacePath } from "./workspace-path.js";

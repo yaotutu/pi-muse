@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { formatHabitsForPrompt } from "../../features/habits/operations.js";
 import type { HabitItem } from "../../features/habits/types.js";
 import {

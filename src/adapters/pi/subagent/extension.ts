@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineTool, type ExtensionFactory, type AgentToolResult, type AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
 import type { SubagentChatDescriptor, SubagentChatRunResult } from "../../../features/subagents/types.js";
 

@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { MEMORY_TEXT_LIMIT } from "../../../features/memory/types.js";
 import { MemoryLimitError, type MemoryService } from "../../../features/memory/memory-service.js";
 

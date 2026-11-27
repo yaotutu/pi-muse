@@ -1,6 +1,6 @@
 # pi subagent adapter
 
-Current project SDK runtime: `@earendil-works/pi-coding-agent@1.4.0`.
+Current project SDK runtime: `@earendil-works/pi-coding-agent@1.6.1`.
 Subagent orchestration semantics and initial structure originally adapted from
 `@earendil-works/pi-coding-agent` **1.3.0** upstream
 [`examples/extensions/subagent`](https://github.com/earendil-works/pi/tree/v1.3.0/packages/coding-agent/examples/extensions/subagent).

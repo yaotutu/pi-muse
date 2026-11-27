@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { GoalService } from "../../../features/goals/goal-service.js";
 import type { GoalStatus } from "../../../features/goals/types.js";
 

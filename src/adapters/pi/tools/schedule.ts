@@ -1,5 +1,5 @@
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { JobService } from "../../../features/jobs/job-service.js";
 import {
   assertValidSchedule,

@@ -3,7 +3,7 @@ import { test, type TestContext } from "node:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createDataLayout, ensureLayout, initializeWorkspaceDocuments } from "../../src/adapters/storage/data-layout.js";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
