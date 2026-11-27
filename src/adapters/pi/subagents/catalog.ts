@@ -25,12 +25,13 @@ import { SUBMIT_NEWS_SCREENING_TOOL_NAME } from "../news-runner.js";
 import { PROPOSE_NOTES_TOOL_NAME } from "../dream-runner.js";
 
 export type BuiltinSubagentsDeps = SubagentRuntimeDeps & {
-  information: Pick<InformationService, "getSettings" | "getPreferences" | "query">;
+  information: Pick<InformationService, "getPreferences" | "query">;
   news: Pick<NewsService, "preferences"> & {
     query: (input: DomainQueryInput) => Promise<Record<string, unknown>>;
   };
   browser?: BrowserService;
   mcp?: Pick<McpService, "getSubagentAllowedServers" | "getActiveTools" | "getPromptSummaries">;
+  onSmsEnabledChanged?: (enabled: boolean) => Promise<void> | void;
 };
 
 type DomainQueryInput = {
@@ -268,7 +269,8 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
       "Route any SMS/information record query or SMS filtering/alert/ignore preference to `sms`. " +
       "Never store SMS filtering preferences only in global `memory` or `assistant/AGENTS.md`, because background SMS screening does not read them.",
     triggers: ["chat", "background"],
-    isEnabled: async () => (await deps.information.getSettings()).enabled,
+    defaultEnabled: false,
+    onEnabledChanged: deps.onSmsEnabledChanged,
     executionPolicy: { stateless: true, parallelAllowed: true },
     prompts: () => [
       builtinSection("chat", "聊天路由任务提示词", "chat", "subagents/sms-chat.md"),
@@ -314,7 +316,7 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
       "Route any RSS source/article/run query or news topic/interest/ignore preference to `news`. " +
       "Never store news filtering preferences only in global `memory` or `assistant/AGENTS.md`, because background news screening does not read them.",
     triggers: ["chat", "background"],
-    isEnabled: () => true,
+    defaultEnabled: true,
     executionPolicy: { stateless: true, parallelAllowed: true },
     prompts: () => [
       builtinSection("chat", "聊天路由任务提示词", "chat", "subagents/news-chat.md"),
@@ -356,7 +358,8 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
     routingHint:
       "Route multi-step real browser interaction, login/CAPTCHA handoff, or complex webpage extraction to `browser` so large page snapshots stay isolated from main conversation history.",
     triggers: ["chat"],
-    isEnabled: () => Boolean(deps.browser),
+    defaultEnabled: true,
+    isAvailable: () => Boolean(deps.browser),
     executionPolicy: { stateless: true, parallelAllowed: false },
     prompts: () => [
       builtinSection("chat", "浏览器操作提示词", "chat", "subagents/browser.md"),
@@ -391,7 +394,7 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
     name: "习惯归纳助手",
     description: "后台定期分析各领域未消化用户反馈样本，结合显式指令增量归纳长期行为习惯。",
     triggers: ["background"],
-    isEnabled: () => true,
+    defaultEnabled: true,
     executionPolicy: { stateless: true, parallelAllowed: true },
     prompts: () => [
       builtinSection("consolidate", "行为习惯归纳提示词", "background", "habits/consolidate.md"),
@@ -408,7 +411,7 @@ export const createBuiltinSubagents = (deps: BuiltinSubagentsDeps): SubagentRegi
     name: "记忆整理助手",
     description: "后台定期整理主会话增量消息，提炼长期记忆与用户画像变更提案。",
     triggers: ["background"],
-    isEnabled: () => true,
+    defaultEnabled: true,
     executionPolicy: { stateless: true, parallelAllowed: false },
     prompts: () => [
       builtinSection("consolidate", "记忆整理主提示词", "background", "dream/consolidate.md"),

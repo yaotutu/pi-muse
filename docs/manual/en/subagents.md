@@ -24,11 +24,11 @@ Each feature decides where its output belongs:
 - **Dedicated views**: High-volume feeds such as News articles and the full raw SMS list stay in their own pages without cluttering main chat; bring specific items into chat whenever you want to discuss them.
 - **Main chat notifications**: Important SMS alerts and archive briefings are posted directly into the main chat window. **All notifications posted into the main chat window are directly visible to the main assistant**, so you can follow up or adjust rules naturally right underneath them.
 
-## Inspecting Subagent Configurations {#inspect-subagents}
+## Inspecting and Managing Subagents {#inspect-subagents}
 
-The server exposes all registered subagents read-only via `GET /api/subagents` and `GET /api/subagents/:id`, allowing clients to display:
-- Identity, trigger modes (`chat` / `background`), enabled status, and self-maintained `routingHint`
-- Full built-in system prompts, bound tools, skills, and MCP bindings
+The server exposes all registered subagents via `GET /api/subagents`, `GET /api/subagents/:id`, `PATCH /api/subagents/:id`, and `GET/PUT /api/subagents/:id/mcp`, allowing clients to display and manage:
+- Identity, trigger modes (`chat` / `background`), unified enabled toggle (`PATCH /api/subagents/:id` governs both chat routing and background schedulers; `sms` defaults to off and auto-enables when SMS sync or SMS upload begins), and self-maintained `routingHint`
+- Full built-in system prompts, bound tools, skills, and opt-in MCP bindings
 - Linked user instruction files (`AGENTS.md`), `include:` diagnostics, and consolidated habits
 
 To edit explicit SMS or News rules, use Settings, Workspace Files (`subagents/sms/AGENTS.md`, `subagents/news/AGENTS.md`), or ask the assistant in chat to propose an approved update.

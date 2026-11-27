@@ -380,10 +380,12 @@ export const ingestSmsItemsSync = (
   queue: InformationQueue,
   inputs: readonly InformationInputItem[],
   now: string,
-): { accepted: InformationItem[]; responseItems: InformationItem[]; skippedCount: number } => {
+): { accepted: InformationItem[]; responseItems: InformationItem[]; skippedCount: number; autoEnabled: boolean } => {
   const settings = readSmsSettingsSync(database);
-  if (queue === "realtime" && !settings.enabled) {
-    throw new InformationError("DISABLED", "Information background is disabled");
+  let autoEnabled = false;
+  if (inputs.length > 0 && !settings.enabled) {
+    writeSmsSettingsSync(database, { ...settings, enabled: true });
+    autoEnabled = true;
   }
 
   let nextPosition =
@@ -460,7 +462,7 @@ export const ingestSmsItemsSync = (
     responseItems.push(created);
   }
 
-  return { accepted, responseItems, skippedCount };
+  return { accepted, responseItems, skippedCount, autoEnabled };
 };
 
 export const listSmsItemsSync = (

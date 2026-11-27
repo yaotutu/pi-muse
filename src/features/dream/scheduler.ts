@@ -11,8 +11,10 @@ export type DreamScheduler = {
  */
 export const createDreamScheduler = (
   dream: Pick<DreamService, "runScheduledTick" | "close">,
-  intervalMs = DREAM_INTERVAL_MS,
+  intervalMsOrOptions: number | { intervalMs?: number; isEnabled?: () => Promise<boolean> | boolean } = DREAM_INTERVAL_MS,
 ): DreamScheduler => {
+  const intervalMs = typeof intervalMsOrOptions === "number" ? intervalMsOrOptions : (intervalMsOrOptions.intervalMs ?? DREAM_INTERVAL_MS);
+  const isEnabled = typeof intervalMsOrOptions === "number" ? undefined : intervalMsOrOptions.isEnabled;
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
   let closing: Promise<void> | undefined;
@@ -21,8 +23,10 @@ export const createDreamScheduler = (
 
   const tick = () => {
     if (closed || runningTick) return;
-    runningTick = dream
-      .runScheduledTick(controller.signal)
+    runningTick = (async () => {
+      if (isEnabled && !(await isEnabled())) return;
+      await dream.runScheduledTick(controller.signal);
+    })()
       .catch(() => undefined)
       .finally(() => {
         runningTick = undefined;

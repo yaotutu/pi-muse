@@ -432,6 +432,7 @@ test("chat subagent isolates exclusive browser agent from parallel mode while al
     runtime: { dataDir, runTimeoutMs: 5000, schedulerIntervalMs: 60000, monitorScanIntervalMs: 60000 },
   });
   const service = await createService(config);
+  await service.subagents.setEnabled("sms", true);
   t.after(async () => {
     await service.close();
     await rm(dataDir, { recursive: true, force: true });

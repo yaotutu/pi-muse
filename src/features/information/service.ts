@@ -170,6 +170,7 @@ export type CreateInformationServiceDeps = {
     release: () => void;
   } | undefined>;
   habits?: Pick<HabitsService, "getPromptContext" | "applyOperations">;
+  onEnabledSync?: (enabled: boolean) => Promise<void> | void;
   onChanged?: (scope: "items" | "runs" | "preferences" | "settings") => void;
   runModel: (input: InformationModelInput, signal: AbortSignal) => Promise<InformationModelOutcome>;
   synthesizeBriefing?: (input: InformationBriefingInput, signal: AbortSignal) => Promise<InformationBriefingOutcome>;
@@ -308,6 +309,7 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
       throw new InformationError("INVALID_INPUT", "Invalid information settings");
     }
     const saved = await deps.repository.saveSettings(settings);
+    await deps.onEnabledSync?.(saved.enabled);
     notifyChanged("settings");
     return saved;
   };
@@ -346,6 +348,10 @@ export const createInformationService = (deps: CreateInformationServiceDeps) => 
 
     const now = new Date().toISOString();
     const ingested = await deps.repository.ingestItems(queue, inputs, now);
+    if (ingested.autoEnabled) {
+      await deps.onEnabledSync?.(true);
+      notifyChanged("settings");
+    }
     if (ingested.accepted.length > 0) {
       notifyChanged("items");
     }

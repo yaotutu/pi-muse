@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
 import { McpError } from "../../features/mcp/types.js";
 import { SubagentError } from "../../features/subagents/registry.js";
-import { subagentMcpUpdateRequestSchema } from "../contracts/subagents.js";
+import { subagentMcpUpdateRequestSchema, subagentUpdateRequestSchema } from "../contracts/subagents.js";
 
 const failure = (error: unknown) => {
   if (error instanceof McpError) {
@@ -15,6 +15,7 @@ const failure = (error: unknown) => {
     const status =
       error.code === "INVALID_INPUT" ? 400
       : error.code === "NOT_FOUND" ? 404
+      : error.code === "UNAVAILABLE" ? 409
       : 503;
     return {
       status,
@@ -41,6 +42,15 @@ export const createSubagentRoutes = (dependencies: Pick<HttpDependencies, "subag
 
   app.get("/", (c) => handle(c, () => subagents.list()));
   app.get("/:id", (c) => handle(c, () => subagents.getDetail(c.req.param("id"))));
+  app.patch("/:id", (c) =>
+    handle(c, async () => {
+      const parsed = subagentUpdateRequestSchema.safeParse(await c.req.json().catch(() => undefined));
+      if (!parsed.success) {
+        throw new SubagentError("INVALID_INPUT", parsed.error.issues[0]?.message ?? "Invalid subagent update");
+      }
+      return subagents.setEnabled(c.req.param("id"), parsed.data.enabled);
+    }),
+  );
   app.get("/:id/mcp", (c) => handle(c, () => subagents.getMcpSelection(c.req.param("id"))));
   app.put("/:id/mcp", (c) =>
     handle(c, async () => {

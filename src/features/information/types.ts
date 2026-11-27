@@ -207,7 +207,7 @@ export type InformationRepository = {
     queue: InformationQueue,
     inputs: readonly InformationInputItem[],
     now: string,
-  ) => Promise<{ accepted: InformationItem[]; responseItems: InformationItem[]; skippedCount: number }>;
+  ) => Promise<{ accepted: InformationItem[]; responseItems: InformationItem[]; skippedCount: number; autoEnabled?: boolean }>;
   listItems: (options: {
     queue?: InformationQueue;
     status?: InformationItemStatus;

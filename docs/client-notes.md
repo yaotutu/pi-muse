@@ -40,10 +40,11 @@
 
 - **影响端形态**：`all`（重点影响 `rich-ui` 后续管理页）
 - **类型**：`feature`
-- **契约入口**：`/docs`「MCP」「助手设置」「Subagents」（`GET/PUT/PATCH/DELETE /api/mcp/servers*`、`GET/PUT /api/assistant/mcp`、`GET/PUT /api/subagents/:id/mcp`）
+- **契约入口**：`/docs`「MCP」「助手设置」「Subagents」（`GET/PUT/PATCH/DELETE /api/mcp/servers*`、`GET/PUT /api/assistant/mcp`、`PATCH /api/subagents/:id`、`GET/PUT /api/subagents/:id/mcp`）
 - **要点与接入端注意**：
   - 服务端只在全局唯一入口（`DATA_DIR/mcp.json`）声明和管理标准 MCP 服务（支持本地 `stdio` 子进程与远程 `http` Streamable HTTP），支持热增删、启停与重连，无需重启服务。
-  - 全局已启用的 MCP 对主聊天默认全部开启、对各专职 Subagent 默认全部关闭；主聊天可通过 `GET/PUT /api/assistant/mcp` 独立开关，聊天路由型 Subagent（`sms`/`news`/`browser`）可通过 `GET/PUT /api/subagents/:id/mcp` 按需从同一全局列表启用指定服务，互不影响全局连接。
+  - 全局已启用的 MCP 对聊天默认全部开启、对各 Subagent 默认全部关闭；聊天可通过 `GET/PUT /api/assistant/mcp` 独立开关，聊天路由型 Subagent（`sms`/`news`/`browser`）可通过 `GET/PUT /api/subagents/:id/mcp` 按需从同一全局列表启用指定服务，互不影响全局连接。
+  - 全部 5 个 Subagent 使用同一套 `PATCH /api/subagents/:id { enabled }` 启停控制（同时作用于对话路由与后台调度），不再保留短信后台特殊拒收逻辑：`sms` 默认关闭，收到实时或历史短信上传（`POST /api/information/items` / `POST /api/information/archive/items`）时会自动开启。
   - 列表与详情接口严格脱敏：仅返回 `envKeys` 与 `headerNames`，绝不回传 `env` 或 `headers` 明文值。
   - 已连接 MCP 服务的工具以 `mcp__<server>__<tool>` 暴露给主聊天助手**直接执行**（不在主服务端二次弹出审批确认），运行步骤记录会自动记录 `MCP · <server>` 与脱敏工具名。
 

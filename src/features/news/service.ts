@@ -26,6 +26,7 @@ export type NewsServiceDependencies = {
   repository: NewsRepository;
   screening: NewsScreeningService;
   fetchFeed: (url: string, signal: AbortSignal) => Promise<ParsedFeed>;
+  isBackgroundEnabled?: () => Promise<boolean> | boolean;
   onChanged?: (scope: "items" | "runs" | "preferences") => void;
 };
 
@@ -226,7 +227,10 @@ export const createNewsService = (deps: NewsServiceDependencies) => {
   const start = () => {
     if (timer || closed) return;
     timer = setInterval(() => {
-      void refresh({ retryFailed: false }).catch(() => undefined);
+      void (async () => {
+        if (deps.isBackgroundEnabled && !(await deps.isBackgroundEnabled())) return;
+        await refresh({ retryFailed: false });
+      })().catch(() => undefined);
     }, REFRESH_INTERVAL_MS);
     timer.unref();
   };

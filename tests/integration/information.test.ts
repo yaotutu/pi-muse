@@ -384,7 +384,10 @@ test("subagent stays declared regardless of sms toggle and topic sessions do not
   for (const request of disabledRequests) {
     assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Specialized subagents")));
     assert.equal(requestToolNames(request).includes("subagent"), true);
+    // 统一启停：sms 停用后不再出现在主聊天路由声明中，仍可用 news 等其余助手。
+    assert.ok(!request.messages.some((message) => message.role === "system" && requestText(message.content).includes("- `sms`")));
   }
+  await h.setupPipeline({ enabled: true, batchWindowSeconds: 3600 });
 
   // 领域规则直接落盘，配置页和文件页读取同一原文，不产生阻塞审批。
   const instructionsPath = join(h.dataDir, "workspace", "assistant", "AGENTS.md");

@@ -400,18 +400,18 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "createInformationItems",
     method: "post", path: "/api/information/items", tag: "信息后台", summary: "接入日常实时信息（单周期队列）",
-    hint: "提交 1–100 条日常实时信息到 queue=realtime；source+externalId 同内容幂等回读，不同内容返回 409 CONFLICT 且不覆盖原文；后台禁用时返回 409 DISABLED。",
+    hint: "提交 1–100 条日常实时信息到 queue=realtime；若短信助手此前处于未启用状态，首次收到信息会自动开启短信助手。source+externalId 同内容幂等回读，不同内容返回 409 CONFLICT 且不覆盖原文。",
     auth: true, request: information.informationIngestRequestSchema, response: information.informationIngestResponse,
     errorResponses: {
       400: { description: "整批或任一条目非法；不会提交任何条目", schema: resp.errorResponse },
-      409: { description: "信息后台禁用、同 key 不同内容冲突或已暂停", schema: resp.errorResponse },
+      409: { description: "同 key 不同内容冲突或已暂停", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
   {
     operationId: "ingestArchiveInformationItems",
     method: "post", path: "/api/information/archive/items", tag: "信息后台", summary: "导入历史归档信息（专用归档队列）",
-    hint: "提交 1–500 条历史信息到 queue=archive。归档队列与实时调度完全隔离，仅存储与去重（同内容跳过并计入 skippedCount，同 key 不同内容返回 409），不会触发日常调度器。",
+    hint: "提交 1–500 条历史信息到 queue=archive，并自动确保短信助手处于启用状态。归档队列与实时调度完全隔离，仅存储与去重（同内容跳过并计入 skippedCount，同 key 不同内容返回 409），不会触发日常调度器。",
     auth: true, request: information.informationArchiveIngestRequestSchema, response: information.informationArchiveIngestResponse,
     errorResponses: {
       400: { description: "整批或任一条目非法；不会提交任何条目", schema: resp.errorResponse },
@@ -636,11 +636,23 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getSubagent",
     method: "get", path: "/api/subagents/:id", tag: "Subagents", summary: "查看单个专职 Subagent 的完整配置、提示词与能力详情",
-    hint: "只读返回目标 Subagent 的完整详情，包括全部内置系统提示词原文与来源路径、静态绑定的工具/技能/MCP 列表，以及（若关联）工作区用户指令原文、include 诊断与已归纳习惯快照。当前仅开放只读检视，不在此接口提供修改。",
+    hint: "返回目标 Subagent 的完整详情，包括当前统一启停状态、内置系统提示词原文与来源路径、工具/技能/MCP 列表，以及关联工作区用户指令原文、include 诊断与已归纳习惯快照。",
     auth: true, response: subagent.subagentDetailResponseSchema,
     errorResponses: {
       400: { description: "非法 Subagent ID 格式", schema: resp.errorResponse },
       404: { description: "Subagent 不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "updateSubagent",
+    method: "patch", path: "/api/subagents/:id", tag: "Subagents", summary: "统一开启或停用指定 Subagent",
+    hint: "持久化更新指定 Subagent 的统一启停状态，同时控制对话路由与后台自动调度；除未启用浏览器能力时的 browser 外均支持切换。持久化于 DATA_DIR/state/subagent-settings.json，其中 sms 同步联动信息后台开关。",
+    auth: true, request: subagent.subagentUpdateRequestSchema, response: subagent.subagentDetailResponseSchema,
+    errorResponses: {
+      400: { description: "非法 Subagent ID 或请求体", schema: resp.errorResponse },
+      404: { description: "Subagent 不存在", schema: resp.errorResponse },
+      409: { description: "目标 Subagent 当前底层能力不可用（如未启用浏览器）", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },

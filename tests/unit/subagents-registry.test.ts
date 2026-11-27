@@ -55,7 +55,7 @@ test("subagent registry exposes list, detail, chat descriptors, and enforces ava
         id: "browser",
         name: "浏览器助手",
         triggers: ["chat"],
-        isEnabled: () => browserEnabled,
+        isAvailable: () => browserEnabled,
         executionPolicy: { stateless: true, parallelAllowed: false },
         userInstructions: undefined,
         runChatTask: async (task) => ({ agent: "browser", task, output: "browsed" }),
@@ -107,4 +107,29 @@ test("subagent registry exposes list, detail, chat descriptors, and enforces ava
     () => registry.getDetail("missing"),
     (error: unknown) => error instanceof SubagentError && error.code === "NOT_FOUND",
   );
+});
+
+test("subagent registry waits for single concurrent async load across all agents", async () => {
+  let loadCalls = 0;
+  const registry = createSubagentRegistry({
+    agents: [
+      sampleAgent({ id: "sms", defaultEnabled: false }),
+      sampleAgent({ id: "news", defaultEnabled: true }),
+      sampleAgent({ id: "habits", defaultEnabled: true }),
+    ],
+    settingsRepository: {
+      load: async () => {
+        loadCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        return { sms: true, habits: false };
+      },
+      save: async () => {},
+    },
+  });
+
+  const listed = await registry.list();
+  assert.equal(loadCalls, 1);
+  assert.equal(listed.subagents.find((s) => s.id === "sms")?.enabled, true);
+  assert.equal(listed.subagents.find((s) => s.id === "news")?.enabled, true);
+  assert.equal(listed.subagents.find((s) => s.id === "habits")?.enabled, false);
 });

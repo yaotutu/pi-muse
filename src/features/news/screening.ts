@@ -882,6 +882,7 @@ export type NewsScreeningScheduler = {
 
 export const createNewsScreeningScheduler = (
   screening: Pick<NewsScreeningService, "nextDue" | "runDue">,
+  options?: { isEnabled?: () => Promise<boolean> | boolean },
 ): NewsScreeningScheduler => {
   let timer: ReturnType<typeof setInterval> | undefined;
   let closing: Promise<void> | undefined;
@@ -890,6 +891,7 @@ export const createNewsScreeningScheduler = (
   let scanning = false;
 
   const tick = async () => {
+    if (options?.isEnabled && !(await options.isEnabled())) return;
     if (await screening.nextDue()) await screening.runDue();
   };
 

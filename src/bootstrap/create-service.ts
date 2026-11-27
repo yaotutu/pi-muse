@@ -45,6 +45,7 @@ import {
   type SubagentRegistry,
 } from "../features/subagents/registry.js";
 import { createBuiltinSubagents } from "../adapters/pi/subagents/catalog.js";
+import { createSubagentSettingsRepository } from "../adapters/storage/subagent-settings-repository.js";
 import { openNewsRepository } from "../adapters/storage/news-repository.js";
 import { openSqliteDatabase } from "../adapters/storage/sqlite-database.js";
 import { ensureSqliteModules } from "../adapters/storage/sqlite-modules.js";
@@ -391,11 +392,14 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
     onChanged: (subagentId) => workspaceEvents.subagentChanged(subagentId, "habits"),
     observeWork: workspaceEvents.presence.observe,
   });
-  const habitsScheduler = createHabitsScheduler(habits);
+  const habitsScheduler = createHabitsScheduler(habits, {
+    isEnabled: () => subagents?.isEnabled("habits") ?? true,
+  });
   const informationDeps = {
     observeWork: workspaceEvents.presence.observe,
     retainMain: () => conversationHub.retainSession("main"),
     habits,
+    onEnabledSync: (enabled: boolean) => subagents?.syncEnabled("sms", enabled),
     onChanged: (scope: "items" | "runs" | "preferences" | "settings") => workspaceEvents.subagentChanged("sms", scope),
     runModel: createInformationRunner({ config, layout, modelRuntime }),
   };
@@ -440,21 +444,40 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
     onChanged: (scope) => workspaceEvents.subagentChanged("news", scope),
     runModel: createNewsScreeningRunner({ config, layout, modelRuntime }),
   });
-  const informationScheduler = createInformationScheduler(information);
-  const newsScreeningScheduler = createNewsScreeningScheduler(newsScreening);
+  const informationScheduler = createInformationScheduler(information, {
+    isEnabled: () => subagents?.isEnabled("sms") ?? true,
+  });
+  const newsScreeningScheduler = createNewsScreeningScheduler(newsScreening, {
+    isEnabled: () => subagents?.isEnabled("news") ?? true,
+  });
   const news = createNewsService({
     observeWork: workspaceEvents.presence.observe,
     repository: newsRepository,
     screening: newsScreening,
     fetchFeed: (url, signal) => fetchRss2(url, config.web, signal),
+    isBackgroundEnabled: () => subagents?.isEnabled("news") ?? true,
     onChanged: (scope) => workspaceEvents.subagentChanged("news", scope),
   });
   subagents = createSubagentRegistry({
+    settingsRepository: createSubagentSettingsRepository(layout),
     agents: createBuiltinSubagents({
       config,
       layout,
       modelRuntime,
       information: information!,
+      onSmsEnabledChanged: async (enabled) => {
+        const pause = information!.pause();
+        await pause.stopped;
+        try {
+          const current = await informationRepository.getSettings();
+          if (current.enabled !== enabled) {
+            await informationRepository.saveSettings({ ...current, enabled });
+          }
+        } finally {
+          pause.resume();
+        }
+        workspaceEvents.subagentChanged("sms", "settings");
+      },
       news: {
         preferences: () => news.preferences(),
         query: async (input) => {
@@ -498,6 +521,10 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
   try {
     await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), habitsRepository.validateAll(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart(), newsRepository.validate(), newsRepository.reconcileOnStart?.()]);
+    const hasSubagentSettings = await stat(layout.subagentSettingsFile).then(() => true, () => false);
+    if (!hasSubagentSettings && (await informationRepository.getSettings()).enabled) {
+      await subagents.syncEnabled("sms", true);
+    }
     await actions.cancelPending();
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
@@ -568,7 +595,9 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
     },
     propose: createDreamProposer({ config, layout, modelRuntime }),
   });
-  const dreamScheduler = createDreamScheduler(dream);
+  const dreamScheduler = createDreamScheduler(dream, {
+    isEnabled: () => subagents?.isEnabled("dream") ?? true,
+  });
   const companions = createCompanionService(createCompanionStore(layout));
   const workspaceFiles = createWorkspaceFileService(createWorkspaceFileStore(layout, workspaceCommits));
   const sessions = createSessionService({ repository: sessionRepository, storage: sessionStorage, hub: conversationHub,

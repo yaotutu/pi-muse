@@ -61,11 +61,17 @@ export type SubagentInstructionsSnapshot = {
 };
 
 export type SubagentEditability = {
+  enabled: "editable" | "readonly";
   systemPrompts: "readonly";
   userInstructions: "editable" | "none";
   tools: "readonly";
   skills: "readonly";
   mcp: "editable" | "readonly";
+};
+
+export type SubagentSettingsRepository = {
+  load: () => Promise<Record<string, boolean>>;
+  save: (enabled: Record<string, boolean>) => Promise<void>;
 };
 
 export type SubagentMcpPort = {
@@ -144,9 +150,12 @@ export type SubagentRegistration = {
   description: string;
   routingHint?: string;
   triggers: readonly SubagentTrigger[];
-  isEnabled?: () => Promise<boolean> | boolean;
-  /** 仅当 triggers 包含 "chat" 时生效：控制是否向主聊天开放路由（默认 true，不因后台定时开关关闭而阻止聊天查库或改规则）。 */
-  isChatAvailable?: () => Promise<boolean> | boolean;
+  /** 未保存覆盖配置时的默认启停状态（缺省为 true；短信助手默认 false，随首次启用短信同步自动开启）。 */
+  defaultEnabled?: boolean;
+  /** 可选能力可用性检查（例如 browser 是否已启用真实浏览器驱动；不可用时不允许开启）。 */
+  isAvailable?: () => Promise<boolean> | boolean;
+  /** 统一启停状态变更后的副作用钩子（如同步领域设置或中止在途任务）。 */
+  onEnabledChanged?: (enabled: boolean) => Promise<void> | void;
   executionPolicy: SubagentExecutionPolicy;
   prompts: () => Promise<readonly SubagentPromptSection[]> | readonly SubagentPromptSection[];
   tools: readonly SubagentToolSpec[];

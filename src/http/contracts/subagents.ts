@@ -44,11 +44,16 @@ export const subagentExecutionPolicySchema = z.strictObject({
 });
 
 export const subagentEditabilitySchema = z.strictObject({
+  enabled: z.enum(["editable", "readonly"]).describe("统一启停状态可编辑性（editable=可随时开启/停用；readonly=底层能力不可用）"),
   systemPrompts: z.literal("readonly").describe("内置系统提示词当前只读"),
   userInstructions: z.enum(["editable", "none"]).describe("关联用户指令文件的可编辑状态（editable 可经领域偏好或工作区文件接口修改；none 表示无关联用户指令文件）"),
   tools: z.literal("readonly").describe("静态绑定工具列表当前只读"),
   skills: z.literal("readonly").describe("静态绑定技能列表当前只读"),
   mcp: z.enum(["editable", "readonly"]).describe("外部 MCP 服务权限状态（editable=可从全局目录按需选用；readonly=仅后台结构化任务，不支持绑定 MCP）"),
+});
+
+export const subagentUpdateRequestSchema = z.strictObject({
+  enabled: z.boolean().describe("统一控制该 Subagent 是否启用（同时作用于对话路由与后台自动运行）"),
 });
 
 export const subagentInstructionsSnapshotSchema = z.strictObject({

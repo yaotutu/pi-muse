@@ -8,6 +8,7 @@ import {
   type SubagentMcpPort,
   type SubagentMcpSelection,
   type SubagentRegistration,
+  type SubagentSettingsRepository,
   type SubagentSummary,
 } from "./types.js";
 
@@ -26,9 +27,15 @@ export class SubagentError extends Error {
 export type CreateSubagentRegistryOptions = {
   agents: readonly SubagentRegistration[];
   mcp?: SubagentMcpPort;
+  settingsRepository?: SubagentSettingsRepository;
 };
 
-const buildEditability = (agent: SubagentRegistration, hasMcpPort: boolean): SubagentEditability => ({
+const buildEditability = (
+  agent: SubagentRegistration,
+  hasMcpPort: boolean,
+  available: boolean,
+): SubagentEditability => ({
+  enabled: available ? "editable" : "readonly",
   systemPrompts: "readonly",
   userInstructions: agent.userInstructions ? "editable" : "none",
   tools: "readonly",
@@ -59,6 +66,44 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
   const ordered = [...byId.values()];
 
   const mcp = options.mcp;
+  const settingsRepo: SubagentSettingsRepository = options.settingsRepository ?? {
+    load: async () => ({}),
+    save: async () => {},
+  };
+  let overrides: Record<string, boolean> = {};
+  let loadPromise: Promise<void> | null = null;
+  let queue: Promise<void> = Promise.resolve();
+
+  const runExclusive = <T>(work: () => Promise<T>): Promise<T> => {
+    const next = queue.then(work, work);
+    queue = next.then(() => undefined, () => undefined);
+    return next;
+  };
+
+  const ensureLoaded = (): Promise<void> => {
+    if (!loadPromise) {
+      loadPromise = settingsRepo.load().then(
+        (loadedOverrides) => {
+          overrides = { ...loadedOverrides };
+        },
+        (error) => {
+          loadPromise = null;
+          throw error;
+        },
+      );
+    }
+    return loadPromise;
+  };
+
+  const isAvailable = async (agent: SubagentRegistration): Promise<boolean> =>
+    agent.isAvailable ? Boolean(await agent.isAvailable()) : true;
+
+  const isAgentEnabled = async (agent: SubagentRegistration): Promise<boolean> => {
+    if (!(await isAvailable(agent))) return false;
+    await ensureLoaded();
+    if (Object.hasOwn(overrides, agent.id)) return Boolean(overrides[agent.id]);
+    return agent.defaultEnabled ?? true;
+  };
 
   const requireAgent = (rawId: string): SubagentRegistration => {
     const id = typeof rawId === "string" ? rawId.trim() : "";
@@ -73,6 +118,8 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
   };
 
   const toSummary = async (agent: SubagentRegistration): Promise<SubagentSummary> => {
+    const available = await isAvailable(agent);
+    const enabled = await isAgentEnabled(agent);
     const mcpSelection = mcp && agent.triggers.includes("chat")
       ? await mcp.describeSubagentSelection(agent.id)
       : null;
@@ -91,7 +138,7 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
       description: agent.description,
       routingHint: agent.routingHint?.trim() || null,
       triggers: [...agent.triggers],
-      enabled: agent.isEnabled ? Boolean(await agent.isEnabled()) : true,
+      enabled,
       executionPolicy: { ...agent.executionPolicy },
       hasUserInstructions: Boolean(agent.userInstructions),
       capabilities: {
@@ -99,7 +146,7 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
         skills: agent.skills.map((skill) => ({ ...skill })),
         mcp: boundMcp,
       },
-      editability: buildEditability(agent, Boolean(mcp)),
+      editability: buildEditability(agent, Boolean(mcp), available),
     };
   };
 
@@ -131,12 +178,7 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
     const descriptors: SubagentChatDescriptor[] = [];
     for (const agent of ordered) {
       if (!agent.triggers.includes("chat")) continue;
-      const available = agent.isChatAvailable
-        ? Boolean(await agent.isChatAvailable())
-        : agent.isEnabled && !agent.triggers.includes("background")
-          ? Boolean(await agent.isEnabled())
-          : true;
-      if (!available) continue;
+      if (!(await isAgentEnabled(agent))) continue;
       descriptors.push({
         id: agent.id,
         name: agent.name,
@@ -157,16 +199,43 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
     if (!agent.triggers.includes("chat") || !agent.runChatTask) {
       throw new SubagentError("UNAVAILABLE", `Subagent ${agent.id} cannot be invoked from chat`);
     }
-    const available = agent.isChatAvailable
-      ? Boolean(await agent.isChatAvailable())
-      : agent.isEnabled && !agent.triggers.includes("background")
-        ? Boolean(await agent.isEnabled())
-        : true;
-    if (!available) {
+    if (!(await isAgentEnabled(agent))) {
       throw new SubagentError("UNAVAILABLE", `Subagent ${agent.id} is currently disabled`);
     }
     return agent.runChatTask(task, ctx);
   };
+
+  const isEnabled = async (id: string): Promise<boolean> => {
+    const agent = requireAgent(id);
+    return isAgentEnabled(agent);
+  };
+
+  const setEnabled = (id: string, enabled: boolean): Promise<SubagentDetail> =>
+    runExclusive(async () => {
+      const agent = requireAgent(id);
+      if (typeof enabled !== "boolean") {
+        throw new SubagentError("INVALID_INPUT", "enabled must be a boolean");
+      }
+      if (enabled && !(await isAvailable(agent))) {
+        throw new SubagentError("UNAVAILABLE", `Subagent ${agent.id} is currently unavailable`);
+      }
+      await ensureLoaded();
+      const next = { ...overrides, [agent.id]: enabled };
+      await settingsRepo.save(next);
+      overrides = next;
+      await agent.onEnabledChanged?.(enabled);
+      return getDetail(agent.id);
+    });
+
+  const syncEnabled = (id: string, enabled: boolean): Promise<void> =>
+    runExclusive(async () => {
+      const agent = requireAgent(id);
+      await ensureLoaded();
+      if (overrides[agent.id] === enabled) return;
+      const next = { ...overrides, [agent.id]: enabled };
+      await settingsRepo.save(next);
+      overrides = next;
+    });
 
   const getMcpSelection = async (id: string): Promise<SubagentMcpSelection> => {
     const agent = requireAgent(id);
@@ -195,6 +264,9 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
   return {
     list,
     getDetail,
+    isEnabled,
+    setEnabled,
+    syncEnabled,
     getMcpSelection,
     updateMcpSelection,
     listChatDescriptors,

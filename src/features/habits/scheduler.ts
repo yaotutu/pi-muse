@@ -14,7 +14,7 @@ export type HabitsScheduler = {
  */
 export const createHabitsScheduler = (
   habits: Pick<HabitsService, "runDue" | "close">,
-  options?: { pollIntervalMs?: number; intervalMs?: number },
+  options?: { pollIntervalMs?: number; intervalMs?: number; isEnabled?: () => Promise<boolean> | boolean },
 ): HabitsScheduler => {
   const pollIntervalMs = options?.pollIntervalMs ?? Math.min(DEFAULT_POLL_INTERVAL_MS, options?.intervalMs ?? HABIT_CONSOLIDATION_INTERVAL_MS);
   let timer: NodeJS.Timeout | undefined;
@@ -25,8 +25,10 @@ export const createHabitsScheduler = (
 
   const tick = () => {
     if (closed || runningTick) return;
-    runningTick = habits
-      .runDue(controller.signal)
+    runningTick = (async () => {
+      if (options?.isEnabled && !(await options.isEnabled())) return;
+      await habits.runDue(controller.signal);
+    })()
       .catch(() => undefined)
       .finally(() => {
         runningTick = undefined;

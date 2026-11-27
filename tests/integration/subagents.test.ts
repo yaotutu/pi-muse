@@ -18,6 +18,7 @@ test("GET /api/subagents and GET /api/subagents/:id expose all 5 specialized sub
   const service = await createService(createConfig({
     runtime: { dataDir },
     server: { host: "127.0.0.1", accessKey },
+    tools: { browser: { enabled: false } },
   }));
   try {
     const login = await service.app.request("/api/session", {
@@ -48,6 +49,8 @@ test("GET /api/subagents and GET /api/subagents/:id expose all 5 specialized sub
       assert.ok(detail.capabilities.tools.length >= 1, `${id} should expose tools`);
       assert.ok(Array.isArray(detail.capabilities.skills));
       assert.deepEqual(detail.capabilities.mcp, []);
+      assert.equal(detail.editability.enabled, id === "browser" ? "readonly" : "editable");
+      assert.equal(detail.enabled, id === "news" || id === "habits" || id === "dream");
       assert.equal(detail.editability.mcp, id === "habits" || id === "dream" ? "readonly" : "editable");
       if (id === "sms" || id === "news" || id === "browser") {
         assert.ok(typeof detail.routingHint === "string" && detail.routingHint.length > 0, `${id} should own routingHint`);
@@ -217,7 +220,8 @@ rl.on("line", (line) => {
   );
   assert.deepEqual(newsDetail.capabilities.mcp, []);
 
-  // 运行时隔离验证：sms 能调用 mcp__demo_echo__echo，news 看不到该工具
+  // 启用 sms 后做运行时隔离验证：sms 能调用 mcp__demo_echo__echo，news 看不到该工具
+  await service.subagents.setEnabled("sms", true);
   const smsRun = await service.subagents.runChatTask("sms", "调用MCP回显", {
     sessionId: "main",
     subagentId: "subagent-sms-1",
@@ -231,6 +235,20 @@ rl.on("line", (line) => {
   });
   assert.equal(newsRun.isError, false);
   assert.doesNotMatch(newsRun.output, /MCP_RESULT:mcp-echo-test/);
+
+  // 停用 news 后：列表状态与聊天路由统一同步拦截
+  const disableNewsRes = await service.app.request("/api/subagents/news", {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(disableNewsRes.status, 200);
+  assert.equal(subagentDetailResponseSchema.parse(await disableNewsRes.json()).enabled, false);
+  assert.equal((await service.subagents.listChatDescriptors()).some((d) => d.id === "news"), false);
+  await assert.rejects(
+    service.subagents.runChatTask("news", "调用MCP回显", { sessionId: "main", subagentId: "subagent-news-2" }),
+    /disabled/,
+  );
 
   // 重启服务后选用状态持久化生效
   await service.close();
@@ -253,4 +271,84 @@ rl.on("line", (line) => {
   );
   assert.deepEqual(smsAfterDelete.enabledServers, []);
   assert.deepEqual(smsAfterDelete.servers, []);
+});
+
+test("Subagent unified enablement auto-enables sms on SMS upload and persists toggles across restart", async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-subagent-enable-"));
+  const cfg = createConfig({
+    schemaVersion: 1,
+    runtime: { dataDir },
+    server: { host: "127.0.0.1", accessKey: "subagent-enable-key" },
+    tools: { browser: { enabled: false } },
+  });
+  let service = await createService(cfg);
+  t.after(async () => {
+    await service.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  const loginHeaders = async () => {
+    const token = service.auth.login("subagent-enable-key")!;
+    return { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  };
+  let headers = await loginHeaders();
+
+  // 默认 sms=false，news=true；browser 无驱动时不可启用
+  const initialList = subagentsListResponseSchema.parse(
+    await (await service.app.request("/api/subagents", { headers })).json(),
+  );
+  assert.equal(initialList.subagents.find((s) => s.id === "sms")?.enabled, false);
+  assert.equal(initialList.subagents.find((s) => s.id === "news")?.enabled, true);
+
+  const browserEnableRes = await service.app.request("/api/subagents/browser", {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ enabled: true }),
+  });
+  assert.equal(browserEnableRes.status, 409);
+
+  // 上传实时短信（即使 sms 之前关闭）不再返回 409 DISABLED，而是自动开启 sms Subagent
+  const ingestRes = await service.app.request("/api/information/items", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      items: [{ source: "sms", externalId: "auto-1", content: "取件码 1234" }],
+    }),
+  });
+  assert.equal(ingestRes.status, 200);
+  const smsAfterIngest = subagentDetailResponseSchema.parse(
+    await (await service.app.request("/api/subagents/sms", { headers })).json(),
+  );
+  assert.equal(smsAfterIngest.enabled, true);
+  assert.equal(
+    ((await (await service.app.request("/api/information/settings", { headers })).json()) as { enabled: boolean }).enabled,
+    true,
+  );
+
+  // 停用 sms 与 habits 并验证重启后持久保留
+  const disableSms = await service.app.request("/api/subagents/sms", {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(disableSms.status, 200);
+  assert.equal(
+    ((await (await service.app.request("/api/information/settings", { headers })).json()) as { enabled: boolean }).enabled,
+    false,
+  );
+  const disableHabits = await service.app.request("/api/subagents/habits", {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(disableHabits.status, 200);
+
+  await service.close();
+  service = await createService(cfg);
+  headers = await loginHeaders();
+  const persisted = subagentsListResponseSchema.parse(
+    await (await service.app.request("/api/subagents", { headers })).json(),
+  );
+  assert.equal(persisted.subagents.find((s) => s.id === "sms")?.enabled, false);
+  assert.equal(persisted.subagents.find((s) => s.id === "habits")?.enabled, false);
 });

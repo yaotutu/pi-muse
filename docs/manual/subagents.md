@@ -24,11 +24,11 @@ Pi Muse 只有一个负责日常对话的主助手，但在主助手背后，系
 - **独立页面浏览**：例如新闻推荐文章和完整原始短信列表保留在各自的专属页面，不会刷屏主聊天窗口；你想针对某篇文章展开讨论时，再主动带入主聊天。
 - **主聊天窗口提醒**：例如筛选出的重要短信提醒和归档总览简报会直接发到主聊天窗口；**凡是进入主聊天窗口的通知消息，主助手都直接可见**，你可以直接在下面接着提问或调整规则。
 
-## 查看专职子代理配置 {#inspect-subagents}
+## 查看与管理专职子代理 {#inspect-subagents}
 
-服务端通过 `GET /api/subagents` 与 `GET /api/subagents/:id` 向客户端只读暴露所有已注册专职子代理的完整配置，包括：
-- 身份信息、触发入口（`chat` / `background`）、当前启用状态与路由说明（`routingHint`）
-- 绑定的内置系统提示词全文、工具清单、技能与 MCP 绑定
+服务端通过 `GET /api/subagents`、`GET /api/subagents/:id`、`PATCH /api/subagents/:id` 与 `GET/PUT /api/subagents/:id/mcp` 向客户端统一暴露全部已注册 Subagent 的状态与配置，包括：
+- 身份信息、触发入口（`chat` / `background`）、统一启用开关（`PATCH /api/subagents/:id` 同时控制对话路由与后台自动调度；`sms` 默为关闭，启用手机短信同步或收到短信上传时自动开启）与路由说明（`routingHint`）
+- 绑定的内置系统提示词全文、工具清单、技能与按需选用的 MCP 列表
 - 关联的用户规则文件（`AGENTS.md`）原文、`include:` 诊断及已归纳习惯快照
 
 如需修改短信或新闻的明确规则，可直接在设置页、工作区文件页（`subagents/sms/AGENTS.md`、`subagents/news/AGENTS.md`）编辑，或在聊天中直接告诉助手提出修改并审批。
