@@ -10,6 +10,7 @@ import {
 import type { BrowserService } from "../../../features/browser/browser-service.js";
 import type { InformationService } from "../../../features/information/service.js";
 import { InformationError } from "../../../features/information/errors.js";
+import type { McpService } from "../../../features/mcp/types.js";
 import type { NewsService } from "../../../features/news/service.js";
 import { NewsError } from "../../../features/news/errors.js";
 import { loadPrompt } from "../../prompts/loader.js";
@@ -18,6 +19,7 @@ import { runSubagent, type SubagentRuntimeDeps } from "../subagent-runner.js";
 import { currentTimeTool } from "../tools/current-time.js";
 import { createBrowserTools } from "../tools/browser.js";
 import { createFileTools } from "../tools/files.js";
+import { createMcpTools } from "../tools/mcp.js";
 import { SUBMIT_INFORMATION_BRIEFING_TOOL_NAME, SUBMIT_INFORMATION_RESULT_TOOL_NAME } from "../information-runner.js";
 import { SUBMIT_NEWS_SCREENING_TOOL_NAME } from "../news-runner.js";
 import { PROPOSE_NOTES_TOOL_NAME } from "../dream-runner.js";
@@ -28,6 +30,7 @@ export type BuiltinSubagentsDeps = SubagentRuntimeDeps & {
     query: (input: DomainQueryInput) => Promise<Record<string, unknown>>;
   };
   browser?: BrowserService;
+  mcp?: Pick<McpService, "getSubagentAllowedServers" | "getActiveTools" | "getPromptSummaries">;
 };
 
 type DomainQueryInput = {
@@ -74,7 +77,7 @@ const rejected = (text: string): AgentToolResult<{ denied: true }> => ({
 });
 
 const runStatelessChatSubagent = async (
-  deps: SubagentRuntimeDeps,
+  deps: BuiltinSubagentsDeps,
   options: {
     id: string;
     systemPrompt: string;
@@ -84,11 +87,29 @@ const runStatelessChatSubagent = async (
   },
 ): Promise<SubagentChatRunResult> => {
   const { ctx } = options;
+  let systemPrompt = options.systemPrompt;
+  const tools = [...options.tools];
+  if (deps.mcp) {
+    const allowedServers = await deps.mcp.getSubagentAllowedServers(options.id);
+    if (allowedServers.size > 0) {
+      const usedNames = new Set(tools.map((tool) => tool.name));
+      const activeMcpTools = (await deps.mcp.getActiveTools({ allowedServers }))
+        .filter((tool) => !usedNames.has(tool.exposedName));
+      if (activeMcpTools.length > 0) {
+        tools.push(...createMcpTools(activeMcpTools));
+      }
+      const summaries = deps.mcp.getPromptSummaries({ allowedServers });
+      if (summaries.length > 0) {
+        const list = summaries.map((s) => `- ${s.name} (${s.toolCount} tools): ${s.summary}`).join("\n");
+        systemPrompt = `${systemPrompt}\n\n${loadPrompt("assistant/tools/mcp.md").replace("{{MCP_SERVERS}}", list).trim()}`;
+      }
+    }
+  }
   const run = await runSubagent(deps, {
     cwd: deps.layout.workspaceDir,
-    systemPrompt: options.systemPrompt,
+    systemPrompt,
     prompt: `Task: ${options.task}`,
-    tools: options.tools,
+    tools,
     compaction: true,
     timeoutMs: null,
     signal: ctx.signal,

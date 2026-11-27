@@ -129,7 +129,7 @@ SQLite 的连接所有权、模块命名、当前表语义与演进边界见 [SQ
 
 外网请求保留 DNS/SSRF/固定 IP/逐跳重定向/超时/大小/取消防护。私网仅显式配置例外（或管理员显式配置的自有 SearXNG 实例地址），其他边界不变。Web 适配层按职责拆分为底层安全 HTTP 通道（`src/adapters/web/http-client.ts`）、可插拔 `SearchSource` 注册表与多搜索源（`src/adapters/web/search/`）及网页正文抓取（`src/adapters/web/fetch.ts`）：`tools.web.search` 支持 `auto` / `tavily` / `brave` / `searxng` / `jina` / `duckduckgo` 并支持后续通过注册表扩展新搜索源；`tools.web.fetch` 默认对公网非纯数据、无凭据/鉴权参数 URL 优先经 Jina Reader 转为干净 Markdown，失败时无缝回退本地抽取；可选 `tools.web.proxy` 通过 HTTP/HTTPS 代理发起外网请求（仍前置公网域名校验）。页面、RSS、附件和外部工具内容均是不可信数据。
 
-标准 MCP（stdio 与 Streamable HTTP）配置持久化在实例目录 `DATA_DIR/mcp.json`（标准 `mcpServers` 形状），通过 `/api/mcp/servers*` 鉴权接口进行热增删改、启停与重连。`env` 与自定义 `headers` 明文值只留在服务端安全配置文件与内存，回读接口只返回键名集合；MCP 工具按 `mcp__<server>__<tool>` 暴露给主聊天模型直接执行并在运行步骤记录留痕（不在主服务端另弹二次审批），返回文本统一携带不可信外部数据标记。全局声明的所有已启用服务对主聊天默认全部开启，主聊天可通过 `GET/PUT /api/assistant/mcp`（持久化于 `DATA_DIR/state/assistant/mcp-overrides.json`）独立开关而不影响全局连接；普通子代理默认不继承外部 MCP，后续按显式允许清单从同一全局目录选用。
+标准 MCP（stdio 与 Streamable HTTP）配置持久化在实例目录 `DATA_DIR/mcp.json`（标准 `mcpServers` 形状），通过 `/api/mcp/servers*` 鉴权接口进行热增删改、启停与重连。`env` 与自定义 `headers` 明文值只留在服务端安全配置文件与内存，回读接口只返回键名集合；MCP 工具按 `mcp__<server>__<tool>` 暴露给主聊天模型直接执行并在运行步骤记录留痕（不在主服务端另弹二次审批），返回文本统一携带不可信外部数据标记。全局声明的所有已启用服务对主聊天默认全部开启，主聊天可通过 `GET/PUT /api/assistant/mcp`（持久化于 `DATA_DIR/state/assistant/mcp-overrides.json`）独立开关而不影响全局连接；专职子代理默认不继承外部 MCP，聊天路由型 Subagent（如 `sms`、`news`、`browser`）可通过 `GET/PUT /api/subagents/:id/mcp`（持久化于 `DATA_DIR/state/subagent-mcp-overrides.json`）按显式允许清单从同一全局目录选用。
 
 浏览器全局复用唯一、懒启动、可见的 Chrome；受保护 profile/downloads 不进入工作区。模型不获得任意 JavaScript evaluate、cookie、localStorage 或密码。HTTP/WS 与浏览器工具共享同一服务；ticket、鉴权、帧背压与生命周期按生成契约执行。
 

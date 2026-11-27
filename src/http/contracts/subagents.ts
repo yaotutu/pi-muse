@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MCP_SERVER_NAME_PATTERN } from "../../features/mcp/types.js";
 import { SUBAGENT_ID_PATTERN } from "../../features/subagents/types.js";
 import { habitItemSchema } from "./habits.js";
 import { workspaceIncludeDiagnosticSchema } from "./workspace-includes.js";
@@ -47,7 +48,7 @@ export const subagentEditabilitySchema = z.strictObject({
   userInstructions: z.enum(["editable", "none"]).describe("关联用户指令文件的可编辑状态（editable 可经领域偏好或工作区文件接口修改；none 表示无关联用户指令文件）"),
   tools: z.literal("readonly").describe("静态绑定工具列表当前只读"),
   skills: z.literal("readonly").describe("静态绑定技能列表当前只读"),
-  mcp: z.literal("readonly").describe("静态绑定 MCP 列表当前只读"),
+  mcp: z.enum(["editable", "readonly"]).describe("外部 MCP 服务权限状态（editable=可从全局目录按需选用；readonly=仅后台结构化任务，不支持绑定 MCP）"),
 });
 
 export const subagentInstructionsSnapshotSchema = z.strictObject({
@@ -70,7 +71,7 @@ export const subagentSummarySchema = z.strictObject({
   capabilities: z.strictObject({
     tools: z.array(subagentToolSpecSchema).describe("该 Subagent 静态绑定的全部工具清单"),
     skills: z.array(subagentSkillSpecSchema).describe("该 Subagent 静态绑定的技能清单"),
-    mcp: z.array(subagentMcpSpecSchema).describe("该 Subagent 静态绑定的 MCP 清单（结构预留，后续接入 MCP 后直接展示）"),
+    mcp: z.array(subagentMcpSpecSchema).describe("该 Subagent 显式选用的全局 MCP 服务清单"),
   }).describe("静态绑定的能力清单"),
   editability: subagentEditabilitySchema.describe("各配置维度当前的可编辑性元信息"),
 });
@@ -82,4 +83,27 @@ export const subagentsListResponseSchema = z.strictObject({
 export const subagentDetailResponseSchema = subagentSummarySchema.extend({
   prompts: z.array(subagentPromptSectionSchema).describe("该 Subagent 绑定的全部内置系统提示词原文与来源"),
   userInstructions: subagentInstructionsSnapshotSchema.nullable().describe("关联的用户指令、include 诊断与行为习惯快照；无关联文件时为 null"),
+});
+
+export const subagentMcpServerViewSchema = z.strictObject({
+  name: z.string().regex(MCP_SERVER_NAME_PATTERN).describe("全局 MCP 服务名称"),
+  transport: z.enum(["stdio", "http"]).describe("传输方式"),
+  description: z.string().describe("服务说明"),
+  globalEnabled: z.boolean().describe("全局总开关是否启用"),
+  status: z.enum(["disabled", "disconnected", "connecting", "connected", "error"]).describe("全局连接状态"),
+  toolCount: z.number().int().nonnegative().describe("工具数量"),
+  defaultEnabled: z.literal(false).describe("专职 Subagent 对全局 MCP 服务的默认状态（默认关闭）"),
+  enabled: z.boolean().describe("当前 Subagent 是否已启用该 MCP 服务"),
+  effectiveEnabled: z.boolean().describe("最终是否生效（globalEnabled && enabled）"),
+});
+
+export const subagentMcpSelectionResponseSchema = z.strictObject({
+  subagentId: subagentIdParamSchema.describe("目标 Subagent ID"),
+  editable: z.boolean().describe("当前 Subagent 是否支持自定义选用全局 MCP 服务"),
+  servers: z.array(subagentMcpServerViewSchema).describe("全部全局 MCP 服务在该 Subagent 视角下的选用清单"),
+  enabledServers: z.array(z.string().regex(MCP_SERVER_NAME_PATTERN)).describe("当前为该 Subagent 启用的 MCP 服务名列表"),
+});
+
+export const subagentMcpUpdateRequestSchema = z.strictObject({
+  servers: z.array(z.string().regex(MCP_SERVER_NAME_PATTERN)).max(64).describe("允许该 Subagent 使用的全局 MCP 服务名称清单"),
 });

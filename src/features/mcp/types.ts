@@ -113,6 +113,11 @@ export type McpAssistantOverridesRepository = {
   save: (overrides: Record<string, boolean>) => Promise<void>;
 };
 
+export type McpSubagentOverridesRepository = {
+  load: () => Promise<Record<string, string[]>>;
+  save: (subagents: Record<string, string[]>) => Promise<void>;
+};
+
 export type McpAssistantServerView = {
   name: string;
   transport: McpTransportKind;
@@ -128,6 +133,24 @@ export type McpAssistantServerView = {
 export type McpAssistantSelectionResponse = {
   servers: McpAssistantServerView[];
   overrides: Record<string, boolean>;
+};
+
+export type McpSubagentServerView = {
+  name: string;
+  transport: McpTransportKind;
+  description: string;
+  globalEnabled: boolean;
+  status: McpConnectionStatus;
+  toolCount: number;
+  defaultEnabled: false;
+  enabled: boolean;
+  effectiveEnabled: boolean;
+};
+
+export type McpSubagentSelectionResponse = {
+  subagentId: string;
+  servers: McpSubagentServerView[];
+  enabledServers: string[];
 };
 
 export type McpToolFilterOptions = {
@@ -191,6 +214,9 @@ export type McpService = {
   reconnect: (name: string) => Promise<McpServerView>;
   describeAssistantSelection: () => Promise<McpAssistantSelectionResponse>;
   updateAssistantOverrides: (overrides: Record<string, boolean>) => Promise<McpAssistantSelectionResponse>;
+  describeSubagentSelection: (subagentId: string) => Promise<McpSubagentSelectionResponse>;
+  updateSubagentServers: (subagentId: string, servers: readonly string[]) => Promise<McpSubagentSelectionResponse>;
+  getSubagentAllowedServers: (subagentId: string) => Promise<ReadonlySet<string>>;
   getActiveTools: (options?: McpToolFilterOptions) => Promise<readonly McpActiveTool[]>;
   getPromptSummaries: (options?: McpToolFilterOptions) => readonly McpPromptSummary[];
   close: () => Promise<void>;

@@ -78,7 +78,7 @@ import { loadSessionRecency } from "../adapters/storage/session-recency.js";
 import { createWorkspaceFileService } from "../features/workspace/files-service.js";
 import { workspaceFileCommits } from "../adapters/workspace/file-commit-queue.js";
 import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
-import { createMcpAssistantOverridesRepository, createMcpRepository } from "../adapters/storage/mcp-repository.js";
+import { createMcpAssistantOverridesRepository, createMcpRepository, createSubagentMcpOverridesRepository } from "../adapters/storage/mcp-repository.js";
 import { createPiMcpConnector } from "../adapters/mcp/pi-mcp-connector.js";
 import { createMcpService } from "../features/mcp/service.js";
 import { serviceVersion } from "./service-version.js";
@@ -216,6 +216,7 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
   const mcp = createMcpService({
     repository: createMcpRepository(layout),
     assistantOverridesRepository: createMcpAssistantOverridesRepository(layout),
+    subagentOverridesRepository: createSubagentMcpOverridesRepository(layout),
     connector: createPiMcpConnector({
       workspaceDir: layout.workspaceDir,
       version: (await serviceVersion).version,
@@ -489,7 +490,9 @@ export const createService = async (rawConfig: Config, options: { sharedSkillsDi
         },
       },
       browser,
+      mcp,
     }),
+    mcp,
   });
 
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。

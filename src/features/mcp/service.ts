@@ -15,6 +15,8 @@ import {
   type McpServerPatch,
   type McpServerView,
   type McpService,
+  type McpSubagentOverridesRepository,
+  type McpSubagentSelectionResponse,
   type McpToolCallContentPart,
   type McpToolFilterOptions,
   type McpTransportConnector,
@@ -218,6 +220,7 @@ type ServerRuntime = {
 export const createMcpService = (deps: {
   repository: McpRepository;
   assistantOverridesRepository?: McpAssistantOverridesRepository;
+  subagentOverridesRepository?: McpSubagentOverridesRepository;
   connector: McpTransportConnector;
   initialConnectWaitMs?: number;
 }): McpService => {
@@ -226,9 +229,14 @@ export const createMcpService = (deps: {
     load: async () => ({}),
     save: async () => {},
   };
+  const subagentOverridesRepo: McpSubagentOverridesRepository = deps.subagentOverridesRepository ?? {
+    load: async () => ({}),
+    save: async () => {},
+  };
   let document: McpConfigDocument = { mcpServers: {} };
   let diagnostics: McpDiagnostic[] = [];
   let assistantOverrides: Record<string, boolean> = {};
+  let subagentOverrides: Record<string, string[]> = {};
   let configCorrupt = false;
   let started = false;
   let closed = false;
@@ -362,13 +370,15 @@ export const createMcpService = (deps: {
   const ensureLoaded = async () => {
     if (started || closed) return;
     started = true;
-    const [loaded, loadedOverrides] = await Promise.all([
+    const [loaded, loadedOverrides, loadedSubagentOverrides] = await Promise.all([
       deps.repository.load(),
       overridesRepo.load(),
+      subagentOverridesRepo.load(),
     ]);
     document = loaded.document;
     diagnostics = [...loaded.diagnostics];
     assistantOverrides = { ...loadedOverrides };
+    subagentOverrides = { ...loadedSubagentOverrides };
     configCorrupt = Boolean(loaded.corrupt);
     for (const [name, entry] of Object.entries(document.mcpServers)) {
       ensureRuntime(name, entry);
@@ -412,6 +422,33 @@ export const createMcpService = (deps: {
       };
     });
     return { servers, overrides: filteredOverrides };
+  };
+
+  const buildSubagentSelection = (subagentId: string): McpSubagentSelectionResponse => {
+    const sortedNames = Object.keys(document.mcpServers).sort((a, b) => a.localeCompare(b));
+    const configured = new Set(
+      (subagentOverrides[subagentId] ?? []).filter((name) => Object.hasOwn(document.mcpServers, name)),
+    );
+    const enabledServers: string[] = [];
+    const servers = sortedNames.map((name) => {
+      const entry = document.mcpServers[name]!;
+      const view = toView(name, entry);
+      const globalEnabled = view.enabled;
+      const enabled = configured.has(name);
+      if (enabled) enabledServers.push(name);
+      return {
+        name,
+        transport: view.transport,
+        description: view.description,
+        globalEnabled,
+        status: view.status,
+        toolCount: view.toolCount,
+        defaultEnabled: false as const,
+        enabled,
+        effectiveEnabled: globalEnabled && enabled,
+      };
+    });
+    return { subagentId, servers, enabledServers };
   };
 
   return {
@@ -570,6 +607,17 @@ export const createMcpService = (deps: {
           await overridesRepo.save(nextOverrides);
           assistantOverrides = nextOverrides;
         }
+        let subagentsChanged = false;
+        const nextSubagentOverrides: Record<string, string[]> = {};
+        for (const [subagentId, list] of Object.entries(subagentOverrides)) {
+          const filtered = list.filter((item) => item !== name);
+          if (filtered.length !== list.length) subagentsChanged = true;
+          if (filtered.length > 0) nextSubagentOverrides[subagentId] = filtered;
+        }
+        if (subagentsChanged) {
+          await subagentOverridesRepo.save(nextSubagentOverrides);
+          subagentOverrides = nextSubagentOverrides;
+        }
         diagnostics = diagnostics.filter((item) => item.server !== name);
         return { ok: true as const, name };
       }),
@@ -611,6 +659,48 @@ export const createMcpService = (deps: {
         assistantOverrides = nextOverrides;
         return buildAssistantSelection();
       }),
+
+    describeSubagentSelection: async (subagentId) => {
+      await ensureLoaded();
+      return buildSubagentSelection(subagentId);
+    },
+
+    updateSubagentServers: (subagentId, rawServers) =>
+      runExclusive(async () => {
+        if (closed) throw new McpError("CONNECTION_FAILED", "MCP service is closing", 502);
+        await ensureLoaded();
+        if (!Array.isArray(rawServers) || rawServers.length > MAX_MAP_ENTRIES) {
+          throw new McpError("INVALID_INPUT", `servers must be an array of at most ${MAX_MAP_ENTRIES} names`, 400);
+        }
+        const unique = new Set<string>();
+        for (const name of rawServers) {
+          if (typeof name !== "string" || !Object.hasOwn(document.mcpServers, name)) {
+            throw new McpError("INVALID_INPUT", `Unknown MCP server "${String(name)}"`, 400);
+          }
+          unique.add(name);
+        }
+        const normalized = [...unique].sort((a, b) => a.localeCompare(b));
+        const nextSubagentOverrides = { ...subagentOverrides };
+        if (normalized.length === 0) {
+          delete nextSubagentOverrides[subagentId];
+        } else {
+          nextSubagentOverrides[subagentId] = normalized;
+        }
+        await subagentOverridesRepo.save(nextSubagentOverrides);
+        subagentOverrides = nextSubagentOverrides;
+        return buildSubagentSelection(subagentId);
+      }),
+
+    getSubagentAllowedServers: async (subagentId) => {
+      await ensureLoaded();
+      const allowed = new Set<string>();
+      for (const name of subagentOverrides[subagentId] ?? []) {
+        if (Object.hasOwn(document.mcpServers, name)) {
+          allowed.add(name);
+        }
+      }
+      return allowed;
+    },
 
     getActiveTools: async (options) => {
       if (closed) return [];

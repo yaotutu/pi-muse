@@ -10,6 +10,7 @@ import { loadPrompt } from "../prompts/loader.js";
 export type DataLayout = {
   root: string; companionsDir: string; profileDir: string; workspaceDir: string; sessionsDir: string; sessionIndexFile: string;
   assistantInstructionsFile: string; assistantSkillOverridesFile: string; assistantMcpOverridesFile: string;
+  subagentMcpOverridesFile: string;
   stateDir: string; newsInstructionsFile: string; smsInstructionsFile: string; agentDir: string; piAuthFile: string;
   /** 长期记忆是给人读写的纯文本；身份设置是配置 JSON。 */
   memoryMarkdownFile: string; identityFile: string;
@@ -35,6 +36,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     assistantInstructionsFile: join(assistant, "AGENTS.md"),
     assistantSkillOverridesFile: join(profileDir, "skill-overrides.json"),
     assistantMcpOverridesFile: join(profileDir, "mcp-overrides.json"),
+    subagentMcpOverridesFile: join(stateDir, "subagent-mcp-overrides.json"),
     newsInstructionsFile: join(workspaceDir, "subagents", "news", "AGENTS.md"),
     smsInstructionsFile: join(workspaceDir, "subagents", "sms", "AGENTS.md"),
     sessionIndexFile: join(sessionsDir, "index.json"),

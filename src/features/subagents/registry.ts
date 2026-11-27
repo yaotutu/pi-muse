@@ -5,6 +5,8 @@ import {
   type SubagentChatRunResult,
   type SubagentDetail,
   type SubagentEditability,
+  type SubagentMcpPort,
+  type SubagentMcpSelection,
   type SubagentRegistration,
   type SubagentSummary,
 } from "./types.js";
@@ -23,14 +25,15 @@ export class SubagentError extends Error {
 
 export type CreateSubagentRegistryOptions = {
   agents: readonly SubagentRegistration[];
+  mcp?: SubagentMcpPort;
 };
 
-const buildEditability = (agent: SubagentRegistration): SubagentEditability => ({
+const buildEditability = (agent: SubagentRegistration, hasMcpPort: boolean): SubagentEditability => ({
   systemPrompts: "readonly",
   userInstructions: agent.userInstructions ? "editable" : "none",
   tools: "readonly",
   skills: "readonly",
-  mcp: "readonly",
+  mcp: hasMcpPort && agent.triggers.includes("chat") ? "editable" : "readonly",
 });
 
 /**
@@ -55,6 +58,8 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
   }
   const ordered = [...byId.values()];
 
+  const mcp = options.mcp;
+
   const requireAgent = (rawId: string): SubagentRegistration => {
     const id = typeof rawId === "string" ? rawId.trim() : "";
     if (!SUBAGENT_ID_PATTERN.test(id)) {
@@ -67,22 +72,36 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
     return agent;
   };
 
-  const toSummary = async (agent: SubagentRegistration): Promise<SubagentSummary> => ({
-    id: agent.id,
-    name: agent.name,
-    description: agent.description,
-    routingHint: agent.routingHint?.trim() || null,
-    triggers: [...agent.triggers],
-    enabled: agent.isEnabled ? Boolean(await agent.isEnabled()) : true,
-    executionPolicy: { ...agent.executionPolicy },
-    hasUserInstructions: Boolean(agent.userInstructions),
-    capabilities: {
-      tools: agent.tools.map((tool) => ({ ...tool, triggers: [...tool.triggers] })),
-      skills: agent.skills.map((skill) => ({ ...skill })),
-      mcp: agent.mcp.map((server) => ({ ...server })),
-    },
-    editability: buildEditability(agent),
-  });
+  const toSummary = async (agent: SubagentRegistration): Promise<SubagentSummary> => {
+    const mcpSelection = mcp && agent.triggers.includes("chat")
+      ? await mcp.describeSubagentSelection(agent.id)
+      : null;
+    const boundMcp = mcpSelection
+      ? mcpSelection.servers
+          .filter((server) => server.enabled)
+          .map((server) => ({
+            name: server.name,
+            ...(server.description ? { description: server.description } : {}),
+            transport: server.transport,
+          }))
+      : agent.mcp.map((server) => ({ ...server }));
+    return {
+      id: agent.id,
+      name: agent.name,
+      description: agent.description,
+      routingHint: agent.routingHint?.trim() || null,
+      triggers: [...agent.triggers],
+      enabled: agent.isEnabled ? Boolean(await agent.isEnabled()) : true,
+      executionPolicy: { ...agent.executionPolicy },
+      hasUserInstructions: Boolean(agent.userInstructions),
+      capabilities: {
+        tools: agent.tools.map((tool) => ({ ...tool, triggers: [...tool.triggers] })),
+        skills: agent.skills.map((skill) => ({ ...skill })),
+        mcp: boundMcp,
+      },
+      editability: buildEditability(agent, Boolean(mcp)),
+    };
+  };
 
   const list = async (): Promise<{ subagents: SubagentSummary[] }> => ({
     subagents: await Promise.all(ordered.map((agent) => toSummary(agent))),
@@ -149,9 +168,35 @@ export const createSubagentRegistry = (options: CreateSubagentRegistryOptions) =
     return agent.runChatTask(task, ctx);
   };
 
+  const getMcpSelection = async (id: string): Promise<SubagentMcpSelection> => {
+    const agent = requireAgent(id);
+    if (!mcp) {
+      return { subagentId: agent.id, editable: false, servers: [], enabledServers: [] };
+    }
+    const selection = await mcp.describeSubagentSelection(agent.id);
+    return {
+      ...selection,
+      editable: agent.triggers.includes("chat"),
+    };
+  };
+
+  const updateMcpSelection = async (id: string, servers: readonly string[]): Promise<SubagentMcpSelection> => {
+    const agent = requireAgent(id);
+    if (!mcp || !agent.triggers.includes("chat")) {
+      throw new SubagentError("INVALID_INPUT", `Subagent ${agent.id} does not support MCP binding`);
+    }
+    const selection = await mcp.updateSubagentServers(agent.id, servers);
+    return {
+      ...selection,
+      editable: true,
+    };
+  };
+
   return {
     list,
     getDetail,
+    getMcpSelection,
+    updateMcpSelection,
     listChatDescriptors,
     runChatTask,
   };

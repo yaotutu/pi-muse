@@ -1,7 +1,9 @@
 import { lstat, readFile } from "node:fs/promises";
-import { McpError, MCP_SERVER_NAME_PATTERN, normalizeMcpNamespace, type McpAssistantOverridesRepository, type McpConfigDocument, type McpDiagnostic, type McpRepository, type McpServerEntry } from "../../features/mcp/types.js";
+import { McpError, MCP_SERVER_NAME_PATTERN, normalizeMcpNamespace, type McpAssistantOverridesRepository, type McpConfigDocument, type McpDiagnostic, type McpRepository, type McpServerEntry, type McpSubagentOverridesRepository } from "../../features/mcp/types.js";
 import type { DataLayout } from "./data-layout.js";
 import { writeJsonDocument } from "./json-document.js";
+
+const SUBAGENT_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -200,6 +202,55 @@ export const createMcpAssistantOverridesRepository = (
     save: async (overrides: Record<string, boolean>) => {
       await ensureNotSymlink(file);
       await writeJsonDocument(file, { overrides });
+    },
+  };
+};
+
+/** 持久化各专职 Subagent 的独立 MCP 白名单；默认全部关闭，仅显式选中的全局服务才会注入对应 Subagent。 */
+export const createSubagentMcpOverridesRepository = (
+  layout: Pick<DataLayout, "subagentMcpOverridesFile">,
+): McpSubagentOverridesRepository => {
+  const file = layout.subagentMcpOverridesFile;
+  return {
+    load: async () => {
+      const exists = await ensureNotSymlink(file);
+      if (!exists) return {};
+      let raw: string;
+      try {
+        raw = await readFile(file, "utf8");
+      } catch {
+        throw new McpError("CONFIG_CORRUPT", "Failed to read subagent MCP overrides", 500);
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        throw new McpError("CONFIG_CORRUPT", "Invalid JSON in subagent MCP overrides", 500);
+      }
+      if (!isRecord(parsed) || !isRecord(parsed.subagents)) {
+        throw new McpError("CONFIG_CORRUPT", "Subagent MCP overrides must contain a subagents object", 500);
+      }
+      const subagents: Record<string, string[]> = {};
+      for (const [subagentId, list] of Object.entries(parsed.subagents)) {
+        if (!SUBAGENT_ID_PATTERN.test(subagentId) || !isStringArray(list)) {
+          throw new McpError("CONFIG_CORRUPT", "Invalid subagent MCP override entry", 500);
+        }
+        const unique = new Set<string>();
+        for (const name of list) {
+          if (!MCP_SERVER_NAME_PATTERN.test(name)) {
+            throw new McpError("CONFIG_CORRUPT", "Invalid MCP server name in subagent overrides", 500);
+          }
+          unique.add(name);
+        }
+        if (unique.size > 0) {
+          subagents[subagentId] = [...unique].sort((a, b) => a.localeCompare(b));
+        }
+      }
+      return subagents;
+    },
+    save: async (subagents: Record<string, string[]>) => {
+      await ensureNotSymlink(file);
+      await writeJsonDocument(file, { subagents });
     },
   };
 };

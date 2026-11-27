@@ -644,6 +644,30 @@ export const endpoints: EndpointSpec[] = [
       503: { description: "服务正在关闭", schema: resp.errorResponse },
     },
   },
+  {
+    operationId: "getSubagentMcp",
+    method: "get", path: "/api/subagents/:id/mcp", tag: "Subagents", summary: "查询专职 Subagent 的外部 MCP 选用状态",
+    hint: "返回全局已声明的全部 MCP 服务列表及目标 Subagent 当前启用的服务名清单。所有全局 MCP 服务对 Subagent 默认关闭（defaultEnabled=false）；仅可从全局清单按需启用，不独立声明新服务。",
+    auth: true, response: subagent.subagentMcpSelectionResponseSchema,
+    errorResponses: {
+      400: { description: "非法 Subagent ID", schema: resp.errorResponse },
+      404: { description: "Subagent 不存在", schema: resp.errorResponse },
+      500: { description: "Subagent MCP 配置损坏", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "updateSubagentMcp",
+    method: "put", path: "/api/subagents/:id/mcp", tag: "Subagents", summary: "保存专职 Subagent 的外部 MCP 选用白名单",
+    hint: "替换指定聊天路由 Subagent 允许使用的全局 MCP 服务名列表（servers，默认空数组）。所有名称必须在全局 mcp.json 中已声明；仅聊天路由 Subagent（如 sms/news/browser）支持绑定外部 MCP，纯后台结构化 Subagent（habits/dream）返回 400 INVALID_INPUT。持久化保存于 DATA_DIR/state/subagent-mcp-overrides.json。",
+    auth: true, request: subagent.subagentMcpUpdateRequestSchema, response: subagent.subagentMcpSelectionResponseSchema,
+    errorResponses: {
+      400: { description: "非法 Subagent ID、不支持绑定 MCP 或包含未声明的服务名", schema: resp.errorResponse },
+      404: { description: "Subagent 不存在", schema: resp.errorResponse },
+      500: { description: "MCP 或 Subagent 配置损坏", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
   // ---- 增量聊天（AG-UI SSE 输出）----
   {
     operationId: "runConversation",

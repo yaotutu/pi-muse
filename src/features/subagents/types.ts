@@ -1,5 +1,6 @@
 import type { WorkspaceIncludeDiagnostic } from "../../shared/workspace-includes.js";
 import type { HabitItem } from "../habits/types.js";
+import type { McpSubagentSelectionResponse } from "../mcp/types.js";
 
 /** Subagent 唯一标识格式：小写字母开头，兼作聊天路由目标、通知归属与 HTTP 路径参数。 */
 export const SUBAGENT_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
@@ -64,7 +65,16 @@ export type SubagentEditability = {
   userInstructions: "editable" | "none";
   tools: "readonly";
   skills: "readonly";
-  mcp: "readonly";
+  mcp: "editable" | "readonly";
+};
+
+export type SubagentMcpPort = {
+  describeSubagentSelection: (subagentId: string) => Promise<McpSubagentSelectionResponse>;
+  updateSubagentServers: (subagentId: string, servers: readonly string[]) => Promise<McpSubagentSelectionResponse>;
+};
+
+export type SubagentMcpSelection = McpSubagentSelectionResponse & {
+  editable: boolean;
 };
 
 export type SubagentSummary = {
